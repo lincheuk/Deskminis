@@ -7,6 +7,10 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
       const { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
+      // SSE 规范允许 CRLF 行尾，代理也可能把 LF 归一成 CRLF：只按 '\n\n' 找帧边界的话
+      // 这类流一个事件都解析不出来，provider 最后抛「流提前结束」。
+      // 每轮对整个缓冲区归一：落在块边界上的孤立 '\r' 会在下一块到达时与 '\n' 配上对。
+      buf = buf.replace(/\r\n/g, '\n');
       let idx: number;
       while ((idx = buf.indexOf('\n\n')) >= 0) {
         const frame = buf.slice(0, idx);

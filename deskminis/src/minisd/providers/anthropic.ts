@@ -34,7 +34,12 @@ function partToBlock(p: ContentPart): Record<string, unknown> | undefined {
     case 'text': return { type: 'text', text: p.value as string };
     case 'toolUse': {
       const v = p.value as { toolUseId: string; name: string; input: string };
-      return { type: 'tool_use', id: v.toolUseId, name: v.name, input: JSON.parse(v.input || '{}') };
+      // 历史里一旦躺着非法 JSON（老版本落库 / 流被截断），裸 JSON.parse 会在该会话
+      // 之后的每一次请求上抛 SyntaxError —— 会话永久变砖。降级成空对象，让模型看到
+      // 「缺少必填参数」的工具错误后自行重试，比整条会话不可用要好。
+      let parsed: unknown = {};
+      try { parsed = JSON.parse(v.input || '{}'); } catch { parsed = {}; }
+      return { type: 'tool_use', id: v.toolUseId, name: v.name, input: parsed };
     }
     case 'toolResult': {
       const v = p.value as { toolUseId: string; output: string; success: boolean };

@@ -26,4 +26,18 @@ describe('parseSse', () => {
     for await (const f of parseSse(streamOf('data: {"x":1}\n\ndata: 未闭合'))) frames.push(f);
     expect(frames).toHaveLength(1);
   });
+
+  it('CRLF 行尾解析结果与 LF 完全一致(只认 \\n\\n 的话一个事件都出不来)', async () => {
+    const lf = 'event: message_start\ndata: {"a":1}\n\n: comment\n\ndata: line1\ndata: line2\n\n';
+    const crlf = lf.replace(/\n/g, '\r\n');
+    const readLf: unknown[] = []; const readCrlf: unknown[] = [];
+    for await (const f of parseSse(streamOf(lf))) readLf.push(f);
+    // 7 字节切块会把 '\r' 和 '\n' 拆到两块里：孤立的 '\r' 必须能和下一块的 '\n' 配上对
+    for await (const f of parseSse(streamOf(crlf))) readCrlf.push(f);
+    expect(readCrlf).toEqual(readLf);
+    expect(readCrlf).toEqual([
+      { event: 'message_start', data: '{"a":1}' },
+      { event: undefined, data: 'line1\nline2' },
+    ]);
+  });
 });

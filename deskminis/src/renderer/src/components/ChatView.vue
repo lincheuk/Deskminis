@@ -29,8 +29,16 @@ async function send() { const t = input.value.trim(); if (!t || !chat.activeId) 
       </template>
     </div>
     <div v-if="chat.streamingText" style="margin:8px 0"><b>DeskMinis：</b><span style="white-space:pre-wrap">{{ chat.streamingText }}</span></div>
+    <div v-if="chat.retryNote" style="margin:8px 0; color:#a60; font-size:13px">⏳ {{ chat.retryNote }}</div>
     <ToolCard v-for="c in chat.toolCards" :key="c.toolUseId" :card="c" />
     <PermissionCard v-for="p in chat.pendingPerms" :key="p.requestId" :perm="p" />
+  </div>
+  <div
+    v-if="chat.lastError"
+    style="border-top:1px solid #e0a0a0; background:#fdecec; color:#a11; padding:8px 12px; font-size:13px; display:flex; gap:8px; align-items:flex-start"
+  >
+    <span style="flex:1; white-space:pre-wrap">⚠️ {{ chat.lastError }}</span>
+    <button style="flex:none" @click="chat.lastError = ''">关闭</button>
   </div>
   <div style="border-top:1px solid #ddd; padding:8px; display:flex; gap:8px">
     <input v-model="input" style="flex:1; padding:8px" placeholder="说点什么…（Enter 发送）" @keydown.enter="send" />

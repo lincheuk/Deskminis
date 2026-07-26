@@ -51,12 +51,65 @@ const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 interface AccumulatedCall { toolUseId: string; name: string; input: string }
 
+/** 孤儿 tool_use 的占位结果文案（设计 §4.2 的历史自愈）。 */
+const INTERRUPTED_OUTPUT = '[工具执行被中断，结果未知]';
+
+/**
+ * 循环入口的历史自愈（设计 §4.2）。
+ *
+ * assistant(toolUse) 与 user(toolResult) 是两次独立写库，中间隔着真实的工具执行
+ * （shell 超时 120s、权限询问 30s）。进程在这个窗口里被杀 / 用户退出应用，会话就留下
+ * 一条没有配对 tool_result 的尾部 assistant —— Anthropic 之后对该会话的**每一次**请求
+ * 都会 400，会话永久变砖。开跑前补一条占位 toolResult 把历史修圆。
+ *
+ * 只看最后一条消息：中间的 tool_use 必然已被下一条 user(toolResult) 配对过。
+ */
+export function healInterruptedToolUses(store: ChatStore, sessionId: string): RawMessage | undefined {
+  const history = store.listMessages(sessionId);
+  const last = history.at(-1);
+  if (!last || last.role !== 'assistant') return undefined;
+  const orphanIds = last.parts
+    .filter(p => p.type === 'toolUse')
+    .map(p => (p.value as { toolUseId: string }).toolUseId)
+    .filter(id => typeof id === 'string' && id !== '');
+  if (orphanIds.length === 0) return undefined;
+  const parts: ContentPart[] = orphanIds.map(id => ({
+    type: 'toolResult',
+    value: { toolUseId: id, output: INTERRUPTED_OUTPUT, success: false, status: 'cancelled' },
+  }));
+  // created_at 必须严格大于被修复的 assistant，否则 listMessages 的排序会把补丁排到它前面
+  const createdAt = Math.max(store.nowEpoch(), last.createdAt + 0.001);
+  return store.appendMessage({
+    id: store.newId(), sessionId, role: 'user', parts, createdAt, streamInterruptCount: 0,
+  });
+}
+
+/**
+ * 工具入参必须是合法 JSON 对象才可落库。
+ *
+ * 模型偶发吐出非法 JSON、流被截断也会留下半截 JSON；原样落库后
+ * anthropic 的 partToBlock 会在该会话之后的**每一次**请求上抛 SyntaxError
+ * （数组/标量则是 Anthropic 400）—— 同样是永久变砖。落成 '{}'，让工具注册表的
+ * preflight 把「缺少必填参数」作为错误结果喂回模型，模型自己重试。
+ */
+function safeToolInput(input: string): string {
+  try {
+    const parsed: unknown = JSON.parse(input || '{}');
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return '{}';
+    return input || '{}';
+  } catch { return '{}'; }
+}
+
 export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGenerator<LoopEvent> {
   const maxTurns = opts.maxTurns ?? 200;
   const retryLadder = opts.retryDelaysMs ?? DEFAULT_RETRY;
   const maxTokens = opts.maxTokens ?? 4096;
   const thinkingLevel: ThinkingLevel = opts.thinkingLevel ?? 'off';
   const clock = new MonotonicClock(store);
+
+  // 每次 runAgentLoop 只自愈一次：回合内的配对由循环自身保证
+  const healed = healInterruptedToolUses(store, opts.sessionId);
+  if (healed) yield { kind: 'messagePersisted', messageId: healed.id };
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
@@ -73,6 +126,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
 
     // 透明重试：仅对 retryable 错误
     for (let attempt = 0; attempt <= retryLadder.length; attempt++) {
+      // 每次尝试都必须清空累加器：第 1 次流出半截文本再失败时，若不清空，
+      // 第 2 次会往同一个累加器上追加，落库的 assistant 文本会重复一遍（工具调用同理）。
+      // 声明放在循环外，是为了让循环后的落库代码看到「最后一次尝试」的值。
       text = ''; reasoning = ''; usage = undefined; stopReason = 'endTurn'; calls = [];
       try {
         for await (const ev of opts.provider.streamAgentMessage(req, opts.signal)) {
@@ -104,7 +160,11 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     // 持久化 assistant 消息（text + toolUse）
     const assistantParts: ContentPart[] = [];
     if (text) assistantParts.push({ type: 'text', value: text });
-    for (const c of calls) assistantParts.push({ type: 'toolUse', value: { toolUseId: c.toolUseId, name: c.name, input: c.input } });
+    for (const c of calls) {
+      // 就地归一：落库/toolStart 事件/工具执行三处看到的入参必须是同一个值
+      c.input = safeToolInput(c.input);
+      assistantParts.push({ type: 'toolUse', value: { toolUseId: c.toolUseId, name: c.name, input: c.input } });
+    }
     // 空 assistant 回合绝不落库：Anthropic 拒收 content 为空的消息，
     // 这一行会让该会话之后的每次请求都失败（永久变砖）。
     if (assistantParts.length === 0) {
