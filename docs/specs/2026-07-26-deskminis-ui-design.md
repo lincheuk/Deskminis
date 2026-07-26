@@ -104,7 +104,28 @@ Cascadia Code。字重：400 正文 / 500 次级 / **600 标题与按钮（主�
 
 ## 4. 布局与组件
 
-三栏 `260px | 1fr | 300px（可收起）`。
+整体 = 自绘标题栏（顶，全宽）+ 三栏 `260px | 1fr | 300px（可收起）`。
+
+### 4.0 自绘标题栏（frameless）
+
+Electron `frame:false`；高度 40px；半透明材质（`--material-thin`）+ 底部 0.5px
+`--separator`。整条 `-webkit-app-region: drag`，其中所有可点元素设 `no-drag`。
+
+- 左：侧栏开关图标；前进/后退（`--label-tertiary`，会话导航，可后置）；
+  菜单栏「文件 / 编辑 / 视图 / 帮助」，13px，hover/open 时 `--fill-quaternary` 底
+- 中：当前会话名，13/600 `--label-secondary`，`pointer-events:none`
+- 右：**窗口控制用 Electron `titleBarOverlay`（系统绘制原生按钮）**，不自绘——
+  Windows 上自绘按钮难还原原生悬停/主题/多显示器行为；`titleBarOverlay` 设
+  `color:'#00000000'`（透明背景）、`symbolColor` 随明暗、`height:40`
+- 菜单弹层：`--grouped-bg-secondary` + 0.5px 边 + `0 8px 24px rgba(0,0,0,.14)` 阴影，
+  行 hover 变 `--accent` 底白字，右侧快捷键 `--label-tertiary` 等宽
+- 菜单内容（真实功能）：
+  - 文件：新建会话(Ctrl+N)、新建工作区、导入技能…、—、退出(Ctrl+Q)
+  - 编辑：撤销/重做、—、剪切/复制/粘贴
+  - 视图：切换侧栏(Ctrl+B)、切换右侧面板、—、明暗模式、—、重新加载(Ctrl+R)
+  - 帮助：文档、键盘快捷键(Ctrl+/)、更新日志、—、诊断信息、关于 DeskMinis
+- macOS（将来跨平台）：改 `titleBarStyle:'hidden'` + `trafficLightPosition`，
+  菜单走系统原生菜单栏而非自绘
 
 ### 4.1 左栏 · 会话列表
 
