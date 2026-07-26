@@ -4,26 +4,36 @@ export type CommandClass = 'read' | 'write' | 'danger';
 export type PermissionLevel = 'bypass' | 'askOnce' | 'notAllowed';
 export type PermissionPrompt = (req: PermissionRequest) => Promise<'allow-once' | 'allow-session' | 'deny'>;
 
+/** 命令组合/求值/重定向符：出现任一即无法证明整条命令只读。 */
+const COMPOSITION = /[;&`\n\r]|\||\$\(|@\(|>|</;
+
+/** 危险：不可逆或系统级操作。顺序无关——危险动词出现在任何位置都算。 */
 const DANGER = [
-  /\b(remove-item|ri|del|erase|rd|rmdir)\b[\s\S]*(-recurse|\/s)/i,
-  /\brm\b\s+(-\w*r|--recursive)/i,
+  /\b(remove-item|ri|rm|del|erase|rd|rmdir|remove-itemproperty|clear-content|clear-item)\b/i,
   /\bformat(\.com)?\s+[a-z]:/i,
-  /\breg\s+(add|delete)\b/i,
-  /\b(shutdown|restart-computer|stop-computer)\b/i,
-  /\b(diskpart|bcdedit|cipher\s+\/w|takeown|icacls[\s\S]*\/grant)\b/i,
-  /\bsc(\.exe)?\s+(stop|delete|config)\b/i,
-  /\bstop-service\b/i,
+  /\breg(\.exe)?\s+(add|delete|import)\b/i,
+  /\b(shutdown|restart-computer|stop-computer|logoff)\b/i,
+  /\b(diskpart|bcdedit|takeown)\b/i,
+  /\bcipher\b[\s\S]*\/w/i,
+  /\bicacls\b[\s\S]*\/(grant|deny|setowner)/i,
+  /\bsc(\.exe)?\s+(stop|delete|config|create)\b/i,
+  /\b(stop-service|remove-service|new-service|set-service)\b/i,
+  /\bset-executionpolicy\b/i,
+  /\b(stop-process|taskkill)\b/i,
 ];
-const READ = [
-  /^\s*(dir|ls|gci|get-childitem|type|cat|gc|get-content|pwd|get-location|whoami|hostname|echo|write-output|select-string|findstr|where(\.exe)?|which|tree)\b[^>|]*$/i,
-  /^\s*git\s+(status|log|diff|show|branch|remote)\b[^>|]*$/i,
-  /^\s*(get-\w+)\b[^>|]*$/i,
+
+/** 只读白名单（仅在无组合符时适用）。 */
+const READ_PATTERNS = [
+  /^\s*(dir|ls|gci|type|cat|gc|pwd|whoami|hostname|tree|echo|write-output|write-host|select-string|findstr|where|which|measure-object)\b/i,
+  /^\s*git\s+(status|log|diff|show|branch|remote|rev-parse|describe|blame|ls-files|config\s+--get)\b/i,
+  /^\s*get-[a-z]+\b/i,
 ];
 
 export function classifyShellCommand(command: string): CommandClass {
   const c = command.trim();
   if (DANGER.some(r => r.test(c))) return 'danger';
-  if (READ.some(r => r.test(c))) return 'read';
+  if (COMPOSITION.test(c)) return 'write';
+  if (READ_PATTERNS.some(r => r.test(c))) return 'read';
   return 'write';
 }
 
