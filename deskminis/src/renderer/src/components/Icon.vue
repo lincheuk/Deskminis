@@ -21,6 +21,7 @@ const PATHS: Record<string, string> = {
   'chevron-down': '<path d="M6 9l6 6 6-6"/>',
   'chevron-up': '<path d="M18 15l-6-6-6 6"/>',
   send: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   hand: '<path d="M18 11V6a2 2 0 00-4 0M14 10V4a2 2 0 00-4 0v2M10 10.5V6a2 2 0 00-4 0v8"/><path d="M18 8a2 2 0 014 0v6a8 8 0 01-8 8h-2a8 8 0 01-8-8"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.5"/>',

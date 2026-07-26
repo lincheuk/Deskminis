@@ -1,47 +1,212 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+/** 中栏 · 对话流（设计 §4.2）——不对称消息（助手无气泡、用户 12% 填充气泡）、
+ *  工具胶囊、内联权限卡、错误横幅、浮动输入区（三胶囊 + 单色圆形发送/停止键）。
+ *  渲染对 parts 全程空值兜底：parts.ts 允许 value:null 的 part，绝不解引用崩溃。 */
+import { ref, computed, nextTick, watch } from 'vue';
 import { useChat } from '../stores/chat';
-import ToolCard from './ToolCard.vue';
+import ToolPill from './ToolPill.vue';
 import PermissionCard from './PermissionCard.vue';
+import EmptyState from './EmptyState.vue';
+import ModelPicker from './ModelPicker.vue';
+import PermissionPicker from './PermissionPicker.vue';
+import Icon from './Icon.vue';
+
 const chat = useChat();
 const input = ref('');
-function partText(p: any): string { return p.type === 'text' ? p.value : ''; }
-async function send() { const t = input.value.trim(); if (!t || !chat.activeId) return; input.value = ''; await chat.send(t); }
+const streamEl = ref<HTMLElement | null>(null);
+
+function isRec(v: unknown): v is Record<string, any> { return typeof v === 'object' && v !== null; }
+
+// 会话内所有 toolResult 汇成 toolUseId → 结果的表（工具结果落在紧随的合成 user 消息里）
+const resultMap = computed(() => {
+  const m = new Map<string, { output: string; success: boolean; status: string }>();
+  for (const msg of chat.messages) {
+    if (!Array.isArray(msg.parts)) continue;
+    for (const p of msg.parts) {
+      if (p && p.type === 'toolResult' && isRec(p.value) && typeof p.value.toolUseId === 'string') {
+        m.set(p.value.toolUseId, { output: String(p.value.output ?? ''), success: !!p.value.success, status: String(p.value.status ?? '') });
+      }
+    }
+  }
+  return m;
+});
+function resultOf(id: unknown) { return typeof id === 'string' ? resultMap.value.get(id) : undefined; }
+
+// 用户可见文本（合成的工具结果 user 消息不含文本 → 不渲染成气泡）
+function userText(m: { parts?: any[] }): string {
+  return (Array.isArray(m.parts) ? m.parts : [])
+    .filter(p => p && p.type === 'text' && typeof p.value === 'string')
+    .map(p => p.value).join('\n');
+}
+function isResultCarrier(m: { role: string; parts?: any[] }): boolean {
+  const parts = Array.isArray(m.parts) ? m.parts : [];
+  const hasText = parts.some(p => p && p.type === 'text' && typeof p.value === 'string' && p.value.trim() !== '');
+  return !hasText && parts.some(p => p && p.type === 'toolResult');
+}
+// 工具胶囊摘要：优先 input 里的 tool_title，回落 description / name
+function pillTitle(v: unknown): string {
+  if (!isRec(v)) return '工具';
+  if (typeof v.input === 'string') {
+    try { const o = JSON.parse(v.input); if (o && typeof o.tool_title === 'string' && o.tool_title) return o.tool_title; } catch { /* ignore */ }
+  }
+  if (typeof v.description === 'string' && v.description) return v.description;
+  return typeof v.name === 'string' ? v.name : '工具';
+}
+
+const hasLive = computed(() =>
+  chat.running || !!chat.streamingText || chat.toolCards.length > 0 || chat.pendingPerms.length > 0 || !!chat.retryNote,
+);
+const isEmpty = computed(() => chat.messages.length === 0 && !hasLive.value);
+
+const canSend = computed(() => input.value.trim().length > 0 && !chat.running);
+
+async function send(): Promise<void> {
+  const t = input.value.trim();
+  if (!t || chat.running) return;
+  // 没有选中会话就先建一个再发（避免「按了没反应」）
+  if (!chat.activeId) await chat.newSession();
+  input.value = '';
+  await chat.send(t);
+}
+
+// 新内容到达时贴底滚动
+watch(
+  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.retryNote, chat.pendingPerms.length] as const,
+  () => { void nextTick(() => { const el = streamEl.value; if (el) el.scrollTop = el.scrollHeight; }); },
+);
 </script>
+
 <template>
-  <div style="flex:1; overflow:auto; padding:12px">
-    <div v-for="m in chat.messages" :key="m.id" style="margin:8px 0">
-      <b>{{ m.role === 'user' ? '你' : 'DeskMinis' }}：</b>
-      <template v-for="(p, i) in m.parts" :key="i">
-        <span v-if="p.type === 'text'" style="white-space:pre-wrap">{{ partText(p) }}</span>
-        <span v-else-if="p.type === 'toolUse'" style="color:#88a">[工具 {{ p.value.name }}]</span>
-        <details
-          v-else-if="p.type === 'toolResult'"
-          open
-          style="border:1px solid #ccd; border-radius:6px; margin:4px 0; padding:6px; background:#f7f7fb"
-        >
-          <summary style="cursor:pointer">
-            🔧 工具输出
-            <span v-if="p.value.success">✅</span><span v-else>❌</span>
-          </summary>
-          <pre style="white-space:pre-wrap; font-size:12px; max-height:200px; overflow:auto; margin:6px 0 0">{{ p.value.output }}</pre>
-        </details>
+  <div class="pane-c">
+    <div ref="streamEl" class="stream">
+      <EmptyState v-if="isEmpty" />
+      <template v-else>
+        <template v-for="m in chat.messages" :key="m.id">
+          <!-- 用户消息（跳过仅承载工具结果的合成消息） -->
+          <div v-if="m.role === 'user' && !isResultCarrier(m)" class="msg-u">
+            <div>{{ userText(m) }}</div>
+          </div>
+          <!-- 助手消息：无气泡，图标 + 名称 + 内容块 -->
+          <div v-else-if="m.role === 'assistant'" class="msg-a">
+            <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
+            <div class="abody">
+              <template v-for="(p, i) in (Array.isArray(m.parts) ? m.parts : [])" :key="i">
+                <div v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" class="atext">{{ p.value }}</div>
+                <ToolPill
+                  v-else-if="p && p.type === 'toolUse' && p.value"
+                  :name="isRec(p.value) ? p.value.name : ''"
+                  :title="pillTitle(p.value)"
+                  :input="isRec(p.value) && typeof p.value.input === 'string' ? p.value.input : null"
+                  :output="resultOf(isRec(p.value) ? p.value.toolUseId : undefined)?.output ?? null"
+                  :success="resultOf(isRec(p.value) ? p.value.toolUseId : undefined)?.success"
+                  :status="resultOf(isRec(p.value) ? p.value.toolUseId : undefined)?.status"
+                />
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- 实时助手块：流式文本 + 执行中胶囊 + 权限卡 + 重试提示 -->
+        <div v-if="hasLive" class="msg-a">
+          <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
+          <div class="abody">
+            <div v-if="chat.streamingText" class="atext">{{ chat.streamingText }}</div>
+            <ToolPill
+              v-for="c in chat.toolCards" :key="c.toolUseId"
+              :name="c.name" :title="c.title || c.name"
+              :output="c.output ?? null" :success="c.success"
+              :running="c.success === undefined"
+            />
+            <PermissionCard v-for="p in chat.pendingPerms" :key="p.requestId" :perm="p" />
+            <div v-if="chat.retryNote" class="retry"><Icon name="clock" :size="14" /><span>{{ chat.retryNote }}</span></div>
+            <div v-if="chat.running && !chat.streamingText && !chat.toolCards.length && !chat.pendingPerms.length && !chat.retryNote" class="dots"><i></i><i></i><i></i></div>
+          </div>
+        </div>
       </template>
     </div>
-    <div v-if="chat.streamingText" style="margin:8px 0"><b>DeskMinis：</b><span style="white-space:pre-wrap">{{ chat.streamingText }}</span></div>
-    <div v-if="chat.retryNote" style="margin:8px 0; color:#a60; font-size:13px">⏳ {{ chat.retryNote }}</div>
-    <ToolCard v-for="c in chat.toolCards" :key="c.toolUseId" :card="c" />
-    <PermissionCard v-for="p in chat.pendingPerms" :key="p.requestId" :perm="p" />
-  </div>
-  <div
-    v-if="chat.lastError"
-    style="border-top:1px solid #e0a0a0; background:#fdecec; color:#a11; padding:8px 12px; font-size:13px; display:flex; gap:8px; align-items:flex-start"
-  >
-    <span style="flex:1; white-space:pre-wrap">⚠️ {{ chat.lastError }}</span>
-    <button style="flex:none" @click="chat.lastError = ''">关闭</button>
-  </div>
-  <div style="border-top:1px solid #ddd; padding:8px; display:flex; gap:8px">
-    <input v-model="input" style="flex:1; padding:8px" placeholder="说点什么…（Enter 发送）" @keydown.enter="send" />
-    <button @click="send">发送</button>
+
+    <div v-if="chat.lastError" class="errbar">
+      <Icon name="alert" :size="16" />
+      <span class="etext">{{ chat.lastError }}</span>
+      <button class="eclose" @click="chat.lastError = ''"><Icon name="x" :size="14" /></button>
+    </div>
+
+    <div class="composer">
+      <textarea
+        v-model="input" class="field" rows="1"
+        placeholder="让 DeskMinis 做点什么…"
+        @keydown.enter.exact.prevent="send"
+      ></textarea>
+      <div class="ctools">
+        <div class="cpill static"><Icon name="folder" :size="14" /><span>工作区</span></div>
+        <PermissionPicker />
+        <ModelPicker />
+        <button v-if="!chat.running" class="send" :disabled="!canSend" @click="send"><Icon name="send" :size="17" /></button>
+        <button v-else class="send stop" title="停止" @click="chat.cancel()"><Icon name="stop" :size="16" /></button>
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.pane-c { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; }
+.stream { flex: 1; overflow: auto; padding: 12px 0; }
+
+/* 用户消息：右对齐 12% 填充气泡，左留空槽 */
+.msg-u { display: flex; justify-content: flex-end; padding: 5px 16px 5px 76px; }
+.msg-u > div {
+  background: var(--fill-tertiary); border-radius: var(--r-bubble); padding: 10px 14px;
+  font-size: 16.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-width: 100%;
+}
+/* 助手消息：无气泡 */
+.msg-a { padding: 5px 16px; }
+.ahead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
+.aname { font-size: 17px; font-weight: 600; }
+.abody { font-size: 16.5px; line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.atext { white-space: pre-wrap; word-break: break-word; align-self: stretch; }
+
+.retry { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--orange); }
+.dots { display: inline-flex; gap: 4px; padding: 4px 0; }
+.dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--label-tertiary); animation: jump 1s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .15s; }
+.dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes jump { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
+
+/* 错误横幅——循环报错必须看得见 */
+.errbar {
+  display: flex; align-items: flex-start; gap: 8px; padding: 10px 16px; margin: 0 16px 8px;
+  border-radius: var(--r-md); background: color-mix(in srgb, var(--red) 12%, transparent);
+  border: .5px solid color-mix(in srgb, var(--red) 30%, transparent); color: var(--red); font-size: 13px;
+}
+.errbar :deep(svg) { stroke: var(--red); flex: 0 0 auto; margin-top: 1px; }
+.etext { flex: 1; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.eclose { background: none; border: none; color: var(--red); cursor: pointer; padding: 0; display: inline-flex; flex: 0 0 auto; }
+
+/* 输入区：浮动容器 + 材质 */
+.composer {
+  margin: 0 16px 16px; border-radius: var(--r-input); background: var(--material-tint);
+  backdrop-filter: var(--material-thin); border: .5px solid var(--separator);
+  padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
+}
+.field {
+  background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);
+  padding: 10px 12px; font-size: 16.5px; color: var(--label); font-family: var(--font-ui);
+  min-height: 44px; max-height: 200px; resize: none; line-height: 1.5; outline: none; width: 100%;
+}
+.field::placeholder { color: var(--label-tertiary); }
+.ctools { display: flex; align-items: center; gap: 8px; }
+.cpill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
+  border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  font-size: 13px; color: var(--label-secondary);
+}
+.cpill.static { cursor: default; }
+.send {
+  margin-left: auto; width: 34px; height: 34px; border-radius: 50%; background: var(--label);
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto; border: none; cursor: pointer; padding: 0;
+}
+.send :deep(svg) { stroke: var(--bg); }
+.send:disabled { background: var(--label-quaternary); cursor: default; }
+.send.stop :deep(svg) { stroke: var(--bg); fill: var(--bg); }
+</style>
