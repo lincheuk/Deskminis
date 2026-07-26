@@ -51,37 +51,56 @@ const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 interface AccumulatedCall { toolUseId: string; name: string; input: string }
 
-/** 孤儿 tool_use 的占位结果文案（设计 §4.2 的历史自愈）。 */
-const INTERRUPTED_OUTPUT = '[工具执行被中断，结果未知]';
-
 /**
- * 循环入口的历史自愈（设计 §4.2）。
+ * 保证每个 assistant 的 tool_use 都有紧随其后的 user tool_result；补齐缺失的、丢弃孤儿 tool_result。
+ * Anthropic/OpenAI 都要求 tool_use 与 tool_result 严格配对，这里在发送前修好整段历史（不改存储）。
  *
- * assistant(toolUse) 与 user(toolResult) 是两次独立写库，中间隔着真实的工具执行
- * （shell 超时 120s、权限询问 30s）。进程在这个窗口里被杀 / 用户退出应用，会话就留下
- * 一条没有配对 tool_result 的尾部 assistant —— Anthropic 之后对该会话的**每一次**请求
- * 都会 400，会话永久变砖。开跑前补一条占位 toolResult 把历史修圆。
- *
- * 只看最后一条消息：中间的 tool_use 必然已被下一条 user(toolResult) 配对过。
+ * 真实故障序列：user('A')、assistant(toolUse T1) —— 工具执行途中进程被杀 —— 重启后
+ * chat.prompt 又追加了新的 user('B')。孤儿 tool_use 因此落在历史**中间**，last.role 是 'user'，
+ * 旧的「只看最后一条」自愈会直接放行，Anthropic 对该会话的每一次请求都 400，会话永久变砖。
+ * 改在请求构建边界上、对整段消息数组做配对：既修尾部孤儿，也修中间孤儿与部分配对
+ * （assistant 有 T1,T2,T3 但只回了 T1）。持久化历史保持原样。
  */
-export function healInterruptedToolUses(store: ChatStore, sessionId: string): RawMessage | undefined {
-  const history = store.listMessages(sessionId);
-  const last = history.at(-1);
-  if (!last || last.role !== 'assistant') return undefined;
-  const orphanIds = last.parts
-    .filter(p => p.type === 'toolUse')
-    .map(p => (p.value as { toolUseId: string }).toolUseId)
-    .filter(id => typeof id === 'string' && id !== '');
-  if (orphanIds.length === 0) return undefined;
-  const parts: ContentPart[] = orphanIds.map(id => ({
-    type: 'toolResult',
-    value: { toolUseId: id, output: INTERRUPTED_OUTPUT, success: false, status: 'cancelled' },
-  }));
-  // created_at 必须严格大于被修复的 assistant，否则 listMessages 的排序会把补丁排到它前面
-  const createdAt = Math.max(store.nowEpoch(), last.createdAt + 0.001);
-  return store.appendMessage({
-    id: store.newId(), sessionId, role: 'user', parts, createdAt, streamInterruptCount: 0,
-  });
+export function pairToolResults(messages: AgentMessage[]): AgentMessage[] {
+  const out: AgentMessage[] = [];
+  // 已出现过的 tool_use id：用于顺手剥掉「前面没有对应 tool_use」的孤儿 tool_result
+  const seenUseIds = new Set<string>();
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role !== 'assistant') {
+      // 剥掉孤儿 tool_result（id 从未被任何前置 tool_use 声明过）；无变化则原样透传
+      const kept = m.parts.filter(
+        p => p.type !== 'toolResult' || seenUseIds.has((p.value as { toolUseId: string }).toolUseId),
+      );
+      out.push(kept.length === m.parts.length ? m : { role: 'user', parts: kept });
+      continue;
+    }
+    out.push(m);
+    const useIds = m.parts
+      .filter(p => p.type === 'toolUse')
+      .map(p => (p.value as { toolUseId: string }).toolUseId);
+    for (const id of useIds) seenUseIds.add(id);
+    if (useIds.length === 0) continue;
+    // 收集紧随其后的那条 user 消息里已有的 tool_result id
+    const next = messages[i + 1];
+    const haveIds = new Set<string>();
+    if (next && next.role === 'user') {
+      for (const p of next.parts) if (p.type === 'toolResult') haveIds.add((p.value as { toolUseId: string }).toolUseId);
+    }
+    const missing = useIds.filter(id => !haveIds.has(id));
+    if (missing.length === 0) continue;
+    const placeholders: ContentPart[] = missing.map(id => ({
+      type: 'toolResult', value: { toolUseId: id, output: '[工具执行被中断，结果未知]', success: false, status: 'cancelled' },
+    }));
+    if (next && next.role === 'user') {
+      // 把占位结果并入下一条 user 消息的最前面（tool_result 需先于其它内容）
+      out.push({ role: 'user', parts: [...placeholders, ...next.parts] });
+      i++; // 跳过已合并的 next
+    } else {
+      out.push({ role: 'user', parts: placeholders });
+    }
+  }
+  return out;
 }
 
 /**
@@ -107,16 +126,13 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   const thinkingLevel: ThinkingLevel = opts.thinkingLevel ?? 'off';
   const clock = new MonotonicClock(store);
 
-  // 每次 runAgentLoop 只自愈一次：回合内的配对由循环自身保证
-  const healed = healInterruptedToolUses(store, opts.sessionId);
-  if (healed) yield { kind: 'messagePersisted', messageId: healed.id };
-
   for (let turn = 0; turn < maxTurns; turn++) {
     if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
     const history = store.listMessages(opts.sessionId);
     clock.observe(history);
     const req: StreamRequest = {
-      messages: toAgentMessages(history),
+      // 发送前在 provider 边界配对 tool_use/tool_result（修中断后会话永久损坏），不改存储
+      messages: pairToolResults(toAgentMessages(history)),
       systemPrompt: opts.systemPrompt, tools: opts.tools.definitions(), maxTokens, thinkingLevel,
     };
 

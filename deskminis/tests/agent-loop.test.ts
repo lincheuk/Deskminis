@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { runAgentLoop, healInterruptedToolUses, type LoopEvent } from '../src/minisd/agent/loop';
+import { runAgentLoop, pairToolResults, type LoopEvent } from '../src/minisd/agent/loop';
+import type { AgentMessage } from '../src/shared/types';
 import { buildAnthropicBody } from '../src/minisd/providers/anthropic';
 import { openDb } from '../src/minisd/store/db';
 import { ChatStore } from '../src/minisd/store/chat-store';
@@ -142,30 +143,28 @@ describe('runAgentLoop', () => {
     expect(store.listMessages(sessionId)).toHaveLength(1);
   });
 
-  it('循环入口自愈: 孤儿 tool_use 补占位 toolResult(否则该会话此后每次请求都被 400)', async () => {
+  it('中断后不再变砖: 中间孤儿 tool_use 在发送前配对(不改存储)', async () => {
     const { store, tools, toolContext, sessionId } = mkCtx();
     const t0 = store.nowEpoch();
-    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '跑一下' }], createdAt: t0, streamInterruptCount: 0 });
-    // 工具执行途中进程被杀：assistant(toolUse T1) 已落库，配对的 toolResult 永远不会来
+    // 真实故障序列：user('A')、assistant(toolUse T1) —— 工具执行途中进程被杀 ——
+    // 重启后 chat.prompt 又追加了新的 user('B')。孤儿 tool_use 落在历史中间，last.role 是 'user'。
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'A' }], createdAt: t0, streamInterruptCount: 0 });
     store.appendMessage({
       id: 'A1', sessionId, role: 'assistant', createdAt: t0 + 1, streamInterruptCount: 0,
       parts: [{ type: 'toolUse', value: { toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' } }],
     });
+    store.appendMessage({ id: 'U2', sessionId, role: 'user', parts: [{ type: 'text', value: 'B' }], createdAt: t0 + 2, streamInterruptCount: 0 });
 
     const provider = new ScriptedProvider([[ { kind: 'textDelta', text: '继续' }, { kind: 'done', stopReason: 'endTurn' } ]]);
     const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    expect(events.at(-1)).toEqual({ kind: 'turnEnd', stopReason: 'endTurn' });
 
+    // 存储未被改写：只是这一回合新增了 assistant(text)，没有插入占位 toolResult 行
     const msgs = store.listMessages(sessionId);
-    // user + assistant(toolUse) + user(占位 toolResult) + assistant(text)
     expect(msgs).toHaveLength(4);
-    expect(msgs[2].role).toBe('user');
-    expect(msgs[2].parts).toEqual([
-      { type: 'toolResult', value: { toolUseId: 'T1', output: '[工具执行被中断，结果未知]', success: false, status: 'cancelled' } },
-    ]);
-    // 占位消息排在这一回合新落库的 assistant 之前
+    expect(msgs.map(m => m.id).slice(0, 3)).toEqual(['U1', 'A1', 'U2']);
+    expect(msgs[3].role).toBe('assistant');
     expect(msgs[3].parts[0]).toMatchObject({ type: 'text', value: '继续' });
-    const persisted = events.filter(e => e.kind === 'messagePersisted');
-    expect(persisted[0]).toEqual({ kind: 'messagePersisted', messageId: msgs[2].id });
 
     // provider 收到的历史里 tool_use 与 tool_result 一一配对（Anthropic 编码后逐块核对）
     const body = buildAnthropicBody(provider.seen[0], 'claude-x') as { messages: { content: Record<string, unknown>[] }[] };
@@ -176,10 +175,6 @@ describe('runAgentLoop', () => {
     }
     expect(useIds).toEqual(['T1']);
     expect(resultIds).toEqual(['T1']);
-
-    // 幂等：历史已经修圆之后再跑不会重复插入
-    expect(healInterruptedToolUses(store, sessionId)).toBeUndefined();
-    expect(store.listMessages(sessionId)).toHaveLength(4);
   });
 
   it('重试不重复: 第 1 次尝试流出的半截文本/工具调用不进入落库结果', async () => {
@@ -230,5 +225,74 @@ describe('runAgentLoop', () => {
       systemPrompt: 'sys', tools: [], maxTokens: 100, thinkingLevel: 'off',
     }, 'claude-x') as { messages: { content: Record<string, unknown>[] }[] };
     expect(body.messages[0].content[0]).toEqual({ type: 'tool_use', id: 'T1', name: 'echo', input: {} });
+  });
+});
+
+/** 纯函数 pairToolResults：发送前对整段历史做 tool_use/tool_result 配对（不改存储）。 */
+describe('pairToolResults', () => {
+  const text = (v: string): AgentMessage => ({ role: 'user', parts: [{ type: 'text', value: v }] });
+  const toolUse = (...ids: string[]): AgentMessage => ({
+    role: 'assistant',
+    parts: ids.map(id => ({ type: 'toolUse', value: { toolUseId: id, name: 'echo', input: '{}' } })),
+  });
+  const toolResult = (...ids: string[]): AgentMessage => ({
+    role: 'user',
+    parts: ids.map(id => ({ type: 'toolResult', value: { toolUseId: id, output: 'ok', success: true, status: 'success' } })),
+  });
+  /** 断言某个 part 是指向 id 的 cancelled 占位 toolResult。 */
+  const isCancelled = (p: unknown, id: string): boolean =>
+    JSON.stringify(p) === JSON.stringify({ type: 'toolResult', value: { toolUseId: id, output: '[工具执行被中断，结果未知]', success: false, status: 'cancelled' } });
+
+  it('a) 中间孤儿: assistant(toolUse T1) 后紧跟 user text → 紧随 assistant 插入 T1 的占位 toolResult(先于后面的文本)', () => {
+    const out = pairToolResults([text('A'), toolUse('T1'), text('B')]);
+    // assistant 之后是一条 user 消息，其首个 part 是 T1 的 cancelled toolResult，文本 'B' 排在其后
+    expect(out[1]).toEqual(toolUse('T1'));
+    expect(out[2].role).toBe('user');
+    expect(isCancelled(out[2].parts[0], 'T1')).toBe(true);
+    expect(out[2].parts.some(p => p.type === 'text' && (p as { value: string }).value === 'B')).toBe(true);
+    // 占位 toolResult 严格排在文本之前
+    const rIdx = out[2].parts.findIndex(p => p.type === 'toolResult');
+    const tIdx = out[2].parts.findIndex(p => p.type === 'text');
+    expect(rIdx).toBeLessThan(tIdx);
+  });
+
+  it('b) 部分配对: assistant(T1,T2,T3) + user(toolResult T1) → 补 T2/T3 占位, 三个 id 都在同一条 user 里', () => {
+    const out = pairToolResults([text('go'), toolUse('T1', 'T2', 'T3'), toolResult('T1')]);
+    expect(out).toHaveLength(3);
+    const follow = out[2];
+    expect(follow.role).toBe('user');
+    const ids = follow.parts
+      .filter(p => p.type === 'toolResult')
+      .map(p => (p.value as { toolUseId: string }).toolUseId);
+    expect(new Set(ids)).toEqual(new Set(['T1', 'T2', 'T3']));
+    // T1 保留原结果, T2/T3 是 cancelled 占位
+    const t1 = follow.parts.find(p => p.type === 'toolResult' && (p.value as { toolUseId: string }).toolUseId === 'T1');
+    expect(t1).toMatchObject({ value: { toolUseId: 'T1', success: true, status: 'success' } });
+    expect(follow.parts.some(p => isCancelled(p, 'T2'))).toBe(true);
+    expect(follow.parts.some(p => isCancelled(p, 'T3'))).toBe(true);
+  });
+
+  it('c) 尾部孤儿: [user, assistant(toolUse T9)] 之后无消息 → 追加一条带 T9 占位 toolResult 的 user', () => {
+    const out = pairToolResults([text('A'), toolUse('T9')]);
+    expect(out).toHaveLength(3);
+    expect(out[2].role).toBe('user');
+    expect(out[2].parts).toHaveLength(1);
+    expect(isCancelled(out[2].parts[0], 'T9')).toBe(true);
+  });
+
+  it('d) 无操作: 已正确配对的历史原样返回', () => {
+    const input: AgentMessage[] = [text('A'), toolUse('T1'), toolResult('T1'), text('后续')];
+    const out = pairToolResults(input);
+    expect(out).toEqual(input);
+    // 未改动的消息保持同一引用（未产生多余拷贝）
+    expect(out[1]).toBe(input[1]);
+    expect(out[2]).toBe(input[2]);
+  });
+
+  it('顺手剥离前导孤儿 tool_result(没有前置 tool_use 的 user toolResult)', () => {
+    const out = pairToolResults([toolResult('ORPHAN'), text('hi')]);
+    // 孤儿 toolResult 被丢弃, 该 user 消息只剩空 parts, 后续文本保留
+    expect(out[0].parts).toHaveLength(0);
+    expect(out[1]).toEqual(text('hi'));
   });
 });
