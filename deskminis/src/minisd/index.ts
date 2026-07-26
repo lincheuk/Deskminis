@@ -153,8 +153,11 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       return { ok: true };
     },
     'provider.instances.list': () => providers.list(),
-    'provider.instances.create': (p: { name: string; kind: 'anthropic' | 'openai-compat'; baseUrl?: string; modelId: string; apiKey: string }) =>
-      providers.create({ name: p.name, kind: p.kind, baseUrl: p.baseUrl, modelId: p.modelId }, p.apiKey),
+    'provider.instances.create': (p: { name: string; kind: 'anthropic' | 'openai-compat'; baseUrl?: string; modelId: string; apiKey: string }) => {
+      const baseUrl = (typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '') || undefined;
+      if (p.kind === 'openai-compat' && !baseUrl) throw new Error('OpenAI 兼容 provider 需要 base URL');
+      return providers.create({ name: p.name, kind: p.kind, baseUrl, modelId: p.modelId }, p.apiKey);
+    },
     'provider.instances.delete': (p: { id: string; confirm?: boolean }) => {
       if (p.confirm !== true) throw new Error('删除 provider 需 confirm:true');
       providers.delete(p.id); return { ok: true };

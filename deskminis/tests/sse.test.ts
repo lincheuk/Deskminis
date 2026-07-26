@@ -40,4 +40,21 @@ describe('parseSse', () => {
       { event: undefined, data: 'line1\nline2' },
     ]);
   });
+
+  it('裸 CR 行尾（\\r 作行终止符、\\r\\r 作帧分隔）解析结果与 LF 完全一致', async () => {
+    // SSE 规范也允许裸 CR 行尾；未归一时 '\r\r' 永远配不出 '\n\n'，provider 会抛「流提前结束」。
+    // 末尾附一个 keep-alive 注释帧（真实流常见）：确保最后一个数据帧在流关闭前被 '\r\r' 完整终止，
+    // 而结尾那个落在流末尾的孤立 '\r' 被 (?!$) 保留待下一块——这里没有下一块，仅剩注释残帧被丢弃。
+    const lf = 'event: message_start\ndata: {"a":1}\n\ndata: line1\ndata: line2\n\n: keep-alive\n\n';
+    const cr = lf.replace(/\n/g, '\r');
+    const readLf: unknown[] = []; const readCr: unknown[] = [];
+    for await (const f of parseSse(streamOf(lf))) readLf.push(f);
+    // 7 字节切块会把相邻的两个 '\r' 拆到两块里：跨块缓冲必须把裸 CR 也当帧边界
+    for await (const f of parseSse(streamOf(cr))) readCr.push(f);
+    expect(readCr).toEqual(readLf);
+    expect(readCr).toEqual([
+      { event: 'message_start', data: '{"a":1}' },
+      { event: undefined, data: 'line1\nline2' },
+    ]);
+  });
 });

@@ -2,6 +2,12 @@ import type { AgentStreamEvent, ContentPart, StopReason } from '../../shared/typ
 import { ProviderError, type AgentProvider, type FetchLike, type StreamRequest } from './types';
 import { parseSse } from './sse';
 
+/** 持久化的 toolUse.input 可能是被截断/损坏的 JSON（旧数据或异常写入）。
+ *  发给端点前校验一次：解析失败就回退成空对象，避免把坏 JSON 当 arguments 发出去。 */
+function safeJsonArgs(s: string): string {
+  try { JSON.parse(s || '{}'); return s || '{}'; } catch { return '{}'; }
+}
+
 export function buildOpenAIBody(req: StreamRequest, modelId: string): Record<string, unknown> {
   const messages: Record<string, unknown>[] = [];
   if (req.systemPrompt) messages.push({ role: 'system', content: req.systemPrompt });
@@ -13,7 +19,7 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string): Record<str
       const msg: Record<string, unknown> = { role: 'assistant', content: texts || null };
       if (toolUses.length) msg.tool_calls = toolUses.map(p => {
         const v = p.value as { toolUseId: string; name: string; input: string };
-        return { id: v.toolUseId, type: 'function', function: { name: v.name, arguments: v.input } };
+        return { id: v.toolUseId, type: 'function', function: { name: v.name, arguments: safeJsonArgs(v.input) } };
       });
       messages.push(msg);
     } else {

@@ -27,6 +27,16 @@ describe('buildOpenAIBody', () => {
   it('thinking high → reasoning_effort', () => {
     expect((buildOpenAIBody({ ...REQ, thinkingLevel: 'high' }, 'm') as any).reasoning_effort).toBe('high');
   });
+  it('损坏的 toolUse.input 回退成 {}，合法 input 原样透传', () => {
+    const bad = buildOpenAIBody({
+      ...REQ, systemPrompt: undefined,
+      messages: [{ role: 'assistant', parts: [{ type: 'toolUse', value: { toolUseId: 'B1', name: 'file_read', input: '{"bad' } }] }],
+    }, 'm') as any;
+    expect(bad.messages[0].tool_calls[0].function.arguments).toBe('{}');
+    // 合法 input 原样透传（用现成的 REQ）
+    expect((buildOpenAIBody(REQ, 'm') as any).messages[2].tool_calls[0].function.arguments)
+      .toBe('{"path":"a.txt","tool_title":"读文件"}');
+  });
 });
 
 function sseResponse(chunks: object[]): Response {

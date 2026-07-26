@@ -219,6 +219,22 @@ describe('minisd JSON-RPC', () => {
     c.close();
   });
 
+  it('provider 创建：openai-compat 空/空白 baseUrl 被拒；anthropic 空 baseUrl 成功且省略', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    // openai-compat 缺 base URL 无法使用：空串与纯空白都应报错
+    expect((await c.call('provider.instances.create', { name: 'oc1', kind: 'openai-compat', baseUrl: '', modelId: 'gpt-x', apiKey: 'k' })).error).toBeTruthy();
+    expect((await c.call('provider.instances.create', { name: 'oc2', kind: 'openai-compat', baseUrl: '   ', modelId: 'gpt-x', apiKey: 'k' })).error).toBeTruthy();
+    // anthropic 空 baseUrl：成功创建，且 baseUrl 被省略（走 provider 默认）
+    const ok = await c.call('provider.instances.create', { name: 'an1', kind: 'anthropic', baseUrl: '', modelId: 'claude-x', apiKey: 'k' });
+    expect(ok.error).toBeUndefined();
+    expect(ok.result.id).toBeTruthy();
+    expect(ok.result.baseUrl).toBeUndefined();
+    // 只有 anthropic 那条真正落库
+    expect((await c.call('provider.instances.list')).result.map((x: any) => x.name)).toEqual(['an1']);
+    c.close();
+  });
+
   it('chat.cancel 校验 sessionId；对空闲会话也安全返回', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
