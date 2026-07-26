@@ -67,6 +67,25 @@ describe('文件工具', () => {
     expect(r.success).toBe(true);
     expect(deny.asked).toEqual([]);
   });
+  it('数据根之外的绝对路径读取要过权限, deny 则拒绝且不泄露内容', async () => {
+    const deny = new DenyAllGateway();
+    const outside = join(mkdtempSync(join(tmpdir(), 'dm-out-')), 'id_rsa');
+    writeFileSync(outside, 'PRIVATE-KEY-MATERIAL');
+    const r = await reg.execute('file_read', JSON.stringify({ path: outside, tool_title: '读' }), { ...ctx, permissions: deny });
+    expect(r.success).toBe(false);
+    expect(deny.asked).toHaveLength(1);
+    expect(deny.asked[0].kind).toBe('file-read');
+    expect(deny.asked[0].detail).toBe(resolve(outside));
+    expect(r.output).not.toContain('PRIVATE-KEY-MATERIAL');
+  });
+  it('数据根之内的读取不触发权限门', async () => {
+    const deny = new DenyAllGateway();
+    writeFileSync(join(root, 'sessions', 'S1', 'workspace', 'inside.txt'), '工作区内容');
+    const r = await reg.execute('file_read', JSON.stringify({ path: 'inside.txt', tool_title: '读' }), { ...ctx, permissions: deny });
+    expect(r.success).toBe(true);
+    expect(r.output).toBe('工作区内容');
+    expect(deny.asked).toEqual([]);
+  });
   it('preflight: 缺 required 参数/未知工具返回错误 outcome 而非抛异常', async () => {
     const missing = await reg.execute('file_read', JSON.stringify({ tool_title: '读' }), ctx);
     expect(missing.success).toBe(false);

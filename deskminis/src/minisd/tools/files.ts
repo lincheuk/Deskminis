@@ -21,6 +21,19 @@ async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute
   return undefined;
 }
 
+/**
+ * 数据根之外的读取同样需过权限网关：静默 shell 只读层已取消后，
+ * 无门的 file_read 会成为唯一的静默外泄通道（~/.ssh/id_rsa、浏览器 cookie 库、minis.db 本身）。
+ * 数据根之内是 agent 自己的工作区，保持免打扰。
+ */
+async function guardRead(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string): Promise<string | undefined> {
+  if (!isInsideRoot(absPath, ctx.paths.root)) {
+    const d = await ctx.permissions.check({ kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle });
+    if (d === 'deny') return `读取被用户拒绝: ${absPath}（可在设置-权限中调整）`;
+  }
+  return undefined;
+}
+
 export const fileReadTool: ToolExecutor = {
   definition: {
     name: 'file_read', description: '读取文本文件。支持 /var/minis/* 虚拟路径、工作区相对路径与绝对路径。',
@@ -29,6 +42,8 @@ export const fileReadTool: ToolExecutor = {
   },
   async execute(input, ctx) {
     const abs = ctx.paths.resolveGuestPath(ctx.sessionId, String(input.path));
+    const denied = await guardRead(abs, ctx, String(input.tool_title));
+    if (denied) return { output: denied, success: false };
     if (statSync(abs).size > MAX_READ) return { output: `文件超过 1MB，请用 shell_execute 分页读取: ${abs}`, success: false };
     return { output: readFileSync(abs, 'utf8'), success: true };
   },

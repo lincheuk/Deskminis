@@ -100,4 +100,41 @@ describe('PermissionGatewayImpl', () => {
     expect(await g.check(fw('C:\\y.txt'))).toBe('allow'); // 不同路径 → 重新问
     expect(asked).toBe(2);
   });
+
+  const fr = (detail: string): PermissionRequest => ({ kind: 'file-read', detail, sessionId: 'S1', toolTitle: 't' });
+
+  it('file-read 默认 askOnce：数据根外的读取必须问过用户，deny 即拒', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    expect(await g.check(fr('C:\\Users\\u\\.ssh\\id_rsa'))).toBe('deny');
+    expect(asked).toBe(1);
+  });
+
+  it('file-read 按路径记忆：allow-session 后同路径静默，不同路径重新问', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-session'; });
+    expect(await g.check(fr('C:\\a.txt'))).toBe('allow');
+    expect(asked).toBe(1);
+    expect(await g.check(fr('C:\\a.txt'))).toBe('allow');
+    expect(asked).toBe(1);
+    expect(await g.check(fr('C:\\b.txt'))).toBe('allow');
+    expect(asked).toBe(2);
+  });
+
+  it('file-read 的 detail 是路径，不走 shell 分类器（含危险词的路径仍然只是询问）', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
+    // 作为 shell 命令这条会被判 danger（\bdiskpart\b）→ 若路由错误就会静默 deny 且从不询问
+    expect(await g.check(fr('C:\\tools\\diskpart\\notes.txt'))).toBe('allow');
+    expect(asked).toBe(1);
+  });
+
+  it('file-read 与 file-write 的会话批准互不串用', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-session'; });
+    expect(await g.check(fr('C:\\x.txt'))).toBe('allow');
+    expect(asked).toBe(1);
+    expect(await g.check({ kind: 'file-write', detail: 'C:\\x.txt', sessionId: 'S1', toolTitle: 't' })).toBe('allow');
+    expect(asked).toBe(2); // 读的批准不等于写的批准
+  });
 });

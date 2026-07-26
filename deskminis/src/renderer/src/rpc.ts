@@ -7,9 +7,23 @@ export class RpcClient {
   private handlers = new Map<string, Set<Handler>>();
 
   async connect(): Promise<void> {
-    const port = await (window as any).deskminis.minisdPort();
+    const bridge = (window as any).deskminis;
+    // minisd 要求 per-run token（否则任意网页都能连上本地端口驱动 agent）。
+    // 老的 minisdPort() 只在 minisdInfo 不存在时兜底。
+    let port: number;
+    let token: string | undefined;
+    if (typeof bridge?.minisdInfo === 'function') {
+      const info = await bridge.minisdInfo();
+      port = info?.port;
+      token = info?.token;
+    } else {
+      port = await bridge.minisdPort();
+    }
+    const url = token
+      ? `ws://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`
+      : `ws://127.0.0.1:${port}`;
     await new Promise<void>((resolve, reject) => {
-      this.ws = new WebSocket(`ws://127.0.0.1:${port}`);
+      this.ws = new WebSocket(url);
       this.ws.onopen = () => resolve();
       this.ws.onerror = () => reject(new Error('WebSocket 连接失败'));
       this.ws.onmessage = ev => {

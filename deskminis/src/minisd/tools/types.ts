@@ -3,7 +3,7 @@ import type { MinisPaths } from '../paths';
 
 export interface ToolOutcome { output: string; success: boolean }
 
-export interface PermissionRequest { kind: 'shell' | 'file-write'; detail: string; sessionId: string; toolTitle: string }
+export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read'; detail: string; sessionId: string; toolTitle: string }
 export type PermissionDecision = 'allow' | 'deny';
 export interface PermissionGateway { check(req: PermissionRequest): Promise<PermissionDecision> }
 

@@ -38,25 +38,32 @@ export function classifyShellCommand(command: string): CommandClass {
   return 'gated';
 }
 
-const DEFAULT_LEVELS: Record<CommandClass | 'file-write', PermissionLevel> = {
-  danger: 'notAllowed', gated: 'askOnce', 'file-write': 'askOnce',
+/** 权限判定类别：shell 命令分级 + 文件读写两类（后者按路径判定，绝不经 shell 分类器）。 */
+export type PermissionClass = CommandClass | 'file-write' | 'file-read';
+
+const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
+  danger: 'notAllowed', gated: 'askOnce', 'file-write': 'askOnce', 'file-read': 'askOnce',
 };
 
 export class PermissionGatewayImpl implements PermissionGateway {
-  private levels: Record<CommandClass | 'file-write', PermissionLevel>;
+  private levels: Record<PermissionClass, PermissionLevel>;
   /** 会话批准：按 (sessionId, kind, 精确命令/路径) 记忆——同一条命令原样重复才静默。 */
   private sessionGrants = new Set<string>();
 
   constructor(
     private prompt: PermissionPrompt,
-    levels?: Partial<Record<CommandClass | 'file-write', PermissionLevel>>,
+    levels?: Partial<Record<PermissionClass, PermissionLevel>>,
     private askTimeoutMs = 30000,
   ) {
     this.levels = { ...DEFAULT_LEVELS, ...levels };
   }
 
   async check(req: PermissionRequest): Promise<PermissionDecision> {
-    const cls: CommandClass | 'file-write' = req.kind === 'file-write' ? 'file-write' : classifyShellCommand(req.detail);
+    // 文件类请求的 detail 是路径，不能喂给 shell 分类器：
+    // 例如 C:\tools\diskpart\notes.txt 会被误判成 danger 而静默拒绝。
+    const cls: PermissionClass = req.kind === 'file-write' ? 'file-write'
+      : req.kind === 'file-read' ? 'file-read'
+      : classifyShellCommand(req.detail);
     if (this.levels[cls] === 'notAllowed') return 'deny';
     const grantKey = `${req.sessionId}\u0000${req.kind}\u0000${req.detail}`;
     if (this.sessionGrants.has(grantKey)) return 'allow';

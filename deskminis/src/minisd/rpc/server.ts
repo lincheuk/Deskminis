@@ -8,11 +8,26 @@ export class RpcServer {
   private wss: WebSocketServer | undefined;
   private clients = new Set<WebSocket>();
 
-  constructor(private methods: RpcMethods) {}
+  /** authToken：每次启动新生成，只经 IPC 交给自己的渲染进程。浏览器页面拿不到它。 */
+  constructor(private methods: RpcMethods, private authToken: string) {}
 
   listen(host: string, port: number): Promise<number> {
     return new Promise((resolve, reject) => {
-      const wss = new WebSocketServer({ host, port });
+      // WebSocket 不受同源策略约束：没有这道门，用户访问的任意网页都能连上
+      // ws://127.0.0.1:<port>，发 chat.prompt 驱动 agent，还能收到广播的
+      // permission.request 并自己回 allow-session —— 即自我批准执行命令。
+      const wss = new WebSocketServer({
+        host, port,
+        verifyClient: (info, cb) => {
+          const url = new URL(info.req.url ?? '/', 'ws://127.0.0.1');
+          const ok = url.searchParams.get('token') === this.authToken;
+          // 浏览器页面拿不到 token；同时拒掉带 http(s) Origin 的连接作为第二道防线
+          const origin = info.req.headers.origin;
+          const originOk = origin === undefined || origin === 'file://' || /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+          if (!ok || !originOk) { cb(false, 401, 'Unauthorized'); return; }
+          cb(true);
+        },
+      });
       this.wss = wss;
       let listening = false;
       // 监听前的错误 = 真正的绑定失败，需要 reject；监听后出现的服务器级错误不应崩溃守护进程
