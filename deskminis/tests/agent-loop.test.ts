@@ -15,9 +15,11 @@ import { join } from 'node:path';
 class ScriptedProvider implements AgentProvider {
   readonly name = 'scripted'; readonly modelId = 'fake';
   calls = 0;
-  constructor(private scripts: (AgentStreamEvent[] | ProviderError)[]) {}
+  constructor(private scripts: (AgentStreamEvent[] | ProviderError)[], private onCall?: (n: number) => void) {}
   async *streamAgentMessage(_req: StreamRequest): AsyncIterable<AgentStreamEvent> {
-    const s = this.scripts[this.calls++];
+    const n = this.calls++;
+    this.onCall?.(n);
+    const s = this.scripts[n];
     if (s instanceof ProviderError) throw s;
     for (const e of s) yield e;
   }
@@ -94,5 +96,40 @@ describe('runAgentLoop', () => {
     const provider = new ScriptedProvider([ new ProviderError('bad key', { status: 401, retryable: false }) ]);
     const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0] }));
     expect(events.at(-1)).toMatchObject({ kind: 'error' });
+  });
+
+  it('取消优先于重试梯: 请求中途 abort 不再重试', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const controller = new AbortController();
+    // 第 1 次调用：先 abort（模拟请求中途取消），再抛 retryable 529 —— 真实 provider 把
+    // AbortError 也包成 retryable ProviderError，所以取消必须在 catch 里优先短路。
+    const provider = new ScriptedProvider(
+      [
+        new ProviderError('529', { status: 529 }),
+        [ { kind: 'textDelta', text: '不该被重试到' }, { kind: 'done', stopReason: 'endTurn' } ],
+      ],
+      () => controller.abort(),
+    );
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider, tools, toolContext, systemPrompt: 'sys',
+      signal: controller.signal, retryDelaysMs: [0],
+    }));
+    expect(events.at(-1)).toEqual({ kind: 'error', message: '已取消' });
+    expect(provider.calls).toBe(1);
+    expect(events.some(e => e.kind === 'retry')).toBe(false);
+  });
+
+  it('空响应不落库(否则会话永久变砖)', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([[ { kind: 'done', stopReason: 'endTurn' } ]]);
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0] }));
+    const last = events.at(-1);
+    expect(last?.kind).toBe('error');
+    expect(last).toMatchObject({ kind: 'error' });
+    if (last?.kind === 'error') expect(last.message).toContain('空响应');
+    // 只剩原始 user 消息 —— 没有写入 parts:[] 的 assistant 行
+    expect(store.listMessages(sessionId)).toHaveLength(1);
   });
 });

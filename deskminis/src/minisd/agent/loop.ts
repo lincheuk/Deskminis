@@ -88,11 +88,15 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
         streamOk = true;
         break;
       } catch (e) {
+        // 取消优先于重试梯：provider 把 AbortError 也包成 retryable ProviderError，
+        // 若不在这里短路，取消会退化成「睡一觉再重试」。
+        if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
         const err = e instanceof ProviderError ? e : new ProviderError(String(e), { retryable: false });
         if (!err.retryable || attempt >= retryLadder.length) { yield { kind: 'error', message: err.message }; return; }
         const d = retryLadder[attempt];
         yield { kind: 'retry', attempt: attempt + 1, delayMs: d, reason: err.message };
         await delay(d);
+        if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
       }
     }
     if (!streamOk) { yield { kind: 'error', message: '流式请求失败' }; return; }
@@ -101,6 +105,12 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     const assistantParts: ContentPart[] = [];
     if (text) assistantParts.push({ type: 'text', value: text });
     for (const c of calls) assistantParts.push({ type: 'toolUse', value: { toolUseId: c.toolUseId, name: c.name, input: c.input } });
+    // 空 assistant 回合绝不落库：Anthropic 拒收 content 为空的消息，
+    // 这一行会让该会话之后的每次请求都失败（永久变砖）。
+    if (assistantParts.length === 0) {
+      yield { kind: 'error', message: '模型返回了空响应' };
+      return;
+    }
     const assistant = store.appendMessage({
       id: store.newId(), sessionId: opts.sessionId, role: 'assistant', parts: assistantParts,
       createdAt: clock.next(), streamInterruptCount: 0, reasoningContent: reasoning || undefined, tokenUsage: usage,
