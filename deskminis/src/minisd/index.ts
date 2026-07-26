@@ -102,5 +102,12 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
 // 作为独立进程启动时（Electron utilityProcess / --headless）
 if (process.env.DESKMINIS_STANDALONE === '1') {
-  startMinisd().then(({ port }) => { process.stdout.write(JSON.stringify({ minisdPort: port }) + '\n'); });
+  startMinisd()
+    .then(({ port }) => { process.stdout.write(JSON.stringify({ minisdPort: port }) + '\n'); })
+    // 没有 .catch 的话，DB / 密钥库任一失败都只是一次未处理拒绝：进程静默退出，
+    // 父进程只能看到 "exit code=1"，真正的原因（哪一行、什么错）永远看不到。
+    .catch(e => {
+      process.stderr.write('minisd 启动失败: ' + (e instanceof Error ? e.stack ?? e.message : String(e)) + '\n');
+      process.exit(1);
+    });
 }
