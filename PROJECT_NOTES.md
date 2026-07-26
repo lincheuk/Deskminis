@@ -32,15 +32,23 @@
 | 同步拓扑 | 默认 P2P（mDNS 发现 + 直连），也可配置常开中心节点 |
 | 界面布局 | 三栏式工作台：左=工作区/会话列表，中=对话流（内嵌工具调用/diff），右=可收起的终端/文件/任务面板 |
 
-## 进行中
+## 已完成
 
-- 深度阅读 OpenMinis 代码库（会话存储、记忆/工作区格式、技能加载、
-  Agent 循环/Provider 抽象、沙箱与 debug-server 协议），为设计文档提供依据
-- 之后：提出 2-3 个整体架构方案 → 分节确认设计 → 设计文档写入本目录
-  `docs/specs/` → 实施计划 → 开发
+- ✅ 深度阅读 OpenMinis 代码库 → 九份研究报告 `docs/research/`
+- ✅ 设计文档（用户逐节确认）→ `docs/specs/2026-07-26-deskminis-design.md`
+- ✅ M1 实施计划（14 个 TDD 任务）→ `docs/plans/2026-07-26-m1-skeleton.md`
 
-## 待设计细节
+## 关键发现（写进设计的依据）
 
-- 记忆系统与会话的数据结构（需为可同步、可合并的文件格式）
-- 内网同步协议细节（配对/认证、传输加密、冲突处理策略）
-- Electron 进程架构（UI 与 Agent 核心/同步引擎的进程划分）
+- OpenMinis iOS 已有传输无关的 Sync V2 架构 + `LANTransport.swift` 骨架（未实现），
+  注释写明预期协议：mDNS `_minis-sync._tcp` + WebSocket + PortableRecord JSON 批次。
+  DeskMinis 照此实现即可为将来手机端接入预留互通。
+- 数据格式全部同步友好：会话 SQLite（parts_json 跨平台字节兼容）、记忆纯 Markdown、
+  技能原样 SKILL.md、MCP 用 Claude Desktop 兼容 servers.json。
+- 要修的 OpenMinis 缺陷：LAN 无历史回填、密钥无差别广播、工作区文件不处理删除/重命名/
+  无内容哈希——设计 §6 已给出修补方案。
+
+## 进行中 / 下一步
+
+- 执行 M1 实施计划（subagent-driven 或 inline，见计划文件头部）
+- M1 交付后依次做 M2（补全 Agent+记忆+技能）、M3（内网同步）、M4（文件同步+打包）
