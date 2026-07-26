@@ -15,6 +15,17 @@ async function send() { const t = input.value.trim(); if (!t || !chat.activeId) 
       <template v-for="(p, i) in m.parts" :key="i">
         <span v-if="p.type === 'text'" style="white-space:pre-wrap">{{ partText(p) }}</span>
         <span v-else-if="p.type === 'toolUse'" style="color:#88a">[工具 {{ p.value.name }}]</span>
+        <details
+          v-else-if="p.type === 'toolResult'"
+          open
+          style="border:1px solid #ccd; border-radius:6px; margin:4px 0; padding:6px; background:#f7f7fb"
+        >
+          <summary style="cursor:pointer">
+            🔧 工具输出
+            <span v-if="p.value.success">✅</span><span v-else>❌</span>
+          </summary>
+          <pre style="white-space:pre-wrap; font-size:12px; max-height:200px; overflow:auto; margin:6px 0 0">{{ p.value.output }}</pre>
+        </details>
       </template>
     </div>
     <div v-if="chat.streamingText" style="margin:8px 0"><b>DeskMinis：</b><span style="white-space:pre-wrap">{{ chat.streamingText }}</span></div>

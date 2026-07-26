@@ -13,7 +13,15 @@ export default defineConfig({
       },
     },
   },
-  preload: { build: { rollupOptions: { input: resolve(__dirname, 'src/preload/index.ts') } } },
+  preload: {
+    build: {
+      rollupOptions: {
+        input: resolve(__dirname, 'src/preload/index.ts'),
+        // Electron 默认 sandbox: true 只支持 CommonJS 预加载；.cjs 在 type:module 包中无歧义
+        output: { format: 'cjs', entryFileNames: 'index.cjs' },
+      },
+    },
+  },
   renderer: {
     plugins: [vue()],
     resolve: { alias: { '@shared': resolve(__dirname, 'src/shared') } },

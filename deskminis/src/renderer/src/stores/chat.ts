@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { rpc } from '../rpc';
 
+let localSeq = 0;
+
 interface UiMessage { id: string; role: string; parts: any[] }
 interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string }
 
@@ -28,7 +30,8 @@ export const useChat = defineStore('chat', {
     async open(id: string) { this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.toolCards = []; },
     async send(text: string) {
       this.streamingText = ''; this.toolCards = [];
-      this.messages.push({ id: 'local', role: 'user', parts: [{ type: 'text', value: text }] });
+      // 乐观消息用唯一 id：一次会话内连发多条时 'local' 会造成 :key 重复
+      this.messages.push({ id: `local-${++localSeq}`, role: 'user', parts: [{ type: 'text', value: text }] });
       await rpc.call('chat.prompt', { sessionId: this.activeId, text });
     },
     async createProvider(p: any) { await rpc.call('provider.instances.create', p); await this.refreshProviders(); },

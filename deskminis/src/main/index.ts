@@ -20,7 +20,7 @@ function startMinisdProcess(): Promise<number> {
 }
 
 async function createWindow(): Promise<void> {
-  const win = new BrowserWindow({ width: 1280, height: 800, webPreferences: { preload: join(__dirname, '../preload/index.js') } });
+  const win = new BrowserWindow({ width: 1280, height: 800, webPreferences: { preload: join(__dirname, '../preload/index.cjs') } });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, '../renderer/index.html'));
 }
