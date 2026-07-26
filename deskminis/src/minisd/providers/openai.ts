@@ -68,8 +68,9 @@ export class OpenAIProvider implements AgentProvider {
     let usage = { inputTokens: 0, outputTokens: 0 };
     let stopReason: StopReason = 'endTurn';
     let sawFinish = false;
+    let sawDone = false;
     for await (const frame of parseSse(res.body)) {
-      if (frame.data === '[DONE]') break;
+      if (frame.data === '[DONE]') { sawDone = true; break; }
       const chunk = JSON.parse(frame.data) as Record<string, any>;
       if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens ?? 0, outputTokens: chunk.usage.completion_tokens ?? 0 };
       const choice = chunk.choices?.[0];
@@ -86,7 +87,8 @@ export class OpenAIProvider implements AgentProvider {
       }
       if (choice.finish_reason) { stopReason = FINISH_MAP[choice.finish_reason] ?? 'endTurn'; sawFinish = true; }
     }
-    if (!sawFinish && calls.size === 0) throw new ProviderError('SSE 流提前结束', { retryable: true });
+    if (!sawFinish && !sawDone) throw new ProviderError('SSE 流提前结束', { retryable: true });
+    if (!sawFinish && calls.size > 0) stopReason = 'toolUse';
     for (const c of [...calls.values()]) {
       yield { kind: 'toolCallComplete', toolUseId: c.id, name: c.name, input: c.args || '{}' };
     }

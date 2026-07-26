@@ -50,4 +50,20 @@ describe('OpenAIProvider 流归一化', () => {
     expect(events).toContainEqual({ kind: 'usage', usage: { inputTokens: 5, outputTokens: 9 } });
     expect(events.at(-1)).toEqual({ kind: 'done', stopReason: 'toolUse' });
   });
+
+  it('工具调用中途断流(无 finish_reason 无 [DONE])→ retryable 抛错', async () => {
+    const body = `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"C1","function":{"name":"file_read","arguments":"{\\"pa"}}]}}]}\n\n`;
+    const p = new OpenAIProvider({ apiKey: 'k', modelId: 'm', baseUrl: 'http://x/v1', fetchImpl: async () => new Response(body, { status: 200 }) });
+    await expect(async () => { for await (const _ of p.streamAgentMessage(REQ)) void _; }).rejects.toMatchObject({ retryable: true, message: 'SSE 流提前结束' });
+  });
+
+  it('宽松网关:仅 [DONE] 无 finish_reason,带工具调用 → stopReason=toolUse', async () => {
+    const p = new OpenAIProvider({ apiKey: 'k', modelId: 'm', baseUrl: 'http://x/v1', fetchImpl: async () => sseResponse([
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'C9', function: { name: 'file_read', arguments: '{"path":"a"}' } }] } }] },
+    ]) });
+    const events: AgentStreamEvent[] = [];
+    for await (const e of p.streamAgentMessage(REQ)) events.push(e);
+    expect(events).toContainEqual({ kind: 'toolCallComplete', toolUseId: 'C9', name: 'file_read', input: '{"path":"a"}' });
+    expect(events.at(-1)).toEqual({ kind: 'done', stopReason: 'toolUse' });
+  });
 });
