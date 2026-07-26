@@ -1,14 +1,20 @@
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import type { ToolExecutor } from './types';
 
 const MAX_READ = 1024 * 1024; // 1MB
 
 const TOOL_TITLE = { type: 'string' as const, description: '这次调用的 5-10 字用户语言摘要' };
 
+/** 归一化后的包含判断：避免 <root>\..\.. 形式的字符串前缀欺骗。 */
+function isInsideRoot(absPath: string, root: string): boolean {
+  const rel = relative(resolve(root), resolve(absPath));
+  return rel === '' || (!rel.startsWith('..') && !/^[A-Za-z]:/.test(rel));
+}
+
 /** 数据根之外的绝对宿主路径写入需过权限网关。 */
 async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string): Promise<string | undefined> {
-  if (!absPath.startsWith(ctx.paths.root)) {
+  if (!isInsideRoot(absPath, ctx.paths.root)) {
     const d = await ctx.permissions.check({ kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle });
     if (d === 'deny') return `写入被用户拒绝: ${absPath}（可在设置-权限中调整）`;
   }

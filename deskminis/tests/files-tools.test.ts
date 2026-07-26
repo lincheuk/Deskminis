@@ -3,9 +3,9 @@ import { ToolRegistry } from '../src/minisd/tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from '../src/minisd/tools/files';
 import type { ToolContext, PermissionRequest, PermissionDecision } from '../src/minisd/tools/types';
 import { MinisPaths } from '../src/minisd/paths';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 
 class AllowAllGateway { async check(_r: PermissionRequest): Promise<PermissionDecision> { return 'allow'; } }
 class DenyAllGateway { asked: PermissionRequest[] = []; async check(r: PermissionRequest): Promise<PermissionDecision> { this.asked.push(r); return 'deny'; } }
@@ -42,6 +42,30 @@ describe('文件工具', () => {
     const r = await reg.execute('file_write', JSON.stringify({ path: outside, content: 'x', tool_title: '写' }), { ...ctx, permissions: deny });
     expect(r.success).toBe(false);
     expect(deny.asked[0].kind).toBe('file-write');
+  });
+  it('穿越式绝对路径(字符串前缀像在根内)仍要过权限门', async () => {
+    const deny = new DenyAllGateway();
+    // 故意不归一化: 字面量以 root 开头, 但实际解析到数据根之外
+    const escape = `${root}${sep}..${sep}${basename(root)}-escape-probe.txt`;
+    const r = await reg.execute('file_write', JSON.stringify({ path: escape, content: 'x', tool_title: '写' }), { ...ctx, permissions: deny });
+    expect(r.success).toBe(false);
+    expect(deny.asked.length).toBe(1);
+    expect(deny.asked[0].kind).toBe('file-write');
+    expect(existsSync(resolve(escape))).toBe(false);
+  });
+  it('registry 对非对象 JSON 参数返回错误 outcome 而非抛异常', async () => {
+    const nullInput = await reg.execute('file_write', 'null', ctx);
+    expect(nullInput.success).toBe(false);
+    expect(nullInput.output).toContain('JSON 对象');
+    const arrInput = await reg.execute('file_write', '[1,2]', ctx);
+    expect(arrInput.success).toBe(false);
+    expect(arrInput.output).toContain('JSON 对象');
+  });
+  it('数据根之内的路径不触发权限门', async () => {
+    const deny = new DenyAllGateway();
+    const r = await reg.execute('file_write', JSON.stringify({ path: 'inside.txt', content: 'x', tool_title: '写' }), { ...ctx, permissions: deny });
+    expect(r.success).toBe(true);
+    expect(deny.asked).toEqual([]);
   });
   it('preflight: 缺 required 参数/未知工具返回错误 outcome 而非抛异常', async () => {
     const missing = await reg.execute('file_read', JSON.stringify({ tool_title: '读' }), ctx);

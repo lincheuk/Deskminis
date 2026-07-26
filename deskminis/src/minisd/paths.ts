@@ -27,7 +27,7 @@ export class MinisPaths {
 
   /** guest 路径(/var/minis/*或相对)→宿主绝对路径；绝对宿主路径放行；禁止穿越。 */
   resolveGuestPath(sessionId: string, guestPath: string): string {
-    if (/^[A-Za-z]:[\\/]/.test(guestPath)) return guestPath; // 绝对 Windows 路径
+    if (/^[A-Za-z]:[\\/]/.test(guestPath)) return resolve(guestPath); // 绝对 Windows 路径(归一化)
     let base: string; let rest: string;
     const m = guestPath.match(/^\/var\/minis\/([^/]+)(?:\/(.*))?$/);
     if (m) {

@@ -13,8 +13,15 @@ export class ToolRegistry {
     const tool = this.tools.get(name);
     if (!tool) return { output: `未知工具: ${name}`, success: false };
     let input: Record<string, unknown>;
-    try { input = JSON.parse(inputJson || '{}') as Record<string, unknown>; }
-    catch (e) { return { output: `工具参数不是合法 JSON: ${String(e)}`, success: false }; }
+    try {
+      const parsed: unknown = JSON.parse(inputJson || '{}');
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return { output: `工具参数必须是 JSON 对象，实际收到: ${inputJson}`, success: false };
+      }
+      input = parsed as Record<string, unknown>;
+    } catch (e) {
+      return { output: `工具参数不是合法 JSON: ${String(e)}`, success: false };
+    }
     for (const req of tool.definition.required) {
       if (input[req] === undefined || input[req] === null) return { output: `缺少必填参数: ${req}`, success: false };
     }
