@@ -80,6 +80,7 @@ export const useChat = defineStore('chat', {
     },
     setPermTier(tier: PermTier) { this.permTier = tier; },
     async createProvider(p: any) { await rpc.call('provider.instances.create', p); await this.refreshProviders(); },
+    async updateProvider(id: string, p: any) { await rpc.call('provider.instances.update', { id, ...p }); await this.refreshProviders(); },
     async deleteProvider(id: string) { await rpc.call('provider.instances.delete', { id, confirm: true }); await this.refreshProviders(); },
     async respondPerm(requestId: string, decision: string) {
       this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);

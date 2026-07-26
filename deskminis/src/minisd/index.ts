@@ -158,6 +158,23 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       if (p.kind === 'openai-compat' && !baseUrl) throw new Error('OpenAI 兼容 provider 需要 base URL');
       return providers.create({ name: p.name, kind: p.kind, baseUrl, modelId: p.modelId }, p.apiKey);
     },
+    /** 改配置不必删了重建；apiKey 省略/空串 = 保留原密钥（前端也永远拿不到旧密钥回显）。 */
+    'provider.instances.update': (p: { id: string; name?: string; kind?: 'anthropic' | 'openai-compat'; baseUrl?: string; modelId?: string; apiKey?: string }) => {
+      const cur = providers.list().find(x => x.id === p.id);
+      if (!cur) throw new Error(`provider 不存在: ${p.id}`);
+      const patch: Partial<{ name: string; kind: 'anthropic' | 'openai-compat'; baseUrl: string | undefined; modelId: string }> & { apiKey?: string } = {};
+      if (typeof p.name === 'string' && p.name.trim()) patch.name = p.name.trim();
+      if (p.kind === 'anthropic' || p.kind === 'openai-compat') patch.kind = p.kind;
+      if (typeof p.modelId === 'string' && p.modelId.trim()) patch.modelId = p.modelId.trim();
+      if (p.baseUrl !== undefined) patch.baseUrl = (typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '') || undefined;
+      if (typeof p.apiKey === 'string' && p.apiKey !== '') patch.apiKey = p.apiKey;
+      // 校验「改完之后」的形态，而不是补丁本身：openai-compat 没有 base URL 无法请求
+      const kind = patch.kind ?? cur.kind;
+      const baseUrl = 'baseUrl' in patch ? patch.baseUrl : cur.baseUrl;
+      if (kind === 'openai-compat' && !baseUrl) throw new Error('OpenAI 兼容 provider 需要 base URL');
+      providers.update(p.id, patch);
+      return { ok: true };
+    },
     'provider.instances.delete': (p: { id: string; confirm?: boolean }) => {
       if (p.confirm !== true) throw new Error('删除 provider 需 confirm:true');
       providers.delete(p.id); return { ok: true };

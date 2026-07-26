@@ -219,6 +219,36 @@ describe('minisd JSON-RPC', () => {
     c.close();
   });
 
+  it('provider 编辑：改字段生效、密钥留空不动、改完仍要满足 openai-compat 必须有 baseUrl', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const created = (await c.call('provider.instances.create', { name: '中继', kind: 'openai-compat', baseUrl: 'https://a.example/v1', modelId: 'm1', apiKey: 'k1' })).result;
+
+    // 改名 + 换模型：生效
+    expect((await c.call('provider.instances.update', { id: created.id, name: '新名字', modelId: 'm2' })).error).toBeFalsy();
+    let list = (await c.call('provider.instances.list')).result;
+    expect(list[0].name).toBe('新名字');
+    expect(list[0].modelId).toBe('m2');
+    // apiKey 未传 → 密钥保持不变（hasApiKey 仍为 true，且列表永不回显密钥）
+    expect(list[0].hasApiKey).toBe(true);
+    expect(list[0].apiKey).toBeUndefined();
+
+    // 把 openai-compat 的 baseUrl 清空 → 改完之后不合法，必须被拒
+    expect((await c.call('provider.instances.update', { id: created.id, baseUrl: '   ' })).error).toBeTruthy();
+    list = (await c.call('provider.instances.list')).result;
+    expect(list[0].baseUrl).toBe('https://a.example/v1'); // 未被破坏
+
+    // 同时切成 anthropic 并清空 baseUrl：合法（走默认端点）
+    expect((await c.call('provider.instances.update', { id: created.id, kind: 'anthropic', baseUrl: '' })).error).toBeFalsy();
+    list = (await c.call('provider.instances.list')).result;
+    expect(list[0].kind).toBe('anthropic');
+    expect(list[0].baseUrl).toBeUndefined();
+
+    // 不存在的 id
+    expect((await c.call('provider.instances.update', { id: 'NOPE', name: 'x' })).error).toBeTruthy();
+    c.close();
+  });
+
   it('provider 创建：openai-compat 空/空白 baseUrl 被拒；anthropic 空 baseUrl 成功且省略', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
