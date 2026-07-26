@@ -24,8 +24,7 @@ export function buildAnthropicBody(req: StreamRequest, modelId: string): Record<
   const body: Record<string, unknown> = { model: modelId, max_tokens: req.maxTokens, stream: true, messages, tools };
   if (req.systemPrompt) body.system = [{ type: 'text', text: req.systemPrompt, cache_control: CACHE }];
   if (req.thinkingLevel !== 'off') {
-    const budget = req.thinkingLevel === 'high' ? Math.min(BUDGETS.high, req.maxTokens - 1) : BUDGETS[req.thinkingLevel];
-    body.thinking = { type: 'enabled', budget_tokens: budget };
+    body.thinking = { type: 'enabled', budget_tokens: Math.min(BUDGETS[req.thinkingLevel], req.maxTokens - 1) };
   }
   return body;
 }

@@ -26,9 +26,20 @@ describe('buildAnthropicBody', () => {
     expect(body.messages[2].content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
     expect(body.thinking).toBeUndefined();
   });
-  it('thinking medium 映射 budget_tokens', () => {
+  it('thinking medium 在 maxTokens 不足时被封顶', () => {
     const body = buildAnthropicBody({ ...REQ, thinkingLevel: 'medium' }, 'm') as any;
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4095 });
+  });
+  it('thinking medium 在 maxTokens 充足时用原始档位', () => {
+    const body = buildAnthropicBody({ ...REQ, thinkingLevel: 'medium', maxTokens: 64000 }, 'm') as any;
     expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 32768 });
+  });
+  it('thinking high 充足时 65536, 不足时被封顶', () => {
+    // 注意: maxTokens 必须 > 65536 才能拿到完整档位; 64000 - 1 = 63999 仍会被封顶
+    const roomy = buildAnthropicBody({ ...REQ, thinkingLevel: 'high', maxTokens: 128000 }, 'm') as any;
+    expect(roomy.thinking).toEqual({ type: 'enabled', budget_tokens: 65536 });
+    const tight = buildAnthropicBody({ ...REQ, thinkingLevel: 'high' }, 'm') as any;
+    expect(tight.thinking).toEqual({ type: 'enabled', budget_tokens: 4095 });
   });
 });
 
