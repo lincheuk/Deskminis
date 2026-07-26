@@ -12,7 +12,9 @@
 <style scoped>
 .empty {
   flex: 1; height: 100%; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center;
+  align-items: center; justify-content: center; gap: 8px; text-align: center;
+  /* 底部多留白把内容上提：对话区很高，纯居中会让视觉重心偏低 */
+  padding: 24px 24px calc(24px + 14vh);
 }
 .empty h2 { font-size: 22px; font-weight: 700; color: var(--label); }
 .empty p { font-size: 15px; color: var(--label-secondary); }

@@ -56,7 +56,8 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
   font-size: 13px; color: var(--label-secondary); cursor: pointer;
 }
 .menu {
-  position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 30; min-width: 240px;
+  /* 左对齐胶囊（与 PermissionPicker 一致）；right:0 会让弹层从胶囊右缘向左伸出、看着没对齐 */
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; min-width: 240px;
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-card);
   padding: 6px; box-shadow: var(--shadow-pop);
 }

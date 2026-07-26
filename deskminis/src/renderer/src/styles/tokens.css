@@ -34,6 +34,8 @@
   /* 强调 */
   --accent: #3686EE;   /* OpenMinis 自定义蓝：链接、选中、高亮 */
   --brand: #B7AF96;    /* 暖灰褐：会话选中态 */
+  /* brand 上的前景色随主题翻转：浅色 brand 亮 → 黑字（白字对比度仅 1.9:1，不可读） */
+  --on-brand: #1C1C1E;
   --link: #007AFF;
 
   /* 状态（系统动态色） */
@@ -92,6 +94,7 @@
 
     --accent: #5490E4;
     --brand: #504C42;
+    --on-brand: #FFFFFF;
     --link: #0A84FF;
 
     --red: #FF453A;
@@ -131,6 +134,7 @@
 
   --accent: #5490E4;
   --brand: #504C42;
+  --on-brand: #FFFFFF;
   --link: #0A84FF;
 
   --red: #FF453A;
@@ -169,6 +173,7 @@
 
   --accent: #3686EE;
   --brand: #B7AF96;
+  --on-brand: #1C1C1E;
   --link: #007AFF;
 
   --red: #FF3B30;
