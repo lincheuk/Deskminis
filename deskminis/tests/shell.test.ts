@@ -41,6 +41,24 @@ describe('PersistentShell (真实 powershell)', () => {
     const r2 = await s.run('Write-Output ok');
     expect(r2.output.trim()).toBe('ok');
   }, 20000);
+  it('spawn 失败被兜住: 返回工具错误而不是杀死进程', async () => {
+    const bad = mk('C:\\definitely-not-a-real-dir-xyz\\workspace');
+    const r = await bad.run('Write-Output x'); // 必须 resolve，不能 reject、不能悬挂
+    expect([127, 129]).toContain(r.exitCode);
+    expect(true).toBe(true); // 本测试进程仍然活着（未被 unhandled 'error' 杀掉）
+    const healthy = await mk().run('Write-Output alive'); // 之后新建的健康 shell 照常工作
+    expect(healthy.output.trim()).toBe('alive');
+    expect(healthy.exitCode).toBe(0);
+  }, 20000);
+  it('dispose 后不再复活进程', async () => {
+    const s = mk();
+    const first = await s.run('Write-Output ok');
+    expect(first.output.trim()).toBe('ok');
+    s.dispose();
+    const after = await s.run('Write-Output again');
+    expect(after.exitCode).toBe(130);
+    expect(after.output).toContain('已释放');
+  }, 20000);
 });
 
 describe('shell_execute 工具', () => {
