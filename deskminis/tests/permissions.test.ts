@@ -19,6 +19,36 @@ describe('classifyShellCommand', () => {
     // 回归：单一简单只读命令仍为 read
     ['git log --oneline', 'read'],
     ['Get-Date', 'read'],
+    // ---- 第 3 轮：求值形态绕过（裸括号是求值操作符，旧实现只拦 $( 与 @( ）----
+    ['echo (Set-Content C:\\important.txt -Value pwned)', 'write'],
+    ['Get-Date (Start-Process calc)', 'write'],
+    ['type (Move-Item C:\\a C:\\b)', 'write'],
+    ['@(Get-Content a.txt)', 'write'],
+    ['Get-Content `nSet-Content b.txt', 'write'],
+    // ---- 第 3 轮：影子命名提权（长驻 shell 中自定义函数冒充 get-* 白名单）----
+    ['Get-Stuff', 'write'],
+    ['get-payload.ps1', 'write'],
+    ['function Get-Stuff { Set-Content C:\\x -Value p }', 'danger'],
+    ['Set-Alias dir Remove-Item', 'danger'],
+    ['Set-Item alias:dir -Value Remove-Item', 'danger'],
+    ['New-Item -Path function:dir -Value { Move-Item C:\\a C:\\b }', 'danger'],
+    ['doskey dir=del $*', 'danger'],
+    // ---- 第 3 轮：git 只读前缀 + 无约束尾巴 ----
+    ['git branch -D main', 'write'],
+    ['git remote remove origin', 'write'],
+    ['git config --get user.name', 'write'],
+    // ---- 第 3 轮：多行字符串可串联多条命令 ----
+    ['dir\nnpm install', 'write'],
+    ['git status\r\nnpm publish', 'write'],
+    // ---- 第 3 轮：误报缓解——短别名只在命令位算危险，散文里不算（用户仍会被询问）----
+    ['git commit -m "del old code"', 'write'],
+    ['echo "rm is dangerous"', 'write'],
+    // ---- 第 3 轮：可用性守护——正常只读命令必须仍然直行 ----
+    ['Get-Content 报告.txt', 'read'],
+    ['git log --oneline', 'read'],
+    ['Get-ChildItem -Recurse', 'read'],
+    ['Test-Path C:\\Users\\me\\a.txt', 'read'],
+    ['findstr /i TODO src\\*.ts', 'read'],
   ])('%s → %s', (cmd, cls) => { expect(classifyShellCommand(cmd)).toBe(cls); });
 });
 
@@ -42,6 +72,20 @@ describe('PermissionGatewayImpl', () => {
     const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
     expect(await g.check(req('dir; Remove-Item -Force C:\\x'))).toBe('deny');
     expect(asked).toBe(0);
+  });
+  it('求值绕过已封堵：裸括号里的写操作不再静默放行，必须过询问路径', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    expect(await g.check(req('echo (Set-Content C:\\x -Value p)'))).toBe('deny');
+    expect(asked).toBe(1); // 关键：被问过恰好一次，即不再属于 bypass 只读层
+  });
+  it('影子命名提权已封堵：自定义函数名不冒充只读，定义本身判 danger', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    expect(await g.check(req('function Get-Stuff { Set-Content C:\\x -Value p }'))).toBe('deny');
+    expect(asked).toBe(0); // 定义直接拦
+    expect(await g.check(req('Get-Stuff'))).toBe('deny');
+    expect(asked).toBe(1); // 调用降级为需确认，不再静默
   });
   it('write 询问; allow-session 后同会话同类不再问', async () => {
     let asked = 0;
