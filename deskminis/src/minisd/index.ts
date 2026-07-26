@@ -39,7 +39,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const pendingPerms = new Map<string, (d: 'allow-once' | 'allow-session' | 'deny') => void>();
   let rpc: RpcServer;
   const prompt: PermissionPrompt = (req: PermissionRequest) => new Promise(resolve => {
-    const requestId = randomUUID();
+    const requestId = randomUUID().toUpperCase();
     pendingPerms.set(requestId, resolve);
     rpc.broadcast('permission.request', { requestId, req });
   });
@@ -61,10 +61,13 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     },
     'chat.messages.list': (p: { sessionId: string }) => chat.listMessages(p.sessionId),
     'chat.prompt': (p: { sessionId: string; text: string; providerId?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high' }) => {
-      chat.appendMessage({ id: chat.newId(), sessionId: p.sessionId, role: 'user', parts: [{ type: 'text', value: p.text }], createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
-      const provider: AgentProvider = (fakeEnabled && p.providerId === '__fake__')
+      // 先解析 provider 再落库：否则首次运行（未配置 provider）会留下孤儿用户消息
+      const providerId = p.providerId ?? providers.getDefaultId();
+      if (!providerId) throw new Error('尚未配置任何模型 provider，请先在设置中添加');
+      const provider: AgentProvider = (fakeEnabled && providerId === '__fake__')
         ? new FakeProvider()
-        : providers.instantiate(p.providerId ?? providers.getDefaultId()!);
+        : providers.instantiate(providerId);
+      chat.appendMessage({ id: chat.newId(), sessionId: p.sessionId, role: 'user', parts: [{ type: 'text', value: p.text }], createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
       paths.ensureSessionDirs(p.sessionId);
       void (async () => {
         try {

@@ -12,10 +12,13 @@ export class RpcServer {
 
   listen(host: string, port: number): Promise<number> {
     return new Promise((resolve, reject) => {
-      this.wss = new WebSocketServer({ host, port });
-      this.wss.on('error', reject);
-      this.wss.on('listening', () => resolve((this.wss!.address() as AddressInfo).port));
-      this.wss.on('connection', ws => this.onConnection(ws));
+      const wss = new WebSocketServer({ host, port });
+      this.wss = wss;
+      let listening = false;
+      // 监听前的错误 = 真正的绑定失败，需要 reject；监听后出现的服务器级错误不应崩溃守护进程
+      wss.on('error', err => { if (!listening) reject(err); });
+      wss.on('listening', () => { listening = true; resolve((wss.address() as AddressInfo).port); });
+      wss.on('connection', ws => this.onConnection(ws));
     });
   }
 
@@ -23,6 +26,8 @@ export class RpcServer {
     this.clients.add(ws);
     const conn: RpcConnection = { notify: (method, params) => ws.send(JSON.stringify({ jsonrpc: '2.0', method, params })) };
     ws.on('close', () => this.clients.delete(ws));
+    // ws 会把 receiver/协议层错误重新抛在 WebSocket 实例上：没有监听器则变成未捕获异常并杀死整个守护进程
+    ws.on('error', () => { this.clients.delete(ws); try { ws.terminate(); } catch { /* 已关闭 */ } });
     ws.on('message', async raw => {
       let msg: { id?: number; method?: string; params?: unknown };
       try { msg = JSON.parse(String(raw)) as typeof msg; } catch { return; }

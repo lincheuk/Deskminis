@@ -23,7 +23,13 @@ function rpcClient(port: number) {
     const id = ++idc;
     return new Promise((res) => { pending.set(id, res); ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params })); });
   }
-  return { ready, call, notifications, close: () => ws.close() };
+  /** 粗暴地打断连接：先写一帧非法数据（触发 ws 的 receiver 错误），再直接销毁底层 socket */
+  function breakSocket(): void {
+    const sock = (ws as any)._socket as import('node:net').Socket;
+    try { sock.write(Buffer.from([0xf1, 0x00])); } catch { /* 已断开 */ } // RSV 位非法的帧
+    sock.destroy();
+  }
+  return { ready, call, notifications, ws, breakSocket, close: () => ws.close() };
 }
 
 async function boot() {
@@ -72,5 +78,34 @@ describe('minisd JSON-RPC', () => {
     const events = c.notifications.filter(n => n.method === 'chat.event' && n.params.sessionId === s.id);
     expect(events.some(e => e.params.event.kind === 'turnEnd')).toBe(true);
     c.close();
+  });
+  it('未配置 provider 时 chat.prompt 报错且不落库孤儿用户消息', async () => {
+    const { port } = await boot(); // 全新数据目录：providers.json 不存在 ⇒ 无默认 provider
+    const c = rpcClient(port); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    const resp = await c.call('chat.prompt', { sessionId: s.id, text: '你好' }); // 不带 providerId ⇒ 走缺省默认值路径
+    expect(resp.error).toBeTruthy();
+    const msgs = (await c.call('chat.messages.list', { sessionId: s.id })).result;
+    expect(msgs).toEqual([]);
+    c.close();
+  });
+  it('一条连接被粗暴打断不会杀死守护进程', async () => {
+    const { port } = await boot();
+    const a = rpcClient(port); await a.ready;
+    const b = rpcClient(port); await b.ready;
+    expect((await b.call('chat.sessions.create', { title: 'B' })).result.title).toBe('B');
+    // 缺少 per-connection 'error' 监听时，ws 会把协议错误抛成未捕获异常（真实进程里等于守护进程被杀）
+    const uncaught: unknown[] = [];
+    const onUncaught = (e: unknown) => uncaught.push(e);
+    process.on('uncaughtException', onUncaught);
+    let list: unknown[];
+    try {
+      a.breakSocket();
+      await new Promise(r => setTimeout(r, 150));
+      list = (await b.call('chat.sessions.list')).result; // 服务端仍存活
+    } finally { process.off('uncaughtException', onUncaught); }
+    expect(uncaught).toEqual([]);
+    expect(list).toHaveLength(1);
+    b.close();
   });
 });
