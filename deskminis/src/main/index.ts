@@ -62,7 +62,15 @@ function startMinisdProcess(): Promise<number> {
 }
 
 async function createWindow(): Promise<void> {
-  const win = new BrowserWindow({ width: 1280, height: 800, webPreferences: { preload: join(__dirname, '../preload/index.cjs') } });
+  const win = new BrowserWindow({
+    width: 1280, height: 800, minWidth: 900, minHeight: 600,
+    // 无边框 + 自绘标题栏（设计 §4.0）：DOM 里不画窗口控制，
+    // titleBarOverlay 让系统在右上角绘制原生 min/max/close（透明底、符号色随明暗）。
+    frame: false,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#00000000', symbolColor: '#808080', height: 40 },
+    webPreferences: { preload: join(__dirname, '../preload/index.cjs') },
+  });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, '../renderer/index.html'));
 }
