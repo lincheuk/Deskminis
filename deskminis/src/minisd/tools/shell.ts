@@ -38,6 +38,10 @@ export class PersistentShell {
     // 没有监听器时该事件会在事件循环里抛出并杀死整个 minisd 进程。常驻一个兜底监听器，
     // 并清掉缓存引用，使下次 ensure() 重建而不是复用僵尸。
     proc.on('error', () => { if (this.proc === proc) this.proc = undefined; });
+    // 子进程已退出但 Node 尚未 flush 时向 stdin 写入，会在 stdin 流上异步发 'error'（EPIPE）；
+    // 无监听器时它会冒泡到进程级 unhandled 处理并杀死整个 minisd。挂一个吞掉的兜底监听器，
+    // 让 runNow 的 close/error 分支正常兜底。（同步 write 抛出仍由下方 try/catch 兜住，纵深防御。）
+    proc.stdin.on('error', () => { /* 子进程已退出时写入的异步 EPIPE：吞掉，runNow 的 close/error 处理会兜底 */ });
     proc.stdout.setEncoding('utf8');
     proc.stderr.resume(); // 驱动已 2>&1 并入 stdout；排空真实 stderr 管道避免写满阻塞
     this.proc = proc;

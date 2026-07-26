@@ -50,6 +50,20 @@ describe('PersistentShell (真实 powershell)', () => {
     expect(healthy.output.trim()).toBe('alive');
     expect(healthy.exitCode).toBe(0);
   }, 20000);
+  it('子进程死于 spawn 前后, 连发命令的 stdin 异步错误被吞: minisd 不被杀死', async () => {
+    // cwd 无效 → 子进程在 spawn 期间/之后即死。此时向其 stdin 写入会在 stdin 流上异步发 'error'(EPIPE)；
+    // 若该流没挂 error 监听器, 事件会冒泡到进程级 unhandled 处理并杀死整个 minisd(同步 try/catch 兜不住异步事件)。
+    // 连发两条命令给该路径加压: 两条都必须 resolve, 不能 reject / 悬挂 / 杀进程。
+    const bad = mk('C:\\definitely-not-a-real-dir-xyz\\workspace');
+    const r1 = await bad.run('Write-Output x');
+    const r2 = await bad.run('Write-Output y'); // 第二条命中已死/正在关闭的 stdin
+    expect([127, 129, 130]).toContain(r1.exitCode);
+    expect([127, 129, 130]).toContain(r2.exitCode);
+    // 本测试进程仍然活着(未被 unhandled stdin 'error' 杀掉): 新建的健康 shell 照常返回 exitCode 0。
+    const healthy = await mk().run('Write-Output alive');
+    expect(healthy.output.trim()).toBe('alive');
+    expect(healthy.exitCode).toBe(0);
+  }, 20000);
   it('dispose 后不再复活进程', async () => {
     const s = mk();
     const first = await s.run('Write-Output ok');
