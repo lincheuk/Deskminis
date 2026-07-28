@@ -87,7 +87,8 @@ async function remove(id: string): Promise<void> {
       <div v-if="!chat.providers.length" class="hint">尚未配置任何模型 provider。</div>
       <div v-for="p in chat.providers" :key="p.id" class="prow" :class="{ on: p.id === editingId }">
         <div class="pinfo">
-          <div class="pname">{{ p.name }}<span v-if="p.id === chat.defaultProviderId" class="badge">默认</span></div>
+          <!-- 名称可留空：退回显示模型 id，避免整行只剩一个徽章 -->
+          <div class="pname">{{ p.name || p.modelId || p.kind }}<span v-if="p.id === chat.defaultProviderId" class="badge">默认</span></div>
           <div class="pmodel">{{ p.modelId || p.kind }}<span v-if="!p.hasApiKey" class="miss"> · 缺密钥</span></div>
         </div>
         <button class="act" title="编辑" @click="startEdit(p)"><Icon name="edit" :size="15" /></button>
