@@ -36,7 +36,7 @@ export type AgentStreamEvent =
   | { kind: 'textDelta'; text: string }
   | { kind: 'thinkingDelta'; text: string }
   | { kind: 'toolInputDelta'; toolUseId: string; name: string; accumulatedJson: string }
-  | { kind: 'toolCallComplete'; toolUseId: string; name: string; input: string }
+  | { kind: 'toolCallComplete'; toolUseId: string; name: string; input: string; thoughtSignature?: string }
   | { kind: 'usage'; usage: TokenUsage }
   | { kind: 'done'; stopReason: StopReason };
 

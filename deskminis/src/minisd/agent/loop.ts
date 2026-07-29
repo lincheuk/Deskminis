@@ -49,7 +49,7 @@ class MonotonicClock {
 
 const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-interface AccumulatedCall { toolUseId: string; name: string; input: string }
+interface AccumulatedCall { toolUseId: string; name: string; input: string; thoughtSignature?: string }
 
 /**
  * 保证每个 assistant 的 tool_use 都有紧随其后的 user tool_result；补齐缺失的、丢弃孤儿 tool_result。
@@ -151,7 +151,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
           switch (ev.kind) {
             case 'textDelta': text += ev.text; yield ev; break;
             case 'thinkingDelta': reasoning += ev.text; yield ev; break;
-            case 'toolCallComplete': calls.push({ toolUseId: ev.toolUseId, name: ev.name, input: ev.input }); break;
+            case 'toolCallComplete': calls.push({ toolUseId: ev.toolUseId, name: ev.name, input: ev.input, thoughtSignature: ev.thoughtSignature }); break;
             case 'usage': usage = ev.usage; break;
             case 'done': stopReason = ev.stopReason; break;
             case 'toolInputDelta': break; // M1 UI 不用增量预览
@@ -179,7 +179,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     for (const c of calls) {
       // 就地归一：落库/toolStart 事件/工具执行三处看到的入参必须是同一个值
       c.input = safeToolInput(c.input);
-      assistantParts.push({ type: 'toolUse', value: { toolUseId: c.toolUseId, name: c.name, input: c.input } });
+      assistantParts.push({ type: 'toolUse', value: { toolUseId: c.toolUseId, name: c.name, input: c.input, ...(c.thoughtSignature !== undefined ? { thoughtSignature: c.thoughtSignature } : {}) } });
     }
     // 空 assistant 回合绝不落库：Anthropic 拒收 content 为空的消息，
     // 这一行会让该会话之后的每次请求都失败（永久变砖）。

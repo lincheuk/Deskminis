@@ -213,7 +213,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/provide
 - 流事件：`part.thought === true` 的 text → `thinkingDelta`；普通 text → `textDelta`；`functionCall` 整体到达 → 合成 `randomUUID().toUpperCase()` 作为 toolUseId，直接发 `toolCallComplete`（附带 `thoughtSignature`）；`usageMetadata` → `usage`；`finishReason`: `STOP→endTurn`、`MAX_TOKENS→maxTokens`、`SAFETY/RECITATION/OTHER→refusal`；`promptFeedback.blockReason` → `refusal`；本轮出现过 functionCall 则最终 `stopReason = 'toolUse'`
 - 断流判定：整个流既无 `finishReason` 也无 `usageMetadata` → 抛 `ProviderError('SSE 流提前结束', { retryable: true })`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/gemini.test.ts`:
 
@@ -403,7 +403,7 @@ describe('GeminiProvider 流归一化（录制回放）', () => {
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/gemini.test.ts`
 Expected: FAIL（`../src/minisd/providers/gemini` 模块不存在）
@@ -411,7 +411,7 @@ Expected: FAIL（`../src/minisd/providers/gemini` 模块不存在）
 Run: `cd deskminis && npm test -- tests/agent-loop.test.ts`
 Expected: FAIL（新用例中 `thoughtSignature: 'sig-1'` 事件字段类型报错 / 落库 part 无该字段）
 
-- [ ] **Step 3: 修改 shared/types.ts 与创建 gemini.ts**
+- [x] **Step 3: 修改 shared/types.ts 与创建 gemini.ts**
 
 `deskminis/src/shared/types.ts` 中 `AgentStreamEvent` 的 `toolCallComplete` 成员改为（其余成员不变）：
 
@@ -586,7 +586,7 @@ export class GeminiProvider implements AgentProvider {
 }
 ```
 
-- [ ] **Step 4: 修改 agent/loop.ts 透传 thoughtSignature**
+- [x] **Step 4: 修改 agent/loop.ts 透传 thoughtSignature**
 
 `deskminis/src/minisd/agent/loop.ts` 两处小改（其余代码不动）：
 
@@ -610,7 +610,7 @@ interface AccumulatedCall { toolUseId: string; name: string; input: string; thou
     }
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- tests/gemini.test.ts`
 Expected: PASS（11 个用例）
@@ -621,7 +621,7 @@ Expected: PASS（含新 thoughtSignature 用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（M1 测试不回归——`toolCallComplete` 只新增可选字段）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/providers/gemini.ts deskminis/src/shared/types.ts deskminis/src/minisd/agent/loop.ts deskminis/tests/gemini.test.ts deskminis/tests/agent-loop.test.ts && git commit -m "feat(m2b): Gemini Provider——SSE 归一化、函数调用合成 id、thoughtSignature 持久化与回放、无签名历史降级为文本摘要"

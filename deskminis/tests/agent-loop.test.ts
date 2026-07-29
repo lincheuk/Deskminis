@@ -226,6 +226,18 @@ describe('runAgentLoop', () => {
     }, 'claude-x') as { messages: { content: Record<string, unknown>[] }[] };
     expect(body.messages[0].content[0]).toEqual({ type: 'tool_use', id: 'T1', name: 'echo', input: {} });
   });
+
+  it('toolCallComplete 的 thoughtSignature 持久化到 toolUse part', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([
+      [ { kind: 'toolCallComplete', toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}', thoughtSignature: 'sig-1' }, { kind: 'done', stopReason: 'toolUse' } ],
+      [ { kind: 'textDelta', text: '好' }, { kind: 'done', stopReason: 'endTurn' } ],
+    ]);
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    const msgs = store.listMessages(sessionId);
+    expect(msgs[1].parts[0]).toEqual({ type: 'toolUse', value: { toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}', thoughtSignature: 'sig-1' } });
+  });
 });
 
 /** 纯函数 pairToolResults：发送前对整段历史做 tool_use/tool_result 配对（不改存储）。 */
