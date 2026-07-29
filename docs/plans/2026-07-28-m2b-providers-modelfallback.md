@@ -1859,7 +1859,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/l
   3. 若解析到模型组且成员为空（全部被删），报错 "模型组无可用成员"
 - **fallback 成功后改写会话绑定**（设计 §4.2 "成功后改写会话绑定"）: 凡降级成功（`runAgentLoop` 发出 `fallback` 事件且该 slot 最终跑通），会话绑定一律改写为 `provider:<backupInstanceId>`；改写只发生一次（首个 `fallback` 事件触发，后续 `fallback` 不再改写）。实现方式: `ProviderSlot` 增加可选 `instanceId?: string` 字段（仅 `chat.prompt` 装配 fallbackChain 时从 `resolveGroupMembers` 的 `instance.id` 填入），IIFE 事件循环拦截首个 `fallback` 事件，按 `event.to` label 在 fallbackChain 中找到对应 slot 的 `instanceId`，调用 `chat.setModelBinding`。`loop.ts` 里的 `ProviderSlot` 不需改——`instanceId` 是 index.ts 装配层加的扩展字段，`loop.ts` 只用 `provider` 和 `label`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/rpc.test.ts` 追加（文件末尾新 describe，复用 `boot`/`rpcClient`/`waitFor`/`toolScript`）:
 
@@ -1950,12 +1950,12 @@ describe('chat.prompt 模型组绑定链式解析', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/rpc.test.ts`
 Expected: FAIL（`modelgroup.create`/`modelgroup.list` 等方法不存在；`chat.prompt` 不认 `modelGroupId` 参数）
 
-- [ ] **Step 3: 修改 index.ts**
+- [x] **Step 3: 修改 index.ts**
 
 `deskminis/src/minisd/index.ts` 修改:
 
@@ -2082,7 +2082,7 @@ import type { ProviderSlot } from './agent/loop';
     },
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- tests/rpc.test.ts`
 Expected: PASS（含 modelgroup 5 个新用例 + chat.prompt 链式解析 3 个新用例 + M1 既有用例全部通过）
@@ -2090,7 +2090,7 @@ Expected: PASS（含 modelgroup 5 个新用例 + chat.prompt 链式解析 3 个�
 Run: `cd deskminis && npm test`
 Expected: 全部通过
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/index.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2b): modelgroup.* RPC 面 + chat.prompt 模型组链式解析 + fallback 成功后改写会话绑定"

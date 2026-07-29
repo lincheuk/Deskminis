@@ -9,7 +9,7 @@ import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
 import { ShellManager, makeShellTool } from './tools/shell';
 import { PermissionGatewayImpl, type PermissionPrompt } from './tools/permissions';
 import type { PermissionRequest } from './tools/types';
-import { runAgentLoop } from './agent/loop';
+import { runAgentLoop, type ProviderSlot } from './agent/loop';
 import { RpcServer } from './rpc/server';
 import type { AgentProvider, StreamRequest } from './providers/types';
 import type { AgentStreamEvent } from '../shared/types';
@@ -121,18 +121,55 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       if (p.confirm !== true) throw new Error('删除会话需 confirm:true');
       chat.deleteSession(sessionId); return { ok: true };
     },
+    'chat.sessions.setModelBinding': (p: { sessionId: string; binding?: string }) => {
+      const sessionId = assertSessionId(p.sessionId);
+      chat.setModelBinding(sessionId, p.binding);
+      return { ok: true };
+    },
     'chat.messages.list': (p: { sessionId: string }) => chat.listMessages(assertSessionId(p.sessionId)),
-    'chat.prompt': (p: { sessionId: string; text: string; providerId?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high' }) => {
+    'chat.prompt': (p: { sessionId: string; text: string; providerId?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high'; modelGroupId?: string }) => {
       const sessionId = assertSessionId(p.sessionId);
       // 纯空白的 text block 会被 Anthropic 以 400 拒收，而消息此时已落库 ⇒ 该会话此后每次请求都失败（永久变砖）
       if (typeof p.text !== 'string' || p.text.trim() === '') throw new Error('消息内容不能为空');
       if (inFlight.has(sessionId)) throw new Error('该会话正在运行中，请等待完成或取消');
-      // 先解析 provider 再落库：否则首次运行（未配置 provider）会留下孤儿用户消息
-      const providerId = p.providerId ?? providers.getDefaultId();
-      if (!providerId) throw new Error('尚未配置任何模型 provider，请先在设置中添加');
-      const provider: AgentProvider = (fakeEnabled && providerId === '__fake__')
-        ? new FakeProvider()
-        : providers.instantiate(providerId);
+
+      // ── 链式解析 provider + fallbackChain ──
+      let provider: AgentProvider;
+      let fallbackChain: ProviderSlot[] = [];
+
+      if (p.modelGroupId) {
+        // 显式指定模型组
+        const members = providers.resolveGroupMembers(p.modelGroupId);
+        if (members.length === 0) throw new Error('模型组无可用成员');
+        provider = members[0].instantiate();
+        fallbackChain = members.slice(1).map(m => ({ provider: m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
+      } else if (p.providerId) {
+        // 显式指定单 provider（M1 既有行为）
+        provider = (fakeEnabled && p.providerId === '__fake__') ? new FakeProvider() : providers.instantiate(p.providerId);
+      } else {
+        // 从会话绑定解析
+        const session = chat.getSession(sessionId);
+        const binding = session?.modelBinding;
+        if (binding?.startsWith('group:')) {
+          const gid = binding.slice('group:'.length);
+          const members = providers.resolveGroupMembers(gid);
+          if (members.length === 0) throw new Error('模型组无可用成员');
+          provider = members[0].instantiate();
+          fallbackChain = members.slice(1).map(m => ({ provider: m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
+        } else if (binding?.startsWith('provider:')) {
+          const pid = binding.slice('provider:'.length);
+          provider = (fakeEnabled && pid === '__fake__') ? new FakeProvider() : providers.instantiate(pid);
+        } else {
+          // 未绑定 → 默认 provider（M1 既有行为）
+          const defaultId = providers.getDefaultId();
+          if (!defaultId) throw new Error('尚未配置任何模型 provider，请先在设置中添加');
+          provider = (fakeEnabled && defaultId === '__fake__') ? new FakeProvider() : providers.instantiate(defaultId);
+        }
+      }
+
+      // thinkingLevel 钳制（Task 4）
+      const clampedThinking = catalog.clampThinkingLevel(provider.modelId, p.thinkingLevel ?? 'off');
+
       // 从这里到 IIFE 启动之间没有 await：占位与释放不会被别的请求插进来
       inFlight.add(sessionId);
       const controller = new AbortController();
@@ -140,13 +177,27 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       chat.appendMessage({ id: chat.newId(), sessionId, role: 'user', parts: [{ type: 'text', value: p.text }], createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
       paths.ensureSessionDirs(sessionId);
       void (async () => {
+        let fellBack = false;
         try {
           for await (const event of runAgentLoop(chat, {
             sessionId, provider, tools,
             toolContext: { sessionId, paths, permissions: gateway },
-            systemPrompt: SYSTEM_PROMPT, thinkingLevel: catalog.clampThinkingLevel(provider.modelId, p.thinkingLevel ?? 'off'),
+            systemPrompt: SYSTEM_PROMPT, thinkingLevel: clampedThinking,
             signal: controller.signal,
-          })) rpc.broadcast('chat.event', { sessionId, event });
+            fallbackChain,
+          })) {
+            // 拦截 fallback 事件：降级成功后改写会话绑定（设计 §4.2）
+            // 凡降级成功一律改写为 provider:<backupInstanceId>，只改一次（首个 fallback 事件触发）
+            if (event.kind === 'fallback' && !fellBack) {
+              fellBack = true;
+              // 从 fallbackChain 中按 label 找到降级目标的 instanceId
+              const target = fallbackChain.find(s => s.label === event.to) as (ProviderSlot & { instanceId?: string }) | undefined;
+              if (target?.instanceId) {
+                chat.setModelBinding(sessionId, `provider:${target.instanceId}`);
+              }
+            }
+            rpc.broadcast('chat.event', { sessionId, event });
+          }
         } catch (e) { rpc.broadcast('chat.event', { sessionId, event: { kind: 'error', message: String(e) } }); }
         finally { inFlight.delete(sessionId); controllers.delete(sessionId); }
       })();
@@ -187,6 +238,30 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       providers.delete(p.id); return { ok: true };
     },
     'provider.setDefault': (p: { id: string }) => { providers.setDefaultId(p.id); return { ok: true }; },
+    // ── ModelGroup ──
+    'modelgroup.create': (p: { name: string; memberIds: string[] }) => {
+      if (typeof p.name !== 'string' || p.name.trim() === '') throw new Error('模型组名称不能为空');
+      if (!Array.isArray(p.memberIds) || p.memberIds.length === 0) throw new Error('模型组至少需要一个成员');
+      return providers.createGroup(p.name.trim(), p.memberIds);
+    },
+    'modelgroup.list': () => providers.listGroups(),
+    'modelgroup.get': (p: { id: string }) => {
+      const g = providers.getGroup(p.id);
+      if (!g) throw new Error(`模型组不存在: ${p.id}`);
+      return g;
+    },
+    'modelgroup.update': (p: { id: string; name?: string; memberIds?: string[] }) => {
+      const patch: { name?: string; memberIds?: string[] } = {};
+      if (typeof p.name === 'string' && p.name.trim()) patch.name = p.name.trim();
+      if (Array.isArray(p.memberIds) && p.memberIds.length > 0) patch.memberIds = p.memberIds;
+      providers.updateGroup(p.id, patch);
+      return { ok: true };
+    },
+    'modelgroup.delete': (p: { id: string; confirm?: boolean }) => {
+      if (p.confirm !== true) throw new Error('删除模型组需 confirm:true');
+      providers.deleteGroup(p.id);
+      return { ok: true };
+    },
     'permission.respond': (p: { requestId: string; decision: 'allow-once' | 'allow-session' | 'deny' }) => {
       const entry = pendingPerms.get(p.requestId);
       if (entry) {
