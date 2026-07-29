@@ -9,6 +9,7 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "e2e": "node scripts/e2e-acceptance.mjs",
+    "e2e:m2b": "node scripts/e2e-m2b-acceptance.mjs",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
