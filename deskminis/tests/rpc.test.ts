@@ -274,3 +274,30 @@ describe('minisd JSON-RPC', () => {
     c.close();
   });
 });
+
+describe('provider.instances.* kind 扩展', () => {
+  it('create ollama：无 apiKey 无 baseUrl 也成功', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const r = (await c.call('provider.instances.create', { name: '本地', kind: 'ollama', modelId: 'qwen3' })).result;
+    expect(r.kind).toBe('ollama');
+    expect(r.baseUrl).toBeUndefined();
+    const list = (await c.call('provider.instances.list')).result;
+    expect(list[0].hasApiKey).toBe(false);
+    c.close();
+  });
+  it('create gemini 缺 apiKey → 报错', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const resp = await c.call('provider.instances.create', { name: 'G', kind: 'gemini', modelId: 'gemini-2.5-flash' });
+    expect(resp.error).toBeTruthy();
+    c.close();
+  });
+  it('create openai-compat 缺 baseUrl → 报错（M1 校验不回归）', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const resp = await c.call('provider.instances.create', { name: 'X', kind: 'openai-compat', modelId: 'm', apiKey: 'k' });
+    expect(resp.error).toBeTruthy();
+    c.close();
+  });
+});

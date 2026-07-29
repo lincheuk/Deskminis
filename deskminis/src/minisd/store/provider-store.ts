@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import type { AgentProvider } from '../providers/types';
 import { AnthropicProvider } from '../providers/anthropic';
 import { OpenAIProvider } from '../providers/openai';
+import { GeminiProvider } from '../providers/gemini';
 
 const nativeRequire = createRequire(import.meta.url);
 
@@ -35,7 +36,7 @@ export class KeyringVault implements SecretVault {
 }
 
 export interface ProviderInstance {
-  id: string; name: string; kind: 'anthropic' | 'openai-compat';
+  id: string; name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama';
   baseUrl?: string; modelId: string;
 }
 
@@ -60,10 +61,10 @@ export class ProviderStore {
     return this.cfg.providers.map(p => ({ ...p, hasApiKey: this.vault.get(`provider:${p.id}`) !== undefined }));
   }
 
-  create(inst: Omit<ProviderInstance, 'id'>, apiKey: string): ProviderInstance {
+  create(inst: Omit<ProviderInstance, 'id'>, apiKey?: string): ProviderInstance {
     const full: ProviderInstance = { ...inst, id: randomUUID().toUpperCase() };
     this.cfg.providers.push(full);
-    this.vault.set(`provider:${full.id}`, apiKey);
+    if (apiKey) this.vault.set(`provider:${full.id}`, apiKey); // Ollama 可免 key
     if (!this.cfg.defaultProviderId) this.cfg.defaultProviderId = full.id;
     this.save();
     return full;
@@ -92,8 +93,19 @@ export class ProviderStore {
     const p = this.cfg.providers.find(x => x.id === id);
     if (!p) throw new Error(`provider 不存在: ${id}`);
     const apiKey = this.vault.get(`provider:${id}`);
-    if (apiKey === undefined) throw new Error(`provider 缺少密钥: ${p.name}`);
-    if (p.kind === 'anthropic') return new AnthropicProvider({ apiKey, modelId: p.modelId, baseUrl: p.baseUrl });
-    return new OpenAIProvider({ apiKey, modelId: p.modelId, baseUrl: p.baseUrl ?? 'https://api.openai.com/v1' });
+    switch (p.kind) {
+      case 'anthropic':
+        if (apiKey === undefined) throw new Error(`provider 缺少密钥: ${p.name}`);
+        return new AnthropicProvider({ apiKey, modelId: p.modelId, baseUrl: p.baseUrl });
+      case 'gemini':
+        if (apiKey === undefined) throw new Error(`provider 缺少密钥: ${p.name}`);
+        return new GeminiProvider({ apiKey, modelId: p.modelId, baseUrl: p.baseUrl });
+      case 'ollama':
+        // 本地端点免 key；reasoning_effort 字段 Ollama 的 OpenAI 兼容端点不认识（会 400），预设不发
+        return new OpenAIProvider({ apiKey: apiKey ?? '', modelId: p.modelId, baseUrl: p.baseUrl ?? 'http://localhost:11434/v1', compat: { reasoningEffort: false } });
+      default: // openai-compat
+        if (apiKey === undefined) throw new Error(`provider 缺少密钥: ${p.name}`);
+        return new OpenAIProvider({ apiKey, modelId: p.modelId, baseUrl: p.baseUrl ?? 'https://api.openai.com/v1' });
+    }
   }
 }

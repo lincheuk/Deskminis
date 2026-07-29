@@ -153,18 +153,20 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       return { ok: true };
     },
     'provider.instances.list': () => providers.list(),
-    'provider.instances.create': (p: { name: string; kind: 'anthropic' | 'openai-compat'; baseUrl?: string; modelId: string; apiKey: string }) => {
+    'provider.instances.create': (p: { name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl?: string; modelId: string; apiKey?: string }) => {
       const baseUrl = (typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '') || undefined;
       if (p.kind === 'openai-compat' && !baseUrl) throw new Error('OpenAI 兼容 provider 需要 base URL');
-      return providers.create({ name: p.name, kind: p.kind, baseUrl, modelId: p.modelId }, p.apiKey);
+      // ollama 本地端点免 key；其余类型必须带 key
+      if (p.kind !== 'ollama' && (typeof p.apiKey !== 'string' || p.apiKey === '')) throw new Error('该 provider 类型需要 API key');
+      return providers.create({ name: p.name, kind: p.kind, baseUrl, modelId: p.modelId }, p.apiKey || undefined);
     },
     /** 改配置不必删了重建；apiKey 省略/空串 = 保留原密钥（前端也永远拿不到旧密钥回显）。 */
-    'provider.instances.update': (p: { id: string; name?: string; kind?: 'anthropic' | 'openai-compat'; baseUrl?: string; modelId?: string; apiKey?: string }) => {
+    'provider.instances.update': (p: { id: string; name?: string; kind?: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl?: string; modelId?: string; apiKey?: string }) => {
       const cur = providers.list().find(x => x.id === p.id);
       if (!cur) throw new Error(`provider 不存在: ${p.id}`);
-      const patch: Partial<{ name: string; kind: 'anthropic' | 'openai-compat'; baseUrl: string | undefined; modelId: string }> & { apiKey?: string } = {};
+      const patch: Partial<{ name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl: string | undefined; modelId: string }> & { apiKey?: string } = {};
       if (typeof p.name === 'string' && p.name.trim()) patch.name = p.name.trim();
-      if (p.kind === 'anthropic' || p.kind === 'openai-compat') patch.kind = p.kind;
+      if (p.kind === 'anthropic' || p.kind === 'openai-compat' || p.kind === 'gemini' || p.kind === 'ollama') patch.kind = p.kind;
       if (typeof p.modelId === 'string' && p.modelId.trim()) patch.modelId = p.modelId.trim();
       if (p.baseUrl !== undefined) patch.baseUrl = (typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '') || undefined;
       if (typeof p.apiKey === 'string' && p.apiKey !== '') patch.apiKey = p.apiKey;

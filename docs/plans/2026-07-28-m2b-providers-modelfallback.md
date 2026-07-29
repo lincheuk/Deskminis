@@ -653,7 +653,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/provide
 - `reasoningEffort: false`：Ollama 的 OpenAI 兼容端点不认识 `reasoning_effort` 字段（部分版本直接 400），Ollama 预设不发送；thinking 档位由 Task 4 的能力目录按模型族另行钳制
 - `includeStreamOptions` 默认保持 `true`（Ollama ≥0.3 支持 `stream_options.include_usage`；flag 留给不支持的兼容端点）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/ollama.test.ts`:
 
@@ -783,7 +783,7 @@ describe('provider.instances.* kind 扩展', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/ollama.test.ts`
 Expected: FAIL（`OpenAICompatFlags` 未导出、flags 第三参不存在、空 key 仍发 authorization 头）
@@ -791,7 +791,7 @@ Expected: FAIL（`OpenAICompatFlags` 未导出、flags 第三参不存在、空 
 Run: `cd deskminis && npm test -- tests/provider-store.test.ts tests/rpc.test.ts`
 Expected: FAIL（kind 联合不含 gemini/ollama，校验与 instantiate 不支持）
 
-- [ ] **Step 3: 修改 openai.ts（完整替换）**
+- [x] **Step 3: 修改 openai.ts（完整替换）**
 
 `deskminis/src/minisd/providers/openai.ts` 完整替换为：
 
@@ -913,7 +913,7 @@ export class OpenAIProvider implements AgentProvider {
 }
 ```
 
-- [ ] **Step 4: 修改 provider-store.ts**
+- [x] **Step 4: 修改 provider-store.ts**
 
 `deskminis/src/minisd/store/provider-store.ts` 三处修改（`list`/`update`/`delete`/`getDefaultId`/`setDefaultId`/`save` 与 vault 类保持 M1 原样）：
 
@@ -969,7 +969,7 @@ export interface ProviderInstance {
   }
 ```
 
-- [ ] **Step 5: 修改 index.ts 的 provider.instances.create/update 校验**
+- [x] **Step 5: 修改 index.ts 的 provider.instances.create/update 校验**
 
 `deskminis/src/minisd/index.ts` 中两个 RPC 方法完整替换为（其余方法不动）：
 
@@ -1000,7 +1000,7 @@ export interface ProviderInstance {
     },
 ```
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- tests/ollama.test.ts tests/provider-store.test.ts tests/rpc.test.ts`
 Expected: PASS（ollama 6 个 + provider-store 原有 4 个 + 新增 4 个 + rpc 原有 + 新增 3 个）
@@ -1008,7 +1008,7 @@ Expected: PASS（ollama 6 个 + provider-store 原有 4 个 + 新增 4 个 + rpc
 Run: `cd deskminis && npm test`
 Expected: 全部通过（M1 openai/anthropic 测试不回归——默认 flag 与有 key 行为未变）
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/providers/openai.ts deskminis/src/minisd/store/provider-store.ts deskminis/src/minisd/index.ts deskminis/tests/ollama.test.ts deskminis/tests/provider-store.test.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2b): Ollama provider（OpenAI 兼容端点 + 无 key 免鉴权头 + 默认 baseUrl + 兼容 flag），provider kind 扩展 gemini/ollama"

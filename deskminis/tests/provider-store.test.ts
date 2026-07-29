@@ -34,3 +34,26 @@ describe('ProviderStore', () => {
     expect(vault.get(`provider:${a.id}`)).toBeUndefined();
   });
 });
+
+describe('ProviderStore gemini/ollama kind', () => {
+  it('ollama 免 key：create 不传 apiKey，hasApiKey=false，instantiate 成功', () => {
+    const o = store.create({ name: '本地 Ollama', kind: 'ollama', modelId: 'qwen3' });
+    expect(store.list()[0]).toMatchObject({ name: '本地 Ollama', hasApiKey: false });
+    expect(readFileSync(join(dir, 'providers.json'), 'utf8')).not.toContain('apiKey');
+    expect(store.instantiate(o.id).name).toBe('openai-compat');
+  });
+  it('gemini 带 key：instantiate 返回 GeminiProvider', () => {
+    const g = store.create({ name: 'G', kind: 'gemini', modelId: 'gemini-2.5-flash' }, 'gk');
+    expect(store.instantiate(g.id).name).toBe('gemini');
+    expect(vault.get(`provider:${g.id}`)).toBe('gk');
+  });
+  it('gemini 无 key → instantiate 抛缺少密钥', () => {
+    const g = store.create({ name: 'G', kind: 'gemini', modelId: 'm' });
+    expect(() => store.instantiate(g.id)).toThrow('缺少密钥');
+  });
+  it('ollama 也可带 key（前置代理场景）→ 照常写 vault', () => {
+    const o = store.create({ name: 'O', kind: 'ollama', modelId: 'qwen3', baseUrl: 'http://nas:11434/v1' }, 'lk');
+    expect(store.list()[0].hasApiKey).toBe(true);
+    expect(store.instantiate(o.id).name).toBe('openai-compat');
+  });
+});

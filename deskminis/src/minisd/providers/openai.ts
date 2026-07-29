@@ -8,7 +8,15 @@ function safeJsonArgs(s: string): string {
   try { JSON.parse(s || '{}'); return s || '{}'; } catch { return '{}'; }
 }
 
-export function buildOpenAIBody(req: StreamRequest, modelId: string): Record<string, unknown> {
+/** OpenAI 兼容端点的行为开关（默认全开，保持 M1 行为）。 */
+export interface OpenAICompatFlags {
+  /** 缺省 true：发送 stream_options.include_usage（部分兼容端点不支持该字段） */
+  includeStreamOptions?: boolean;
+  /** 缺省 true：thinkingLevel 非 off 时发送 reasoning_effort（Ollama 的 OpenAI 端点不认识，会 400） */
+  reasoningEffort?: boolean;
+}
+
+export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: OpenAICompatFlags = {}): Record<string, unknown> {
   const messages: Record<string, unknown>[] = [];
   if (req.systemPrompt) messages.push({ role: 'system', content: req.systemPrompt });
   for (const m of req.messages) {
@@ -32,7 +40,6 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string): Record<str
   }
   const body: Record<string, unknown> = {
     model: modelId, stream: true, max_tokens: req.maxTokens, messages,
-    stream_options: { include_usage: true },
     tools: req.tools.map(t => ({
       type: 'function',
       function: {
@@ -45,7 +52,8 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string): Record<str
       },
     })),
   };
-  if (req.thinkingLevel !== 'off') body.reasoning_effort = req.thinkingLevel;
+  if (flags.includeStreamOptions !== false) body.stream_options = { include_usage: true };
+  if (req.thinkingLevel !== 'off' && flags.reasoningEffort !== false) body.reasoning_effort = req.thinkingLevel;
   return body;
 }
 
@@ -55,18 +63,21 @@ export class OpenAIProvider implements AgentProvider {
   readonly name = 'openai-compat';
   readonly modelId: string;
   private apiKey: string; private baseUrl: string; private fetchImpl: FetchLike;
+  private compat: OpenAICompatFlags;
 
-  constructor(opts: { apiKey: string; modelId: string; baseUrl: string; fetchImpl?: FetchLike }) {
+  constructor(opts: { apiKey: string; modelId: string; baseUrl: string; fetchImpl?: FetchLike; compat?: OpenAICompatFlags }) {
     this.apiKey = opts.apiKey; this.modelId = opts.modelId;
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.compat = opts.compat ?? {};
   }
 
   async *streamAgentMessage(req: StreamRequest, signal?: AbortSignal): AsyncIterable<AgentStreamEvent> {
     const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
       method: 'POST', signal,
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` },
-      body: JSON.stringify(buildOpenAIBody(req, this.modelId)),
+      // Ollama 等本地端点无 key：空 key 时跳过 authorization 头（部分前置代理对多余鉴权头 401）
+      headers: { 'content-type': 'application/json', ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}) },
+      body: JSON.stringify(buildOpenAIBody(req, this.modelId, this.compat)),
     }).catch((e: unknown) => { throw new ProviderError(`网络错误: ${String(e)}`, { retryable: true }); });
     if (!res.ok || !res.body) throw new ProviderError(`OpenAI HTTP ${res.status}: ${await res.text()}`, { status: res.status });
 
