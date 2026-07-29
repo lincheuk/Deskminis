@@ -67,7 +67,7 @@ deskminis/
 
 **语义**（设计 §4.2）：`isRetryable` = 网络抖动/网关与过载类 5xx，同模型透明重试（M1 重试梯）；`isFallbackable` = 限流（429）、无效/无权 key（401/403）、provider 侧请求错误（400/404/422，如模型名错误），不做同模型重试，立刻降级到模型组下一成员。两类互斥；无 status 的网络错误只 retryable。429 保持 `retryable: false`（M1 anthropic 测试已锁定此行为）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/provider-errors.test.ts`:
 
@@ -119,12 +119,12 @@ describe('ProviderError 错误分类', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/provider-errors.test.ts`
 Expected: FAIL（`isRetryable`/`isFallbackable` 未导出，`fallbackable` 不存在）
 
-- [ ] **Step 3: 修改 types.ts**
+- [x] **Step 3: 修改 types.ts**
 
 `deskminis/src/minisd/providers/types.ts` 完整替换为：
 
@@ -172,7 +172,7 @@ export function isFallbackable(e: unknown): boolean {
 export type FetchLike = typeof fetch;
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + M1 测试不回归**
+- [x] **Step 4: 跑测试确认通过 + M1 测试不回归**
 
 Run: `cd deskminis && npm test -- tests/provider-errors.test.ts`
 Expected: PASS（7 个用例）
@@ -180,7 +180,7 @@ Expected: PASS（7 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（M1 的 130 个测试不受影响——`ProviderError` 只新增字段，既有 `retryable` 推导不变）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/providers/types.ts deskminis/tests/provider-errors.test.ts && git commit -m "feat(m2b): ProviderError 增加 fallbackable 错误分类（isRetryable/isFallbackable）"
