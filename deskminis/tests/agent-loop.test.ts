@@ -238,6 +238,106 @@ describe('runAgentLoop', () => {
     const msgs = store.listMessages(sessionId);
     expect(msgs[1].parts[0]).toEqual({ type: 'toolUse', value: { toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}', thoughtSignature: 'sig-1' } });
   });
+
+  // ── M2b 降级链 ──
+
+  it('fallbackable 错误触发降级到 fallbackChain 下一 slot', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const main = new ScriptedProvider([ new ProviderError('限流', { status: 429 }) ]);
+    const backup = new ScriptedProvider([[ { kind: 'textDelta', text: '备选回复' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
+      fallbackChain: [{ provider: backup, label: 'backup-1' }],
+    }));
+    expect(events.some(e => e.kind === 'fallback' && (e as any).to === 'backup-1')).toBe(true);
+    expect(events.some(e => e.kind === 'textDelta' && e.text === '备选回复')).toBe(true);
+    expect(events.at(-1)).toEqual({ kind: 'turnEnd', stopReason: 'endTurn' });
+  });
+
+  it('降级成功后后续 turn 继续用 backup provider（不从主 provider 重新开始）', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'do' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const main = new ScriptedProvider([ new ProviderError('限流', { status: 429 }) ]);
+    const backup = new ScriptedProvider([
+      [ { kind: 'toolCallComplete', toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' }, { kind: 'done', stopReason: 'toolUse' } ],
+      [ { kind: 'textDelta', text: 'done' }, { kind: 'done', stopReason: 'endTurn' } ],
+    ]);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
+      fallbackChain: [{ provider: backup, label: 'backup-1' }],
+    }));
+    // backup 被调用了 2 次（工具调用 + 文本回复），main 只被调了 1 次（首次 429）
+    expect(main.calls).toBe(1);
+    expect(backup.calls).toBe(2);
+    expect(events.at(-1)).toEqual({ kind: 'turnEnd', stopReason: 'endTurn' });
+  });
+
+  it('降级链全部 fallbackable → error 事件终止', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const main = new ScriptedProvider([ new ProviderError('限流', { status: 429 }) ]);
+    const backup = new ScriptedProvider([ new ProviderError('也限流', { status: 429 }) ]);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
+      fallbackChain: [{ provider: backup, label: 'backup-1' }],
+    }));
+    expect(events.at(-1)).toMatchObject({ kind: 'error', message: '所有模型均不可用' });
+  });
+
+  it('空响应（无 tool_result 的首轮）→ 直接降级，不注入 system-reminder', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const main = new ScriptedProvider([[ { kind: 'done', stopReason: 'endTurn' } ]]); // 空响应
+    const backup = new ScriptedProvider([[ { kind: 'textDelta', text: 'ok' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
+      fallbackChain: [{ provider: backup, label: 'backup-1' }],
+    }));
+    expect(events.some(e => e.kind === 'fallback')).toBe(true);
+    expect(events.some(e => e.kind === 'textDelta' && e.text === 'ok')).toBe(true);
+    // 不应注入 system-reminder（历史里不应出现 [系统提醒] 文本）
+    const msgs = store.listMessages(sessionId);
+    expect(msgs.some(m => m.parts.some(p => p.type === 'text' && (p.value as string).includes('系统提醒')))).toBe(false);
+  });
+
+  it('tool_result 后空响应 → 先注入 system-reminder 重试，仍空则降级', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'do' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const main = new ScriptedProvider([
+      [ { kind: 'toolCallComplete', toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' }, { kind: 'done', stopReason: 'toolUse' } ],
+      [ { kind: 'done', stopReason: 'endTurn' } ], // tool_result 后空响应
+      [ { kind: 'done', stopReason: 'endTurn' } ], // reminder 重试仍空
+    ]);
+    const backup = new ScriptedProvider([[ { kind: 'textDelta', text: 'backup' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
+      fallbackChain: [{ provider: backup, label: 'backup-1' }],
+    }));
+    // 历史里应出现 system-reminder 文本（作为 user 消息注入）
+    const msgs = store.listMessages(sessionId);
+    const reminderMsg = msgs.find(m => m.parts.some(p => p.type === 'text' && (p.value as string).includes('系统提醒')));
+    expect(reminderMsg).toBeTruthy();
+    // 最终降级到 backup
+    expect(events.some(e => e.kind === 'fallback')).toBe(true);
+    expect(events.some(e => e.kind === 'textDelta' && e.text === 'backup')).toBe(true);
+  });
+
+  it('retryable 错误走重试梯不走降级（M1 行为不变）', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const main = new ScriptedProvider([
+      new ProviderError('529', { status: 529 }),
+      [ { kind: 'textDelta', text: 'ok' }, { kind: 'done', stopReason: 'endTurn' } ],
+    ]);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
+      fallbackChain: [{ provider: new ScriptedProvider([[ { kind: 'textDelta', text: '不该走到' }, { kind: 'done', stopReason: 'endTurn' } ]]), label: 'backup-1' }],
+    }));
+    expect(events.some(e => e.kind === 'retry')).toBe(true);
+    expect(events.some(e => e.kind === 'fallback')).toBe(false);
+    expect(events.some(e => e.kind === 'textDelta' && e.text === 'ok')).toBe(true);
+  });
 });
 
 /** 纯函数 pairToolResults：发送前对整段历史做 tool_use/tool_result 配对（不改存储）。 */

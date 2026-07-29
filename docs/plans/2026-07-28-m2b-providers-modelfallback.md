@@ -1497,7 +1497,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/p
 - 降级时发 `fallback` 事件让 UI 可展示原因
 - 降级成功后循环"记住"当前 slot，后续 turn 继续用它（不在每 turn 重新从主 provider 开始）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/agent-loop.test.ts` 追加（放在 `describe('runAgentLoop')` 块内末尾，复用 `ScriptedProvider`/`mkCtx`/`collect`）:
 
@@ -1603,12 +1603,12 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/p
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/agent-loop.test.ts`
 Expected: FAIL（`fallbackChain`/`ProviderSlot`/`fallback` 事件不存在）
 
-- [ ] **Step 3: 修改 loop.ts**
+- [x] **Step 3: 修改 loop.ts**
 
 `deskminis/src/minisd/agent/loop.ts` 修改。完整替换文件顶部 `LoopEvent`、`RunOptions`、`AccumulatedCall` 声明区，并在 `runAgentLoop` 函数体中插入降级逻辑。
 
@@ -1712,7 +1712,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
             lastError = err;
             break; // 跳出重试梯，进入下方降级逻辑
           }
-          // 非 fallbackable 错误：retryable 走重试梯，非 retryable 在重试梯耗尽后尝试降级
+          // 非 fallbackable 错误：retryable 先走重试梯；非 retryable 或重试梯耗尽 → 有备选则降级，无备选报错终止
           if (!err.retryable || attempt >= retryLadder.length) {
             // 还有降级备选时先降级，否则报错终止
             if (slotIndex + 1 < fallbackChain.length) {
@@ -1823,7 +1823,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
 > import { ProviderError, isFallbackable } from '../providers/types';
 > ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- tests/agent-loop.test.ts`
 Expected: PASS（含 M2b 降级链 6 个新用例 + Task 2 thoughtSignature 用例 + M1 既有用例全部通过）
@@ -1831,7 +1831,7 @@ Expected: PASS（含 M2b 降级链 6 个新用例 + Task 2 thoughtSignature 用�
 Run: `cd deskminis && npm test`
 Expected: 全部通过（M1 测试不回归——`fallbackChain` 默认空数组，无 fallbackChain 时降级逻辑不触发，行为与 M1 完全一致）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/loop.ts deskminis/tests/agent-loop.test.ts && git commit -m "feat(m2b): Agent 循环降级链——fallback 事件 + ProviderSlot 注入 + 空响应两路处理（首轮直接降级 / tool_result 后先 reminder 重试再降级）"
