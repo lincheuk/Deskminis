@@ -1656,8 +1656,8 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   // 降级链指针：从 -1（主 provider）开始，降级时 +1
   let slotIndex = -1;
 
-  /** 尝试从当前 slotIndex 开始找下一个可用 slot（包括 injectReminder 重试当前 slot 的逻辑在外层处理） */
-  function tryFallback(reason: string): ProviderSlot | undefined {
+  /** 尝试从当前 slotIndex 开始找下一个可用 slot */
+  function tryFallback(): ProviderSlot | undefined {
     slotIndex++;
     if (slotIndex >= fallbackChain.length) return undefined;
     const next = fallbackChain[slotIndex];
@@ -1712,9 +1712,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
             lastError = err;
             break; // 跳出重试梯，进入下方降级逻辑
           }
-          // 非 retryable 且非 fallbackable：直接报错终止
+          // 非 fallbackable 错误：retryable 走重试梯，非 retryable 在重试梯耗尽后尝试降级
           if (!err.retryable || attempt >= retryLadder.length) {
-            // 如果还有降级备选，先降级
+            // 还有降级备选时先降级，否则报错终止
             if (slotIndex + 1 < fallbackChain.length) {
               lastError = err;
               break;
@@ -1733,7 +1733,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
 
       // 到这里说明当前 slot 的流式请求失败了（fallbackable 或 retryable 耗尽）
       // 尝试降级到下一 slot
-      const nextSlot = tryFallback(lastError?.message ?? '未知错误');
+      const nextSlot = tryFallback();
       if (!nextSlot) {
         yield { kind: 'error', message: '所有模型均不可用' };
         return;
@@ -1757,7 +1757,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     if (assistantParts.length === 0) {
       if (!hadToolCallInPrevTurn) {
         // 首轮空响应：直接降级，不注入 system-reminder
-        const nextSlot = tryFallback('空响应');
+        const nextSlot = tryFallback();
         if (!nextSlot) { yield { kind: 'error', message: '所有模型均不可用' }; return; }
         yield { kind: 'fallback', from: activeSlot.label, to: nextSlot.label, reason: '空响应' };
         activeSlot = nextSlot;
@@ -1779,7 +1779,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
         continue;
       }
       // reminder 重试仍空：降级
-      const nextSlot = tryFallback('空响应（reminder 重试后仍空）');
+      const nextSlot = tryFallback();
       if (!nextSlot) { yield { kind: 'error', message: '所有模型均不可用' }; return; }
       yield { kind: 'fallback', from: activeSlot.label, to: nextSlot.label, reason: '空响应（reminder 重试后仍空）' };
       activeSlot = nextSlot;
@@ -1857,9 +1857,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/l
      - `'group:<groupId>'` → `providers.resolveGroupMembers(groupId)` → 第一个成员作为主 provider，其余作为 `fallbackChain`
      - 空/NULL → `providers.getDefaultId()` → `providers.instantiate(defaultId)`（M1 既有行为不变）
   3. 若解析到模型组且成员为空（全部被删），报错 "模型组无可用成员"
-- **fallback 成功后改写会话绑定**（设计 §4.2 "成功后改写会话绑定"）: `runAgentLoop` 产出 `fallback` 事件时，如果当前会话绑定的是 `group:<id>`，不改写（模型组内部降级不改绑定）；如果当前会话绑定的是 `provider:<mainId>` 或未绑定（走默认 provider），降级成功后改写为 `provider:<backupInstanceId>`。这需要 `fallback` 事件携带 slot 的 instanceId——但 `ProviderSlot` 只有 label 没有 instanceId。解决方案: `fallback` 事件发生时，在 `chat.prompt` 的 IIFE 事件循环里拦截，用 `activeSlot.label` 反查 instanceId（label = provider name + modelId，在装配时生成并记录映射）。**更简洁的方案**: 在 `chat.prompt` 的 IIFE 里监听 `fallback` 事件，从 `fallbackChain` 数组中按 `to` label 找到对应的 slot，再从 slot 的 `provider.modelId` 反查 providers.json 里的实例——但这不可靠（多个实例可能用同一 modelId）。**最终决策**: `ProviderSlot` 增加 `instanceId?: string` 可选字段（仅 modelgroup 装配时填入），`fallback` 事件回调里据此改写绑定。
-
-> **简化**: 在本 Task 中，`ProviderSlot` 的 `instanceId` 只在 `chat.prompt` 装配 fallbackChain 时填入（从 `resolveGroupMembers` 的 `instance.id` 取）。`loop.ts` 里 `ProviderSlot` 不需改——`instanceId` 是 index.ts 装配层加的扩展字段，`loop.ts` 只用 `provider` 和 `label`。
+- **fallback 成功后改写会话绑定**（设计 §4.2 "成功后改写会话绑定"）: 凡降级成功（`runAgentLoop` 发出 `fallback` 事件且该 slot 最终跑通），会话绑定一律改写为 `provider:<backupInstanceId>`；改写只发生一次（首个 `fallback` 事件触发，后续 `fallback` 不再改写）。实现方式: `ProviderSlot` 增加可选 `instanceId?: string` 字段（仅 `chat.prompt` 装配 fallbackChain 时从 `resolveGroupMembers` 的 `instance.id` 填入），IIFE 事件循环拦截首个 `fallback` 事件，按 `event.to` label 在 fallbackChain 中找到对应 slot 的 `instanceId`，调用 `chat.setModelBinding`。`loop.ts` 里的 `ProviderSlot` 不需改——`instanceId` 是 index.ts 装配层加的扩展字段，`loop.ts` 只用 `provider` 和 `label`。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1978,7 +1976,6 @@ import type { ProviderSlot } from './agent/loop';
       // ── 链式解析 provider + fallbackChain ──
       let provider: AgentProvider;
       let fallbackChain: ProviderSlot[] = [];
-      let bindingToPersist: string | undefined; // 降级成功后改写会话绑定的目标
 
       if (p.modelGroupId) {
         // 显式指定模型组
@@ -1986,7 +1983,6 @@ import type { ProviderSlot } from './agent/loop';
         if (members.length === 0) throw new Error('模型组无可用成员');
         provider = members[0].instantiate();
         fallbackChain = members.slice(1).map(m => ({ provider: m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
-        bindingToPersist = `group:${p.modelGroupId}`;
       } else if (p.providerId) {
         // 显式指定单 provider（M1 既有行为）
         provider = (fakeEnabled && p.providerId === '__fake__') ? new FakeProvider() : providers.instantiate(p.providerId);
@@ -2111,6 +2107,6 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/index.t
   3. 创建模型组（主=A anthropic，备=B ollama）→ 会话绑定 group → 故意让 A 限流（改 key 为无效值）→ 观察 fallback 事件出现、B 接管回复
   4. 首轮空响应（用不稳定的兼容端点）→ 验证直接降级不注入 system-reminder
   5. tool_result 后空响应 → 验证历史里出现 `[系统提醒]` user 消息、重试仍空后降级
-  6. 降级成功后重启应用 → 会话绑定已改写为 `provider:<backupId>`（模型组内部降级不改绑定）
+  6. 降级成功后重启应用 → 会话绑定已改写为 `provider:<backupId>`
 - 交付物：Gemini 原生 Provider（thoughtSignature 全链路）、Ollama Provider（OpenAI 兼容端点 + 免 key）、模型能力目录（models.dev + 缓存 + 兜底 + ThinkingLevel 钳制）、ModelGroup 持久化与 CRUD、Agent 循环降级链（fallback 事件 + 空响应两路处理 + 降级成功改写绑定）、`modelgroup.*` 与 `chat.sessions.setModelBinding` RPC 面
 - 下一步：M2 其余子系统（上下文压缩/卸载/记忆、技能系统、windows-* 桥、右栏面板）；模型组管理 UI 属 M2 UI 子计划
