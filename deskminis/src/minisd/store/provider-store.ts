@@ -40,7 +40,11 @@ export interface ProviderInstance {
   baseUrl?: string; modelId: string;
 }
 
-interface ConfigFile { providers: ProviderInstance[]; defaultProviderId?: string }
+export interface ModelGroup {
+  id: string; name: string; memberIds: string[]; createdAt: number;
+}
+
+interface ConfigFile { providers: ProviderInstance[]; defaultProviderId?: string; modelGroups?: ModelGroup[] }
 
 export class ProviderStore {
   private file: string;
@@ -107,5 +111,53 @@ export class ProviderStore {
         if (apiKey === undefined) throw new Error(`provider 缺少密钥: ${p.name}`);
         return new OpenAIProvider({ apiKey, modelId: p.modelId, baseUrl: p.baseUrl ?? 'https://api.openai.com/v1' });
     }
+  }
+
+  // ── ModelGroup CRUD ──
+
+  createGroup(name: string, memberIds: string[]): ModelGroup {
+    const g: ModelGroup = { id: randomUUID().toUpperCase(), name, memberIds: [...memberIds], createdAt: Date.now() / 1000 };
+    if (!this.cfg.modelGroups) this.cfg.modelGroups = [];
+    this.cfg.modelGroups.push(g);
+    this.save();
+    return g;
+  }
+
+  listGroups(): ModelGroup[] {
+    return this.cfg.modelGroups ?? [];
+  }
+
+  getGroup(id: string): ModelGroup | undefined {
+    return this.cfg.modelGroups?.find(g => g.id === id);
+  }
+
+  updateGroup(id: string, patch: { name?: string; memberIds?: string[] }): void {
+    const g = this.cfg.modelGroups?.find(x => x.id === id);
+    if (!g) throw new Error(`模型组不存在: ${id}`);
+    if (typeof patch.name === 'string' && patch.name.trim()) g.name = patch.name.trim();
+    if (patch.memberIds !== undefined) g.memberIds = [...patch.memberIds];
+    this.save();
+  }
+
+  deleteGroup(id: string): void {
+    if (!this.cfg.modelGroups) return;
+    this.cfg.modelGroups = this.cfg.modelGroups.filter(g => g.id !== id);
+    this.save();
+  }
+
+  /**
+   * 解析模型组成员，跳过已被 delete 的 provider 实例（静默跳过，不抛错）。
+   * 全部失效时返回空数组。调用方（Agent 循环降级链）据此决定是否降级。
+   */
+  resolveGroupMembers(groupId: string): { instance: ProviderInstance; instantiate(): AgentProvider }[] {
+    const g = this.getGroup(groupId);
+    if (!g) return [];
+    const out: { instance: ProviderInstance; instantiate(): AgentProvider }[] = [];
+    for (const mid of g.memberIds) {
+      const p = this.cfg.providers.find(x => x.id === mid);
+      if (!p) continue; // 已被删除，跳过
+      out.push({ instance: p, instantiate: () => this.instantiate(mid) });
+    }
+    return out;
   }
 }

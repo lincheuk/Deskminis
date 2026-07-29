@@ -44,3 +44,32 @@ describe('ChatStore', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM messages').get()).toEqual({ c: 0 });
   });
 });
+
+describe('ChatStore modelBinding', () => {
+  it('setModelBinding 写 provider: 前缀', () => {
+    const s = store.createSession();
+    store.setModelBinding(s.id, 'provider:ABC-123');
+    const got = store.getSession(s.id);
+    expect(got?.modelBinding).toBe('provider:ABC-123');
+  });
+
+  it('setModelBinding 写 group: 前缀', () => {
+    const s = store.createSession();
+    store.setModelBinding(s.id, 'group:GID-456');
+    expect(store.getSession(s.id)?.modelBinding).toBe('group:GID-456');
+  });
+
+  it('setModelBinding undefined → 清除绑定（写 NULL）', () => {
+    const s = store.createSession();
+    store.setModelBinding(s.id, 'provider:ABC');
+    store.setModelBinding(s.id, undefined);
+    expect(store.getSession(s.id)?.modelBinding).toBeUndefined();
+  });
+
+  it('setModelBinding 空串 → 同 undefined（清除）', () => {
+    const s = store.createSession();
+    store.setModelBinding(s.id, 'group:G');
+    store.setModelBinding(s.id, '');
+    expect(store.getSession(s.id)?.modelBinding).toBeUndefined();
+  });
+});

@@ -1278,9 +1278,9 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/provide
 - `resolveGroupMembers` 遍历 memberIds，跳过已被 `providers.delete()` 删掉的实例（静默跳过，不抛错），返回仍可实例化的成员；全部被删时返回空数组
 - `chat-store.setModelBinding` 严格写入 Global Constraints 约定的三种取值；`undefined`/空串 → 写 NULL（清除绑定）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
-`deskminis/tests/provider-store.test.ts` 追加（文件末尾新 describe，复用顶部 `beforeEach` 准备好的 `dir`/`vault`/`store`）:
+`deskminis/tests/provider-store.test.ts` 追加（文件末尾新 describe，复用顶部 `beforeEach` 准备好的 `dir`/`vault`/`store`):
 
 ```typescript
 describe('ProviderStore ModelGroup', () => {
@@ -1370,12 +1370,12 @@ describe('ChatStore modelBinding', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/provider-store.test.ts tests/chat-store.test.ts`
 Expected: FAIL（`createGroup`/`listGroups`/`resolveGroupMembers`/`setModelBinding` 不存在）
 
-- [ ] **Step 3: 修改 provider-store.ts**
+- [x] **Step 3: 修改 provider-store.ts**
 
 `deskminis/src/minisd/store/provider-store.ts` 追加 ModelGroup 相关代码。
 
@@ -1445,7 +1445,7 @@ interface ConfigFile { providers: ProviderInstance[]; defaultProviderId?: string
   }
 ```
 
-- [ ] **Step 4: 修改 chat-store.ts**
+- [x] **Step 4: 修改 chat-store.ts**
 
 `deskminis/src/minisd/store/chat-store.ts` 在 `updateSessionTitle` 方法之后追加:
 
@@ -1457,7 +1457,7 @@ interface ConfigFile { providers: ProviderInstance[]; defaultProviderId?: string
   }
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- tests/provider-store.test.ts tests/chat-store.test.ts`
 Expected: PASS（provider-store 原有 + 新增 6 个 ModelGroup 用例；chat-store 原有 4 个 + 新增 4 个 modelBinding 用例）
@@ -1465,7 +1465,7 @@ Expected: PASS（provider-store 原有 + 新增 6 个 ModelGroup 用例；chat-s
 Run: `cd deskminis && npm test`
 Expected: 全部通过（M1 测试不回归——ModelGroup 与 setModelBinding 只新增方法，不改既有路径）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/provider-store.ts deskminis/src/minisd/store/chat-store.ts deskminis/tests/provider-store.test.ts deskminis/tests/chat-store.test.ts && git commit -m "feat(m2b): ModelGroup 持久化（CRUD + resolveGroupMembers 跳过已删成员）+ ChatStore.setModelBinding"

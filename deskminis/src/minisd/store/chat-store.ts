@@ -39,6 +39,12 @@ export class ChatStore {
     this.db.prepare('UPDATE sessions SET title=?, updated_at=? WHERE id=?').run(title, this.nowEpoch(), id);
   }
 
+  /** 写入 sessions.model_binding；取值约定见 Global Constraints。undefined/空串 = 清除。 */
+  setModelBinding(sessionId: string, binding: string | undefined): void {
+    const val = (typeof binding === 'string' && binding.trim() !== '') ? binding.trim() : null;
+    this.db.prepare('UPDATE sessions SET model_binding=?, updated_at=? WHERE id=?').run(val, this.nowEpoch(), sessionId);
+  }
+
   deleteSession(id: string): void {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM messages WHERE session_id=?').run(id);

@@ -57,3 +57,56 @@ describe('ProviderStore gemini/ollama kind', () => {
     expect(store.instantiate(o.id).name).toBe('openai-compat');
   });
 });
+
+describe('ProviderStore ModelGroup', () => {
+  it('createGroup/listGroups/getGroup: 持久化到 providers.json', () => {
+    const a = store.create({ name: 'A', kind: 'anthropic', modelId: 'm1' }, 'k');
+    const b = store.create({ name: 'B', kind: 'openai-compat', baseUrl: 'http://x/v1', modelId: 'm2' }, 'k');
+    const g = store.createGroup('主力链', [a.id, b.id]);
+    expect(g.id).toMatch(/^[0-9A-F-]{36}$/);
+    expect(g.memberIds).toEqual([a.id, b.id]);
+
+    const reopened = new ProviderStore(dir, vault);
+    expect(reopened.listGroups()).toHaveLength(1);
+    expect(reopened.getGroup(g.id)).toMatchObject({ name: '主力链', memberIds: [a.id, b.id] });
+  });
+
+  it('updateGroup 改名与成员', () => {
+    const a = store.create({ name: 'A', kind: 'anthropic', modelId: 'm1' }, 'k');
+    const g = store.createGroup('G', [a.id]);
+    store.updateGroup(g.id, { name: 'G2', memberIds: [a.id, a.id] });
+    expect(store.getGroup(g.id)!.name).toBe('G2');
+    expect(store.getGroup(g.id)!.memberIds).toEqual([a.id, a.id]);
+  });
+
+  it('deleteGroup: 配置文件里消失', () => {
+    const a = store.create({ name: 'A', kind: 'anthropic', modelId: 'm1' }, 'k');
+    const g = store.createGroup('G', [a.id]);
+    store.deleteGroup(g.id);
+    expect(store.listGroups()).toHaveLength(0);
+    expect(store.getGroup(g.id)).toBeUndefined();
+  });
+
+  it('resolveGroupMembers: 成员被删时静默跳过', () => {
+    const a = store.create({ name: 'A', kind: 'anthropic', modelId: 'm1' }, 'k');
+    const b = store.create({ name: 'B', kind: 'openai-compat', baseUrl: 'http://x/v1', modelId: 'm2' }, 'k');
+    const g = store.createGroup('G', [a.id, b.id]);
+    // 删掉 a，resolveGroupMembers 只返回 b
+    store.delete(a.id);
+    const members = store.resolveGroupMembers(g.id);
+    expect(members).toHaveLength(1);
+    expect(members[0].instance.id).toBe(b.id);
+    expect(members[0].instantiate().name).toBe('openai-compat');
+  });
+
+  it('resolveGroupMembers: 全部成员被删 → 返回空数组', () => {
+    const a = store.create({ name: 'A', kind: 'anthropic', modelId: 'm1' }, 'k');
+    const g = store.createGroup('G', [a.id]);
+    store.delete(a.id);
+    expect(store.resolveGroupMembers(g.id)).toEqual([]);
+  });
+
+  it('resolveGroupMembers: 不存在的 groupId → 返回空数组', () => {
+    expect(store.resolveGroupMembers('NOPE')).toEqual([]);
+  });
+});
