@@ -11,7 +11,7 @@ import { PermissionGatewayImpl, type PermissionPrompt } from './tools/permission
 import type { PermissionRequest } from './tools/types';
 import { runAgentLoop, type ProviderSlot } from './agent/loop';
 import { RpcServer } from './rpc/server';
-import type { AgentProvider, StreamRequest } from './providers/types';
+import { ProviderError, type AgentProvider, type StreamRequest } from './providers/types';
 import type { AgentStreamEvent } from '../shared/types';
 import { ModelCatalog } from './providers/model-catalog';
 import { randomUUID } from 'node:crypto';
@@ -36,6 +36,9 @@ class FakeProvider implements AgentProvider {
   private toolCallSpent = false;
 
   async *streamAgentMessage(req: StreamRequest): AsyncIterable<AgentStreamEvent> {
+    // 测试用：用户文本 __fail__ → 抛 fallbackable 错误（模拟限流/无效 key）
+    const fail = this.parseFail(req);
+    if (fail) throw new ProviderError(fail, { status: 429 });
     const script = this.parseScript(req);
     if (script && !this.toolCallSpent) {
       this.toolCallSpent = true;
@@ -59,6 +62,20 @@ class FakeProvider implements AgentProvider {
         if (part.type !== 'text' || typeof value !== 'string') continue;
         const m2 = /^__tool__ (\S+) ([\s\S]+)$/.exec(value);
         if (m2) return { name: m2[1], input: m2[2] };
+      }
+    }
+    return undefined;
+  }
+
+  /** 测试用：首条用户文本形如 `__fail__ <原因>` 时，返回原因（触发 fallbackable 抛错）。 */
+  private parseFail(req: StreamRequest): string | undefined {
+    for (const m of req.messages) {
+      if (m.role !== 'user') continue;
+      for (const part of m.parts) {
+        const value: unknown = part.value;
+        if (part.type !== 'text' || typeof value !== 'string') continue;
+        const m2 = /^__fail__\s+(.+)$/.exec(value);
+        if (m2) return m2[1];
       }
     }
     return undefined;
@@ -141,8 +158,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         // 显式指定模型组
         const members = providers.resolveGroupMembers(p.modelGroupId);
         if (members.length === 0) throw new Error('模型组无可用成员');
-        provider = members[0].instantiate();
-        fallbackChain = members.slice(1).map(m => ({ provider: m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
+        provider = fakeEnabled ? new FakeProvider() : members[0].instantiate();
+        fallbackChain = members.slice(1).map(m => ({ provider: fakeEnabled ? new FakeProvider() : m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
       } else if (p.providerId) {
         // 显式指定单 provider（M1 既有行为）
         provider = (fakeEnabled && p.providerId === '__fake__') ? new FakeProvider() : providers.instantiate(p.providerId);
@@ -154,8 +171,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
           const gid = binding.slice('group:'.length);
           const members = providers.resolveGroupMembers(gid);
           if (members.length === 0) throw new Error('模型组无可用成员');
-          provider = members[0].instantiate();
-          fallbackChain = members.slice(1).map(m => ({ provider: m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
+          provider = fakeEnabled ? new FakeProvider() : members[0].instantiate();
+          fallbackChain = members.slice(1).map(m => ({ provider: fakeEnabled ? new FakeProvider() : m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
         } else if (binding?.startsWith('provider:')) {
           const pid = binding.slice('provider:'.length);
           provider = (fakeEnabled && pid === '__fake__') ? new FakeProvider() : providers.instantiate(pid);
@@ -177,7 +194,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       chat.appendMessage({ id: chat.newId(), sessionId, role: 'user', parts: [{ type: 'text', value: p.text }], createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
       paths.ensureSessionDirs(sessionId);
       void (async () => {
-        let fellBack = false;
+        let pendingRebind: string | undefined; // 降级候选 instanceId，等 turnEnd 才落库
+        let rebound = false; // 是否已改写绑定（只改一次）
         try {
           for await (const event of runAgentLoop(chat, {
             sessionId, provider, tools,
@@ -186,15 +204,16 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
             signal: controller.signal,
             fallbackChain,
           })) {
-            // 拦截 fallback 事件：降级成功后改写会话绑定（设计 §4.2）
-            // 凡降级成功一律改写为 provider:<backupInstanceId>，只改一次（首个 fallback 事件触发）
-            if (event.kind === 'fallback' && !fellBack) {
-              fellBack = true;
-              // 从 fallbackChain 中按 label 找到降级目标的 instanceId
+            // fallback 事件：记下候选 instanceId，但不立即改写——等该 slot 真正跑通（turnEnd）才落库
+            if (event.kind === 'fallback' && !rebound) {
               const target = fallbackChain.find(s => s.label === event.to) as (ProviderSlot & { instanceId?: string }) | undefined;
-              if (target?.instanceId) {
-                chat.setModelBinding(sessionId, `provider:${target.instanceId}`);
-              }
+              if (target?.instanceId) pendingRebind = target.instanceId;
+            }
+            // turnEnd：该 slot 真正跑通，执行推迟的改写
+            if (event.kind === 'turnEnd' && !rebound && pendingRebind) {
+              rebound = true;
+              chat.setModelBinding(sessionId, `provider:${pendingRebind}`);
+              pendingRebind = undefined;
             }
             rpc.broadcast('chat.event', { sessionId, event });
           }

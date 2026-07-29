@@ -386,3 +386,26 @@ describe('chat.prompt 模型组绑定链式解析', () => {
     c.close();
   });
 });
+
+describe('fallback 改写会话绑定时机', () => {
+  it('主/备选全部失败 → error 终态后 modelBinding 仍为 group:<id>（未被改写）', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    // 建两个 provider + 模型组
+    const a = (await c.call('provider.instances.create', { name: 'A', kind: 'anthropic', modelId: 'm1', apiKey: 'k' })).result;
+    const b = (await c.call('provider.instances.create', { name: 'B', kind: 'anthropic', modelId: 'm2', apiKey: 'k' })).result;
+    const g = (await c.call('modelgroup.create', { name: 'G', memberIds: [a.id, b.id] })).result;
+    // 建会话并绑定 group
+    const s = (await c.call('chat.sessions.create')).result;
+    await c.call('chat.sessions.setModelBinding', { sessionId: s.id, binding: `group:${g.id}` });
+    // 发送 __fail__ 消息 → 主/备选 FakeProvider 都抛 fallbackable 429
+    await c.call('chat.prompt', { sessionId: s.id, text: '__fail__ 测试限流' });
+    // 等待 agent 循环以 error 终态结束
+    await waitFor('error 终态', () => c.notifications.some(n => n.params?.event?.kind === 'error'), 5000);
+    // 验证绑定未被改写
+    const sessions = (await c.call('chat.sessions.list')).result;
+    const updated = sessions.find((x: { id: string }) => x.id === s.id);
+    expect(updated?.modelBinding).toBe(`group:${g.id}`);
+    c.close();
+  });
+});
