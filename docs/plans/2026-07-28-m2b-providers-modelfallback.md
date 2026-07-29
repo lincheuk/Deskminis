@@ -1033,7 +1033,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/provide
 
 **数据来源与回退顺序**：内存表 ← 构造时读磁盘缓存（`<dataRoot>/models-dev-cache.json`）← `refresh()` 拉取 `https://models.dev/api.json` 成功才覆盖（原子写 temp+rename）；TTL 24h，TTL 内 `refresh()` 不发请求；拉取失败/离线/格式变化静默回退缓存与内置兜底表。models.dev 结构：`{ <vendor>: { models: { <modelId>: { limit: { context, output }, reasoning: boolean } } } }`，压平成 `Record<modelId, ModelCatalogEntry>`。`lookup` 顺序：精确 id → 末段 `/` 之后部分（`provider/model` 形式）→ 内置表正则（按模型族前缀，先中先赢）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/model-catalog.test.ts`:
 
@@ -1108,12 +1108,12 @@ describe('ModelCatalog', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/model-catalog.test.ts`
 Expected: FAIL（`../src/minisd/providers/model-catalog` 模块不存在）
 
-- [ ] **Step 3: 创建 model-catalog.ts**
+- [x] **Step 3: 创建 model-catalog.ts**
 
 `deskminis/src/minisd/providers/model-catalog.ts`:
 
@@ -1214,7 +1214,7 @@ export class ModelCatalog {
 }
 ```
 
-- [ ] **Step 4: index.ts 装配 catalog 并钳制 chat.prompt 的 thinkingLevel**
+- [x] **Step 4: index.ts 装配 catalog 并钳制 chat.prompt 的 thinkingLevel**
 
 `deskminis/src/minisd/index.ts` 两处插入/修改：
 
@@ -1238,7 +1238,7 @@ import { ModelCatalog } from './providers/model-catalog';
             systemPrompt: SYSTEM_PROMPT, thinkingLevel: catalog.clampThinkingLevel(provider.modelId, p.thinkingLevel ?? 'off'),
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- tests/model-catalog.test.ts`
 Expected: PASS（6 个用例）
@@ -1246,7 +1246,7 @@ Expected: PASS（6 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（钳制对 M1 测试透明：fake provider 的 modelId='fake' 无目录条目 → 钳到 off，不改变可观察行为）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/providers/model-catalog.ts deskminis/src/minisd/index.ts deskminis/tests/model-catalog.test.ts && git commit -m "feat(m2b): 模型能力目录——models.dev 拉取 + 磁盘缓存 + 内置兜底表 + ThinkingLevel 按模型族钳制"

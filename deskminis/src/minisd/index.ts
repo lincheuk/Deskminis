@@ -13,6 +13,7 @@ import { runAgentLoop } from './agent/loop';
 import { RpcServer } from './rpc/server';
 import type { AgentProvider, StreamRequest } from './providers/types';
 import type { AgentStreamEvent } from '../shared/types';
+import { ModelCatalog } from './providers/model-catalog';
 import { randomUUID } from 'node:crypto';
 
 const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。';
@@ -72,6 +73,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const chat = new ChatStore(db);
   const vault: SecretVault = process.env.DESKMINIS_TEST ? new InMemoryVault() : new KeyringVault();
   const providers = new ProviderStore(root, vault);
+
+  // 模型能力目录：后台预热 models.dev；失败静默回退磁盘缓存/内置兜底表
+  const catalog = new ModelCatalog(join(root, 'models-dev-cache.json'));
+  void catalog.refresh();
 
   // 权限：把询问经 RPC 广播给 UI，UI 用 permission.respond 回决议。
   // 广播给所有连接是安全的——RpcServer 现在要求 per-run token，能连上的只可能是本应用自己的窗口。
@@ -139,7 +144,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
           for await (const event of runAgentLoop(chat, {
             sessionId, provider, tools,
             toolContext: { sessionId, paths, permissions: gateway },
-            systemPrompt: SYSTEM_PROMPT, thinkingLevel: p.thinkingLevel ?? 'off',
+            systemPrompt: SYSTEM_PROMPT, thinkingLevel: catalog.clampThinkingLevel(provider.modelId, p.thinkingLevel ?? 'off'),
             signal: controller.signal,
           })) rpc.broadcast('chat.event', { sessionId, event });
         } catch (e) { rpc.broadcast('chat.event', { sessionId, event: { kind: 'error', message: String(e) } }); }
