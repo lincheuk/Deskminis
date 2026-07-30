@@ -45,7 +45,10 @@ export const fileReadTool: ToolExecutor = {
     const denied = await guardRead(abs, ctx, String(input.tool_title));
     if (denied) return { output: denied, success: false };
     if (statSync(abs).size > MAX_READ) return { output: `文件超过 1MB，请用 shell_execute 分页读取: ${abs}`, success: false };
-    return { output: readFileSync(abs, 'utf8'), success: true };
+    const content = readFileSync(abs, 'utf8');
+    // 技能 use_count 采集点（M2c）：只有真正读成功才计数；钩子里抛错不应弄砸这次读取
+    try { ctx.onFileRead?.(abs); } catch { /* 计数失败不影响读取结果 */ }
+    return { output: content, success: true };
   },
 };
 
