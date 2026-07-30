@@ -1063,7 +1063,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/
   - `function makeBridgeEnv(sessionId: string, pipePath: string | undefined, cliPath: string | undefined, execPath: string): Record<string, string>`——产出 `{MINIS_CHAT_SESSION_ID, MINIS_BRIDGE_PIPE, MINIS_BRIDGE_CLI, MINIS_BRIDGE_NODE}`；桥不可用时 PIPE/CLI 为空串
   - `function resolveBridgeCliPath(): string | undefined`——候选 ① `import.meta.url` 同目录 `bridge-cli.mjs`（vitest/ts 直跑）② 上两级 `src/minisd/bridge-cli.mjs`（electron-vite 产物 `out/main/` 布局），返回首个 existsSync 者
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-util.ts`（共享助手，先写它——本 Task 与 Task 5/6 的测试都 import）：
 
@@ -1277,12 +1277,12 @@ describe('resolveBridgeCliPath', () => {
 
 注意：`resolveBridgeCliPath` 的测试在本 Task 只会因"文件不存在"而失败——它指向的 `bridge-cli.mjs` 是 Task 6 才创建的文件。因此本 Task 的 Step 3 需要同时落一个**占位但可运行**的 `deskminis/src/minisd/bridge-cli.mjs`（仅一行导出空对象的合法 JS：`export {};`，Task 6 再整体替换为完整 stub）。这不是功能占位，是让路径解析测试在本里程碑内诚实通过的临时文件，Task 6 Step 3 将其完整重写。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-server`
 Expected: FAIL（模块 `../src/minisd/bridge/server` 不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/bridge/server.ts`:
 
@@ -1394,12 +1394,12 @@ export class BridgeServer {
 export {};
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-server`
 Expected: 全部 passed（bridgePipePath 2 + BridgeServer 7 + makeBridgeEnv 2 + resolveBridgeCliPath 1）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/server.ts deskminis/src/minisd/bridge-cli.mjs deskminis/tests/bridge-util.ts deskminis/tests/bridge-server.test.ts && git commit -m "feat(m2e): 命名管道桥服务(one-shot帧+占管降级+桥环境变量构造)"

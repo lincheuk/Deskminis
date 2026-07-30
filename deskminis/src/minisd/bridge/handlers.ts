@@ -80,11 +80,20 @@ export async function runPowerShell(script: string, stdin = '', timeoutMs = 3000
 
 const now = () => Date.now() / 1000;
 
+/** 成功信封（导出：测试 echo server / Task 4 服务端兜底使用）。 */
+export function okEnvelope(tool: string, action: string, data: unknown): BridgeEnvelope {
+  return { ok: true, tool, action, data, timestamp: now() };
+}
+/** 错误信封（导出：服务端兜底使用）。 */
+export function errEnvelope(tool: string, action: string, code: string, message: string): BridgeEnvelope {
+  return { ok: false, tool, action, error: { code, message }, timestamp: now() };
+}
+
 function ok(req: BridgeRequest, data: unknown): BridgeEnvelope {
-  return { ok: true, tool: req.tool, action: req.action, data, timestamp: now() };
+  return okEnvelope(req.tool, req.action, data);
 }
 function err(req: BridgeRequest, code: string, message: string): BridgeEnvelope {
-  return { ok: false, tool: req.tool, action: req.action, error: { code, message }, timestamp: now() };
+  return errEnvelope(req.tool, req.action, code, message);
 }
 
 // ---- 单个 handler：经权限网关后调 runPowerShell；载荷走 stdin JSON ----
