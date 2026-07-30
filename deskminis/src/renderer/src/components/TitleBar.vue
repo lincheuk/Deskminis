@@ -1,0 +1,160 @@
+<script setup lang="ts">
+/** 自绘标题栏（设计 §4.0）——frameless 顶栏，整条可拖拽、可点元素 no-drag。
+ *  左：侧栏开关 + 前进/后退 + 菜单栏；中：当前会话名；
+ *  右：留空给 Electron titleBarOverlay 绘制的原生 min/max/close（DOM 不自绘）。 */
+import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { useChat } from '../stores/chat';
+import Icon from './Icon.vue';
+
+defineProps<{ title: string }>();
+const emit = defineEmits<{
+  (e: 'toggle-sidebar'): void;
+  (e: 'toggle-right'): void;
+  (e: 'toggle-theme'): void;
+}>();
+
+const chat = useChat();
+
+interface MenuItem { label?: string; kbd?: string; act?: string; sep?: boolean; danger?: boolean }
+interface Menu { id: string; label: string; items: MenuItem[] }
+
+const menus: Menu[] = [
+  { id: 'file', label: '文件', items: [
+    { label: '新建会话', kbd: 'Ctrl+N', act: 'new' },
+    { label: '新建工作区', act: 'noop' },
+    { label: '导入技能…', act: 'noop' },
+    { sep: true },
+    { label: '退出', kbd: 'Ctrl+Q', act: 'quit' },
+  ] },
+  { id: 'edit', label: '编辑', items: [
+    { label: '撤销', kbd: 'Ctrl+Z', act: 'undo' },
+    { label: '重做', kbd: 'Ctrl+Y', act: 'redo' },
+    { sep: true },
+    { label: '剪切', kbd: 'Ctrl+X', act: 'cut' },
+    { label: '复制', kbd: 'Ctrl+C', act: 'copy' },
+    { label: '粘贴', kbd: 'Ctrl+V', act: 'paste' },
+  ] },
+  { id: 'view', label: '视图', items: [
+    { label: '切换侧栏', kbd: 'Ctrl+B', act: 'sidebar' },
+    { label: '切换右侧面板', act: 'right' },
+    { sep: true },
+    { label: '明暗模式', act: 'theme' },
+    { sep: true },
+    { label: '重新加载', kbd: 'Ctrl+R', act: 'reload' },
+  ] },
+  { id: 'help', label: '帮助', items: [
+    { label: '文档', act: 'noop' },
+    { label: '键盘快捷键', kbd: 'Ctrl+/', act: 'noop' },
+    { label: '更新日志', act: 'noop' },
+    { sep: true },
+    { label: '诊断信息', act: 'noop' },
+    { label: '关于 DeskMinis', act: 'noop' },
+  ] },
+];
+
+const openId = ref<string | null>(null);
+
+function toggle(id: string): void { openId.value = openId.value === id ? null : id; }
+function hover(id: string): void { if (openId.value !== null) openId.value = id; }
+
+function run(item: MenuItem): void {
+  openId.value = null;
+  switch (item.act) {
+    case 'new': void chat.newSession(); break;
+    case 'quit': window.close(); break;
+    case 'sidebar': emit('toggle-sidebar'); break;
+    case 'right': emit('toggle-right'); break;
+    case 'theme': emit('toggle-theme'); break;
+    case 'reload': window.location.reload(); break;
+    case 'undo': case 'redo': case 'cut': case 'copy': case 'paste':
+      try { document.execCommand(item.act); } catch { /* best-effort */ }
+      break;
+    default: break; // noop / 占位项
+  }
+}
+
+function closeAll(): void { openId.value = null; }
+// 全局快捷键（仅安全的少数几个；不拦截 composer 输入）
+function onKey(e: KeyboardEvent): void {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 'n') { e.preventDefault(); void chat.newSession(); }
+  else if (k === 'b') { e.preventDefault(); emit('toggle-sidebar'); }
+}
+onMounted(() => { document.addEventListener('click', closeAll); window.addEventListener('keydown', onKey); });
+onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.removeEventListener('keydown', onKey); });
+</script>
+
+<template>
+  <div class="titlebar">
+    <div class="tb-ico" title="切换侧栏" @click="emit('toggle-sidebar')"><Icon name="sidebar" :size="17" /></div>
+    <div class="tb-nav">
+      <div class="tb-ico" title="后退"><Icon name="back" :size="16" /></div>
+      <div class="tb-ico" title="前进"><Icon name="forward" :size="16" /></div>
+    </div>
+    <div class="menubar" @click.stop>
+      <div
+        v-for="mn in menus" :key="mn.id"
+        class="mi" :class="{ open: openId === mn.id }"
+        @click.stop="toggle(mn.id)" @mouseenter="hover(mn.id)"
+      >
+        {{ mn.label }}
+        <div v-if="openId === mn.id" class="pop">
+          <div class="mpop">
+            <template v-for="(it, i) in mn.items" :key="i">
+              <div v-if="it.sep" class="sep"></div>
+              <div v-else class="it" :class="{ danger: it.danger }" @click.stop="run(it)">
+                {{ it.label }}<span v-if="it.kbd" class="kbd">{{ it.kbd }}</span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tb-title">{{ title }}</div>
+    <div class="tb-spacer"></div>
+  </div>
+</template>
+
+<style scoped>
+.titlebar {
+  height: 40px; display: flex; align-items: center; gap: 2px; padding: 0 4px 0 10px;
+  background: var(--material-tint); backdrop-filter: var(--material-thin);
+  border-bottom: .5px solid var(--separator);
+  -webkit-app-region: drag; user-select: none; flex: 0 0 40px;
+}
+.tb-ico, .tb-nav, .menubar, .mi { -webkit-app-region: no-drag; }
+.tb-ico {
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-control); color: var(--label-secondary); cursor: pointer;
+}
+.tb-ico:hover { background: var(--fill-quaternary); }
+.tb-nav { display: flex; gap: 0; margin-right: 6px; }
+.tb-nav .tb-ico { color: var(--label-tertiary); }
+.menubar { display: flex; gap: 1px; }
+.mi {
+  position: relative; font-size: 13px; padding: 5px 10px; border-radius: var(--r-control);
+  color: var(--label); cursor: pointer;
+}
+.mi:hover, .mi.open { background: var(--fill-quaternary); }
+.pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 230px; }
+.mpop {
+  background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-md);
+  padding: 5px; box-shadow: var(--shadow-pop);
+}
+.it {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px;
+  font-size: 13px; cursor: pointer; white-space: nowrap; color: var(--label);
+}
+.it:hover { background: var(--accent); color: #fff; }
+.it.danger { color: var(--red); }
+.it .kbd { margin-left: auto; font-size: 12px; color: var(--label-tertiary); font-family: var(--font-mono); }
+.it:hover .kbd { color: rgba(255, 255, 255, .7); }
+.sep { height: .5px; background: var(--separator); margin: 5px 8px; }
+.tb-title {
+  flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: var(--label-secondary);
+  letter-spacing: .01em; pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 右上角留给系统原生窗口控制（titleBarOverlay），此占位保证自绘内容不被遮挡 */
+.tb-spacer { flex: 0 0 140px; }
+</style>

@@ -37,6 +37,11 @@
 - ✅ 深度阅读 OpenMinis 代码库 → 九份研究报告 `docs/research/`
 - ✅ 设计文档（用户逐节确认）→ `docs/specs/2026-07-26-deskminis-design.md`
 - ✅ M1 实施计划（14 个 TDD 任务）→ `docs/plans/2026-07-26-m1-skeleton.md`
+- ✅ **M1 骨架 + 端到端验收（2026-07-28）**：Electron 三进程 + minisd 独立进程
+  （WebSocket JSON-RPC + per-run token）、Agent 循环、Anthropic/OpenAI 兼容双 Provider、
+  shell/file 工具 + 权限网关、SQLite 会话存储、OpenMinis 复刻三栏 UI。130/130 测试、
+  typecheck、build 全绿。验收：`npm run e2e`（`deskminis/scripts/e2e-acceptance.mjs`，
+  可重复回归）5/5 通过，真实 provider=nodetect/grok-4.5。
 
 ## 关键发现（写进设计的依据）
 
@@ -47,8 +52,13 @@
   技能原样 SKILL.md、MCP 用 Claude Desktop 兼容 servers.json。
 - 要修的 OpenMinis 缺陷：LAN 无历史回填、密钥无差别广播、工作区文件不处理删除/重命名/
   无内容哈希——设计 §6 已给出修补方案。
+- **同一 minis.db 只能被一个 minisd 进程持有**（2026-07-28 验收时发现）：第二个进程
+  在 `journal_mode = WAL` 处即报 `disk I/O error`。e2e 验收/未来 --headless 调试前须
+  先退出应用；不影响产品形态（minisd 本就是每应用一个的 utilityProcess）。
 
 ## 进行中 / 下一步
 
-- 执行 M1 实施计划（subagent-driven 或 inline，见计划文件头部）
-- M1 交付后依次做 M2（补全 Agent+记忆+技能）、M3（内网同步）、M4（文件同步+打包）
+- **写 M2 实施计划**（沿用 M1 的 TDD 计划格式）：Gemini/Ollama Provider、模型组降级、
+  上下文压缩/卸载、记忆系统、技能系统（SKILL.md 生态兼容）、windows-* 桥、
+  右栏终端/文件/任务面板完整 UI
+- 之后依次 M3（内网同步）、M4（文件同步+打包）

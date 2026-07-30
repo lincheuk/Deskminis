@@ -1,0 +1,204 @@
+/* DeskMinis 设计令牌 —— 唯一颜色/尺寸声明处（设计规格 §2/§3）。
+ * 组件一律引用变量，绝不写死颜色。
+ * 明暗机制：默认浅色；prefers-color-scheme:dark 自动跟随系统；
+ * :root[data-theme="dark"|"light"] 覆盖为强制模式（对应 appearanceMode 0/1/2）。 */
+
+:root {
+  /* 字体 */
+  --font-ui: -apple-system, "SF Pro Text", "Segoe UI Variable", system-ui, "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+
+  /* 背景 */
+  --bg: #FFFFFF;
+  --bg-secondary: #F2F2F7;
+  --bg-tertiary: #FFFFFF;
+  --grouped-bg: #F2F2F7;
+  --grouped-bg-secondary: #FFFFFF;
+  --grouped-bg-tertiary: #F2F2F7;
+
+  /* 文字 */
+  --label: #000000;
+  --label-secondary: rgba(60, 60, 67, .6);
+  --label-tertiary: rgba(60, 60, 67, .3);
+  --label-quaternary: rgba(60, 60, 67, .18);
+
+  /* 分隔线（0.5px 用） */
+  --separator: rgba(60, 60, 67, .29);
+  --separator-opaque: #C6C6C8;
+
+  /* 填充 */
+  --fill: rgba(120, 120, 128, .2);
+  --fill-tertiary: rgba(118, 118, 128, .12);   /* 用户气泡 */
+  --fill-quaternary: rgba(116, 116, 128, .08);
+
+  /* 强调 */
+  --accent: #3686EE;   /* OpenMinis 自定义蓝：链接、选中、高亮 */
+  --brand: #B7AF96;    /* 暖灰褐：会话选中态 */
+  /* brand 上的前景色随主题翻转：浅色 brand 亮 → 黑字（白字对比度仅 1.9:1，不可读） */
+  --on-brand: #1C1C1E;
+  --link: #007AFF;
+
+  /* 状态（系统动态色） */
+  --red: #FF3B30;
+  --green: #34C759;
+  --orange: #FF9500;
+  --yellow: #FFCC00;
+  --blue: #007AFF;
+  --purple: #AF52DE;   /* 记忆类工具（粉/紫） */
+  --cyan: #32ADE6;
+
+  /* 材质 */
+  --material-tint: rgba(255, 255, 255, .6);
+  /* 材质模糊滤镜（设计 §3）——GPU 不可用时组件以 --material-tint 实底回退 */
+  --material-thin: blur(20px) saturate(180%);
+  --material-regular: blur(30px) saturate(180%);
+  --shadow-fab: 0 4px 8px rgba(0, 0, 0, .2);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, .14);
+
+  /* 圆角 */
+  --r-control: 8px;
+  --r-md: 10px;
+  --r-card: 12px;
+  --r-input: 16px;
+  --r-bubble: 18px;
+  --r-sheet: 20px;
+  --r-pill: 999px;
+
+  /* 助手图标暖色渐变 */
+  --assistant-gradient: linear-gradient(135deg, #B8B097, #99998C);
+
+  color-scheme: light;
+}
+
+/* 自动跟随系统深色 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --bg-secondary: #1C1C1E;
+    --bg-tertiary: #2C2C2E;
+    --grouped-bg: #000000;
+    --grouped-bg-secondary: #1C1C1E;
+    --grouped-bg-tertiary: #2C2C2E;
+
+    --label: #FFFFFF;
+    --label-secondary: rgba(235, 235, 245, .6);
+    --label-tertiary: rgba(235, 235, 245, .3);
+    --label-quaternary: rgba(235, 235, 245, .16);
+
+    --separator: rgba(84, 84, 88, .6);
+    --separator-opaque: #38383A;
+
+    --fill: rgba(120, 120, 128, .36);
+    --fill-tertiary: rgba(118, 118, 128, .24);
+    --fill-quaternary: rgba(118, 118, 128, .18);
+
+    --accent: #5490E4;
+    --brand: #504C42;
+    --on-brand: #FFFFFF;
+    --link: #0A84FF;
+
+    --red: #FF453A;
+    --green: #30D158;
+    --orange: #FF9F0A;
+    --yellow: #FFD60A;
+    --blue: #0A84FF;
+    --purple: #BF5AF2;
+    --cyan: #64D2FF;
+
+    --material-tint: rgba(30, 30, 30, .6);
+
+    color-scheme: dark;
+  }
+}
+
+/* 强制深色（视图 → 明暗模式）——优先级高于系统 */
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --bg-secondary: #1C1C1E;
+  --bg-tertiary: #2C2C2E;
+  --grouped-bg: #000000;
+  --grouped-bg-secondary: #1C1C1E;
+  --grouped-bg-tertiary: #2C2C2E;
+
+  --label: #FFFFFF;
+  --label-secondary: rgba(235, 235, 245, .6);
+  --label-tertiary: rgba(235, 235, 245, .3);
+  --label-quaternary: rgba(235, 235, 245, .16);
+
+  --separator: rgba(84, 84, 88, .6);
+  --separator-opaque: #38383A;
+
+  --fill: rgba(120, 120, 128, .36);
+  --fill-tertiary: rgba(118, 118, 128, .24);
+  --fill-quaternary: rgba(118, 118, 128, .18);
+
+  --accent: #5490E4;
+  --brand: #504C42;
+  --on-brand: #FFFFFF;
+  --link: #0A84FF;
+
+  --red: #FF453A;
+  --green: #30D158;
+  --orange: #FF9F0A;
+  --yellow: #FFD60A;
+  --blue: #0A84FF;
+  --purple: #BF5AF2;
+  --cyan: #64D2FF;
+
+  --material-tint: rgba(30, 30, 30, .6);
+
+  color-scheme: dark;
+}
+
+/* 强制浅色——即便系统是深色也覆盖回浅（重申默认值） */
+:root[data-theme="light"] {
+  --bg: #FFFFFF;
+  --bg-secondary: #F2F2F7;
+  --bg-tertiary: #FFFFFF;
+  --grouped-bg: #F2F2F7;
+  --grouped-bg-secondary: #FFFFFF;
+  --grouped-bg-tertiary: #F2F2F7;
+
+  --label: #000000;
+  --label-secondary: rgba(60, 60, 67, .6);
+  --label-tertiary: rgba(60, 60, 67, .3);
+  --label-quaternary: rgba(60, 60, 67, .18);
+
+  --separator: rgba(60, 60, 67, .29);
+  --separator-opaque: #C6C6C8;
+
+  --fill: rgba(120, 120, 128, .2);
+  --fill-tertiary: rgba(118, 118, 128, .12);
+  --fill-quaternary: rgba(116, 116, 128, .08);
+
+  --accent: #3686EE;
+  --brand: #B7AF96;
+  --on-brand: #1C1C1E;
+  --link: #007AFF;
+
+  --red: #FF3B30;
+  --green: #34C759;
+  --orange: #FF9500;
+  --yellow: #FFCC00;
+  --blue: #007AFF;
+  --purple: #AF52DE;
+  --cyan: #32ADE6;
+
+  --material-tint: rgba(255, 255, 255, .6);
+
+  color-scheme: light;
+}
+
+/* 基础复位 —— 全局字体、平滑、等宽数字 */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #app { height: 100%; }
+body {
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--label);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+/* 线性图标默认描边样式（对齐预览稿） */
+svg { stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }

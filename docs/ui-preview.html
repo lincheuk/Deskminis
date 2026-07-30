@@ -1,0 +1,356 @@
+<meta charset="utf-8">
+<title>DeskMinis UI 预览</title>
+<style>
+:root{
+  --font-ui:-apple-system,"SF Pro Text","Segoe UI Variable",system-ui,"Microsoft YaHei",sans-serif;
+  --font-mono:"SF Mono",ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+  --bg:#FFFFFF; --bg-secondary:#F2F2F7; --bg-tertiary:#FFFFFF;
+  --grouped-bg:#F2F2F7; --grouped-bg-secondary:#FFFFFF; --grouped-bg-tertiary:#F2F2F7;
+  --label:#000000; --label-secondary:rgba(60,60,67,.6); --label-tertiary:rgba(60,60,67,.3);
+  --label-quaternary:rgba(60,60,67,.18);
+  --separator:rgba(60,60,67,.29); --separator-opaque:#C6C6C8;
+  --fill:rgba(120,120,128,.2); --fill-tertiary:rgba(118,118,128,.12); --fill-quaternary:rgba(116,116,128,.08);
+  --accent:#3686EE; --brand:#B7AF96; --link:#007AFF;
+  --red:#FF3B30; --green:#34C759; --orange:#FF9500; --yellow:#FFCC00; --blue:#007AFF; --purple:#AF52DE; --cyan:#32ADE6;
+  --material-tint:rgba(255,255,255,.6);
+  --shadow-fab:0 4px 8px rgba(0,0,0,.2);
+  --r-control:8px; --r-md:10px; --r-card:12px; --r-input:16px; --r-bubble:18px; --r-sheet:20px; --r-pill:999px;
+}
+:root[data-theme="dark"]{
+  --bg:#000000; --bg-secondary:#1C1C1E; --bg-tertiary:#2C2C2E;
+  --grouped-bg:#000000; --grouped-bg-secondary:#1C1C1E; --grouped-bg-tertiary:#2C2C2E;
+  --label:#FFFFFF; --label-secondary:rgba(235,235,245,.6); --label-tertiary:rgba(235,235,245,.3);
+  --label-quaternary:rgba(235,235,245,.16);
+  --separator:rgba(84,84,88,.6); --separator-opaque:#38383A;
+  --fill:rgba(120,120,128,.36); --fill-tertiary:rgba(118,118,128,.24); --fill-quaternary:rgba(118,118,128,.18);
+  --accent:#5490E4; --brand:#504C42; --link:#0A84FF;
+  --red:#FF453A; --green:#30D158; --orange:#FF9F0A; --yellow:#FFD60A; --blue:#0A84FF; --purple:#BF5AF2; --cyan:#64D2FF;
+  --material-tint:rgba(30,30,30,.6);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-ui);background:var(--bg-secondary);color:var(--label);
+  padding:24px;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.pagehead{display:flex;align-items:center;gap:12px;margin-bottom:16px;max-width:1280px}
+.pagehead h1{font-size:17px;font-weight:600}
+.pagehead span{font-size:12px;color:var(--label-secondary)}
+.tog{margin-left:auto;font-size:13px;font-weight:500;padding:6px 14px;border-radius:var(--r-pill);
+  border:.5px solid var(--separator);background:var(--grouped-bg-secondary);color:var(--label);cursor:pointer;font-family:inherit}
+.caption{font-size:12px;color:var(--label-secondary);margin:22px 0 8px;max-width:1280px}
+
+/* ── 应用外框 ── */
+.app{max-width:1280px;border:.5px solid var(--separator);border-radius:var(--r-card);overflow:hidden}
+
+/* 自绘标题栏（frameless） */
+.titlebar{height:40px;display:flex;align-items:center;gap:2px;padding:0 4px 0 10px;
+  background:var(--material-tint);backdrop-filter:blur(20px) saturate(180%);
+  border-bottom:.5px solid var(--separator)}
+.tb-ico{width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+  border-radius:var(--r-control);color:var(--label-secondary);cursor:pointer}
+.tb-ico:hover{background:var(--fill-quaternary)}
+.tb-nav{display:flex;gap:0;margin-right:6px}
+.tb-nav .tb-ico{color:var(--label-tertiary)}
+.menubar{display:flex;gap:1px}
+.mi{position:relative;font-size:13px;padding:5px 10px;border-radius:var(--r-control);
+  color:var(--label);cursor:pointer;user-select:none}
+.mi:hover,.mi.open{background:var(--fill-quaternary)}
+.mi .pop{display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:20;min-width:230px}
+.mi.open .pop{display:block}
+.tb-title{flex:1;text-align:center;font-size:13px;font-weight:600;color:var(--label-secondary);
+  letter-spacing:.01em;pointer-events:none}
+.wc{display:flex;gap:2px}
+.wc div{width:38px;height:30px;display:flex;align-items:center;justify-content:center;
+  border-radius:var(--r-control);color:var(--label-secondary);cursor:pointer}
+.wc div:hover{background:var(--fill-quaternary)}
+.wc .close:hover{background:var(--red);color:#fff}
+/* 菜单弹层（复用 .menu 视觉，行更紧凑） */
+.mpop{background:var(--grouped-bg-secondary);border:.5px solid var(--separator);border-radius:var(--r-md);
+  padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.14)}
+.mpop .it{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;
+  font-size:13px;cursor:pointer;white-space:nowrap}
+.mpop .it:hover{background:var(--accent);color:#fff}
+.mpop .it .kbd{margin-left:auto;font-size:12px;color:var(--label-tertiary);font-family:var(--font-mono)}
+.mpop .it:hover .kbd{color:rgba(255,255,255,.7)}
+.mpop .sep{height:.5px;background:var(--separator);margin:5px 8px}
+
+/* ── 应用窗口 ── */
+.win{height:620px;display:flex;background:var(--bg);overflow:hidden}
+
+/* 左栏 */
+.pane-l{width:260px;flex:0 0 260px;background:var(--bg);border-right:.5px solid var(--separator);
+  display:flex;flex-direction:column}
+.newbtn{display:flex;align-items:center;gap:8px;margin:12px;padding:9px 12px;border-radius:var(--r-md);
+  background:var(--brand);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+.datehead{position:sticky;top:0;padding:6px 16px;font-size:12px;font-weight:600;
+  color:var(--label-secondary);background:var(--bg)}
+.srow{display:flex;gap:8px;padding:12px 16px;cursor:pointer;align-items:flex-start}
+.srow.on{background:color-mix(in srgb,var(--brand) 30%,transparent);border-radius:var(--r-md);margin:0 6px;padding:12px 10px}
+.ava{width:44px;height:44px;flex:0 0 44px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--brand) 18%,transparent);color:var(--label-secondary)}
+.srow.on .ava{background:color-mix(in srgb,var(--brand) 35%,transparent);color:var(--label)}
+.smid{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.stitle{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sprev{font-size:14px;color:var(--label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sdate{font-size:13px;color:var(--label-tertiary);flex:0 0 auto;padding-top:2px}
+
+/* 中栏 */
+.pane-c{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.stream{flex:1;overflow:auto;padding:12px 0}
+.msg-u{display:flex;justify-content:flex-end;padding:5px 16px 5px 76px}
+.msg-u div{background:var(--fill-tertiary);border-radius:var(--r-bubble);padding:10px 14px;font-size:16.5px;line-height:1.5}
+.msg-a{padding:5px 16px}
+.ahead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.aicon{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#B8B097,#99998C)}
+.aname{font-size:17px;font-weight:600}
+.abody{font-size:16.5px;line-height:1.55;display:flex;flex-direction:column;gap:8px}
+
+/* 工具胶囊 */
+.pill{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;
+  background:var(--grouped-bg-tertiary);border:.5px solid var(--separator);border-radius:var(--r-pill);
+  font-size:13px;font-weight:500;align-self:flex-start;cursor:pointer;max-width:100%}
+.pill .dur{font-family:var(--font-mono);font-size:11px;color:var(--label-secondary)}
+.pill svg{flex:0 0 auto}
+.think{background:color-mix(in srgb,var(--blue) 6%,transparent);border:.5px solid color-mix(in srgb,var(--blue) 15%,transparent);
+  border-radius:var(--r-card);padding:10px 12px;font-size:13px;color:var(--label-secondary);align-self:stretch}
+
+/* 权限内联卡 */
+.perm{background:var(--grouped-bg-secondary);border:.5px solid var(--separator);border-radius:var(--r-card);
+  padding:12px;display:flex;flex-direction:column;gap:10px;align-self:stretch}
+.perm .h{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:600}
+.perm .args{background:var(--grouped-bg-tertiary);border-radius:var(--r-md);padding:10px 12px;
+  display:flex;flex-direction:column;gap:6px}
+.perm .k{font-size:13px;font-weight:600;color:var(--label-secondary)}
+.perm .v{font-size:13px;font-family:var(--font-mono);word-break:break-all;line-height:1.5}
+.perm .btns{display:flex;gap:8px}
+.btn{flex:1;padding:10px;border-radius:var(--r-control);border:.5px solid var(--separator);
+  background:var(--grouped-bg-secondary);color:var(--label);font-size:15px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn.deny{color:var(--red)}
+
+/* 输入区 */
+.composer{margin:0 16px 16px;border-radius:var(--r-input);
+  background:var(--material-tint);backdrop-filter:blur(20px) saturate(180%);
+  border:.5px solid var(--separator);padding:10px;display:flex;flex-direction:column;gap:10px}
+.field{background:var(--bg-tertiary);border:1px solid var(--separator);border-radius:var(--r-control);
+  padding:10px 12px;font-size:16.5px;color:var(--label-tertiary);min-height:44px}
+.ctools{display:flex;align-items:center;gap:8px}
+.cpill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:var(--r-pill);
+  border:.5px solid var(--separator);background:var(--grouped-bg-secondary);
+  font-size:13px;color:var(--label-secondary);cursor:pointer}
+.send{margin-left:auto;width:34px;height:34px;border-radius:50%;background:var(--label);
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.send svg{stroke:var(--bg)}
+
+/* 右栏 */
+.pane-r{width:300px;flex:0 0 300px;border-left:.5px solid var(--separator);background:var(--bg);
+  display:flex;flex-direction:column}
+.tabs{display:flex;gap:2px;padding:10px;border-bottom:.5px solid var(--separator)}
+.tab{flex:1;text-align:center;padding:6px;font-size:13px;font-weight:500;color:var(--label-secondary);
+  border-radius:var(--r-control);cursor:pointer}
+.tab.on{background:var(--fill-quaternary);color:var(--label)}
+.rempty{flex:1;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--label-tertiary);padding:24px;text-align:center}
+
+/* 空状态 */
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.empty h2{font-size:22px;font-weight:700}
+.empty p{font-size:15px;color:var(--label-secondary)}
+
+/* 画廊 */
+.gal{max-width:1280px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:var(--bg);border:.5px solid var(--separator);border-radius:var(--r-card);padding:14px}
+.card h3{font-size:13px;font-weight:600;color:var(--label-secondary);margin-bottom:12px}
+.menu{background:var(--grouped-bg-secondary);border:.5px solid var(--separator);border-radius:var(--r-card);
+  padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.mhead{font-size:12px;color:var(--label-secondary);padding:8px 10px 6px}
+.mrow{display:flex;gap:10px;padding:9px 10px;border-radius:var(--r-control);cursor:pointer;align-items:flex-start}
+.mrow:hover{background:var(--fill-quaternary)}
+.mrow .mt{font-size:15px;font-weight:600}
+.mrow .ms{font-size:13px;color:var(--label-secondary);margin-top:2px}
+.mrow.danger .mt,.mrow.danger .ms,.mrow.danger svg{color:var(--red);stroke:var(--red)}
+.mrow .chk{margin-left:auto;color:var(--accent);flex:0 0 auto}
+.mrow.off{opacity:.4}
+.mdiv{height:.5px;background:var(--separator);margin:6px 10px}
+.stack{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+svg{stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;fill:none}
+</style>
+
+<div class="pagehead">
+  <h1>DeskMinis UI 预览</h1><span>Apple 美学 + OpenMinis 复刻 · 静态稿</span>
+  <button class="tog" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">切换明暗</button>
+</div>
+
+<div class="app">
+  <div class="titlebar">
+    <div class="tb-ico" title="切换侧栏"><svg width="17" height="17" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></div>
+    <div class="tb-nav">
+      <div class="tb-ico"><svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 18l-6-6 6-6"/></svg></div>
+      <div class="tb-ico"><svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 18l6-6-6-6"/></svg></div>
+    </div>
+    <div class="menubar">
+      <div class="mi" data-menu>文件
+        <div class="pop"><div class="mpop">
+          <div class="it">新建会话<span class="kbd">Ctrl+N</span></div>
+          <div class="it">新建工作区</div>
+          <div class="it">导入技能…</div>
+          <div class="sep"></div>
+          <div class="it">退出<span class="kbd">Ctrl+Q</span></div>
+        </div></div>
+      </div>
+      <div class="mi" data-menu>编辑
+        <div class="pop"><div class="mpop">
+          <div class="it">撤销<span class="kbd">Ctrl+Z</span></div>
+          <div class="it">重做<span class="kbd">Ctrl+Y</span></div>
+          <div class="sep"></div>
+          <div class="it">剪切<span class="kbd">Ctrl+X</span></div>
+          <div class="it">复制<span class="kbd">Ctrl+C</span></div>
+          <div class="it">粘贴<span class="kbd">Ctrl+V</span></div>
+        </div></div>
+      </div>
+      <div class="mi" data-menu>视图
+        <div class="pop"><div class="mpop">
+          <div class="it">切换侧栏<span class="kbd">Ctrl+B</span></div>
+          <div class="it">切换右侧面板</div>
+          <div class="sep"></div>
+          <div class="it">明暗模式</div>
+          <div class="sep"></div>
+          <div class="it">重新加载<span class="kbd">Ctrl+R</span></div>
+        </div></div>
+      </div>
+      <div class="mi" data-menu>帮助
+        <div class="pop"><div class="mpop">
+          <div class="it">文档</div>
+          <div class="it">键盘快捷键<span class="kbd">Ctrl+/</span></div>
+          <div class="it">更新日志</div>
+          <div class="sep"></div>
+          <div class="it">诊断信息</div>
+          <div class="it">关于 DeskMinis</div>
+        </div></div>
+      </div>
+    </div>
+    <div class="tb-title">重构同步引擎</div>
+    <div class="wc">
+      <div title="最小化"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor"><path d="M5 12h14"/></svg></div>
+      <div title="最大化"><svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor"><rect x="4" y="4" width="16" height="16" rx="1"/></svg></div>
+      <div class="close" title="关闭"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12"/></svg></div>
+    </div>
+  </div>
+  <div class="win">
+  <div class="pane-l">
+    <div class="newbtn"><svg width="16" height="16" viewBox="0 0 24 24" stroke="#fff"><path d="M12 5v14M5 12h14"/></svg>新建会话</div>
+    <div class="datehead">今天</div>
+    <div class="srow on">
+      <div class="ava"><svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
+      <div class="smid"><div class="stitle">重构同步引擎</div><div class="sprev">好的，我先看一下 SyncCore 的结构…</div></div>
+      <div class="sdate">14:22</div>
+    </div>
+    <div class="srow">
+      <div class="ava"><svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div>
+      <div class="smid"><div class="stitle">看下这个报错</div><div class="sprev">堆栈指向 better-sqlite3 的原生绑定</div></div>
+      <div class="sdate">11:05</div>
+    </div>
+    <div class="datehead">昨天</div>
+    <div class="srow">
+      <div class="ava"><svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div>
+      <div class="smid"><div class="stitle">整理下载目录</div><div class="sprev">已按类型归入 6 个文件夹</div></div>
+      <div class="sdate">周五</div>
+    </div>
+  </div>
+
+  <div class="pane-c">
+    <div class="stream">
+      <div class="msg-u"><div>帮我看下 deskminis 的工作区里有什么，然后读一下 hello.txt</div></div>
+      <div class="msg-a">
+        <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
+        <div class="abody">
+          <div class="think">正在规划：先列目录确认结构，再读取目标文件。</div>
+          <div>好的，我先列出工作区内容。</div>
+          <div class="pill"><svg width="15" height="15" viewBox="0 0 24 24" stroke="var(--green)"><path d="M4 17l6-6-6-6M12 19h8"/></svg>列出工作区文件<span class="dur">0.4s</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" stroke="var(--green)"><path d="M20 6L9 17l-5-5"/></svg></div>
+          <div class="pill"><svg width="15" height="15" viewBox="0 0 24 24" stroke="var(--cyan)"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>读取 hello.txt<span class="dur">0.1s</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" stroke="var(--green)"><path d="M20 6L9 17l-5-5"/></svg></div>
+          <div>工作区里有 <code style="font-family:var(--font-mono);font-size:14px">hello.txt</code> 和 <code style="font-family:var(--font-mono);font-size:14px">src/</code>，文件内容是「你好」。</div>
+        </div>
+      </div>
+      <div class="msg-u"><div>装一下依赖</div></div>
+      <div class="msg-a">
+        <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
+        <div class="abody">
+          <div class="perm">
+            <div class="h"><svg width="20" height="20" viewBox="0 0 24 24" stroke="var(--orange)"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>请求执行命令</div>
+            <div class="args"><div class="k">命令</div><div class="v">npm install --prefix C:\Users\24739\Downloads\openminis1\deskminis</div></div>
+            <div class="btns"><button class="btn">仅此次</button><button class="btn">本会话允许</button><button class="btn deny">拒绝</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="field">让 DeskMinis 做点什么…</div>
+      <div class="ctools">
+        <div class="cpill"><svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>工作区</div>
+        <div class="cpill"><svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>每次确认</div>
+        <div class="cpill">Sonnet 5 <svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor"><path d="M18 15l-6-6-6 6"/></svg></div>
+        <div class="send"><svg width="17" height="17" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane-r">
+    <div class="tabs"><div class="tab on">终端</div><div class="tab">文件</div><div class="tab">任务</div></div>
+    <div class="rempty">M1 占位<br>M2 填入实时终端、文件树与任务进度</div>
+  </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.mi[data-menu]').forEach(function(mi){
+  mi.addEventListener('click',function(e){
+    e.stopPropagation();
+    var wasOpen=mi.classList.contains('open');
+    document.querySelectorAll('.mi.open').forEach(function(m){m.classList.remove('open')});
+    if(!wasOpen)mi.classList.add('open');
+  });
+  mi.addEventListener('mouseenter',function(){
+    if(document.querySelector('.mi.open')){
+      document.querySelectorAll('.mi.open').forEach(function(m){m.classList.remove('open')});
+      mi.classList.add('open');
+    }
+  });
+});
+document.addEventListener('click',function(){document.querySelectorAll('.mi.open').forEach(function(m){m.classList.remove('open')})});
+</script>
+
+<div class="caption">组件画廊 —— 弹出菜单与工具胶囊各状态</div>
+<div class="gal">
+  <div class="card"><h3>权限档位选择器</h3>
+    <div class="menu">
+      <div class="mhead">应如何批准 DeskMinis 的操作？</div>
+      <div class="mrow"><svg width="18" height="18" viewBox="0 0 24 24" stroke="currentColor"><path d="M18 11V6a2 2 0 00-4 0M14 10V4a2 2 0 00-4 0v2M10 10.5V6a2 2 0 00-4 0v8"/><path d="M18 8a2 2 0 014 0v6a8 8 0 01-8 8h-2a8 8 0 01-8-8"/></svg>
+        <div><div class="mt">每次确认</div><div class="ms">工作区内文件直接放行；其余每次询问</div></div>
+        <svg class="chk" width="16" height="16" viewBox="0 0 24 24" stroke="currentColor"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <div class="mrow"><svg width="18" height="18" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <div><div class="mt">本会话沿用</div><div class="ms">批准过的命令原样重复时不再询问</div></div></div>
+      <div class="mrow danger"><svg width="18" height="18" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.5"/></svg>
+        <div><div class="mt">完全访问</div><div class="ms">不再询问任何操作；不可逆的系统操作仍拦截</div></div></div>
+    </div>
+  </div>
+
+  <div class="card"><h3>模型选择器</h3>
+    <div class="menu">
+      <div class="mrow"><div><div class="mt">我的中继</div><div class="ms">claude-sonnet-5</div></div>
+        <svg class="chk" width="16" height="16" viewBox="0 0 24 24" stroke="currentColor"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <div class="mrow"><div><div class="mt">官方 Anthropic</div><div class="ms">claude-opus-5</div></div></div>
+      <div class="mrow off"><div><div class="mt">本地 Ollama</div><div class="ms">qwen3 · 缺密钥</div></div></div>
+      <div class="mdiv"></div>
+      <div class="mrow"><div><div class="mt" style="font-weight:400;font-size:14px">管理模型…</div></div></div>
+    </div>
+  </div>
+
+  <div class="card"><h3>工具胶囊各状态</h3>
+    <div class="stack">
+      <div class="pill"><svg width="15" height="15" viewBox="0 0 24 24" stroke="var(--green)"><path d="M4 17l6-6-6-6M12 19h8"/></svg>运行测试套件<span class="dur">6.3s</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" stroke="var(--green)"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <div class="pill"><svg width="15" height="15" viewBox="0 0 24 24" stroke="var(--orange)"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>修改 loop.ts<span class="dur">0.2s</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" stroke="var(--red)"><path d="M18 6L6 18M6 6l12 12"/></svg></div>
+      <div class="pill"><svg width="15" height="15" viewBox="0 0 24 24" stroke="var(--blue)"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>写入 README.md<span class="dur">运行中…</span></div>
+    </div>
+  </div>
+</div>
