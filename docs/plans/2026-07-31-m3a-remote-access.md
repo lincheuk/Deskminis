@@ -63,7 +63,7 @@ deskminis/
 
 ---
 
-### Task 1: RpcServer additionalVerify + authMode 分级
+### Task 1 · RpcServer additionalVerify + authMode 分级 ✅
 
 **Files:**
 - Modify: `deskminis/src/minisd/rpc/server.ts`
