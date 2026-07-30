@@ -12,7 +12,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const COUPLING = '配置产出名必须与主进程引用名一致，否则预加载静默不加载';
 
 function readText(rel: string): string {
-  return readFileSync(join(repoRoot, rel), 'utf8');
+  return readFileSync(join(repoRoot, rel), 'utf8').replace(/\r\n/g, '\n');
 }
 
 describe('preload 接线', () => {

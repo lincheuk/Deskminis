@@ -14,7 +14,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const WHY = '原生模块必须 external 并按 Electron ABI 重建，否则 minisd 起不来';
 
 function readText(rel: string): string {
-  return readFileSync(join(repoRoot, rel), 'utf8');
+  return readFileSync(join(repoRoot, rel), 'utf8').replace(/\r\n/g, '\n');
 }
 
 describe('构建配置：原生依赖', () => {

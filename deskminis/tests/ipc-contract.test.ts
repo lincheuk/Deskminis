@@ -29,7 +29,7 @@ import { parseHandshake } from '../src/main/index';
 // 不会让 typecheck / build / 其它单测变红，只有源文本级契约测试能挡住。
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 function readText(rel: string): string {
-  return readFileSync(join(repoRoot, rel), 'utf8');
+  return readFileSync(join(repoRoot, rel), 'utf8').replace(/\r\n/g, '\n');
 }
 
 const INVOKE_RE = /ipcRenderer\.invoke\(\s*['"]([^'"]+)['"]/g;
