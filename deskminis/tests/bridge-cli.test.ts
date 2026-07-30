@@ -81,6 +81,54 @@ describe('帮助与本地参数校验（无需管道）', () => {
     expect((JSON.parse(r.stdout) as BridgeEnvelope).error?.code).toBe('BRIDGE_UNAVAILABLE');
   });
 
+  it('e2e缺陷复现: windows-clipboard --action set --text x → 静默落回默认动作get → 现在必须响亮报错退出3', async () => {
+    // （无需管道：参数校验发生在环境检查之前；现状 CLI 吞掉 --action，action=默认get，模型误以为写成功）
+    const r = await runCli(['windows-clipboard', '--action', 'set', '--text', 'x']);
+    expect(r.code).toBe(3);
+    const env = JSON.parse(r.stdout) as BridgeEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_ARGS');
+    expect(env.error?.message).toContain('--action');
+    expect(env.error?.message).toContain('动作是位置参数');
+  });
+
+  it('参数名拼错: windows-notify --tittle x → 退出3，报未知参数并列出支持参数', async () => {
+    const r = await runCli(['windows-notify', '--tittle', 'x']);
+    expect(r.code).toBe(3);
+    const env = JSON.parse(r.stdout) as BridgeEnvelope;
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_ARGS');
+    expect(env.error?.message).toContain('--tittle');
+    // 支持参数列表：title, body（params 白名单）
+    for (const p of ['title', 'body']) expect(env.error?.message).toContain(p);
+  });
+
+  it('合法参数照常通过（不触发白名单误报）', async () => {
+    const { pipePath, close } = await startEchoServer();
+    cleanups.push(close);
+    const r1 = await runCli(['windows-notify', '--title', 't', '--body', 'b'], BRIDGE_ENV(pipePath));
+    expect(r1.code).toBe(0);
+    const r2 = await runCli(['windows-clipboard', 'set', '--text', 'x'], BRIDGE_ENV(pipePath));
+    expect(r2.code).toBe(0);
+    const r3 = await runCli(['windows-open', 'https://example.com'], BRIDGE_ENV(pipePath));
+    expect(r3.code).toBe(0);
+    const r4 = await runCli(['windows-speak', 'say', '--text', 'x', '--rate', '0'], BRIDGE_ENV(pipePath));
+    expect(r4.code).toBe(0);
+  });
+
+  it('全局旗标 -q/--compact/--stdin 及 --help 不受白名单影响', async () => {
+    const rh = await runCli(['windows-notify', '--help']);
+    expect(rh.code).toBe(0);
+    const { pipePath, close } = await startEchoServer();
+    cleanups.push(close);
+    const rq = await runCli(['windows-device', '-q'], BRIDGE_ENV(pipePath));
+    expect(rq.code).toBe(0);
+    const rc = await runCli(['windows-device', '--compact'], BRIDGE_ENV(pipePath));
+    expect(rc.code).toBe(0);
+    const rs = await runCli(['windows-clipboard', 'set', '--stdin'], BRIDGE_ENV(pipePath), 't');
+    expect(rs.code).toBe(0);
+  });
+
   it('管道无服务监听 → 退出 4', async () => {
     const r = await runCli(['windows-device', 'info'], BRIDGE_ENV(uniquePipePath()));
     expect(r.code).toBe(4);

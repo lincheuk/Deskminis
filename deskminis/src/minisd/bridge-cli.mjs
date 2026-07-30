@@ -43,10 +43,10 @@ const GLOBAL_HELP = `DeskMinis windows-* 桥 CLI（在 DeskMinis 会话 shell �
   & "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" windows-clipboard get -q
 `;
 
-/** 工具规格表：动作集合/默认动作/位置参数槽/工具级帮助。六桥与 minisd 侧 BRIDGES 表一一对应。 */
+/** 工具规格表：动作集合/默认动作/位置参数槽/参数白名单/工具级帮助。六桥与 minisd 侧 BRIDGES 表一一对应。 */
 const TOOLS = {
   'windows-notify': {
-    actions: ['show'], defaultAction: 'show', positionalArg: null,
+    actions: ['show'], defaultAction: 'show', positionalArg: null, params: ['title', 'body'],
     help: `windows-notify [show] [--title 标题] [--body 正文]
 
 弹 Windows 系统通知（toast）。
@@ -54,7 +54,7 @@ const TOOLS = {
   --body    通知正文，默认空`,
   },
   'windows-clipboard': {
-    actions: ['get', 'set'], defaultAction: 'get', positionalArg: null,
+    actions: ['get', 'set'], defaultAction: 'get', positionalArg: null, params: ['text'],
     help: `windows-clipboard [get]
 windows-clipboard set (--text 文本 | --stdin)
 
@@ -63,14 +63,14 @@ windows-clipboard set (--text 文本 | --stdin)
   set       写入文本，输出 { length }；文本经 --text 或 --stdin 提供`,
   },
   'windows-open': {
-    actions: ['open'], defaultAction: 'open', positionalArg: 'target',
+    actions: ['open'], defaultAction: 'open', positionalArg: 'target', params: ['target'],
     help: `windows-open [open] <目标>
 
 用默认程序打开网址或本机文件/目录。目标也可写作 --target <目标>。
 目标必须是 http(s) 网址或已存在的本机路径，否则报 INVALID_ARGS。`,
   },
   'windows-speak': {
-    actions: ['say'], defaultAction: 'say', positionalArg: null,
+    actions: ['say'], defaultAction: 'say', positionalArg: null, params: ['text', 'rate'],
     help: `windows-speak [say] (--text 文本 | --stdin) [--rate -10..10]
 
 语音播报文本（System.Speech TTS）。
@@ -78,14 +78,14 @@ windows-clipboard set (--text 文本 | --stdin)
   --rate    语速 -10（最慢）..10（最快），默认 0`,
   },
   'windows-screenshot': {
-    actions: ['capture'], defaultAction: 'capture', positionalArg: null,
+    actions: ['capture'], defaultAction: 'capture', positionalArg: null, params: [],
     help: `windows-screenshot [capture]
 
 截取全部屏幕，PNG 保存到会话附件目录，输出 { path, width, height, bytes }。
 隐私敏感操作，首次使用会向用户请求确认。`,
   },
   'windows-device': {
-    actions: ['info'], defaultAction: 'info', positionalArg: null,
+    actions: ['info'], defaultAction: 'info', positionalArg: null, params: [],
     help: `windows-device [info]
 
 读取系统信息，输出 { osVersion, computerName, userName, cpuCount, totalMemoryMB, psVersion }。
@@ -270,6 +270,19 @@ async function main() {
     action = resolveAction(spec, positional, args);
   } catch (e) {
     fail(tool, '', 'INVALID_ARGS', e.message, EXIT.ARGS, compact);
+    return;
+  }
+
+  // 参数白名单校验：先于环境检查（e2e 缺陷发现：--action set 被静默吞成默认动作）
+  const unknownKeys = Object.keys(args).filter(k => !spec.params.includes(k));
+  if (unknownKeys.length > 0) {
+    const unknownDisplay = unknownKeys.map(k => `--${k}`).join('、');
+    const supportedDisplay = spec.params.length
+      ? spec.params.map(p => `--${p}`).join(' ')
+      : '(无参数)';
+    const paramsHint = spec.params.length ? `，支持参数：${supportedDisplay}` : '，不支持任何参数';
+    const tip = `未知参数 ${unknownDisplay}${paramsHint}；动作是位置参数（如：${tool} ${action} ${supportedDisplay.trimEnd() ? '--参数 值' : ''}）。运行 \`${tool} --help\` 查看详情。`;
+    fail(tool, action, 'INVALID_ARGS', tip, EXIT.ARGS, compact);
     return;
   }
 
