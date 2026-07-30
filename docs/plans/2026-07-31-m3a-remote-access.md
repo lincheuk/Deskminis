@@ -577,20 +577,23 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/
 
 ---
 
-### Task 3: PairingKey（X25519 ECDH + HKDF + vault CRUD）
+### Task 3 · PairingKey（X25519 ECDH + HKDF + vault CRUD） ✅（含追加修正）
 
 **Files:**
 - Create: `deskminis/src/minisd/remote/pairing.ts`
 - Test: `deskminis/tests/remote-pairing.test.ts`
 
 **Interfaces:**
-- Consumes: `@noble/curves`（x25519）、`@noble/hashes`（hkdf、blake2b）、M1 `SecretVault`（[`provider-store.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/store/provider-store.ts) L12-16）
-- Produces（Task 4 依赖）:
-  - `export interface PairingKey { fingerprint: string; authKey: Uint8Array(32); sessionSecret: Uint8Array(32); roomId: string; peerPubKeyB64: string; createdAt: number }`
-  - `export class PairingStore { constructor(vault: SecretVault, ourStaticPriv?: Uint8Array); beginPairing(): { code: string; ourPubKeyB64: string; fingerprint: string; expiresAt: number }; completePairing(code: string, peerPubKeyB64: string): { fingerprint: string; ourPubKeyB64: string }; list(): PairingKey[]; get(fingerprint: string): PairingKey | undefined; delete(fingerprint: string): void }`
-  - `beginPairing` 生成 8 字配对码（Crockford base32，去除易混字符）+ 取本机静态公钥；fingerprint 此时由「本机静态公钥」预派生（completePairing 后用 ECDH 共享密钥重算并覆盖）；pending 记录 5 分钟过期。
-  - `completePairing` 做 ECDH(ourStaticPriv, peerPubKey) → HKDF(sharedSecret, salt=code, info='deskminis-m3a') → authKey(32) + sessionSecret(32) + roomId(16 hex)；fingerprint = base32(blake2b(sharedSecret, {dkLen:3})) 前 6 字符；存 vault key=`pairing.<fingerprint>`（JSON：base64 各密钥）。
-  - 静态私钥存 vault key=`pairing.static-priv`（首次生成，永不导出）。
+- Consumes: `@noble/curves`（x25519，从 `@noble/curves/ed25519.js` 导入）、`@noble/hashes`（hkdf、sha256，从 `@noble/hashes/hkdf.js` + `@noble/hashes/sha2.js` 导入）、M1 `SecretVault`（[`provider-store.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/store/provider-store.ts) L12-16，仅 set/get/delete 无 list）
+- Produces（Task 4 依赖，三层分层）:
+  - `export function generatePairingCode(): string`——8 字符，去除易混淆字符 0/O/1/I/L，字符集 `ABCDEFGHJKMNPQRSTUVWXYZ23456789`
+  - `export class StaticIdentity { constructor(privateKey?: Uint8Array); readonly privateKey/publicKey/fingerprint; static loadOrCreate(vault: SecretVault): StaticIdentity }`——X25519 静态密钥对；无参构造随机生成（测试用），传 privateKey 从私钥恢复；`loadOrCreate` 首次生成后存 vault key=`pairing.static-identity`（base64 私钥），后续启动加载复用；fingerprint = `sha256(publicKey).slice(0,6)` 的 12 字符 hex（48-bit 强度）
+  - `export function derivePairingKey(myPriv, peerPub, pairingCode, peerFingerprint?, peerName?): PairingKey`——ECDH + HKDF-SHA256 派生 64 字节（前 32=authKey，后 32=sessionSecret）+ 5 字节 roomId（base32 编码 8 字符）；createdAt 为 epoch 秒（`Math.floor(Date.now()/1000)`）
+  - `export class PairingStore { constructor(dataDir, vault); save(key): void; get(fp): PairingKey | undefined; list(): PairingKeyPublicView[]; delete(fp): void }`——持久化 CRUD；vault 存密钥本体（key=`pairing.<fp>`），`pairing-index.json` 存 fingerprint 列表（SecretVault 无 list 接口，自管索引）；list() 返回脱敏视图（不含 authKey/sessionSecret）
+  - `export class PairingService { constructor(store: PairingStore, vault: SecretVault); beginPairing(): { code, ourPubKeyB64, fingerprint, expiresAt }; completePairing(code, peerPubKeyB64, peerFingerprint, peerName?): { fingerprint, ourPubKeyB64 }; hasPending(code): boolean; cleanupExpired(): void; list()/get(fp)/delete(fp) 代理 store }`——配对协议生命周期；StaticIdentity 经 `loadOrCreate` 持久化；pending 表存进程内存（5 分钟过期，complete 后一次性消费）
+  - `export interface PairingKey { authKey: Uint8Array(32); sessionSecret: Uint8Array(32); roomId: string; peerFingerprint: string; peerName: string; createdAt: number }`
+  - `export interface PairingKeyPublicView { peerFingerprint; peerName; roomId; createdAt }`——脱敏视图
+  - `export const PAIRING_CODE_TTL_S = 300`——配对码有效期 5 分钟（秒）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -830,22 +833,22 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/
 - Test: `deskminis/tests/remote-rpc.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1 `AuthMode`/`RpcConnection`/`AdditionalVerify`；Task 2 `encodePasetoLocal`/`decodePasetoLocal`；Task 3 `PairingStore`
+- Consumes: Task 1 `AuthMode`/`RpcConnection`/`AdditionalVerify`；Task 2 `encodePaseto`/`decodePaseto`；Task 3 `PairingService`（含 `beginPairing`/`completePairing`/`hasPending`/`list`/`get`/`delete`）
 - Produces:
-  - `export function makeRemoteMethods(pairing: PairingStore): { 'remote.pair.begin': ...; 'remote.pair.complete': ...; 'remote.status': ...; 'remote.unpair': ... }`——每个方法第一参为 `(params, conn)`，内部 `assertAuthMode(conn, ...)` 守卫：
-    - `remote.pair.begin`：仅 `local`；返回 `{ code, ourPubKeyB64, fingerprint, expiresAt }`
-    - `remote.pair.complete({ code, peerPubKeyB64 })`：仅 `pairing`；调 `pairing.completePairing`；返回 `{ fingerprint, ourPubKeyB64 }`
-    - `remote.status`：仅 `local`；返回 `{ pairings: PairingKey[](脱敏,不含密钥) }`
-    - `remote.unpair({ fingerprint, confirm })`：仅 `local`；调 `pairing.delete`
-  - `export function makeAdditionalVerify(pairing: PairingStore): AdditionalVerify`——
-    - `?paseto=<token>`：遍历 `pairing.list()`，用每个 authKey 试 `decodePasetoLocal`；成功且 `exp > now` → `{ ok:true, authMode:'remote' }`；任一失败继续下一个；全失败 → `{ ok:false }`
-    - `?pairingCode=<code>`：code 存在于 pending（未过期）→ `{ ok:true, authMode:'pairing' }`；否则 `{ ok:false }`
-    - 注意：additionalVerify 需要访问 pending 列表——PairingStore 暴露 `hasPending(code): boolean` 或 additionalVerify 直接调 pairing 的内部方法
+  - `export function createRemoteMethods(service: PairingService): RpcMethods`——每个方法第一参为 `(params, conn)`，内部 `assertAuthMode(conn, ...)` 守卫：
+    - `remote.pair.begin`：仅 `local`；调 `service.beginPairing()`；返回 `{ pairingCode, myPublicKey(Uint8Array), myPublicKeyB64, myFingerprint, expiresIn }`
+    - `remote.pair.complete({ pairingCode, peerPublicKey, peerFingerprint, peerName? })`：仅 `pairing`；调 `service.completePairing`；返回 `{ ok, peerFingerprint }`
+    - `remote.status`：仅 `local`；返回 `{ devices: PairingKeyPublicView[](脱敏,不含密钥) }`
+    - `remote.unpair({ peerFingerprint })`：仅 `local`；调 `service.delete`
+  - `export function createAdditionalVerify(service: PairingService): AdditionalVerify`——
+    - `?paseto=<token>`：遍历 `service.list()`，用每个 authKey 试 `decodePaseto`；成功则 `{ ok:true, authMode:'remote' }`；任一失败继续下一个；全失败 → `{ ok:false }`
+    - `?pairingCode=<code>`：`service.hasPending(code)` → `{ ok:true, authMode:'pairing' }`；否则 `{ ok:false }`
+  - `export function guardBusinessMethod(method, name): method`——包装业务面方法，pairing 模式拒（remote 模式全开）
   - `minisd/index.ts` 改动：
-    - 装配 `const pairing = new PairingStore(vault);`
-    - `new RpcServer(methods, authToken, makeAdditionalVerify(pairing))`（第三参）
-    - methods 合并 `makeRemoteMethods(pairing)`
-    - standalone 分支 L450-461：`startMinisd({ host: process.env.MINISD_HOST ?? '127.0.0.1' })`
+    - 装配 `const pairingStore = new PairingStore(root, vault); const pairingService = new PairingService(pairingStore, vault);`
+    - `new RpcServer(methods, authToken, createAdditionalVerify(pairingService))`（第三参）
+    - methods 合并 `createRemoteMethods(pairingService)` + 业务面方法统一用 `guardBusinessMethod` 包装
+    - standalone 分支：`startMinisd({ host: process.env.MINISD_HOST })`（不传则默认 127.0.0.1）
 
 - [ ] **Step 1: 写失败测试**
 
