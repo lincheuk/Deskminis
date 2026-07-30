@@ -27,7 +27,7 @@ describe('memory_write 工具', () => {
   });
 
   it('写当日日志（date 省略）', async () => {
-    const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
+    const ctx = { sessionId, paths, permissions: { async check() { return 'allow' as const; } } };
     const r = await memoryWriteTool.execute({ markdown: '测试记忆条目', tool_title: '写记忆' }, ctx);
     expect(r.success).toBe(true);
     expect(r.output).toContain('已写入');
@@ -38,13 +38,13 @@ describe('memory_write 工具', () => {
   });
 
   it('指定 date 写日志', async () => {
-    const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
+    const ctx = { sessionId, paths, permissions: { async check() { return 'allow' as const; } } };
     await memoryWriteTool.execute({ markdown: '历史记忆', date: '2026-07-01', tool_title: '写记忆' }, ctx);
     expect(store.readDailyLog('2026-07-01')).toContain('历史记忆');
   });
 
   it('markdown 为空时报错', async () => {
-    const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
+    const ctx = { sessionId, paths, permissions: { async check() { return 'allow' as const; } } };
     const r = await memoryWriteTool.execute({ markdown: '', tool_title: '写记忆' }, ctx);
     expect(r.success).toBe(false);
     expect(r.output).toContain('不能为空');
@@ -61,7 +61,7 @@ describe('memory_get 工具', () => {
   it('按关键词命中排序返回条目', async () => {
     store.appendDailyLog('2026-07-29', '今天研究了 Rust 异步');
     store.appendDailyLog('2026-07-30', '今天研究了 TypeScript 类型');
-    const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
+    const ctx = { sessionId, paths, permissions: { async check() { return 'allow' as const; } } };
     const r = await memoryGetTool.execute({ query: 'TypeScript', tool_title: '查记忆' }, ctx);
     expect(r.success).toBe(true);
     // 命中的条目出现；未命中的条目（Rust 异步）不参与返回（bigram 语义：命中是检索前提）
@@ -71,14 +71,14 @@ describe('memory_get 工具', () => {
 
   it('无匹配时返回提示而非空', async () => {
     store.appendDailyLog('2026-07-30', '无关内容');
-    const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
+    const ctx = { sessionId, paths, permissions: { async check() { return 'allow' as const; } } };
     const r = await memoryGetTool.execute({ query: '不存在的关键词', tool_title: '查记忆' }, ctx);
     expect(r.success).toBe(true);
     expect(r.output).toContain('未找到');
   });
 
   it('无任何记忆时返回空提示', async () => {
-    const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
+    const ctx = { sessionId, paths, permissions: { async check() { return 'allow' as const; } } };
     const r = await memoryGetTool.execute({ query: '任意', tool_title: '查记忆' }, ctx);
     expect(r.success).toBe(true);
     expect(r.output).toContain('暂无记忆');
@@ -86,7 +86,7 @@ describe('memory_get 工具', () => {
 
   it('上限 60 条 / 30KB（构造 80 条验证截断）', async () => {
     for (let i = 0; i < 80; i++) store.appendDailyLog('2026-07-30', `条目${i}内容`);
-    const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
+    const ctx = { sessionId, paths, permissions: { async check() { return 'allow' as const; } } };
     const r = await memoryGetTool.execute({ query: '条目', tool_title: '查记忆' }, ctx);
     expect(r.success).toBe(true);
     // 30KB 上限
