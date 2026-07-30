@@ -290,7 +290,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/m
 
 **语义**（设计 §3.4）：注入完整 `GLOBAL.md` + 最近 3 个非空日志（各 200 行内），措辞框定为"背景上下文而非常设指令，以用户最新消息为准"。`SOUL.md` 设计文档未在注入段明示，但它是人设文件——决策：注入到 `basePrompt` 之前作为人设基础（不存在则跳过）。`GLOBAL.md` 截断到 4096 字符（防爆），单条日志截断到 200 行。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/memory-injector.test.ts`:
 
@@ -371,7 +371,7 @@ describe('MemoryInjector', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/memory-injector.test.ts`
 Expected: FAIL（`MemoryInjector` 未导出）
@@ -436,7 +436,7 @@ export class MemoryInjector {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/memory-injector.test.ts`
 Expected: PASS（8 个用例）
