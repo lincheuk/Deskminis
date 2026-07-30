@@ -448,7 +448,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/t
   - `interface BridgeDeps { permissions: PermissionGateway; paths: MinisPaths; runPs?: PsRunner }`
   - `function makeBridgeDispatcher(deps: BridgeDeps): (req: BridgeRequest) => Promise<BridgeEnvelope>`——分发表七个键：`windows-notify show` / `windows-clipboard get` / `windows-clipboard set` / `windows-open open` / `windows-speak say` / `windows-screenshot capture` / `windows-device info`；未知键→`INVALID_ARGS`；sessionId 必须匹配 UUID 形态（同 index.ts 的 SESSION_ID_RE）否则 `INVALID_ARGS`；权限 deny→`PERMISSION_DENIED`；PowerShell 非零退出→`EXEC_ERROR`；其余异常→`INTERNAL_ERROR`；**任何情况 resolve 信封、绝不 reject**
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-handlers.test.ts`:
 
@@ -757,12 +757,12 @@ describe('真实 PowerShell 集成（allow-all 网关）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-handlers`
 Expected: FAIL（模块 `../src/minisd/bridge/handlers` 不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/bridge/handlers.ts`:
 
@@ -1035,12 +1035,12 @@ export function makeBridgeDispatcher(deps: BridgeDeps): (req: BridgeRequest) => 
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-handlers`
 Expected: 全部 passed（分发 11 + handler 9 + runPowerShell 3 + 真实集成 3）。真实集成 3 例需要交互式 Windows 桌面会话（截屏/剪贴板），与日常 `npm test` 运行环境一致。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/handlers.ts deskminis/tests/bridge-handlers.test.ts && git commit -m "feat(m2e): 六桥handler+一次性PowerShell执行器(载荷走stdin JSON零插值)"
