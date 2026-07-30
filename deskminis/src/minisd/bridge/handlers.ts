@@ -126,7 +126,7 @@ async function clipboard(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEn
     if (text === undefined) return err(req, 'INVALID_ARGS', 'clipboard set 需要 --text 或 stdin');
     const r = await deps.runPs(CLIPBOARD_SET_SCRIPT, JSON.stringify({ text }));
     if (r.exitCode !== 0) return err(req, 'EXEC_ERROR', `windows-clipboard set 失败 (exit=${r.exitCode}): ${r.stderr}`.trim());
-    return ok(req, { set: true });
+    return ok(req, { length: text.length });
   }
   return err(req, 'INVALID_ARGS', `未知 action: ${req.action}`);
 }

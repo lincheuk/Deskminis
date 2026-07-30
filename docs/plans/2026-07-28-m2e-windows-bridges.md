@@ -1820,7 +1820,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/index.t
   - 退出码：0 成功 / 1 一般错误（EXEC_ERROR/INTERNAL_ERROR/INVALID_REQUEST）/ 2 PERMISSION_DENIED / 3 INVALID_ARGS / 4 BRIDGE_UNAVAILABLE
   - 超时：连接 5s；读响应 180s（覆盖 30s 权限询问 + 120s 语音播报 + 余量）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-cli.test.ts`:
 
@@ -2023,12 +2023,12 @@ describe('真分发端到端（真 PowerShell）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-cli`
 Expected: FAIL（Task 4 留下的 `bridge-cli.mjs` 只有 `export {};`——无解析/无输出，全部用例失败）
 
-- [ ] **Step 3: 实现完整 stub**
+- [x] **Step 3: 实现完整 stub**
 
 `deskminis/src/minisd/bridge-cli.mjs`（完整重写本文件；零依赖单文件——开发期 `node bridge-cli.mjs` 直跑，M4 用 Node SEA 打成 exe；帧编解码为 Task 1 算法的最小副本，**有意重复**以保持单文件自给）：
 
@@ -2354,7 +2354,7 @@ main().catch(e => {
 - 本地故障也出信封：`缺工具名/未知工具/解析失败/缺会话 id/载荷过大 → INVALID_ARGS(3)`；`缺管道变量/连不上/超时/对端早退 → BRIDGE_UNAVAILABLE(4)`——stub 使用者（模型）永远只需解析一种输出形态
 - `resolveAction` 里 `windows-open open https://x` 与 `windows-open https://x` 两种形态殊途同归（动作命中动作集先消费，剩余位置参数进 `positionalArg` 槽）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-cli`
 Expected: 16 passed（帮助与本地参数校验 7 + echo 线协议 6 + 真分发端到端 3）
@@ -2382,7 +2382,7 @@ cd deskminis && npm run dev
 
 全部通过则 M2e 达成。若步骤 2-5 不弹卡直接执行，回查 Task 2 默认级别表与 Task 3 的 kind 映射；若桥命令报 BRIDGE_UNAVAILABLE，回查 Task 5 的 listen 降级日志（console.warn）与 `MINIS_BRIDGE_PIPE` 注入。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge-cli.mjs deskminis/tests/bridge-cli.test.ts && git commit -m "feat(m2e): 桥CLI stub(argv/stdin→管道帧→JSON信封,退出码0-4)+端到端测试"
