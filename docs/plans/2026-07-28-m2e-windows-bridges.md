@@ -210,7 +210,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/
   - `types.ts`: `type BridgePermissionKind = 'bridge-notify' | 'bridge-clipboard-read' | 'bridge-clipboard-write' | 'bridge-open' | 'bridge-speak' | 'bridge-screenshot' | 'bridge-device'`；`PermissionRequest.kind: 'shell' | 'file-write' | 'file-read' | BridgePermissionKind`
   - `permissions.ts`: `type PermissionLevel = 'bypass' | 'askOnce' | 'notAllowed'`；`type PermissionClass = CommandClass | 'file-write' | 'file-read' | BridgePermissionKind`；默认级别：`bridge-device→bypass`，其余六个桥类目→`askOnce`，`danger/gated/file-*` 不变；`check()` 对非 shell kind 直接用 kind 作类目（不再只特判 file-write/file-read），`bypass→allow` 先于 `notAllowed→deny` 判定
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/permissions.test.ts` 文件**末尾追加**（不动既有内容）：
 
@@ -280,12 +280,12 @@ describe('桥类目（M2e 扩展）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- permissions`
 Expected: FAIL（`PermissionRequest['kind']` 不含 `bridge-*` 值，类型/运行期路由不存在——TS 报错或用例失败）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/tools/types.ts`（完整文件，**已对照现状核实**——M2c 已加入 `onFileRead` 钩子，原样保留；本 Task 改动点：`BridgePermissionKind` 导出 + `PermissionRequest.kind` 联合扩展）：
 
@@ -416,12 +416,12 @@ export class PermissionGatewayImpl implements PermissionGateway {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- permissions`
 Expected: 全部 passed（基线既有用例 + 新增 6 个桥用例）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/types.ts deskminis/src/minisd/tools/permissions.ts deskminis/tests/permissions.test.ts && git commit -m "feat(m2e): 权限网关扩展桥类目(恢复bypass级+六桥askOnce/device放行)"
