@@ -74,6 +74,42 @@ watch(
   () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.retryNote, chat.pendingPerms.length] as const,
   () => { void nextTick(() => { const el = streamEl.value; if (el) el.scrollTop = el.scrollHeight; }); },
 );
+
+// ---- /名字 斜杠菜单（设计 §5.1：纯输入辅助 —— 只把 /name 填进输入框，加载仍走模型侧 file_read）----
+const slashOpen = ref(false);
+const slashIndex = ref(0);
+// 仅首 token 激活：整行形如 /片段（尚无空白）；补全后带空格 → query 变 null → 菜单自闭
+const slashQuery = computed(() => (/^\/(\S*)$/.exec(input.value)?.[1] ?? null));
+const slashItems = computed(() => {
+  const q = slashQuery.value;
+  if (q === null) return [];
+  const needle = q.toLowerCase();
+  const hits = needle === '' ? chat.skills : chat.skills.filter(s =>
+    s.name.toLowerCase().includes(needle) || s.id.toLowerCase().includes(needle));
+  return hits.slice(0, 8);
+});
+watch(slashItems, items => { slashOpen.value = items.length > 0; slashIndex.value = 0; });
+
+function slashPick(name: string): void {
+  input.value = `/${name} `; // 尾部空格：关闭菜单并让模型拿到完整技能名
+  slashOpen.value = false;
+}
+function onEnterKey(): void {
+  const s = slashOpen.value ? slashItems.value[slashIndex.value] : undefined;
+  if (s) { slashPick(s.name); return; } // 菜单开着时 Enter = 选中，不是发送
+  void send();
+}
+function onSlashNav(delta: number, e: KeyboardEvent): void {
+  if (!slashOpen.value) return;
+  e.preventDefault();
+  slashIndex.value = (slashIndex.value + delta + slashItems.value.length) % slashItems.value.length;
+}
+function onSlashTab(e: KeyboardEvent): void {
+  if (!slashOpen.value) return;
+  e.preventDefault();
+  const s = slashItems.value[slashIndex.value];
+  if (s) slashPick(s.name);
+}
 </script>
 
 <template>
@@ -132,10 +168,25 @@ watch(
     </div>
 
     <div class="composer">
+      <div v-if="slashOpen" class="slashmenu">
+        <button
+          v-for="(s, i) in slashItems" :key="s.id" type="button"
+          class="slashitem" :class="{ on: i === slashIndex }"
+          @mousedown.prevent="slashPick(s.name)" @mouseenter="slashIndex = i"
+        >
+          <Icon name="book" :size="14" />
+          <span class="sname">/{{ s.name }}</span>
+          <span class="sdesc">{{ s.description }}</span>
+        </button>
+      </div>
       <textarea
         v-model="input" class="field" rows="1"
         placeholder="让 DeskMinis 做点什么…"
-        @keydown.enter.exact.prevent="send"
+        @keydown.enter.exact.prevent="onEnterKey"
+        @keydown.up="onSlashNav(-1, $event)"
+        @keydown.down="onSlashNav(1, $event)"
+        @keydown.tab="onSlashTab"
+        @keydown.esc="slashOpen = false"
       ></textarea>
       <div class="ctools">
         <div class="cpill static"><Icon name="folder" :size="14" /><span>工作区</span></div>
@@ -188,7 +239,24 @@ watch(
   margin: 0 16px 16px; border-radius: var(--r-input); background: var(--material-tint);
   backdrop-filter: var(--material-thin); border: .5px solid var(--separator);
   padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
+  position: relative;
 }
+.slashmenu {
+  position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
+  display: flex; flex-direction: column; padding: 6px; gap: 2px; max-height: 260px; overflow: auto;
+  background: var(--material-tint); backdrop-filter: var(--material-thin);
+  border: .5px solid var(--separator); border-radius: var(--r-md);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+}
+.slashitem {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: none; background: none;
+  border-radius: var(--r-control); cursor: pointer; color: var(--label); font-family: var(--font-ui);
+  font-size: 14px; text-align: left;
+}
+.slashitem.on { background: var(--fill-tertiary); }
+.slashitem :deep(svg) { stroke: var(--label-secondary); flex: 0 0 auto; }
+.sname { font-weight: 600; flex: 0 0 auto; }
+.sdesc { color: var(--label-tertiary); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field {
   background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);
   padding: 10px 12px; font-size: 16.5px; color: var(--label); font-family: var(--font-ui);
