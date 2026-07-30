@@ -70,7 +70,7 @@ deskminis/
   - `function encodeFrame(payload: unknown): Buffer`——JSON 序列化 + 4 字节大端长度头；体超长抛错
   - `class FrameDecoder { constructor(maxBytes?: number); push(chunk: Buffer): Buffer[] }`——增量喂字节，返回本轮拆出的完整帧体（不含长度头）；长度头超上限抛错并复位缓冲
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-frame.test.ts`:
 
@@ -137,12 +137,12 @@ describe('encodeFrame / FrameDecoder', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-frame`
 Expected: FAIL（模块 `../src/minisd/bridge/frame` 不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/bridge/frame.ts`:
 
@@ -184,12 +184,12 @@ export class FrameDecoder {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-frame`
 Expected: 7 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/frame.ts deskminis/tests/bridge-frame.test.ts && git commit -m "feat(m2e): 桥线协议长度前缀帧编解码(半包/粘包/16MB上限)"
