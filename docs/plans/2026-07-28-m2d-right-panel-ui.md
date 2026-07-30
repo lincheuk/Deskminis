@@ -128,7 +128,7 @@ deskminis/
     - `terminal.input({sessionId, data})` → `{ ok: true }`（写 stdin；`data` 为原始键入串，Enter = `'\r'`）
   - 副作用接线：`chat.sessions.delete` 同时 `terminals.dispose(sessionId)`；`close()` 调 `terminals.disposeAll()`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/terminal.test.ts`:
 
@@ -267,12 +267,12 @@ describe('terminal.* RPC（交互式终端会话）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/terminal.test.ts`
 Expected: FAIL（`terminal.attach` 未知方法 / 模块不存在）
 
-- [ ] **Step 3: 实现 terminal.ts**
+- [x] **Step 3: 实现 terminal.ts**
 
 `deskminis/src/minisd/terminal.ts`:
 
@@ -416,7 +416,7 @@ export class TerminalManager {
 }
 ```
 
-- [ ] **Step 4: 接线 minisd/index.ts（#4：增量清单 a-f + 现状锚点逐字引用）**
+- [x] **Step 4: 接线 minisd/index.ts（#4：增量清单 a-f + 现状锚点逐字引用）**
 
 <!-- 冲突点 #4：原计划的锚点在 main@c54dac4 全部对不上——imports 已有 28 行含 bridge/server、providers、skills 模块；methods 表 389-390 行在 modelgroup.delete / skills.delete 之后，close 序列在 395-402 行且已含 bridge?.close()、controllers.abort、pendingPerms 清理。以下 6 处插入/追加引用 c54dac4 真实行号。 -->
 
@@ -511,7 +511,7 @@ import { FilesService } from './files';
 
 **f. startMinisd 返回不变（已含 bridgePipe，M2e 已加）、close() 签名不变**。
 
-- [ ] **Step 5: 跑测试确认通过 + typecheck**
+- [x] **Step 5: 跑测试确认通过 + typecheck**
 
 Run: `cd deskminis && npm test -- tests/terminal.test.ts tests/chat-context-info.test.ts`
 Expected: `6 + 2 = 8 passed`
