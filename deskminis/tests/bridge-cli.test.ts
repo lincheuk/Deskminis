@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BridgeServer } from '../src/minisd/bridge/server';
-import { makeBridgeDispatcher, errEnvelope, type BridgeEnvelope } from '../src/minisd/bridge/handlers';
+import { makeBridgeDispatcher, errEnvelope, runPowerShell, type BridgeEnvelope } from '../src/minisd/bridge/handlers';
 import { MinisPaths } from '../src/minisd/paths';
 import { uniquePipePath, startEchoServer } from './bridge-util';
+import { withClipboardLock } from './clipboard-lock';
 
 const CLI = fileURLToPath(new URL('../src/minisd/bridge-cli.mjs', import.meta.url));
 const SESSION = 'A1B2C3D4-E5F6-4789-ABCD-EF0123456789';
@@ -223,16 +224,33 @@ describe('真分发端到端（真 PowerShell）', () => {
     expect((env.data as Record<string, unknown>).computerName).toBe(process.env.COMPUTERNAME);
   }, 30000);
 
-  it('windows-clipboard set/get 经 CLI 往返（会短暂改写本机剪贴板）', async () => {
-    const { pipePath, close } = await startRealServer();
-    cleanups.push(close);
-    const set = await runCli(['windows-clipboard', 'set', '--text', 'CLI-端到端①'], BRIDGE_ENV(pipePath));
-    expect(set.code).toBe(0);
-    expect((JSON.parse(set.stdout) as BridgeEnvelope).data).toEqual({ length: 8 });
-    const get = await runCli(['windows-clipboard', 'get'], BRIDGE_ENV(pipePath));
-    expect(get.code).toBe(0);
-    expect(((JSON.parse(get.stdout) as BridgeEnvelope).data as { text: string }).text).toBe('CLI-端到端①');
-  }, 30000);
+  // withClipboardLock 跨文件互斥：避免 vitest fileParallelism 下与
+  // bridge-handlers.test.ts 的剪贴板往返用例竞态（set→get 之间被另一个 worker 的 set 打断）。
+  // 同时补上此前缺失的「保存用户旧值 → 断言 → finally 恢复」，
+  // 不再在全量跑完后把用户剪贴板残留成测试字符串。
+  it('windows-clipboard set/get 经 CLI 往返（会短暂改写本机剪贴板，跨文件互斥）', async () => {
+    await withClipboardLock(async () => {
+      // 保存用户剪贴板
+      const saved = await runPowerShell(`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+[Console]::Out.Write([System.Windows.Forms.Clipboard]::GetText())`);
+      const { pipePath, close } = await startRealServer();
+      cleanups.push(close);
+      try {
+        const set = await runCli(['windows-clipboard', 'set', '--text', 'CLI-端到端①'], BRIDGE_ENV(pipePath));
+        expect(set.code).toBe(0);
+        expect((JSON.parse(set.stdout) as BridgeEnvelope).data).toEqual({ length: 8 });
+        const get = await runCli(['windows-clipboard', 'get'], BRIDGE_ENV(pipePath));
+        expect(get.code).toBe(0);
+        expect(((JSON.parse(get.stdout) as BridgeEnvelope).data as { text: string }).text).toBe('CLI-端到端①');
+      } finally {
+        await runPowerShell(`[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+$t = [Console]::In.ReadToEnd()
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Clipboard]::SetText($t)`, saved.stdout);
+      }
+    });
+  }, 60000);
 
   it('windows-open 不存在目标：服务端 INVALID_ARGS → 退出 3', async () => {
     const { pipePath, close } = await startRealServer();

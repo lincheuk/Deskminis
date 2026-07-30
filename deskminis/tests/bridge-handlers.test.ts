@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,7 @@ import {
 } from '../src/minisd/bridge/handlers';
 import { MinisPaths } from '../src/minisd/paths';
 import type { PermissionGateway, PermissionRequest } from '../src/minisd/tools/types';
+import { withClipboardLock } from './clipboard-lock';
 
 const SESSION = 'A1B2C3D4-E5F6-4789-ABCD-EF0123456789';
 
@@ -273,29 +274,30 @@ describe('真实 PowerShell 集成（allow-all 网关）', () => {
     return { permissions: { async check() { return 'allow' as const; } }, paths };
   };
 
-  // 用户剪贴板是系统全局资源——本 describe 的 clipboard 用例会改写它，
-  // 必须先存旧值、测后恢复，避免破坏用户当前剪贴板内容。
-  let savedClipboard = '';
-  beforeAll(async () => {
-    const r = await runPowerShell(`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  // withClipboardLock 跨文件互斥：避免 vitest fileParallelism 下与
+  // bridge-cli.test.ts 的剪贴板往返用例竞态（set→get 之间被另一个 worker 的 set 打断）。
+  // 同时用例自包含「保存旧值 → 断言 → finally 恢复」，避免 beforeAll 级钩子因异常/skip 漏恢复
+  // 或因长时间持锁阻塞其他文件。
+  it('clipboard set→get 往返（会短暂改写本机剪贴板，跨文件互斥）', async () => {
+    await withClipboardLock(async () => {
+      // 保存用户剪贴板
+      const saved = await runPowerShell(`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
 [Console]::Out.Write([System.Windows.Forms.Clipboard]::GetText())`);
-    savedClipboard = r.stdout;
-  });
-  afterAll(async () => {
-    await runPowerShell(`[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+      try {
+        const dispatch = makeBridgeDispatcher(realDeps());
+        const setEnv = await dispatch(req('windows-clipboard', 'set', { text: 'DeskMinis-M2E-测试①' }));
+        expect(setEnv.ok).toBe(true);
+        const getEnv = await dispatch(req('windows-clipboard', 'get'));
+        expect(getEnv.ok).toBe(true);
+        expect((getEnv.data as { text: string }).text).toBe('DeskMinis-M2E-测试①');
+      } finally {
+        await runPowerShell(`[Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $t = [Console]::In.ReadToEnd()
 Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Clipboard]::SetText($t)`, savedClipboard);
-  });
-
-  it('clipboard set→get 往返（会短暂改写本机剪贴板）', async () => {
-    const dispatch = makeBridgeDispatcher(realDeps());
-    const setEnv = await dispatch(req('windows-clipboard', 'set', { text: 'DeskMinis-M2E-测试①' }));
-    expect(setEnv.ok).toBe(true);
-    const getEnv = await dispatch(req('windows-clipboard', 'get'));
-    expect(getEnv.ok).toBe(true);
-    expect((getEnv.data as { text: string }).text).toBe('DeskMinis-M2E-测试①');
+[System.Windows.Forms.Clipboard]::SetText($t)`, saved.stdout);
+      }
+    });
   });
 
   it('device info 返回本机真实字段', async () => {
