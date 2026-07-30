@@ -68,13 +68,13 @@ describe('M2d Task 5 任务面板（store 增量 + 视图 + App 接线，7 例�
     expect(tasksPanel).toContain("chat.lastStopReason");
     expect(tasksPanel).toContain("chat.retryNote");
     expect(tasksPanel).toContain("chat.running");
-    // #10 事件三卡：
+    // #10 事件三卡（卡片命名/字段与 loop.ts 真实载荷对齐：fix(m2d) 本次同步修订）
     expect(tasksPanel).toContain("chat.fallbackState");
     expect(tasksPanel).toContain("chat.compactedState");
     expect(tasksPanel).toContain("chat.offloadedState");
     expect(tasksPanel).toContain("模型已降级");
     expect(tasksPanel).toContain("上下文已压缩");
-    expect(tasksPanel).toContain("历史消息已卸载");
+    expect(tasksPanel).toContain("大工具输出已卸载"); // 与 loop.ts 的 offloaded(toolUseId,relativePath) 语义对齐：非「历史消息」而是大工具输出逐条约盘
   });
 
   it('Step 3. App.vue 2 处增量（Task 4 → Task 5 串行演进）：import TasksPanel；rightTab===tasks 时 v-show v-if visited.tasks；terminal/files 页签 v-show 保留；import TerminalPanel/FilesPanel 不变', () => {

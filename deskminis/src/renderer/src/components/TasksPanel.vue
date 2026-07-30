@@ -51,23 +51,26 @@ const STOP_LABEL: Record<string, string> = {
 };
 const stopLabel = computed(() => STOP_LABEL[chat.lastStopReason] ?? (chat.lastStopReason || '—'));
 
-/** #10：四种未消费事件中，fallback / compacted / offloaded 在任务面板显示为彩色状态卡；retry 已用 tnote 呈现。 */
+/** #10：四种未消费事件中，fallback / compacted / offloaded 在任务面板显示为彩色状态卡；retry 已用 tnote 呈现。
+ *  渲染字段严格对齐 stores/chat.ts 从 loop.ts 真实载荷派生的形状（无 fromCount/toCount/freedTokens/oldestTs 这些不存在项，
+ *  缺什么就不渲染——不再用 || '?' 或 ?? 0 把「字段根本不存在」静默成零值问号）。 */
 const eventCards = computed(() => {
   const cards: { kind: string; color: string; icon: string; title: string; body: string }[] = [];
   if (chat.fallbackState) {
     const s = chat.fallbackState;
     cards.push({ kind: 'fallback', color: 'var(--orange)', icon: '⚠', title: '模型已降级',
-      body: `${s.fromModel || '?'} → ${s.toModel || '?'}${s.reason ? `（${s.reason}）` : ''}` });
+      body: `${s.from} → ${s.to}${s.reason ? `（${s.reason}）` : ''}` });
   }
   if (chat.compactedState) {
     const s = chat.compactedState;
     cards.push({ kind: 'compacted', color: 'var(--info, #0a84ff)', icon: '≣', title: '上下文已压缩',
-      body: `${s.fromCount} 条 → ${s.toCount} 条${s.freedTokens ? `（释放约 ${s.freedTokens.toLocaleString()} tokens）` : ''}` });
+      body: s.summary }); // summary 已由 loop 截取前 200 字符；不再渲染 fromCount/toCount/freedTokens（loop 事件里没有）
   }
   if (chat.offloadedState) {
     const s = chat.offloadedState;
-    cards.push({ kind: 'offloaded', color: 'var(--purple, #5e5ce6)', icon: '↓', title: '历史消息已卸载',
-      body: `移出 ${s.count} 条${s.freedTokens ? `（释放约 ${s.freedTokens.toLocaleString()} tokens）` : ''}${s.oldestTs ? `（最早 ${new Date(s.oldestTs).toLocaleDateString()}）` : ''}` });
+    const countPart = s.count > 1 ? `（累计 ${s.count} 条）` : '';
+    cards.push({ kind: 'offloaded', color: 'var(--purple, #5e5ce6)', icon: '↓', title: '大工具输出已卸载',
+      body: s.lastRelativePath ? `${s.lastRelativePath}${countPart}` : `${s.count} 条` });
   }
   return cards;
 });

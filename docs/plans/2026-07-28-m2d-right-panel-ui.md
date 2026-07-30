@@ -98,9 +98,9 @@ deskminis/
 > | messagePersisted | ChatStore | 未消费 | 本次不接线（纯内部事件） | - | - |
 > | turnEnd | agent loop | ChatView 已有（open 刷新） | 保留不动 + 新触发 contextInfo 刷新 | 对话流 + 任务面板 | 任务面板 turnEnd 后水位条刷新到新值 |
 > | **retry** | agent loop | ChatView 已有（retryNote 横幅） | 保留 + 追加**任务面板状态区**回显 | 对话流 + 任务面板 | 任务面板运行区显示「重试中 (N/s)」+ 对话流内联灰条 |
-> | **fallback** | runAgentLoop（M2b 降级） | **未消费** | 对话流内联黄条 + 任务面板「已切换到 <provider>」 | 对话流 + 任务面板 | 造 fallbackable 报错，对话出现内联条，任务面板 provider 标签切换 |
-> | **compacted** | CompactEngine（M2a 压缩） | **未消费** | 对话流内联灰条「上下文已压缩，删除 N 条历史节省 tokens」+ 任务面板状态区 | 对话流 + 任务面板 | 长对话触发压缩后能看到内联条 |
-> | **offloaded** | OffloadEngine（M2a 卸载） | **未消费** | 对话流内联灰条「N 条旧消息已归档到磁盘」+ 任务面板状态区 | 对话流 + 任务面板 | 长会话触发 offload 后能看到内联条 |
+> | **fallback** | runAgentLoop（M2b 降级） | **未消费** | 对话流内联黄条「X → Y（原因）」+ 任务面板「模型已降级」卡（字段 from/to/reason 严格对齐 loop.ts） | 对话流 + 任务面板 | 造 fallbackable 报错，对话出现内联条，任务面板卡片显示「源槽 → 目标槽（原因）」 |
+> | **compacted** | CompactEngine（M2a 压缩） | **未消费** | 对话流内联灰条「已压缩（摘要：前30字…）」+ 任务面板卡体直接显示 summary 片段（loop 事件仅有 markerId/summary，无 fromCount/freedTokens） | 对话流 + 任务面板 | 长对话触发压缩后，对话流内联条出现摘要前 30 字，任务面板卡片体显示 200 字以内完整摘要 |
+> | **offloaded** | OffloadEngine（M2a 卸载） | **未消费** | 对话流内联灰条「卸载工具输出 → <relativePath>」+ 任务面板「大工具输出已卸载」卡（逐条事件，store 自行累计计数+最近一条 relativePath，无 count/oldestTs/freedTokens 聚合字段） | 对话流 + 任务面板 | 触发 offload 后对话流逐条落灰条（含路径），任务面板卡片显示路径+累计条数 |
 > | error | agent loop | ChatView lastError 已有 | 保留不动 | 横幅 | （基线已有） |
 >
 > skills.changed / skills.import.progress 已被 M2c 斜杠菜单消费（chat.init → refreshSkills），**本条（#10）不重复接线**。

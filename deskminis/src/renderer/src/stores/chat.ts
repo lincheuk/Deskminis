@@ -35,9 +35,9 @@ export const useChat = defineStore('chat', {
     // M2d · #10 事件 UI 接线：四种目前未消费事件（fallback/compacted/offloaded/retry）的状态。
     //   retry 已有 retryNote 字段沿用；其余三种新增会话级环内联提示 + 任务面板状态字典。
     eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'; ts: number; detail?: string }[], // 对话流内联气泡（最多保留 10 条）
-    fallbackState: null as null | { fromModel: string; toModel: string; reason?: string }, // 任务面板「降级」卡
-    compactedState: null as null | { fromCount: number; toCount: number; freedTokens?: number }, // 任务面板「压缩」卡
-    offloadedState: null as null | { count: number; oldestTs?: number; freedTokens?: number }, // 任务面板「卸载」卡
+    fallbackState: null as null | { from: string; to: string; reason: string }, // 任务面板「降级」卡（对齐 loop.ts: fallback(from,to,reason)）
+    compactedState: null as null | { markerId: string; summary: string }, // 任务面板「压缩」卡（对齐 loop.ts: compacted(markerId,summary)；无 fromCount/toCount/freedTokens）
+    offloadedState: null as null | { count: number; lastRelativePath?: string }, // 任务面板「卸载」卡（对齐 loop.ts: offloaded(toolUseId,relativePath)；逐条自增计数，附最近一条路径）
     // M2d · #7：chat.contextInfo 轮询缓存（任务面板水位条显示窗口 + 当次用量）
     contextInfo: null as null | { windowTokens: number; usedTokens: number; remaining: number },
   }),
@@ -140,20 +140,28 @@ export const useChat = defineStore('chat', {
         this.running = false;
         void this.open(this.activeId);
       }
-      // M2d · #10：四种未消费事件（M2b 降级 / M2a 压缩 / M2a 卸载 / retry）——retry 分支已有，仅补其余三种并在任务面板挂状态
+      // M2d · #10：四种未消费事件（M2b 降级 / M2a 压缩 / M2a 卸载 / retry）——retry 分支已有，仅补其余三种并在任务面板挂状态。
+      // 字段严格对齐 loop.ts 的 LoopEvent 联合类型，禁止用 ?? 0 / ?? '' 静默兜底掩盖缺失。
       else if (e.kind === 'fallback') {
-        this.fallbackState = { fromModel: String(e.fromModel ?? ''), toModel: String(e.toModel ?? ''), reason: e.reason ? String(e.reason) : undefined };
-        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'fallback', ts: Date.now(), detail: `${e.fromModel ?? '?'} → ${e.toModel ?? '?'}` }];
+        // loop.ts L19: { kind: 'fallback'; from: string; to: string; reason: string }
+        this.fallbackState = { from: String(e.from), to: String(e.to), reason: String(e.reason) };
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'fallback', ts: Date.now(), detail: `${String(e.from)} → ${String(e.to)}（${String(e.reason)}）` }];
         void this.fetchContextInfo(); // 降级后上下文窗口可能变（小模型 → 小窗口）
       }
       else if (e.kind === 'compacted') {
-        this.compactedState = { fromCount: Number(e.fromCount ?? 0), toCount: Number(e.toCount ?? 0), freedTokens: e.freedTokens ? Number(e.freedTokens) : undefined };
-        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'compacted', ts: Date.now(), detail: `${e.fromCount ?? 0} 条 → ${e.toCount ?? 0} 条` }];
+        // loop.ts L20: { kind: 'compacted'; markerId: string; summary: string } —— summary 已由 loop 截取前 200 字符
+        this.compactedState = { markerId: String(e.markerId), summary: String(e.summary) };
+        const snippet = String(e.summary).slice(0, 30).replace(/\s+/g, ' ');
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'compacted', ts: Date.now(), detail: snippet ? `已压缩（摘要：${snippet}…）` : '已压缩' }];
         void this.fetchContextInfo(); // 压缩后用量减少
       }
       else if (e.kind === 'offloaded') {
-        this.offloadedState = { count: Number(e.count ?? 0), oldestTs: e.oldestTs ? Number(e.oldestTs) : undefined, freedTokens: e.freedTokens ? Number(e.freedTokens) : undefined };
-        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'offloaded', ts: Date.now(), detail: `卸载 ${e.count ?? 0} 条历史` }];
+        // loop.ts L21: { kind: 'offloaded'; toolUseId: string; relativePath: string } —— 每条大工具输出各发一次，非聚合；store 自行累计本会话计数
+        const prev = this.offloadedState;
+        const count = (prev?.count ?? 0) + 1;
+        const lastRelativePath = String(e.relativePath);
+        this.offloadedState = { count, lastRelativePath };
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'offloaded', ts: Date.now(), detail: `卸载工具输出 → ${lastRelativePath}` }];
         void this.fetchContextInfo();
       }
     },
