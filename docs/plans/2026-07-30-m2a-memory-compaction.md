@@ -74,7 +74,7 @@ deskminis/
 
 **语义**（设计 §3.4）：`GLOBAL.md` 用户维护 agent 只读（`MemoryStore` 不提供写接口）；`SOUL.md` 人设（YAML frontmatter + 正文）；`YYYY-MM-DD.md` 每日日志，条目格式 `<!-- YYYY-MM-DD HH:mm:ss -->\n{markdown}\n\n`，前插（最新在前）。`date` 参数格式 `YYYY-MM-DD`，非法格式抛错。`appendDailyLog` 用系统本地时区（不硬编码——`new Date()` 取系统本地时间，`formatLocalTs` 用 `d.getFullYear()/getMonth()/...` 系列本地访问器拼出 `YYYY-MM-DD HH:mm:ss`，全程不碰 UTC，与 `toISOString` 无关）。原子写：先写 `tmp` 再 `rename`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/memory-store.test.ts`:
 
@@ -172,7 +172,7 @@ describe('MemoryStore', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/memory-store.test.ts`
 Expected: FAIL（`MemoryStore` 未导出）
@@ -256,7 +256,7 @@ export class MemoryStore {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + M2b 测试不回归**
+- [x] **Step 4: 跑测试确认通过 + M2b 测试不回归**
 
 Run: `cd deskminis && npm test -- tests/memory-store.test.ts`
 Expected: PASS（13 个用例）
