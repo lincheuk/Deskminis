@@ -467,7 +467,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/m
 
 **语义**（设计 §3.4）：`memory_write` 写当日日志（`date` 省略时取本地今天）；`memory_get` 遍历所有日志条目，按 `0.5×关键词命中率 + 0.5×新近度` 评分降序，上限 60 条 / 30KB。关键词命中率 = query 分词后在 markdown 中命中的词数 / query 总词数（中文按单字、英文按空格分词，简单实现不引分词库）。新近度 = `1 / (1 + daysSinceTimestamp)`。会话级 `memory_enabled` 关闭时工具整个从 schema 移除（Task 7 在 `index.ts` 按会话过滤，本 Task 只造工具）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/memory-tools.test.ts`:
 
@@ -538,8 +538,9 @@ describe('memory_get 工具', () => {
     const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
     const r = await memoryGetTool.execute(JSON.stringify({ query: 'TypeScript', tool_title: '查记忆' }), ctx);
     expect(r.success).toBe(true);
-    // TypeScript 命中的条目应排在前面
-    expect(r.output.indexOf('TypeScript 类型')).toBeLessThan(r.output.indexOf('Rust 异步'));
+    // 命中的条目出现；未命中的条目（Rust 异步）不参与返回（bigram 语义：命中是检索前提）
+    expect(r.output).toContain('TypeScript 类型');
+    expect(r.output).not.toContain('Rust 异步');
   });
 
   it('无匹配时返回提示而非空', async () => {
@@ -575,7 +576,7 @@ describe('MEMORY_TOOL_NAMES', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/memory-tools.test.ts`
 Expected: FAIL（`memoryWriteTool` / `memoryGetTool` / `MEMORY_TOOL_NAMES` 未导出）
@@ -601,16 +602,19 @@ function makeStore(ctx: { paths: { root: string } }): MemoryStore {
   return new MemoryStore(join(ctx.paths.root, MEMORY_DIR_REL));
 }
 
-/** 中文按单字、英文按空格分词（简单实现，不引分词库）。 */
+/** 分词：英文数字按词（≥2 连续），中文按滑动二字组（bigram）。
+ *  中文单字高频字（的/不/在/关…）几乎命中一切中文文本，会让「未找到」分支不可达；
+ *  bigram 让无关文本自然得 0 命中。连续汉字段长度为 1 时退化为单字。 */
 function tokenize(text: string): string[] {
   const tokens: string[] = [];
-  // 英文单词
-  const en = text.match(/[A-Za-z]{2,}/g);
+  const en = text.match(/[A-Za-z0-9]{2,}/g);
   if (en) tokens.push(...en.map(s => s.toLowerCase()));
-  // 中文字符
-  const zh = text.match(/[\u4e00-\u9fa5]/g);
-  if (zh) tokens.push(...zh);
-  return tokens;
+  const runs = text.match(/[\u4e00-\u9fa5]+/g);
+  if (runs) for (const run of runs) {
+    if (run.length === 1) { tokens.push(run); continue; }
+    for (let i = 0; i < run.length - 1; i++) tokens.push(run.slice(i, i + 2));
+  }
+  return [...new Set(tokens)];
 }
 
 /** 关键词命中率：query 分词后在 markdown 中命中的词数 / query 总词数。 */
@@ -678,17 +682,22 @@ export const memoryGetTool: ToolExecutor = {
     const limit = Math.min(input.limit ?? MAX_ENTRIES, MAX_ENTRIES);
     const store = makeStore(ctx as { paths: { root: string } });
 
-    // 收集所有条目
+    // 收集命中条目：评分公式只用于命中条目的排序，未命中不参与返回
     const all: { entry: MemoryEntry; date: string; score: number }[] = [];
+    let parsedCount = 0;
     for (const date of store.listDailyLogs()) {
       const text = store.readDailyLog(date);
       for (const entry of store.parseEntries(text)) {
-        const score = 0.5 * hitRate(query, entry.markdown) + 0.5 * recency(entry);
+        parsedCount++;
+        const hr = hitRate(query, entry.markdown);
+        if (hr === 0) continue;            // 关键词命中是检索前提
+        const score = 0.5 * hr + 0.5 * recency(entry);
         all.push({ entry, date, score });
       }
     }
 
-    if (all.length === 0) return { output: '暂无记忆日志', success: true };
+    if (parsedCount === 0) return { output: '暂无记忆日志', success: true };
+    if (all.length === 0) return { output: '未找到匹配的记忆条目', success: true };
 
     // 按评分降序
     all.sort((a, b) => b.score - a.score);
@@ -710,7 +719,7 @@ export const memoryGetTool: ToolExecutor = {
 };
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/memory-tools.test.ts`
 Expected: PASS（11 个用例）
