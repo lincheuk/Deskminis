@@ -24,7 +24,7 @@ import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
 import { SkillImporter, type ImportKind } from './skills/importer';
-import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath } from './bridge/server';
+import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath, resolveBridgeNode } from './bridge/server';
 import { makeBridgeDispatcher } from './bridge/handlers';
 
 export const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。本机提供六个 Windows 能力桥，在 shell 中调用：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]（若系统装有 Node.js，node "$env:MINIS_BRIDGE_CLI" ... 亦可）。工具：windows-notify（弹系统通知）、windows-clipboard（读/写剪贴板）、windows-open（用默认程序打开网址或文件）、windows-speak（语音播报文本）、windows-screenshot（截屏保存到会话附件目录）、windows-device（读取系统信息）。需要某个工具的详细参数时运行 & "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> --help 查看；剪贴板读取与截屏等隐私敏感操作会向用户请求确认。';
@@ -134,6 +134,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // makeShellTool 的 envFor 闭包能引用 bridgePipe/bridgeCli 而不触发 TS2448（block-scoped used before declaration）。
   // envFor 是延迟执行（shell_execute 调用时才求值），运行时无 TDZ 问题；此位置符合计划指令 5 的备选。
   const bridgeCli = resolveBridgeCliPath();
+  const bridgeNode = resolveBridgeNode();
   const pipePath = bridgePipePath(root);
   let bridge: BridgeServer | undefined;
   let bridgePipe: string | undefined;
@@ -149,7 +150,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const shells = new ShellManager();
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
-  tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, process.execPath)));
+  tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, bridgeNode)));
   tools.register(memoryWriteTool); tools.register(memoryGetTool);
 
   // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）

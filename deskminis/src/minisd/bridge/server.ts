@@ -1,7 +1,8 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, basename } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { encodeFrame, FrameDecoder } from './frame';
 import { errEnvelope, type BridgeEnvelope, type BridgeRequest } from './handlers';
@@ -33,6 +34,28 @@ export function resolveBridgeCliPath(): string | undefined {
     resolve(here, '..', '..', 'src', 'minisd', 'bridge-cli.mjs'), // prod：out/main/bridge/ → src/minisd/bridge-cli.mjs
   ];
   return candidates.find(p => existsSync(p));
+}
+
+/** 定位真 node.exe：electron.exe 是 GUI 子系统 PE（IMAGE_SUBSYSTEM_WINDOWS_GUI=2），
+ *  PowerShell 对 GUI 程序的 `&` 调用**不等待、不接管 stdout**（已三方实证：& 直调输出空且 $LASTEXITCODE 不设；
+ *  Process.Start 显式重定向正常；cmd /c 包裹正常；node 直调正常）。ELECTRON_RUN_AS_NODE 只改运行时，不改 PE 子系统标志。
+ *
+ *  策略：`where.exe node` 取第一个存在的路径（PATH 里的真 node.exe，CONSOLE 子系统）；找不到则回退 process.execPath（electron）。
+ *  开发期必有 node（跑得起本项目即有）；M4 SEA 打包后此函数与 resolveBridgeCliPath 一同退役（stub 已变 exe 直调）。
+ */
+export function resolveBridgeNode(): string {
+  try {
+    const wh = spawnSync('where.exe', ['node'], { encoding: 'utf8', windowsHide: true, timeout: 3000 });
+    if (wh.status === 0 && typeof wh.stdout === 'string') {
+      const first = wh.stdout.split(/\r?\n/).map(s => s.trim()).find(s => s && existsSync(s));
+      if (first) {
+        // 兜底：确保不是 electron 伪装的 node（electron 有时也被放进 PATH 的 node.exe 符号链接/拷贝）
+        // basename 等于 node.exe 即认；若 basename 是 electron.exe 则跳过
+        if (basename(first).toLowerCase() === 'node.exe') return first;
+      }
+    }
+  } catch { /* where.exe 不存在（非 Windows）或超时：走 fallback */ }
+  return process.execPath;
 }
 
 const READ_TIMEOUT_MS = 30000;

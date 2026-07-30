@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import net from 'node:net';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath } from '../src/minisd/bridge/server';
+import { join, basename } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath, resolveBridgeNode } from '../src/minisd/bridge/server';
 import { encodeFrame, MAX_FRAME_BYTES } from '../src/minisd/bridge/frame';
 import { okEnvelope, errEnvelope, type BridgeEnvelope } from '../src/minisd/bridge/handlers';
 import { pipeRequest, uniquePipePath, startEchoServer } from './bridge-util';
@@ -158,5 +159,26 @@ describe('resolveBridgeCliPath', () => {
     const p = resolveBridgeCliPath();
     expect(p).toBeTruthy();
     expect(p!).toMatch(/bridge-cli\.mjs$/);
+  });
+});
+
+describe('resolveBridgeNode', () => {
+  it('返回的路径 existsSync 为真', () => {
+    const p = resolveBridgeNode();
+    expect(existsSync(p)).toBe(true);
+  });
+
+  it('PATH 有 node.exe 时返回真 node（而非 electron GUI PE）；PATH 缺失时退回 process.execPath', () => {
+    const wh = spawnSync('where.exe', ['node'], { encoding: 'utf8', windowsHide: true });
+    const firstLine = wh.status === 0 ? wh.stdout.split(/\r?\n/).map(s => s.trim()).find(s => s && existsSync(s)) : undefined;
+    const p = resolveBridgeNode();
+    if (firstLine) {
+      // 有 node 在 PATH：resolveBridgeNode 应返回该 node.exe（basename=node.exe），而不是 electron.exe
+      expect(basename(p).toLowerCase()).toBe('node.exe');
+      expect(p.toLowerCase()).toBe(firstLine.toLowerCase());
+    } else {
+      // PATH 没有 node：退回 process.execPath（开发机少见但 CI 可能有此情况）
+      expect(p).toBe(process.execPath);
+    }
   });
 });
