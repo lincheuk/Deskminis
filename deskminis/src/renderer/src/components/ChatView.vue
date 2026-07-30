@@ -56,7 +56,13 @@ function pillTitle(v: unknown): string {
 const hasLive = computed(() =>
   chat.running || !!chat.streamingText || chat.toolCards.length > 0 || chat.pendingPerms.length > 0 || !!chat.retryNote,
 );
-const isEmpty = computed(() => chat.messages.length === 0 && !hasLive.value);
+const isEmpty = computed(() => chat.messages.length === 0 && !hasLive.value && chat.eventNotes.length === 0);
+/** eventNotes 的内联条图标——严格复用 Icon.vue 已有路径，不新增。
+ *  （Icon 内没有 compress/download，回落成 info：蓝 i 圈仍可读，语义不丢。） */
+function eventIcon(kind: string): 'alert' | 'info' {
+  if (kind === 'fallback') return 'alert';
+  return 'info';
+}
 
 const canSend = computed(() => input.value.trim().length > 0 && !chat.running);
 
@@ -71,7 +77,7 @@ async function send(): Promise<void> {
 
 // 新内容到达时贴底滚动
 watch(
-  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.retryNote, chat.pendingPerms.length] as const,
+  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.retryNote, chat.pendingPerms.length, chat.eventNotes.length] as const,
   () => { void nextTick(() => { const el = streamEl.value; if (el) el.scrollTop = el.scrollHeight; }); },
 );
 
@@ -158,6 +164,13 @@ function onSlashTab(e: KeyboardEvent): void {
             <div v-if="chat.running && !chat.streamingText && !chat.toolCards.length && !chat.pendingPerms.length && !chat.retryNote" class="dots"><i></i><i></i><i></i></div>
           </div>
         </div>
+
+        <!-- #10：对话流内联事件条（M2b 降级 / M2a 压缩 / M2a 卸载）——store 已保证最多 10 条，直接 v-for 不截断。
+             kind 配色与任务面板卡保持一致（橙/蓝/紫），颜色走 tokens.css 变量，不写死。 -->
+        <div
+          v-for="note in chat.eventNotes" :key="note.ts + note.kind + (note.detail || '')"
+          class="evnote" :class="note.kind"
+        ><Icon :name="eventIcon(note.kind)" :size="14" /><span>{{ note.detail ?? '' }}</span></div>
       </template>
     </div>
 
@@ -218,6 +231,25 @@ function onSlashTab(e: KeyboardEvent): void {
 .atext { white-space: pre-wrap; word-break: break-word; align-self: stretch; }
 
 .retry { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--orange); }
+
+/* #10：事件内联小条——与 .retry 同族（小字号、行内、图标+detail）；颜色按 kind 区分，走 tokens.css 变量不写死 */
+.evnote {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; margin: 3px 0;
+  border-radius: var(--r-md); font-size: 12.5px; line-height: 1.45;
+  border: .5px solid var(--separator);
+  background: var(--grouped-bg-secondary);
+  color: var(--label-secondary);
+  max-width: 100%;
+}
+.evnote :deep(svg) { flex: 0 0 auto; margin-top: -1px; }
+.evnote > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evnote.fallback  { color: var(--orange); background: color-mix(in srgb, var(--orange) 10%, transparent); border-color: color-mix(in srgb, var(--orange) 30%, transparent); }
+.evnote.compacted { color: var(--link, --blue); background: color-mix(in srgb, var(--link, --blue) 10%, transparent); border-color: color-mix(in srgb, var(--link, --blue) 30%, transparent); }
+.evnote.offloaded { color: var(--purple); background: color-mix(in srgb, var(--purple) 10%, transparent); border-color: color-mix(in srgb, var(--purple) 30%, transparent); }
+.evnote.fallback :deep(svg)  { stroke: var(--orange); }
+.evnote.compacted :deep(svg) { stroke: var(--link, --blue); }
+.evnote.offloaded :deep(svg) { stroke: var(--purple); }
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
 .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--label-tertiary); animation: jump 1s infinite ease-in-out; }
 .dots i:nth-child(2) { animation-delay: .15s; }

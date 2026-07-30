@@ -46,6 +46,11 @@ export class RpcClient {
     if (!this.handlers.has(method)) this.handlers.set(method, new Set());
     this.handlers.get(method)!.add(h);
   }
+
+  // M2d Task 3：组件卸载时摘订阅（TerminalPanel.vue onUnmounted）
+  off(method: string, h: Handler): void {
+    this.handlers.get(method)?.delete(h);
+  }
 }
 
 export const rpc = new RpcClient();

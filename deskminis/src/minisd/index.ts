@@ -26,6 +26,8 @@ import { buildSkillsBlock } from './skills/prompt';
 import { SkillImporter, type ImportKind } from './skills/importer';
 import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath, resolveBridgeNode } from './bridge/server';
 import { makeBridgeDispatcher } from './bridge/handlers';
+import { TerminalManager } from './terminal';
+import { FilesService } from './files';
 
 export const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。本机提供六个 Windows 能力桥，在 shell 中调用：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]（若系统装有 Node.js，node "$env:MINIS_BRIDGE_CLI" ... 亦可）。工具：windows-notify（弹系统通知）、windows-clipboard（读/写剪贴板）、windows-open（用默认程序打开网址或文件）、windows-speak（语音播报文本）、windows-screenshot（截屏保存到会话附件目录）、windows-device（读取系统信息）。需要某个工具的详细参数时运行 & "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> --help 查看；剪贴板读取与截屏等隐私敏感操作会向用户请求确认。';
 
@@ -147,6 +149,11 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     bridge = undefined;
   }
 
+  // 终端面板：交互式 powershell 独立实例（env 注入 MINIS_* 桥环境变量，#8 决策落地：用户可在终端手动调桥命令）
+  const terminals = new TerminalManager(paths, (sessionId, data) => rpc.broadcast('terminal.output', { sessionId, data }),
+    sessionId => makeBridgeEnv(sessionId, bridgePipe, bridgeCli, bridgeNode));
+  const filesSvc = new FilesService(paths);
+
   const shells = new ShellManager();
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
@@ -181,6 +188,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     'chat.sessions.delete': (p: { sessionId: string; confirm?: boolean }) => {
       const sessionId = assertSessionId(p.sessionId);
       if (p.confirm !== true) throw new Error('删除会话需 confirm:true');
+      terminals.dispose(sessionId);
       chat.deleteSession(sessionId); return { ok: true };
     },
     'chat.sessions.setModelBinding': (p: { sessionId: string; binding?: string }) => {
@@ -357,6 +365,42 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       }
       return { ok: true };
     },
+    // ---- M2d: terminal.* + files.* + chat.contextInfo（水位条小型 RPC）----
+    'terminal.attach': (p: { sessionId: string }) => ({ scrollback: terminals.attach(assertSessionId(p.sessionId)) }),
+    'terminal.input': (p: { sessionId: string; data: string }) => { terminals.input(assertSessionId(p.sessionId), String(p.data ?? '')); return { ok: true }; },
+    'files.list': (p: { sessionId: string; dir?: string }) => filesSvc.list(assertSessionId(p.sessionId), typeof p.dir === 'string' ? p.dir : undefined),
+    'files.read': (p: { sessionId: string; path: string }) => filesSvc.read(assertSessionId(p.sessionId), String(p.path ?? '')),
+    // chat.contextInfo（M2a 红线：usedTokens 必须基于 buildEffectiveHistory，禁止用原始 history 直接估算）
+    'chat.contextInfo': (p: { sessionId: string }) => {
+      const sid = assertSessionId(p.sessionId);
+      const history = chat.listMessages(sid);
+      const marker = chat.getLatestCompactMarker(sid);
+      const effective = compactEngine.buildEffectiveHistory(history, marker);
+      const usedTokens = contextPolicy.estimateTokens(effective);
+      // 复用 chat.prompt（L217-L234）的会话绑定→provider/模型组解析链（内联复刻；模型组取链首 slot）
+      let modelId: string;
+      const session = chat.getSession(sid);
+      const binding = session?.modelBinding;
+      if (binding?.startsWith('group:')) {
+        const members = providers.resolveGroupMembers(binding.slice('group:'.length));
+        modelId = members[0] ? (fakeEnabled ? 'fake' : members[0].instance.modelId) : 'unknown';
+      } else if (binding?.startsWith('provider:')) {
+        const pid = binding.slice('provider:'.length);
+        const prov = (fakeEnabled && pid === '__fake__') ? new FakeProvider() : providers.instantiate(pid);
+        modelId = prov.modelId;
+      } else {
+        const defaultId = providers.getDefaultId();
+        if (defaultId) {
+          const prov = (fakeEnabled && defaultId === '__fake__') ? new FakeProvider() : providers.instantiate(defaultId);
+          modelId = prov.modelId;
+        } else {
+          modelId = 'unknown';
+        }
+      }
+      // 32000 对齐 context-policy.ts FALLBACK_WINDOW（未导出常量）
+      const windowTokens = modelId === 'unknown' ? 32000 : (catalog.getModelContextWindow(modelId) ?? 32000);
+      return { windowTokens, usedTokens, remaining: Math.max(0, windowTokens - usedTokens) };
+    },
     // ---- M2c 技能 RPC 面 ----
     'skills.list': (p: { sessionId?: string }) =>
       // 带 sessionId 返回该会话的生效启用集（会话覆盖优先）；不带返回全部（含禁用）
@@ -397,7 +441,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       for (const c of controllers.values()) c.abort();
       for (const { timer } of pendingPerms.values()) clearTimeout(timer);
       pendingPerms.clear();
-      shells.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
+      terminals.disposeAll(); shells.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
     },
   };
 }

@@ -98,9 +98,9 @@ deskminis/
 > | messagePersisted | ChatStore | 未消费 | 本次不接线（纯内部事件） | - | - |
 > | turnEnd | agent loop | ChatView 已有（open 刷新） | 保留不动 + 新触发 contextInfo 刷新 | 对话流 + 任务面板 | 任务面板 turnEnd 后水位条刷新到新值 |
 > | **retry** | agent loop | ChatView 已有（retryNote 横幅） | 保留 + 追加**任务面板状态区**回显 | 对话流 + 任务面板 | 任务面板运行区显示「重试中 (N/s)」+ 对话流内联灰条 |
-> | **fallback** | runAgentLoop（M2b 降级） | **未消费** | 对话流内联黄条 + 任务面板「已切换到 <provider>」 | 对话流 + 任务面板 | 造 fallbackable 报错，对话出现内联条，任务面板 provider 标签切换 |
-> | **compacted** | CompactEngine（M2a 压缩） | **未消费** | 对话流内联灰条「上下文已压缩，删除 N 条历史节省 tokens」+ 任务面板状态区 | 对话流 + 任务面板 | 长对话触发压缩后能看到内联条 |
-> | **offloaded** | OffloadEngine（M2a 卸载） | **未消费** | 对话流内联灰条「N 条旧消息已归档到磁盘」+ 任务面板状态区 | 对话流 + 任务面板 | 长会话触发 offload 后能看到内联条 |
+> | **fallback** | runAgentLoop（M2b 降级） | **未消费** | 对话流内联黄条「X → Y（原因）」+ 任务面板「模型已降级」卡（字段 from/to/reason 严格对齐 loop.ts） | 对话流 + 任务面板 | 造 fallbackable 报错，对话出现内联条，任务面板卡片显示「源槽 → 目标槽（原因）」 |
+> | **compacted** | CompactEngine（M2a 压缩） | **未消费** | 对话流内联灰条「已压缩（摘要：前30字…）」+ 任务面板卡体直接显示 summary 片段（loop 事件仅有 markerId/summary，无 fromCount/freedTokens） | 对话流 + 任务面板 | 长对话触发压缩后，对话流内联条出现摘要前 30 字，任务面板卡片体显示 200 字以内完整摘要 |
+> | **offloaded** | OffloadEngine（M2a 卸载） | **未消费** | 对话流内联灰条「卸载工具输出 → <relativePath>」+ 任务面板「大工具输出已卸载」卡（逐条事件，store 自行累计计数+最近一条 relativePath，无 count/oldestTs/freedTokens 聚合字段） | 对话流 + 任务面板 | 触发 offload 后对话流逐条落灰条（含路径），任务面板卡片显示路径+累计条数 |
 > | error | agent loop | ChatView lastError 已有 | 保留不动 | 横幅 | （基线已有） |
 >
 > skills.changed / skills.import.progress 已被 M2c 斜杠菜单消费（chat.init → refreshSkills），**本条（#10）不重复接线**。
@@ -128,7 +128,7 @@ deskminis/
     - `terminal.input({sessionId, data})` → `{ ok: true }`（写 stdin；`data` 为原始键入串，Enter = `'\r'`）
   - 副作用接线：`chat.sessions.delete` 同时 `terminals.dispose(sessionId)`；`close()` 调 `terminals.disposeAll()`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/terminal.test.ts`:
 
@@ -267,12 +267,12 @@ describe('terminal.* RPC（交互式终端会话）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/terminal.test.ts`
 Expected: FAIL（`terminal.attach` 未知方法 / 模块不存在）
 
-- [ ] **Step 3: 实现 terminal.ts**
+- [x] **Step 3: 实现 terminal.ts**
 
 `deskminis/src/minisd/terminal.ts`:
 
@@ -416,7 +416,7 @@ export class TerminalManager {
 }
 ```
 
-- [ ] **Step 4: 接线 minisd/index.ts（#4：增量清单 a-f + 现状锚点逐字引用）**
+- [x] **Step 4: 接线 minisd/index.ts（#4：增量清单 a-f + 现状锚点逐字引用）**
 
 <!-- 冲突点 #4：原计划的锚点在 main@c54dac4 全部对不上——imports 已有 28 行含 bridge/server、providers、skills 模块；methods 表 389-390 行在 modelgroup.delete / skills.delete 之后，close 序列在 395-402 行且已含 bridge?.close()、controllers.abort、pendingPerms 清理。以下 6 处插入/追加引用 c54dac4 真实行号。 -->
 
@@ -511,14 +511,14 @@ import { FilesService } from './files';
 
 **f. startMinisd 返回不变（已含 bridgePipe，M2e 已加）、close() 签名不变**。
 
-- [ ] **Step 5: 跑测试确认通过 + typecheck**
+- [x] **Step 5: 跑测试确认通过 + typecheck**
 
 Run: `cd deskminis && npm test -- tests/terminal.test.ts tests/chat-context-info.test.ts`
 Expected: `6 + 2 = 8 passed`
 Run: `cd deskminis && npm test && npm run typecheck`
 Expected: 全量通过（基线 396 + 8 新 ≈ 404）、typecheck 0 errors
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/terminal.ts deskminis/src/minisd/index.ts deskminis/tests/terminal.test.ts && git commit -m "feat(m2d): minisd 终端会话（独立交互 shell + terminal.attach/input RPC + 滚动缓冲推送）"
@@ -543,7 +543,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/termina
     - `files.list({sessionId, dir?})` → `FileNode[]`（`dir` 省略 = 工作区根）
     - `files.read({sessionId, path})` → `FilePreview`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/files-rpc.test.ts`:
 
@@ -706,12 +706,12 @@ describe('files.* RPC（工作区文件树）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/files-rpc.test.ts`
 Expected: FAIL（`files.list` 未知方法 / 模块不存在）
 
-- [ ] **Step 3: 实现 files.ts**
+- [x] **Step 3: 实现 files.ts**
 
 `deskminis/src/minisd/files.ts`:
 
@@ -808,18 +808,18 @@ export class FilesService {
 }
 ```
 
-- [ ] **Step 4: 接线 minisd/index.ts（已并入 Task 1 Step 4 增量清单，Task 2 不再单独改 index.ts）**
+- [x] **Step 4: 接线 minisd/index.ts（已并入 Task 1 Step 4 增量清单，Task 2 不再单独改 index.ts）**
 
 > 注：Task 1 Step 4 的 b. 服务装配已同处插入 `const filesSvc = new FilesService(paths)`；c. methods 表已同处插入 `files.list / files.read / chat.contextInfo`；import 区 a. 已同处加 `import { FilesService } from './files'`。Task 2 执行时只改 files.ts + files-rpc.test.ts，index.ts 接线与 Task 1 同提交一次（减少 index.ts 多轮增量彼此覆盖的冲突面）。
 
-- [ ] **Step 5: 跑测试确认通过 + typecheck**
+- [x] **Step 5: 跑测试确认通过 + typecheck**
 
 Run: `cd deskminis && npm test -- tests/files-rpc.test.ts`
 Expected: `11 passed`
 Run: `cd deskminis && npm test && npm run typecheck`
 Expected: 全量通过（基线 396 + Task 1 新 8 + Task 2 新 11 ≈ 415）、typecheck 0 errors
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/files.ts deskminis/src/minisd/index.ts deskminis/tests/files-rpc.test.ts && git commit -m "feat(m2d): minisd 工作区文件服务（files.list/read RPC + 限仓防穿越 + 256KB 截断与二进制嗅探）"
@@ -841,7 +841,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/files.t
   - `TerminalPanel.vue`：无 props；挂载时 attach 当前会话、键入直送 `terminal.input`、推送写入 xterm；`activeId` 变化时 reset 并重新 attach；主题从 `getComputedStyle` 读 tokens，随明暗切换重读
   - `App.vue`：右栏页签改为懒挂载 + `v-show` 保活（`visited` 记录首切）
 
-- [ ] **Step 1: 安装 xterm 依赖（package.json 仅增量追加，#5：保留既有 e2e/rebuild/postinstall）**
+- [x] **Step 1: 安装 xterm 依赖（package.json 仅增量追加，#5：保留既有 e2e/rebuild/postinstall）**
 
 > **增量清单 a（不全文替换 package.json，#5）**：
 > 1. `npm i @xterm/xterm @xterm/addon-fit`——由 npm 自动写入 dependencies（**追加**，不覆盖现有三条 @napi-rs/keyring + better-sqlite3 + ws + yauzl）
@@ -851,7 +851,7 @@ Run: `cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm i @xterm/xterm @
 Run: `cd deskminis && node -e "const p=require('./package.json'); console.log('@xterm:', !!p.dependencies['@xterm/xterm'], '; gen-tray:', typeof p.scripts['gen:tray-icon'])"`
 Expected: `@xterm: true ; gen-tray: true`（scripts 若未写入 gen-tray-icon 则手动补）
 
-- [ ] **Step 2: RpcClient 增加 off（已对照 main@c54dac4 现状核实：与 M1 完全一致；全文块保留 + 加注解）**
+- [x] **Step 2: RpcClient 增加 off（已对照 main@c54dac4 现状核实：与 M1 完全一致；全文块保留 + 加注解）**
 
 <!-- #3 冲突点核实：c54dac4 rpc.ts 共 51 行：type Handler + class RpcClient（handlers Map + on/无 off + connect minisdInfo/minisdPort 握手 + call reject error.message），与原计划替换块完全一致。因此保留全文块，仅末尾追加 off 方法。 -->
 `deskminis/src/renderer/src/rpc.ts`（**已对照现状 c54dac4 核实——M2x 未改动此文件**）：
@@ -919,7 +919,7 @@ export class RpcClient {
 export const rpc = new RpcClient();
 ```
 
-- [ ] **Step 3: TerminalPanel.vue（新建）**
+- [x] **Step 3: TerminalPanel.vue（新建）**
 
 `deskminis/src/renderer/src/components/TerminalPanel.vue`:
 
@@ -1041,7 +1041,7 @@ onBeforeUnmount(() => {
 </style>
 ```
 
-- [ ] **Step 4: App.vue 接线终端页签（#3：增量清单；已对照现状核实——M2x 未改动此文件；禁止全文替换）**
+- [x] **Step 4: App.vue 接线终端页签（#3：增量清单；已对照现状核实——M2x 未改动此文件；禁止全文替换）**
 
 > **现状锚点 + 增量清单（Task 3 Step 4 只改以下 5 处，其余原样保留现状 ChatView / ProviderSettings / TitleBar / 明暗切换 / openSettings provide 等所有既有内容）**：
 > a. `<script>` import 区**追加**：`import TerminalPanel from './components/TerminalPanel.vue';`（import Icon.vue 之前或之后都可）
@@ -1204,7 +1204,7 @@ onMounted(() => { void chat.init(); });
 </style>
 ```
 
-- [ ] **Step 5: typecheck + build + dev 手工冒烟**
+- [x] **Step 5: typecheck + build + dev 手工冒烟**
 
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
@@ -1213,7 +1213,7 @@ Expected: main / preload / renderer 全部构建成功（renderer 含 xterm css�
 Run: `cd deskminis && npm run dev`
 Expected（人工确认）：右栏默认终端页出现 `PS <工作区路径>> ` 提示符；键入 `echo hello` 回车后有逐字符回显 + 输出 + 新提示符；切到文件/任务页签仍是占位文案，切回终端内容仍在
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/package.json deskminis/package-lock.json deskminis/src/renderer/src/rpc.ts deskminis/src/renderer/src/App.vue deskminis/src/renderer/src/components/TerminalPanel.vue && git commit -m "feat(m2d): 右栏终端面板（xterm.js + 滚动缓冲重放 + 主题跟随 tokens）"
@@ -1235,7 +1235,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/package.json deskm
   - `FilesPanel.vue`：无 props；根列表 + 刷新按钮；`running` 由真变假（agent 回合落盘结束）自动刷新根与已展开目录；文件点击 → 底部预览（文本 / 截断提示 / 二进制提示）
   - `Icon.vue`：`PATHS` 新增 `refresh`
 
-- [ ] **Step 1: Icon.vue 追加 refresh 图标（#2：增量清单；保留 M2c 加的 pencil/edit 等）**
+- [x] **Step 1: Icon.vue 追加 refresh 图标（#2：增量清单；保留 M2c 加的 pencil/edit 等）**
 
 > **冲突点 #2 核实（cebf26d）**：main@c54dac4 的 Icon.vue PATHS 含 M2c 新增的 `pencil/shield/edit/alert/memory/book/info/gear/trash` 等，与原「完整替换」块有大量重叠但不是同一集合。**必须增量追加，禁止全文替换**。
 >
@@ -1299,7 +1299,7 @@ const inner = computed(() => PATHS[props.name] ?? PATHS.info);
 </template>
 ```
 
-- [ ] **Step 2: FileTreeNode.vue（新建，递归节点）**
+- [x] **Step 2: FileTreeNode.vue（新建，递归节点）**
 
 `deskminis/src/renderer/src/components/FileTreeNode.vue`:
 
@@ -1381,7 +1381,7 @@ watch(() => props.refreshKey, () => { if (expanded.value && children.value !== n
 </style>
 ```
 
-- [ ] **Step 3: FilesPanel.vue（新建）+ App.vue 接线（#3：App.vue 仅增量清单，禁止全文替换）**
+- [x] **Step 3: FilesPanel.vue（新建）+ App.vue 接线（#3：App.vue 仅增量清单，禁止全文替换）**
 
 > App.vue 增量（Task 4 只改这 3 处，其余锚点保持 Task 3 合入后的状态不变）：
 > a. `<script>` import 区追加：`import FilesPanel from './components/FilesPanel.vue';`
@@ -1652,7 +1652,7 @@ onMounted(() => { void chat.init(); });
 </style>
 ```
 
-- [ ] **Step 4: typecheck + build + dev 手工冒烟**
+- [x] **Step 4: typecheck + build + dev 手工冒烟**
 
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
@@ -1661,7 +1661,7 @@ Expected: main / preload / renderer 全部构建成功
 Run: `cd deskminis && npm run dev`
 Expected（人工确认）：文件页签出现「工作区」树；让 agent 创建 hello.txt 后回合结束树自动出现该文件（不手动刷新）；子目录首次点击展开才加载；点文件底部出预览；切走页签再切回，树的展开态与终端内容都保留
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/components/Icon.vue deskminis/src/renderer/src/components/FileTreeNode.vue deskminis/src/renderer/src/components/FilesPanel.vue deskminis/src/renderer/src/App.vue && git commit -m "feat(m2d): 右栏文件面板（懒加载文件树 + 文本预览 + 回合结束自动刷新）"
@@ -1683,7 +1683,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/c
   - store state `lastStopReason: string`——`turnEnd` 时记录；`send()` 与切换会话时清零
   - `TasksPanel.vue`：无 props；回合区（状态 / 重试提示 / 本回合工具计数 / 上回合停止原因）、token 区（上回合与会话累计）、上下文水位条（分子 = 最后一条带用量 assistant 消息的 input+output tokens；分母固定 200K 估算，代码留 `TODO(M2b)` 锚点接模型能力目录）
 
-- [ ] **Step 1: stores/chat.ts 补 tokenUsage / lastStopReason + 4 种事件消费（#1：增量清单 a-f；M2c 斜杠菜单 / skills 订阅 / provider 状态原样保留）**
+- [x] **Step 1: stores/chat.ts 补 tokenUsage / lastStopReason + 4 种事件消费（#1：增量清单 a-f；M2c 斜杠菜单 / skills 订阅 / provider 状态原样保留）**
 
 > **冲突点 #1 核实（4c0d707 + cebf26d + c6d08c4 三次改动）**：main@c54dac4 的 chat.ts 已含 M2c 的 state 字段：`slashOpen: boolean`、`slashText: string`、`slashPos: {top:number;left:number}|null`、`matchedSkills: SkillEntry[]`、`skills: {loadedIds: string[]; loading: boolean; importProgress: {id:string;percent:number}|null}`、`activeSkillId: string` 及对应 actions（toggleSlash/filterSkills/insertSkillCall/openSkillManager）、skills.changed / skills.import.progress 订阅、`deleteSession` 动作等。**必须增量追加，禁止全文替换——斜杠菜单状态与 provider 相关字段必须原样保留**。
 >
@@ -1762,7 +1762,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/c
 >
 > 以上 6 处增量之外（a-f），M2c 的 slash 菜单 state / actions / skills 订阅 / deleteSession 动作、`import { loadSkills } from '../utils/skills'`、`SkillEntry` 类型一律**不动**。
 
-- [ ] **Step 2: TasksPanel.vue（新建）**
+- [x] **Step 2: TasksPanel.vue（新建）**
 
 `deskminis/src/renderer/src/components/TasksPanel.vue`:
 
@@ -1910,7 +1910,7 @@ function fmt(n: number): string {
 </style>
 ```
 
-- [ ] **Step 3: App.vue 接线任务页签（#3：增量清单；基于 Task 4 合入后的 App.vue 做 2 处追加；禁止全文替换）**
+- [x] **Step 3: App.vue 接线任务页签（#3：增量清单；基于 Task 4 合入后的 App.vue 做 2 处追加；禁止全文替换）**
 
 > **演进关系（同 #3）**：在 Task 4 合入后的 App.vue 之上，**仅做以下 2 处追加**（Task 3 a-e + Task 4 a-c 的所有增量全部保留）：
 > a. `<script>` import 区追加：`import TasksPanel from './components/TasksPanel.vue';`
@@ -2035,7 +2035,7 @@ onMounted(() => { void chat.init(); });
 </style>
 ```
 
-- [ ] **Step 4: typecheck + build + dev 手工冒烟**
+- [x] **Step 4: typecheck + build + dev 手工冒烟**
 
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
@@ -2044,7 +2044,7 @@ Expected: main / preload / renderer 全部构建成功
 Run: `cd deskminis && npm run dev`
 Expected（人工确认）：任务页签三段齐全；发一个带工具调用的 prompt——运行中状态点为橙色脉冲、工具计数递增；回合结束后出现停止原因「正常结束」、上回合输入/输出 token、累计用量与绿色水位条
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/stores/chat.ts deskminis/src/renderer/src/components/TasksPanel.vue deskminis/src/renderer/src/App.vue && git commit -m "feat(m2d): 右栏任务面板（回合进度 + token 用量 + 上下文水位条）"
@@ -2068,7 +2068,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/s
 
 **为什么托盘行为用源文本守卫而不是自动化运行测试：** 托盘依赖真实 Electron 主进程 + 系统通知区，vitest（ELECTRON_RUN_AS_NODE）里 `app`/`Tray` 全是桩，跑不出行为；而「M1 的 window-all-closed 杀进程逻辑被留下来」这类漂移 typecheck/build 都不红，只在用户手上爆发。沿用 `build-config.test.ts` 的源文本守卫模式（`ipc-contract.test.ts` 证明该模式在本仓库有效）。注意：`ipc-contract.test.ts` 用 vi.mock 提供 electron 桩并把 main/index.ts 整个 import——本任务新增的 `Tray`/`Menu`/`nativeImage` 只许在函数体内使用（模块顶层不允许 `new Tray(...)`），否则桩模块在 import 时即崩，该测试会红。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/tray-lifecycle.test.ts`:
 
@@ -2134,12 +2134,12 @@ describe('托盘生命周期（源文本守卫）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: FAIL（5 例全红：无 close 拦截 / 无 Tray / 无 quitting / window-all-closed 仍杀进程 / 图标缺失）
 
-- [ ] **Step 3: 托盘图标生成器 + package.json 脚本，生成图标**
+- [x] **Step 3: 托盘图标生成器 + package.json 脚本，生成图标**
 
 `deskminis/scripts/gen-tray-icon.mjs`:
 
@@ -2235,7 +2235,7 @@ cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm run gen:tray-icon
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: 1 passed, 4 failed（图标例转绿，其余 4 例待 Step 4 的主进程改动）
 
-- [ ] **Step 4: src/main/index.ts（#3：已对照现状 c54dac4 核实——M2x 未改动此文件；增量清单 + 全文参考块保留）**
+- [x] **Step 4: src/main/index.ts（#3：已对照现状 c54dac4 核实——M2x 未改动此文件；增量清单 + 全文参考块保留）**
 
 > **现状锚点 + 增量清单（Task 6 Step 4 只改以下 6 处，其余原样保留：握手解析、utilityProcess.fork、IPC 通道 minisdPort/minisdInfo/permissionRequest/permissionResolved/startMinisd/stopMinisd 等）**：
 > a. `import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityProcess, type UtilityProcess } from 'electron';` 里**追加 `Menu, nativeImage, Tray`**（现状一般只引 `app, BrowserWindow, dialog, ipcMain, utilityProcess`，若已有则跳过）
@@ -2405,7 +2405,7 @@ app.on('before-quit', () => {
 });
 ```
 
-- [ ] **Step 5: 跑测试确认通过 + 全量回归 + typecheck**
+- [x] **Step 5: 跑测试确认通过 + 全量回归 + typecheck**
 
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: `5 passed`
@@ -2414,12 +2414,12 @@ Expected: 全量通过（基线 396 + 新 24 ≈ 420；分项：Task 1 8 = termi
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
 
-- [ ] **Step 6: dev 手工冒烟**
+- [x] **Step 6: dev 手工冒烟**
 
 Run: `cd deskminis && npm run dev`
 Expected（人工确认）：点窗口 × → 窗口消失但进程仍在（任务管理器可见），通知区出现托盘图标；左键点托盘图标 → 窗口还原且会话/终端原样；托盘右键菜单「退出 DeskMinis」→ 应用与 minisd 都退出（任务管理器无残留 electron 进程）；重开应用，会话历史完整
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/gen-tray-icon.mjs deskminis/resources/tray.png deskminis/src/main/index.ts deskminis/package.json deskminis/tests/tray-lifecycle.test.ts && git commit -m "feat(m2d): 系统托盘常驻（关窗隐藏不杀 minisd + 托盘菜单显窗/退出 + 生命周期源文本守卫）"
@@ -2429,19 +2429,19 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/gen-tray-i
 
 ### Task 7: 全量回归与手工验收
 
-- [ ] **Step 1: 全量自动化测试**
+- [x] **Step 1: 全量自动化测试**
 
 Run: `cd deskminis && npm test`
 Expected: 19 个测试文件 152 例全绿（M1 基线 130 + terminal 6 + files-rpc 11 + tray-lifecycle 5）
 
-- [ ] **Step 2: typecheck + build**
+- [x] **Step 2: typecheck + build**
 
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
 Run: `cd deskminis && npm run build`
 Expected: main / preload / renderer 全部构建成功
 
-- [ ] **Step 3: 手工验收清单**
+- [x] **Step 3: 手工验收清单**
 
 ```bash
 cd deskminis && npm run dev
@@ -2463,7 +2463,7 @@ cd deskminis && npm run dev
 
 全部通过则 M2d 达成。若某步失败，按 systematic-debugging 定位到对应模块的单测补测再修。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add docs/plans/2026-07-28-m2d-right-panel-ui.md && git commit -m "docs(m2d): 右栏 UI + 系统托盘实施计划（勾选完成项）"
