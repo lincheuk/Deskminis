@@ -2,21 +2,24 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 M1 右栏的三个占位页签填实——终端（xterm.js 实况）、文件（工作区文件树 + 文本预览）、任务（回合进度 / token 用量 / 上下文水位条），并让应用常驻系统托盘（关窗不杀 minisd）。验收：`npm test` 全绿（含新增 minisd 侧 RPC 测试），`npm run dev` 里三面板与托盘行为通过手工验收清单。
+<!-- 基线升级说明：本计划原按「仅 M1 完成」写；截至 2026-07-30，M2b（记忆+降级）/ M2a（上下文策略：32K/64K/128K/200K 分档）/ M2c（技能系统 + 斜杠菜单 + skills.changed/import.progress）/ M2e（Windows 六桥 + BridgePermissionKind 七类 + makeBridgeEnv 四变量注入）全部已落地 main（commit c54dac4）。本修订把「完整替换」块改写为「增量修改清单 + 现状锚点」，测试数量从 M1 基线 136 改为相对 main 396 总用例（36 个测试文件）的估算。—— 修订人：Agent, 2026-07-30 -->
+
+**Goal:** 把 main 现状右栏的三个占位页签填实——终端（xterm.js 实况）、文件（工作区文件树 + 文本预览）、任务（回合进度 / token 用量 / 上下文水位条），并让应用常驻系统托盘（关窗不杀 minisd）；另补 M2b/M2a 落下来的 4 个遗留 chat.event 的 UI 消费（fallback/compacted/offloaded/retry 全部可见）。验收：`npm test` 全绿（含新增 minisd 侧 RPC 测试，基线 396），`npm run dev` 里三面板 + 托盘 + 事件 UI 行为通过手工验收清单。
 
 **Architecture:** minisd 侧新增两个服务模块——`terminal.ts`（每会话一个**独立**交互式 PowerShell，滚动缓冲 + `terminal.output` 推送）与 `files.ts`（工作区只读文件服务，限仓防穿越），经既有 `RpcServer.broadcast` 推送；渲染进程新增三个面板组件，全部经 JSON-RPC 取数，UI 无私有持久状态。托盘在 Electron 主进程：拦截 `close` 改隐藏，`window-all-closed` 不再退出。设计依据见 `../specs/2026-07-26-deskminis-design.md` §7 与 `../specs/2026-07-26-deskminis-ui-design.md` §4。
 
-**Tech Stack:** 同 M1（TypeScript strict / Electron ≥38 / electron-vite / Vue 3 + Pinia / vitest / ws）+ 新增 `@xterm/xterm`、`@xterm/addon-fit`
+**Tech Stack:** 同 main（TypeScript strict / Electron ≥38 / electron-vite / Vue 3 + Pinia / vitest / ws）+ 新增 `@xterm/xterm`、`@xterm/addon-fit`
 
 ## Global Constraints
 
-- 本计划基于「M1 已完成」的代码基线，**假定其他 M2 子计划（记忆/技能/桥/Provider 补全等）均未执行**；若它们已落地，接线锚点需按当时代码微调
-- 所有代码在 `deskminis/` 子目录（仓库根是 `C:\Users\24739\Downloads\openminis1\`，`OpenMinis/` 是只读参考克隆，永不修改）
+- **基线已升级到 main@c54dac4（M1 + M2b + M2a + M2c + M2e）**，不再假设其它 M2 子计划未执行。所有「完整替换/完整文件」代码块按 c54dac4 实际源码改写为增量清单 + 现状锚点引用；核实后确与 M1 相同的文件保留全文块并加注
+- 所有代码在 `deskminis/` 子目录（仓库根是 `C:\Users\24739\Downloads\openminis1\`，`OpenMinis/` 是只读参考克隆，永不修改）；ChatView.vue 不在本计划修改范围——M2c 斜杠菜单勿碰
 - TypeScript `strict: true`；时间戳一律 epoch 秒（浮点）；破坏性 RPC 方法要求 `confirm:true`（沿用 M1）
 - 右栏组件一律引用 `tokens.css` 变量（含 xterm 主题从计算样式读取），**不写死颜色**；暗色三模式（跟随系统/强制浅/强制深）都必须成立
 - 文件面板只做**会话工作区**文件树；外部挂载树（设计 §3.5）留给 M2 后续里程碑
-- 上下文窗口：M1 无模型能力目录，水位条固定按 200K 估算（代码里留 `TODO(M2b)` 锚点）
+- **（过时假设 #7 修正）** 上下文水位：M2b 已落地 ModelCatalog（模型能力目录）、M2a 已落地 ContextPolicy（32K/64K/128K/200K 分档）。水位条按当前会话解析出的模型上下文窗口计算——chat store 的 onEvent 拿到 turnEnd/新消息时用 `rpc.call('chat.contextInfo', {sessionId})` 取当前窗口与 token 计数（新增小型 RPC，接口见 Task 5）；不再硬编码 200K
 - 测试命令统一 `npm test`；单文件 `npm test -- tests/xxx.test.ts`；typecheck `npm run typecheck`
+- 测试总量基线相对 main 的 **396 用例 / 36 文件**；新增终端 6 + 文件 11 + 托盘 5 + chat.contextInfo 2 ≈ **420 用例** 为估算，以实际全绿为准
 - 前端无组件测试基建：minisd 侧新 RPC 全部配 vitest（沿用 `tests/rpc.test.ts` 模式）；前端组件以 `npm run typecheck` + `npm run build` + 手工验收兜底
 - commit 信息用 conventional commits + 中文（如 `feat(m2d): …`）
 
@@ -24,13 +27,17 @@
 
 ### 决策 1：终端面板用独立的交互式 shell 实例，不与 `shell_execute` 共用 `PersistentShell`
 
-M1 的 `PersistentShell`（`src/minisd/tools/shell.ts`）是为工具调用设计的**机器协议**壳：stdin 只认 `marker base64(command)` 行、输出靠哨兵 `__MINIS_DONE_*` 定界、每命令带超时杀壳、会话内串行队列。徒手输入共用它有三个硬伤：
+现状（c54dac4）：`PersistentShell`（`src/minisd/tools/shell.ts`）构造器**已有 env 参数**——会话级环境变量在首次建壳时捕获：M2e 的 makeShellTool 就通过 `envFor(ctx)` 把 `MINIS_CHAT_SESSION_ID / MINIS_BRIDGE_PIPE / MINIS_BRIDGE_CLI / MINIS_BRIDGE_NODE` 注入到了 `shell_execute` 每次 spawn 的工具 shell 环境里（实际是每个 shell_execute 子进程注入，非 PersistentShell 单例——但 env 参数接口已存在）。
+
+工具 shell 仍为机器协议：stdin 只认 `marker base64(command)` 行、输出靠哨兵 `__MINIS_DONE_*` 定界、每命令带超时杀壳、会话内串行队列。徒手输入共用它有三个硬伤：
 
 1. **协议会被徒手输入打碎**：驱动里 `$line.IndexOf(' ')` / `FromBase64String` 对任意用户输入直接抛异常，驱动循环崩溃会把 agent 的工具 shell 一起带走；
 2. **阻塞语义冲突**：交互命令（如 `npm init` 卡在提问）会占住会话内互斥锁，agent 的 `shell_execute` 全部排队饿死；反之 agent 跑长命令时终端完全无响应；
 3. **超时杀壳冲突**：工具调用的 120s 超时杀壳逻辑对交互式使用是灾难（用户煮着咖啡回来壳没了）。
 
-因此终端面板走 `TerminalManager`（每会话一个独立 `powershell.exe`，cwd = 会话工作区），与 `ShellManager` 并存互不感知。代价是两个 shell 的 cwd/环境变量各自演进（用户在终端 `cd` 不影响 agent 的 shell）——这反而是优点：agent 的工作路径不会被用户意外挪动。两实例统一注入 `MINIS_*` 环境变量（设计 §3.3）留作 M2 后续统一处理（M1 工具 shell 也尚未注入）。
+因此终端面板走 `TerminalManager`（每会话一个独立 `powershell.exe`，cwd = 会话工作区），与 `ShellManager` 并存互不感知。代价是两个 shell 的 cwd/环境变量各自演进（用户在终端 `cd` 不影响 agent 的 shell）——这反而是优点：agent 的工作路径不会被用户意外挪动。
+
+**（过时假设 #8 修正）** 两实例统一注入 `MINIS_*` 环境变量：工具 shell 已由 M2e 注入 makeBridgeEnv；本决策**终端面板的交互壳也同样注入同一套 makeBridgeEnv**（与工具 shell 一致）——理由：用户在终端里手动调桥命令（如 `& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" windows-notify ...`）是合理场景，桥权限卡照常弹；注入形式与 makeBridgeEnv 完全相同，不需要新接口。M4 SEA 打包后 resolveBridgeCliPath/resolveBridgeNode 退役不影响此决策。
 
 ### 决策 2：无 PTY 的「哑管道 + 服务端逐字符回显」终端架构
 
@@ -54,27 +61,51 @@ M1 的 `PersistentShell`（`src/minisd/tools/shell.ts`）是为工具调用设�
 
 ```
 deskminis/
-  package.json                       修改：dependencies + @xterm/xterm + @xterm/addon-fit；scripts + gen:tray-icon
+  package.json                       修改（增量，#5）：dependencies + @xterm/xterm + @xterm/addon-fit；scripts + gen:tray-icon（保留既有 e2e:m2b/m2a/m2c/m2e、rebuild、postinstall）
   scripts/gen-tray-icon.mjs          新增：托盘图标生成器（无依赖手写 32×32 PNG，可复现可审查）
   resources/tray.png                 新增（生成物，进 git）：托盘图标
-  src/minisd/terminal.ts             新增：TerminalSession + TerminalManager（交互式终端壳）
+  src/minisd/terminal.ts             新增：TerminalSession + TerminalManager（交互式终端壳，env 注入 makeBridgeEnv 同工具 shell）
   src/minisd/files.ts                新增：FilesService（工作区限仓的 list/read）
-  src/minisd/index.ts                修改：注册 terminal.*/files.* 方法、删除会话时销毁终端、close 清理
-  src/main/index.ts                  修改：托盘常驻（close→hide、托盘菜单、window-all-closed 不退出）
-  src/renderer/src/rpc.ts            修改：RpcClient 增加 off()
-  src/renderer/src/App.vue           修改：三页签接线（懒挂载 + v-show 保活）
-  src/renderer/src/stores/chat.ts    修改：UiMessage 带 tokenUsage、记 lastStopReason
-  src/renderer/src/components/Icon.vue          修改：+ refresh 图标
+  src/minisd/index.ts                修改（增量 a-f 锚点，#4）：注册 terminal.*/files.* 方法、删除会话时销毁终端、close 清理顺序（controllers abort→perms→terminals disposeAll→shells disposeAll→bridge?.close→rpc.close→db.close）
+  src/main/index.ts                  修改（全文块 + 现状核实，#3）：托盘常驻（close→hide、托盘菜单、window-all-closed 不退出）
+  src/renderer/src/rpc.ts            修改（全文块 + 现状核实，#3）：RpcClient 增加 off()
+  src/renderer/src/App.vue           修改（三任务各自增量清单 + 现状锚点 + 演进说明，#3）：三页签接线（懒挂载 + v-show 保活）
+  src/renderer/src/stores/chat.ts    修改（增量清单 a-g，#1）：保留 providers/skills 订阅 + slash 菜单状态、retryNote，仅追加 UiMessage tokenUsage/lastStopReason + chat.contextInfo + 4 个事件消费（fallback/compacted/offloaded/retry）
+  src/renderer/src/components/Icon.vue          修改（增量，#2）：仅追加 refresh 图标路径（保留 provider 编辑图标 edit）
   src/renderer/src/components/TerminalPanel.vue 新增：xterm.js 终端面板
   src/renderer/src/components/FilesPanel.vue     新增：文件树 + 预览面板
   src/renderer/src/components/FileTreeNode.vue   新增：递归树节点（懒加载）
   src/renderer/src/components/TasksPanel.vue     新增：任务面板
+  tests/chat-context-info.test.ts    新增：chat.contextInfo RPC 测试（2 例，#7 水位条需要）
   tests/terminal.test.ts             新增：terminal.* RPC 测试（6 例）
   tests/files-rpc.test.ts            新增：files.* RPC 测试（11 例）
   tests/tray-lifecycle.test.ts       新增：托盘生命周期源文本守卫（5 例）
 ```
 
-任务依赖：1 → 3；2 → 4；5、6 独立；7 最后。{1,2} 可并行；{3,4,5,6} 可并行——但 3/4/5 都改 `App.vue`，若并行执行需按 3 → 4 → 5 顺序串行合入（每任务都给出版本完整的 App.vue）。
+**（基线升级后 App.vue 演进说明：** 原文 3/4/5 三任务都写「完整替换 App.vue」，现改为三任务按顺序串行合入，每任务只列增量插入清单，锚点为前一任务合入后的 App.vue 行号/代码片段。任务 3 → 4 → 5 的每次叠加都保留 ChatView.vue（斜杠菜单）、ProviderSettings、齿轮设置页签、TitleBar 及明暗切换逻辑不变。**）**
+
+> 任务依赖：1 → 3；2 → 4；5、6 独立；7 最后。{1,2} 可并行；{3,4,5,6} 可并行——但 3/4/5 都改 `App.vue`，若并行执行需按 3 → 4 → 5 顺序串行合入（每任务只列自身增量清单，不再全文替换）。
+>
+> **chat.event kind 全集与 UI 消费对照（#10）**：
+>
+> | kind | 生产者 | 原 M2x 是否消费 | 本次接线（#10） | 自然归宿 | 手工验收步骤 |
+> |------|--------|------------------|-----------------|----------|--------------|
+> | textDelta | agent loop | ChatView 已有（streamingText） | 保留不动 | 对话流 | （基线已有，不复验） |
+> | thinkingDelta | agent loop | 未消费 | 本次不接线（M2f 思维链 UI） | - | - |
+> | toolStart/toolEnd | agent loop | ChatView toolCards 已有 | 保留不动 | 对话流 | （基线已有） |
+> | messagePersisted | ChatStore | 未消费 | 本次不接线（纯内部事件） | - | - |
+> | turnEnd | agent loop | ChatView 已有（open 刷新） | 保留不动 + 新触发 contextInfo 刷新 | 对话流 + 任务面板 | 任务面板 turnEnd 后水位条刷新到新值 |
+> | **retry** | agent loop | ChatView 已有（retryNote 横幅） | 保留 + 追加**任务面板状态区**回显 | 对话流 + 任务面板 | 任务面板运行区显示「重试中 (N/s)」+ 对话流内联灰条 |
+> | **fallback** | runAgentLoop（M2b 降级） | **未消费** | 对话流内联黄条 + 任务面板「已切换到 <provider>」 | 对话流 + 任务面板 | 造 fallbackable 报错，对话出现内联条，任务面板 provider 标签切换 |
+> | **compacted** | CompactEngine（M2a 压缩） | **未消费** | 对话流内联灰条「上下文已压缩，删除 N 条历史节省 tokens」+ 任务面板状态区 | 对话流 + 任务面板 | 长对话触发压缩后能看到内联条 |
+> | **offloaded** | OffloadEngine（M2a 卸载） | **未消费** | 对话流内联灰条「N 条旧消息已归档到磁盘」+ 任务面板状态区 | 对话流 + 任务面板 | 长会话触发 offload 后能看到内联条 |
+> | error | agent loop | ChatView lastError 已有 | 保留不动 | 横幅 | （基线已有） |
+>
+> skills.changed / skills.import.progress 已被 M2c 斜杠菜单消费（chat.init → refreshSkills），**本条（#10）不重复接线**。
+>
+> **#11 bridge-* 权限卡核查**：c54dac4 权限卡组件已按 `req.toolTitle` 渲染标题（bridge-clipboard-read → `读取剪贴板内容`、bridge-screenshot → `截取屏幕` 等），toolTitle 在 M2e Task 3 与 kind 映射已对齐；本计划不新增权限卡 UI，若有视觉错位在执行时记入偏差。
+>
+> **（#12 可选，不入任务）已知限制：** ① shell_execute 调桥命令时先弹 shell_execute gated 卡、再弹 bridge-* 权限卡（双层门控），UI 侧降噪方案在 M2e 后续跟进；② PermissionGatewayImpl 的权限询问超时 30 秒对慢截屏/慢播报偏紧，M2d 阶段不动。
 
 ---
 
@@ -383,48 +414,73 @@ export class TerminalManager {
 }
 ```
 
-- [ ] **Step 4: 接线 minisd/index.ts（5 处插入，锚点逐字引用现有代码）**
+- [ ] **Step 4: 接线 minisd/index.ts（#4：增量清单 a-f + 现状锚点逐字引用）**
 
-**插入 1（import 区）**：在 `import { runAgentLoop } from './agent/loop';` 一行之后插入：
+<!-- 冲突点 #4：原计划的锚点在 main@c54dac4 全部对不上——imports 已有 28 行含 bridge/server、providers、skills 模块；methods 表 389-390 行在 modelgroup.delete / skills.delete 之后，close 序列在 395-402 行且已含 bridge?.close()、controllers.abort、pendingPerms 清理。以下 6 处插入/追加引用 c54dac4 真实行号。 -->
 
+**a. import 区追加 TerminalManager**（锚点：L27 末尾 bridge 两行之后，空行之上）
+在 `import { makeBridgeDispatcher } from './bridge/handlers';` 之后、`export const SYSTEM_PROMPT` 之前追加：
 ```typescript
 import { TerminalManager } from './terminal';
+import { FilesService } from './files';
 ```
 
-**插入 2（服务装配）**：在 `const shells = new ShellManager();` 一行之后插入：
+**b. TerminalSession 构造 env（决策 1 过时假设 #8 修正）**：TerminalManager 已有的 `constructor(paths, emit)` 之外，服务装配时**额外传 sessionId 延迟闭包的 envFor**（与 makeShellTool 同款 `makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, bridgeNode)`）——TerminalManager 内部 spawn 的 powershell.exe 在 env 注入 `MINIS_CHAT_SESSION_ID/MINIS_BRIDGE_PIPE/MINIS_BRIDGE_CLI/MINIS_BRIDGE_NODE` 四变量，用户能在终端手动跑 `& "$env:MINIS_BRIDGE_NODE" ...`。**锚点：index.ts L136-138 bridgeCli/bridgeNode/pipePath 赋值之后、L150 `const shells = new ShellManager()` 之前插入 terminals**：
 
 ```typescript
-  // 终端面板的交互式 shell 与工具调用的长驻 shell 是两个独立实例（决策：共用会把哨兵协议
-  // 暴露给徒手输入、并把用户卡住的交互命令变成 agent 工具调用的阻塞点，详见 M2d 计划决策 1）。
-  // emit 闭包引用后赋值的 rpc——与下方 pendingPerms 的 prompt 同一模式，推送只发生在 listen 之后。
-  const terminals = new TerminalManager(paths, (sessionId, data) => rpc.broadcast('terminal.output', { sessionId, data }));
+  const terminals = new TerminalManager(paths, (sessionId, data) => rpc.broadcast('terminal.output', { sessionId, data }),
+    sessionId => makeBridgeEnv(sessionId, bridgePipe, bridgeCli, bridgeNode));
+  const filesSvc = new FilesService(paths);
 ```
 
-**插入 3（RPC 方法）**：在 `    'provider.instances.list': () => providers.list(),` 一行之前插入：
-
+**c. methods 表追加 terminal.* + files.* 四方法**（锚点：L348 `permission.respond` 结束、L360 `// ---- M2c 技能 RPC 面 ----` 注释**之前**插入，因为 terminal/files 与权限处理同一域）：
 ```typescript
     'terminal.attach': (p: { sessionId: string }) => ({ scrollback: terminals.attach(assertSessionId(p.sessionId)) }),
     'terminal.input': (p: { sessionId: string; data: string }) => { terminals.input(assertSessionId(p.sessionId), String(p.data ?? '')); return { ok: true }; },
+    'files.list': (p: { sessionId: string; dir?: string }) => filesSvc.list(assertSessionId(p.sessionId), typeof p.dir === 'string' ? p.dir : undefined),
+    'files.read': (p: { sessionId: string; path: string }) => filesSvc.read(assertSessionId(p.sessionId), String(p.path ?? '')),
+    // 新增 chat.contextInfo（#7 过时假设修正：水位条按实际上下文窗口计算）
+    'chat.contextInfo': (p: { sessionId: string }) => {
+      const sid = assertSessionId(p.sessionId);
+      const messages = chat.listMessages(sid);
+      // contextPolicy.resolveWindow 已含 catalog 查模型：按会话绑定/默认 provider 的 contextWindow 与 token 估算
+      const { windowTokens, usedTokens } = contextPolicy.summarize(sid, messages); // #7 新增小型 RPC
+      return { windowTokens, usedTokens, remaining: Math.max(0, windowTokens - usedTokens) };
+    },
 ```
 
-**插入 4（删除会话销毁终端）**：在 `      chat.deleteSession(sessionId); return { ok: true };` 一行之前插入：
-
+**d. `chat.sessions.delete` 销毁终端 + 文件服务无状态（不需要销毁）**。锚点：L181-185 `chat.sessions.delete` 处理块，在 `chat.deleteSession(sessionId); return { ok: true };` 之前追加：
 ```typescript
       terminals.dispose(sessionId);
 ```
 
-**插入 5（关闭清理）**：把 close 里的 `      shells.disposeAll(); await rpc.close(); db.close();` 替换为：
-
+**e. close() 序列按现状插入 terminals.disposeAll()（不能全文替换，bridge 和 controllers 必须保留）**。现状 close（L396-401）：
 ```typescript
-      terminals.disposeAll(); shells.disposeAll(); await rpc.close(); db.close();
+    close: async () => {
+      for (const c of controllers.values()) c.abort();
+      for (const { timer } of pendingPerms.values()) clearTimeout(timer);
+      pendingPerms.clear();
+      shells.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
+    },
 ```
+插入后的期望（**锚点逐字匹配 L398-400 三行**；insert terminal.disposeAll 在 pendingPerms.clear 之后、shells.disposeAll 之前）：
+```typescript
+    close: async () => {
+      for (const c of controllers.values()) c.abort();
+      for (const { timer } of pendingPerms.values()) clearTimeout(timer);
+      pendingPerms.clear();
+      terminals.disposeAll(); shells.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
+    },
+```
+
+**f. startMinisd 返回不变（已含 bridgePipe，M2e 已加）、close() 签名不变**。
 
 - [ ] **Step 5: 跑测试确认通过 + typecheck**
 
-Run: `cd deskminis && npm test -- tests/terminal.test.ts`
-Expected: `6 passed`
+Run: `cd deskminis && npm test -- tests/terminal.test.ts tests/chat-context-info.test.ts`
+Expected: `6 + 2 = 8 passed`
 Run: `cd deskminis && npm test && npm run typecheck`
-Expected: 全部通过（136 passed）、typecheck 0 errors
+Expected: 全量通过（基线 396 + 8 新 ≈ 404）、typecheck 0 errors
 
 - [ ] **Step 6: Commit**
 
@@ -716,37 +772,16 @@ export class FilesService {
 }
 ```
 
-- [ ] **Step 4: 接线 minisd/index.ts（3 处插入，锚点逐字引用现有代码）**
+- [ ] **Step 4: 接线 minisd/index.ts（已并入 Task 1 Step 4 增量清单，Task 2 不再单独改 index.ts）**
 
-**插入 1（import 区）**：在 `import { TerminalManager } from './terminal';` 一行之后插入：
-
-```typescript
-import { FilesService } from './files';
-```
-
-**插入 2（服务装配）**：在 `  const terminals = new TerminalManager(paths, (sessionId, data) => rpc.broadcast('terminal.output', { sessionId, data }));` 一行之后插入：
-
-```typescript
-  const filesSvc = new FilesService(paths);
-```
-
-**插入 3（RPC 方法）**：在 `    'provider.instances.list': () => providers.list(),` 一行之前插入：
-
-```typescript
-    'files.list': (p: { sessionId: string; dir?: string }) =>
-      filesSvc.list(assertSessionId(p.sessionId), typeof p.dir === 'string' && p.dir !== '' ? p.dir : undefined),
-    'files.read': (p: { sessionId: string; path: string }) => {
-      if (typeof p.path !== 'string' || p.path === '') throw new Error('files.read 需要 path');
-      return filesSvc.read(assertSessionId(p.sessionId), p.path);
-    },
-```
+> 注：Task 1 Step 4 的 b. 服务装配已同处插入 `const filesSvc = new FilesService(paths)`；c. methods 表已同处插入 `files.list / files.read / chat.contextInfo`；import 区 a. 已同处加 `import { FilesService } from './files'`。Task 2 执行时只改 files.ts + files-rpc.test.ts，index.ts 接线与 Task 1 同提交一次（减少 index.ts 多轮增量彼此覆盖的冲突面）。
 
 - [ ] **Step 5: 跑测试确认通过 + typecheck**
 
 Run: `cd deskminis && npm test -- tests/files-rpc.test.ts`
 Expected: `11 passed`
 Run: `cd deskminis && npm test && npm run typecheck`
-Expected: 全部通过（147 passed）、typecheck 0 errors
+Expected: 全量通过（基线 396 + Task 1 新 8 + Task 2 新 11 ≈ 415）、typecheck 0 errors
 
 - [ ] **Step 6: Commit**
 
@@ -770,18 +805,20 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/files.t
   - `TerminalPanel.vue`：无 props；挂载时 attach 当前会话、键入直送 `terminal.input`、推送写入 xterm；`activeId` 变化时 reset 并重新 attach；主题从 `getComputedStyle` 读 tokens，随明暗切换重读
   - `App.vue`：右栏页签改为懒挂载 + `v-show` 保活（`visited` 记录首切）
 
-- [ ] **Step 1: 安装 xterm 依赖**
+- [ ] **Step 1: 安装 xterm 依赖（package.json 仅增量追加，#5：保留既有 e2e/rebuild/postinstall）**
 
-```bash
-cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm i @xterm/xterm @xterm/addon-fit
-```
+> **增量清单 a（不全文替换 package.json，#5）**：
+> 1. `npm i @xterm/xterm @xterm/addon-fit`——由 npm 自动写入 dependencies（**追加**，不覆盖现有三条 @napi-rs/keyring + better-sqlite3 + ws + yauzl）
+> 2. `scripts` 对象里手动追加一行：`"gen:tray-icon": "node scripts/gen-tray-icon.mjs"`——**保留**既有 `e2e / e2e:m2b / e2e:m2a / e2e:m2c / e2e:m2e / rebuild / postinstall` 七条脚本，顺序无关
 
-Run: `cd deskminis && npm ls @xterm/xterm @xterm/addon-fit`
-Expected: 两个包均在 dependencies 中（版本号由 npm 解析，如 `@xterm/xterm@5.5.x`、`@xterm/addon-fit@0.10.x`）
+Run: `cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm i @xterm/xterm @xterm/addon-fit`
+Run: `cd deskminis && node -e "const p=require('./package.json'); console.log('@xterm:', !!p.dependencies['@xterm/xterm'], '; gen-tray:', typeof p.scripts['gen:tray-icon'])"`
+Expected: `@xterm: true ; gen-tray: true`（scripts 若未写入 gen-tray-icon 则手动补）
 
-- [ ] **Step 2: RpcClient 增加 off（完整替换 rpc.ts）**
+- [ ] **Step 2: RpcClient 增加 off（已对照 main@c54dac4 现状核实：与 M1 完全一致；全文块保留 + 加注解）**
 
-`deskminis/src/renderer/src/rpc.ts`:
+<!-- #3 冲突点核实：c54dac4 rpc.ts 共 51 行：type Handler + class RpcClient（handlers Map + on/无 off + connect minisdInfo/minisdPort 握手 + call reject error.message），与原计划替换块完全一致。因此保留全文块，仅末尾追加 off 方法。 -->
+`deskminis/src/renderer/src/rpc.ts`（**已对照现状 c54dac4 核实——M2x 未改动此文件**）：
 
 ```typescript
 type Handler = (params: any) => void;
@@ -833,7 +870,8 @@ export class RpcClient {
     this.handlers.get(method)!.add(h);
   }
 
-  /** 组件卸载时摘订阅：不摘的话已销毁组件的闭包会永远挂在广播链上（泄漏 + 向死 xterm 写数据）。 */
+  /** 组件卸载时摘订阅：不摘的话已销毁组件的闭包会永远挂在广播链上（泄漏 + 向死 xterm 写数据）。
+   * （基线 main@c54dac4 无此方法；以下为 Task 3 Step 2 新增——其余部分与现状逐行一致。） */
   off(method: string, h: Handler): void {
     const set = this.handlers.get(method);
     if (!set) return;
@@ -967,9 +1005,57 @@ onBeforeUnmount(() => {
 </style>
 ```
 
-- [ ] **Step 4: App.vue 接线终端页签（完整替换）**
+- [ ] **Step 4: App.vue 接线终端页签（#3：增量清单；已对照现状核实——M2x 未改动此文件；禁止全文替换）**
 
-`deskminis/src/renderer/src/App.vue`:
+> **现状锚点 + 增量清单（Task 3 Step 4 只改以下 5 处，其余原样保留现状 ChatView / ProviderSettings / TitleBar / 明暗切换 / openSettings provide 等所有既有内容）**：
+> a. `<script>` import 区**追加**：`import TerminalPanel from './components/TerminalPanel.vue';`（import Icon.vue 之前或之后都可）
+> b. import 区**追加**：`import { reactive } from 'vue';`（若现状 Vue import 已有 reactive 则跳过——现状：from 'vue' 通常写 `{ onMounted, ref, computed, provide }`，**一般不含 reactive**，需确认后追加）
+> c. state 区**追加**（锚点：现状 `const settingsOpen = ref(false);` 之后，或第一个 ref 定义块内）：
+>    ```typescript
+>    const rightTab = ref<'terminal' | 'files' | 'tasks'>('terminal');
+>    /** 懒挂载 + v-show 保活（首次切到才创建组件，之后切换只隐藏不销毁） */
+>    const visited = reactive({ terminal: true, files: false, tasks: false });
+>    function showTab(tab: 'terminal' | 'files' | 'tasks'): void {
+>      settingsOpen.value = false;
+>      rightTab.value = tab;
+>      visited[tab] = true;
+>    }
+>    function toggleSettings(): void {
+>      settingsOpen.value = !settingsOpen.value;
+>      if (!settingsOpen.value) visited[rightTab.value] = true;
+>    }
+>    ```
+> d. `<template>` 右栏 `<aside class="pane-r">` 区块内，现状占位 `<div class="rempty">…</div>` **替换为 tabs 三页签 + 文件/任务占位**（锚点：现状 `<aside v-show="rightOpen" class="pane-r">…</aside>` 内部）：
+>    ```vue
+>        <div class="tabs">
+>          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'terminal' }" @click="showTab('terminal')">终端</div>
+>          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'files' }" @click="showTab('files')">文件</div>
+>          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'tasks' }" @click="showTab('tasks')">任务</div>
+>          <div class="tab gear" :class="{ on: settingsOpen }" title="模型设置" @click="toggleSettings"><Icon name="gear" :size="15" /></div>
+>        </div>
+>        <div v-if="settingsOpen" class="rbody"><ProviderSettings /></div>
+>        <template v-else>
+>          <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
+>          <div v-if="rightTab !== 'terminal'" class="rempty">M2d 后续任务填入文件树与任务进度</div>
+>        </template>
+>    ```
+> e. `<style scoped>` 末尾**追加** tab 样式（现状若已有 .tabs/.tab/.rfill/.rempty 则跳过——M1 没有，所以追加）：
+>    ```css
+>    .tabs { display: flex; gap: 2px; padding: 10px; border-bottom: .5px solid var(--separator); }
+>    .tab {
+>      flex: 1; text-align: center; padding: 6px; font-size: 13px; font-weight: 500; color: var(--label-secondary);
+>      border-radius: var(--r-control); cursor: pointer; display: flex; align-items: center; justify-content: center;
+>    }
+>    .tab.gear { flex: 0 0 32px; }
+>    .tab.on { background: var(--fill-quaternary); color: var(--label); }
+>    .rfill { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+>    .rempty {
+>      flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
+>      font-size: 13px; color: var(--label-tertiary); padding: 24px; line-height: 1.6;
+>    }
+>    ```
+
+`deskminis/src/renderer/src/App.vue`（**已对照现状 c54dac4 核实——M2x 未改动此文件**；以下代码块为 Task 3 合入后的完整参考快照，**执行时只改以上 a-e 5 处增量，禁止全文替换**）：
 
 ```vue
 <script setup lang="ts">
@@ -1113,9 +1199,22 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/package.json deskm
   - `FilesPanel.vue`：无 props；根列表 + 刷新按钮；`running` 由真变假（agent 回合落盘结束）自动刷新根与已展开目录；文件点击 → 底部预览（文本 / 截断提示 / 二进制提示）
   - `Icon.vue`：`PATHS` 新增 `refresh`
 
-- [ ] **Step 1: Icon.vue 增加 refresh 图标（完整替换）**
+- [ ] **Step 1: Icon.vue 追加 refresh 图标（#2：增量清单；保留 M2c 加的 pencil/edit 等）**
 
-`deskminis/src/renderer/src/components/Icon.vue`:
+> **冲突点 #2 核实（cebf26d）**：main@c54dac4 的 Icon.vue PATHS 含 M2c 新增的 `pencil/shield/edit/alert/memory/book/info/gear/trash` 等，与原「完整替换」块有大量重叠但不是同一集合。**必须增量追加，禁止全文替换**。
+>
+> **增量清单（Task 4 Step 1 只改以下 2 点，其余锚点逐字保留）**：
+> a. 若 PATHS 内已有 `refresh:` 则跳过；否则在 PATHS 对象**最末一个键之后**（即 `};` 闭合行的上一行）追加：
+>    ```
+>      refresh: '<path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/>',
+>    ```
+> b. 原计划 Task 4 Step 1 里的 `file/folder/terminal/chevron-down/plus/back/forward/sidebar` 等 7 项：**M1 就已存在**，不需要补。
+>
+> 验收命令：
+> `cd deskminis && node -e "const s=require('fs').readFileSync('src/renderer/src/components/Icon.vue','utf8'); console.log('has-refresh:', s.includes('refresh:'), 'has-edit:', s.includes(\"edit:'\"))"`
+> Expected: `has-refresh: true, has-edit: true`（edit 是 M2c 的 provider 编辑图标，必须保留）。
+
+`deskminis/src/renderer/src/components/Icon.vue`（仅以上增量；**不得全文替换**——原计划完整替换块的内容**仅供参考**，已标注 M2c 改动必须保留）：
 
 ```vue
 <script setup lang="ts">
@@ -1246,9 +1345,14 @@ watch(() => props.refreshKey, () => { if (expanded.value && children.value !== n
 </style>
 ```
 
-- [ ] **Step 3: FilesPanel.vue（新建）+ App.vue 接线（完整替换两文件）**
+- [ ] **Step 3: FilesPanel.vue（新建）+ App.vue 接线（#3：App.vue 仅增量清单，禁止全文替换）**
 
-`deskminis/src/renderer/src/components/FilesPanel.vue`:
+> App.vue 增量（Task 4 只改这 3 处，其余锚点保持 Task 3 合入后的状态不变）：
+> a. `<script>` import 区追加：`import FilesPanel from './components/FilesPanel.vue';`
+> b. `visited` reactive 定义保持不变（Task 3 已加 `files: false`）
+> c. `<template>` 内 Task 3 写入的占位行 `<div v-if="rightTab !== 'terminal'" class="rempty">M2d 后续任务填入文件树与任务进度</div>` → 替换为任务面板的两分支占位（见上方「Task 4 版 App.vue：演进关系 #3」块）：FilesPanel v-show + 任务页 rempty 占位
+
+`deskminis/src/renderer/src/components/FilesPanel.vue`（新建，无冲突）:
 
 ```vue
 <script setup lang="ts">
@@ -1385,7 +1489,19 @@ onMounted(() => { void loadRoot(); });
 </style>
 ```
 
-`deskminis/src/renderer/src/App.vue`（完整替换；相对 Task 3 版本：+ FilesPanel import、文件页签填实、占位只剩任务页）:
+`deskminis/src/renderer/src/App.vue`（**已对照现状 c54dac4 核实——M2x 未改动此文件**；Task 3 与 Task 4 版本的演进关系写明）：
+
+> **演进关系 #3**：
+> - Task 3 版 App.vue：FilesPanel import 未加 + `rightTab === 'files'` 仍是占位 `<div class="rempty">M2d 后续任务填入文件树与任务进度</div>`
+> - Task 4 版 App.vue：**在 Task 3 版之上做 3 处增量修改**（禁止全文替换第三版，必须串行增量：现状 → Task3 → Task4 → Task5；否则执行时三次 Edit 会互相覆盖）：
+>   a. `<script>` 顶追加：`import FilesPanel from './components/FilesPanel.vue';`
+>   b. `visited = reactive({ terminal: true, files: false, tasks: false })` 不变（Task 3 已加）
+>   c. `<template>` 内原占位行 `<div v-if="rightTab !== 'terminal'" class="rempty">M2d 后续任务填入文件树与任务进度</div>` → 替换为：
+>      ```vue
+>      <div v-show="rightTab === 'files'" class="rfill"><FilesPanel v-if="visited.files" /></div>
+>      <div v-if="rightTab === 'tasks'" class="rempty">M2d 后续任务填入任务进度</div>
+>      ```
+> - Task 5 版 App.vue：在 Task 4 版之上再加 import TaskPanel.vue 与填实 tasks 页签（见 Task 5 Step 3 说明）。
 
 ```vue
 <script setup lang="ts">
@@ -1531,124 +1647,84 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/c
   - store state `lastStopReason: string`——`turnEnd` 时记录；`send()` 与切换会话时清零
   - `TasksPanel.vue`：无 props；回合区（状态 / 重试提示 / 本回合工具计数 / 上回合停止原因）、token 区（上回合与会话累计）、上下文水位条（分子 = 最后一条带用量 assistant 消息的 input+output tokens；分母固定 200K 估算，代码留 `TODO(M2b)` 锚点接模型能力目录）
 
-- [ ] **Step 1: stores/chat.ts 补 tokenUsage 类型与 lastStopReason（完整替换）**
+- [ ] **Step 1: stores/chat.ts 补 tokenUsage / lastStopReason + 4 种事件消费（#1：增量清单 a-f；M2c 斜杠菜单 / skills 订阅 / provider 状态原样保留）**
 
-`deskminis/src/renderer/src/stores/chat.ts`:
-
-```typescript
-import { defineStore } from 'pinia';
-import { rpc } from '../rpc';
-
-let localSeq = 0;
-
-// tokenUsage 与 shared/types.ts 的 TokenUsage 同构：后端 RawMessage 本就带它，
-// chat.messages.list 经 JSON-RPC 原样送达——这里只是让 UI 类型对齐（任务面板取数）。
-interface UiMessage { id: string; role: string; parts: any[]; tokenUsage?: { inputTokens: number; outputTokens: number } }
-interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string }
-interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
-type PermTier = 'ask' | 'session' | 'full';
-
-export const useChat = defineStore('chat', {
-  state: () => ({
-    sessions: [] as { id: string; title: string; updatedAt?: number; pinnedAt?: number }[],
-    activeId: '' as string,
-    messages: [] as UiMessage[],
-    streamingText: '' as string,
-    toolCards: [] as { toolUseId: string; name: string; title: string; output?: string; success?: boolean }[],
-    pendingPerms: [] as PendingPerm[],
-    providers: [] as UiProvider[],
-    // 循环报错（API Key 错误、provider 故障…）必须看得见，否则界面就是「按了没反应」
-    lastError: '' as string,
-    // 透明重试期间的提示；下一个 textDelta / turnEnd 清掉
-    retryNote: '' as string,
-    // 当前回合是否在跑：控制发送键 ↔ 停止键、以及底部实时助手块的显隐
-    running: false as boolean,
-    // 上回合停止原因（turnEnd 事件携带）：任务面板显示；发新回合/切会话时清零
-    lastStopReason: '' as string,
-    // 后端没有暴露「读取默认 provider」的 RPC；渲染端本地镜像当前选择（模型胶囊显示 + 打勾）。
-    // 初值置为首个 provider —— 后端 create() 也把首个建的 provider 设为默认。
-    defaultProviderId: '' as string,
-    // 权限档位为 M1 渲染端本地偏好（后端网关一次性构造、无对应设置）：只影响权限卡里预选高亮哪个按钮。
-    permTier: 'ask' as PermTier,
-  }),
-  actions: {
-    async init() {
-      await rpc.connect();
-      rpc.on('chat.event', ({ sessionId, event }: any) => { if (sessionId === this.activeId) this.onEvent(event); });
-      rpc.on('permission.request', ({ requestId, req }: any) => this.pendingPerms.push({ requestId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle }));
-      // 询问超时（30s）或别的窗口已答复时 minisd 广播 resolved：不摘掉卡片就会永远挂在界面上
-      rpc.on('permission.resolved', ({ requestId }: any) => { this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId); });
-      await this.refreshSessions();
-      await this.refreshProviders();
-    },
-    async refreshSessions() { this.sessions = await rpc.call('chat.sessions.list'); },
-    async refreshProviders() {
-      this.providers = await rpc.call('provider.instances.list');
-      // 本地默认选择未定/已失效时，回落到列表首个（与后端 create() 的默认策略一致）
-      if (!this.providers.some(p => p.id === this.defaultProviderId)) this.defaultProviderId = this.providers[0]?.id ?? '';
-    },
-    async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
-    async open(id: string) {
-      // 换会话才清错误横幅：turnEnd/error 之后的自刷新调用的也是 open，
-      // 在那条路径上清掉的话，刚设置的 lastError 会被立刻抹掉（错误又变成看不见）。
-      if (id !== this.activeId) { this.lastError = ''; this.retryNote = ''; this.running = false; this.lastStopReason = ''; }
-      this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.toolCards = [];
-    },
-    async send(text: string) {
-      this.streamingText = ''; this.toolCards = []; this.lastError = ''; this.retryNote = ''; this.lastStopReason = '';
-      // 乐观消息用唯一 id：一次会话内连发多条时 'local' 会造成 :key 重复
-      const optimisticId = `local-${++localSeq}`;
-      this.messages.push({ id: optimisticId, role: 'user', parts: [{ type: 'text', value: text }] });
-      this.running = true;
-      // chat.prompt 会同步拒绝（未配置 provider / 空文本 / 会话运行中 / 非法 sessionId）。
-      // 不 catch 的话是一次未处理拒绝：用户只看到「按了没反应」。捕获后写进 lastError 让它可见，
-      // 并摘掉这条从未落库的乐观消息（否则会留下一个假的「已发送」气泡）。
-      try {
-        await rpc.call('chat.prompt', { sessionId: this.activeId, text });
-      } catch (e) {
-        this.lastError = e instanceof Error ? e.message : String(e);
-        this.messages = this.messages.filter(m => m.id !== optimisticId);
-        this.running = false;
-      }
-    },
-    async cancel() {
-      if (!this.activeId) return;
-      try { await rpc.call('chat.cancel', { sessionId: this.activeId }); }
-      catch (e) { this.lastError = e instanceof Error ? e.message : String(e); }
-    },
-    async setDefaultProvider(id: string) {
-      await rpc.call('provider.setDefault', { id });
-      this.defaultProviderId = id;
-    },
-    setPermTier(tier: PermTier) { this.permTier = tier; },
-    async createProvider(p: any) { await rpc.call('provider.instances.create', p); await this.refreshProviders(); },
-    async updateProvider(id: string, p: any) { await rpc.call('provider.instances.update', { id, ...p }); await this.refreshProviders(); },
-    async deleteProvider(id: string) { await rpc.call('provider.instances.delete', { id, confirm: true }); await this.refreshProviders(); },
-    async respondPerm(requestId: string, decision: string) {
-      this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);
-      await rpc.call('permission.respond', { requestId, decision });
-    },
-    onEvent(e: any) {
-      if (e.kind === 'textDelta') { this.retryNote = ''; this.streamingText += e.text; }
-      else if (e.kind === 'toolStart') this.toolCards.push({ toolUseId: e.toolUseId, name: e.name, title: e.title });
-      else if (e.kind === 'toolEnd') { const c = this.toolCards.find(x => x.toolUseId === e.toolUseId); if (c) { c.output = e.output; c.success = e.success; } }
-      else if (e.kind === 'retry') {
-        // 循环会整回合重来，已缓冲的半截文本是过期的（不清就会和重试后的正文拼在一起）
-        this.streamingText = '';
-        this.retryNote = `正在重试…（第 ${e.attempt} 次，${Math.round((e.delayMs ?? 0) / 1000)}s 后）`;
-      }
-      else if (e.kind === 'turnEnd') { this.retryNote = ''; this.running = false; this.lastStopReason = String(e.stopReason ?? ''); void this.open(this.activeId); }
-      else if (e.kind === 'error') {
-        // 先记错误再刷新：open 在同会话路径上不动 lastError，横幅得以留在界面上
-        this.lastError = String(e.message ?? '未知错误');
-        this.retryNote = '';
-        this.running = false;
-        void this.open(this.activeId);
-      }
-    },
-  },
-});
-```
+> **冲突点 #1 核实（4c0d707 + cebf26d + c6d08c4 三次改动）**：main@c54dac4 的 chat.ts 已含 M2c 的 state 字段：`slashOpen: boolean`、`slashText: string`、`slashPos: {top:number;left:number}|null`、`matchedSkills: SkillEntry[]`、`skills: {loadedIds: string[]; loading: boolean; importProgress: {id:string;percent:number}|null}`、`activeSkillId: string` 及对应 actions（toggleSlash/filterSkills/insertSkillCall/openSkillManager）、skills.changed / skills.import.progress 订阅、`deleteSession` 动作等。**必须增量追加，禁止全文替换——斜杠菜单状态与 provider 相关字段必须原样保留**。
+>
+> **增量清单 a-f（锚点为现状 c54dac4 对应字段/方法名；行号变化时按字段名定位）**：
+>
+> a. **`interface UiMessage` 追加 tokenUsage**（锚点：现状 `UiMessage` 接口定义，如不含 `tokenUsage?` 则补在 `parts` 之后，用分号分隔）：
+>    ```typescript
+>    tokenUsage?: { inputTokens: number; outputTokens: number };  // 与 shared/types.ts TokenUsage 同构；后端 RawMessage 本就带，chat.messages.list 原样送达
+>    ```
+>
+> b. **`state()` 追加 lastStopReason + 事件 UI 状态区（#10 新增：fallback/compacted/offloaded 三条内联提示 + task 面板状态字典）**（锚点：现状 state 末尾 `permTier: 'ask' as PermTier,` 的**下一行** `}),` 之前插入）：
+>    ```typescript
+>    // M2d · Task 5：上回合停止原因（turnEnd.stopReason）
+>    lastStopReason: '' as string,
+>    // M2d · #10 事件 UI 接线：四种目前未消费事件（fallback/compacted/offloaded/retry）的状态。
+>    //   retry 已有 retryNote 字段沿用；其余三种新增会话级环内联提示 + 任务面板状态字典。
+>    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'; ts: number; detail?: string }[], // 对话流内联气泡（最多保留 10 条）
+>    fallbackState: null as null | { fromModel: string; toModel: string; reason?: string }, // 任务面板「降级」卡
+>    compactedState: null as null | { fromCount: number; toCount: number; freedTokens?: number }, // 任务面板「压缩」卡
+>    offloadedState: null as null | { count: number; oldestTs?: number; freedTokens?: number }, // 任务面板「卸载」卡
+>    // M2d · #7：chat.contextInfo 轮询缓存（任务面板水位条显示窗口 + 当次用量）
+>    contextInfo: null as null | { windowTokens: number; usedTokens: number; remaining: number },
+>    ```
+>
+> c. **`open(id)` 动作追加清零**（锚点：现状 `if (id !== this.activeId) { this.lastError = ''; this.retryNote = ''; this.running = false; }` 行，把里面改为追加）：
+>    ```typescript
+>    if (id !== this.activeId) {
+>      this.lastError = ''; this.retryNote = ''; this.running = false;
+>      this.lastStopReason = '';  // M2d +b. 字段清零
+>      this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null; // #10 四种未消费事件清零
+>      this.contextInfo = null; // #7 水位缓存清零
+>    }
+>    ```
+>
+> d. **`send(text)` 动作追加清零**（锚点：现状 `send` 函数体首行 `this.streamingText = ''; ...` 末尾，`;` 前追加）：
+>    在现有清零项之后**加** `this.lastStopReason = ''; this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;`。
+>
+> e. **`init()` 动作追加订阅 chat.contextInfo 轮询（#7 水位）**（锚点：现状 init 末尾 `await this.refreshProviders();` 之前，追加一段：
+>    ```typescript
+>    // #7：水位动态刷新——每次 turnEnd/重试/压缩/卸载 之后拉一次 chat.contextInfo 存 state.contextInfo（供 TasksPanel 用，不直接写死 200K）
+>    void this.fetchContextInfo();
+>    ```
+>    并在 actions 里追加私有方法（锚点：`actions` 对象末尾，`onEvent` 之后、闭合 `},` 之前插入）：
+>    ```typescript
+>    async fetchContextInfo() {
+>      if (!this.activeId) return;
+>      try {
+>        this.contextInfo = await rpc.call('chat.contextInfo', { sessionId: this.activeId });
+>      } catch { /* 水位 RPC 失败不影响主流程；缓存保持上一次值，任务面板显示「数据暂缺」 */ }
+>    },
+>    ```
+>
+> f. **`onEvent(e)` 追加四事件分支 + 水位刷新（#10 事件 UI 接线核心；retry 分支已有，只需补三种 + fallback/compacted/offloaded）**（锚点：现状 onEvent 函数体末尾 `if (e.kind === 'error') {...}` 闭合大括号**之后** `}` 之前插入）：
+>    ```typescript
+>      // M2d · #10：四种未消费事件（M2b 降级 / M2a 压缩 / M2a 卸载 / retry）——retry 分支已有，仅补其余三种并在任务面板挂状态
+>      else if (e.kind === 'fallback') {
+>        this.fallbackState = { fromModel: String(e.fromModel ?? ''), toModel: String(e.toModel ?? ''), reason: e.reason ? String(e.reason) : undefined };
+>        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'fallback', ts: Date.now(), detail: `${e.fromModel ?? '?'} → ${e.toModel ?? '?'}` }];
+>        void this.fetchContextInfo(); // 降级后上下文窗口可能变（小模型 → 小窗口）
+>      }
+>      else if (e.kind === 'compacted') {
+>        this.compactedState = { fromCount: Number(e.fromCount ?? 0), toCount: Number(e.toCount ?? 0), freedTokens: e.freedTokens ? Number(e.freedTokens) : undefined };
+>        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'compacted', ts: Date.now(), detail: `${e.fromCount ?? 0} 条 → ${e.toCount ?? 0} 条` }];
+>        void this.fetchContextInfo(); // 压缩后用量减少
+>      }
+>      else if (e.kind === 'offloaded') {
+>        this.offloadedState = { count: Number(e.count ?? 0), oldestTs: e.oldestTs ? Number(e.oldestTs) : undefined, freedTokens: e.freedTokens ? Number(e.freedTokens) : undefined };
+>        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'offloaded', ts: Date.now(), detail: `卸载 ${e.count ?? 0} 条历史` }];
+>        void this.fetchContextInfo();
+>      }
+>      // 注：retry 分支现状已在 onEvent 里处理（streamingText 清 + retryNote 写）；Task 5 Step 1 不重复改。
+>      // 注：turnEnd 分支现状会 `running=false` 并调 `this.open(...)`——在其后**不改动 turnEnd 现有逻辑**，仅在 turnEnd 分支结束前追加 `void this.fetchContextInfo();`（水位刷新）：
+>      //   定位到 `else if (e.kind === 'turnEnd') { ... void this.open(this.activeId); }` 这行，在 `void this.open(...)` 之后追加分号与刷新调用。
+>    ```
+>    同一步里**定位 turnEnd 分支体**，在 `void this.open(this.activeId);` 之后、分支闭 `}` 之前插入一行：`void this.fetchContextInfo();`
+>
+> 以上 6 处增量之外（a-f），M2c 的 slash 菜单 state / actions / skills 订阅 / deleteSession 动作、`import { loadSkills } from '../utils/skills'`、`SkillEntry` 类型一律**不动**。
 
 - [ ] **Step 2: TasksPanel.vue（新建）**
 
@@ -1657,18 +1733,13 @@ export const useChat = defineStore('chat', {
 ```vue
 <script setup lang="ts">
 /** 右栏 · 任务面板（设计 §7）——回合进度 / token 用量 / 上下文水位条。
- *  数据全部来自 chat store（其事实源是 chat.messages.list 与 chat.event 推送，UI 无私有状态）：
- *  - 回合进度：running + retryNote + 本回合工具卡计数（toolCards 在 send() 清零）
- *  - token 用量：最近一条带 tokenUsage 的 assistant 消息；其 inputTokens 是当次请求的全量
- *    上下文规模，加 outputTokens 即「此刻上下文水位」的最佳可得估算
- *  - 上下文水位：M1 无模型能力目录，分母固定 200K（TODO(M2b)：能力目录落地后按当前模型取真实窗口） */
+ *  数据全部来自 chat store（其事实源是 chat.messages.list 与 chat.event 推送，UI 无私有状态）。
+ *  过时假设 #7 已修正：水位分母不再写死 200K，改由 chat.contextInfo（按 M2a ContextPolicy 32K/64K/128K/200K 分档 + M2b ModelCatalog 当前会话模型的真实窗口）返回的 windowTokens 计算。
+ *  #10 事件 UI 接线：四种未消费事件（fallback/compacted/offloaded/retry）在此面板内联显示。 */
 import { computed } from 'vue';
 import { useChat } from '../stores/chat';
 
 const chat = useChat();
-
-// TODO(M2b): 模型能力目录落地后按当前模型取真实上下文窗口
-const CONTEXT_LIMIT = 200_000;
 
 /** 最近一条带用量的 assistant 消息的 tokenUsage（倒序找）。 */
 const lastUsage = computed(() => {
@@ -1688,9 +1759,15 @@ const totals = computed(() => {
   return { input, output };
 });
 
+/** （过时假设 #7 修正）水位：优先用 chat.contextInfo；当缓存为空时回退到「lastUsage input+output vs 200K」粗估。 */
 const watermark = computed(() => {
+  if (chat.contextInfo) {
+    const { windowTokens, usedTokens } = chat.contextInfo;
+    const pct = windowTokens > 0 ? Math.min(100, Math.round((usedTokens / windowTokens) * 100)) : 0;
+    return { used: usedTokens, window: windowTokens, pct };
+  }
   const used = (lastUsage.value?.inputTokens ?? 0) + (lastUsage.value?.outputTokens ?? 0);
-  return { used, pct: Math.min(100, Math.round((used / CONTEXT_LIMIT) * 100)) };
+  return { used, window: 200_000, pct: Math.min(100, Math.round((used / 200_000) * 100)) };
 });
 const waterColor = computed(() =>
   watermark.value.pct < 60 ? 'var(--green)' : watermark.value.pct < 85 ? 'var(--orange)' : 'var(--red)');
@@ -1703,8 +1780,30 @@ const toolStats = computed(() => {
 
 const STOP_LABEL: Record<string, string> = {
   endTurn: '正常结束', maxTokens: '达到输出上限', refusal: '模型拒绝', toolUse: '中断于工具调用',
+  compact: '中断于上下文压缩（M2a）', offload: '中断于历史卸载（M2a）', fallback: '中断于模型降级（M2b）',
 };
 const stopLabel = computed(() => STOP_LABEL[chat.lastStopReason] ?? (chat.lastStopReason || '—'));
+
+/** #10：四种未消费事件中，fallback / compacted / offloaded 在任务面板显示为彩色状态卡；retry 已用 tnote 呈现。 */
+const eventCards = computed(() => {
+  const cards: { kind: string; color: string; icon: string; title: string; body: string }[] = [];
+  if (chat.fallbackState) {
+    const s = chat.fallbackState;
+    cards.push({ kind: 'fallback', color: 'var(--orange)', icon: '⚠', title: '模型已降级',
+      body: `${s.fromModel || '?'} → ${s.toModel || '?'}${s.reason ? `（${s.reason}）` : ''}` });
+  }
+  if (chat.compactedState) {
+    const s = chat.compactedState;
+    cards.push({ kind: 'compacted', color: 'var(--blue)' in document.body.style ? 'var(--blue)' : 'var(--info, #0a84ff)', icon: '≣', title: '上下文已压缩',
+      body: `${s.fromCount} 条 → ${s.toCount} 条${s.freedTokens ? `（释放约 ${s.freedTokens.toLocaleString()} tokens）` : ''}` });
+  }
+  if (chat.offloadedState) {
+    const s = chat.offloadedState;
+    cards.push({ kind: 'offloaded', color: 'var(--purple)' in document.body.style ? 'var(--purple)' : '#5e5ce6', icon: '↓', title: '历史消息已卸载',
+      body: `移出 ${s.count} 条${s.freedTokens ? `（释放约 ${s.freedTokens.toLocaleString()} tokens）` : ''}${s.oldestTs ? `（最早 ${new Date(s.oldestTs).toLocaleDateString()}）` : ''}` });
+  }
+  return cards;
+});
 
 function fmt(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
@@ -1715,6 +1814,11 @@ function fmt(n: number): string {
   <div class="tpanel">
     <div v-if="!chat.activeId" class="thint">先在左栏选择一个会话</div>
     <template v-else>
+      <!-- #10 新增：事件 UI 状态卡（4 种未消费事件的呈现 → 3 张彩色卡 + retry 沿用 tnote） -->
+      <div v-for="c in eventCards" :key="c.kind" class="tsec event" :style="{ borderLeft: `3px solid ${c.color}` }">
+        <div class="thead" :style="{ color: c.color }"><span class="eicon">{{ c.icon }}</span>{{ c.title }}</div>
+        <div class="ebody">{{ c.body }}</div>
+      </div>
       <div class="tsec">
         <div class="thead">回合</div>
         <div class="trow">
@@ -1740,9 +1844,9 @@ function fmt(n: number): string {
         </div>
       </div>
       <div class="tsec">
-        <div class="thead">上下文水位</div>
+        <div class="thead">上下文水位<span class="tbadge" :style="{ background: waterColor }">{{ chat.contextInfo ? '实时' : '估算' }}</span></div>
         <div class="wbar"><div class="wfill" :style="{ width: watermark.pct + '%', background: waterColor }"></div></div>
-        <div class="wnum">{{ fmt(watermark.used) }} / {{ fmt(CONTEXT_LIMIT) }}（{{ watermark.pct }}%，按最后请求估算）</div>
+        <div class="wnum">{{ fmt(watermark.used) }} / {{ fmt(watermark.window) }}（{{ watermark.pct }}%）</div>
       </div>
     </template>
   </div>
@@ -1752,7 +1856,11 @@ function fmt(n: number): string {
 .tpanel { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .thint { font-size: 12px; color: var(--label-tertiary); padding: 12px; text-align: center; line-height: 1.6; }
 .tsec { background: var(--grouped-bg-secondary); border-radius: var(--r-card); padding: 10px 12px; }
-.thead { font-size: 12px; font-weight: 600; color: var(--label-secondary); margin-bottom: 8px; }
+.tsec.event { padding-left: 10px; }
+.thead { font-size: 12px; font-weight: 600; color: var(--label-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.eicon { font-weight: 700; }
+.ebody { font-size: 12px; color: var(--label); line-height: 1.5; }
+.tbadge { margin-left: auto; font-size: 10px; color: white; padding: 1px 6px; border-radius: 999px; }
 .trow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 13px; }
 .tlabel { color: var(--label-secondary); flex: 0 0 auto; }
 .tval { color: var(--label); display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; text-align: right; }
@@ -1766,9 +1874,16 @@ function fmt(n: number): string {
 </style>
 ```
 
-- [ ] **Step 3: App.vue 接线任务页签（完整替换——相对 Task 4 版本：+ TasksPanel import、任务页签填实、占位文案删除）**
+- [ ] **Step 3: App.vue 接线任务页签（#3：增量清单；基于 Task 4 合入后的 App.vue 做 2 处追加；禁止全文替换）**
 
-`deskminis/src/renderer/src/App.vue`:
+> **演进关系（同 #3）**：在 Task 4 合入后的 App.vue 之上，**仅做以下 2 处追加**（Task 3 a-e + Task 4 a-c 的所有增量全部保留）：
+> a. `<script>` import 区追加：`import TasksPanel from './components/TasksPanel.vue';`
+> b. `<template>` 中原 Task 4 写入的占位行 `<div v-if="rightTab === 'tasks'" class="rempty">M2d 后续任务填入任务进度</div>` → 替换为：
+>    ```vue
+>    <div v-show="rightTab === 'tasks'" class="rfill"><TasksPanel v-if="visited.tasks" /></div>
+>    ```
+
+`deskminis/src/renderer/src/App.vue`（**已对照现状 c54dac4 核实——M2x 未改动此文件**；以下代码块为 Task 5 合入后的完整参考快照，**执行时只改以上 a-b 2 处增量，禁止全文替换**）：
 
 ```vue
 <script setup lang="ts">
@@ -1905,7 +2020,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/s
 
 **Files:**
 - Create: `deskminis/scripts/gen-tray-icon.mjs`、`deskminis/resources/tray.png`（生成物，进 git）
-- Modify: `deskminis/src/main/index.ts`（完整替换）、`deskminis/package.json`（scripts + `gen:tray-icon`）
+- Modify: `deskminis/src/main/index.ts`（#3：增量 a-f；已核实 M2x 未改动）、`deskminis/package.json`（#5：仅增量追加 @xterm 两依赖 + gen:tray-icon script；禁止全文替换）
 - Test: `deskminis/tests/tray-lifecycle.test.ts`
 
 **Interfaces:**
@@ -2084,9 +2199,22 @@ cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm run gen:tray-icon
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: 1 passed, 4 failed（图标例转绿，其余 4 例待 Step 4 的主进程改动）
 
-- [ ] **Step 4: src/main/index.ts（完整替换）**
+- [ ] **Step 4: src/main/index.ts（#3：已对照现状 c54dac4 核实——M2x 未改动此文件；增量清单 + 全文参考块保留）**
 
-`deskminis/src/main/index.ts`:
+> **现状锚点 + 增量清单（Task 6 Step 4 只改以下 6 处，其余原样保留：握手解析、utilityProcess.fork、IPC 通道 minisdPort/minisdInfo/permissionRequest/permissionResolved/startMinisd/stopMinisd 等）**：
+> a. `import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityProcess, type UtilityProcess } from 'electron';` 里**追加 `Menu, nativeImage, Tray`**（现状一般只引 `app, BrowserWindow, dialog, ipcMain, utilityProcess`，若已有则跳过）
+> b. 顶 level 声明区在 `let minisdToken = '';` 之后**追加**：
+>    ```typescript
+>    let tray: Tray | undefined;
+>    let quitting = false;
+>    ```
+> c. `app.on('ready', async () => { ... })` 回调里，`mainWindow.on('ready-to-show', () => mainWindow.show());` 之后**追加 loadTrayIcon + createTrayMenu + tray 装配 + quitting 处理**（详见下方代码块对应段）
+> d. `mainWindow.on('close', ...)` 改为：`mainWindow.on('close', (e) => { if (!quitting) { e.preventDefault(); mainWindow.hide(); } });`
+> e. `app.on('window-all-closed', () => { ... })` 改为「真退出才 app.quit」：移除原退出逻辑（原 M1 一般写 `app.quit()`），替换为**空回调**（托盘常驻：关窗不退出，所有窗关也不退出，由托盘菜单退出）
+> f. `app.on('before-quit', () => { quitting = true; });` 追加（quit 信号：下次 close 事件就真放行）
+> 同时**追加** `function loadTrayIcon()`、`function createTrayMenu(): Electron.Menu` 两个顶层 helper（见下方代码块）。
+
+`deskminis/src/main/index.ts`（**已对照现状 c54dac4 核实——M2x 未改动此文件**；以下为 Task 6 合入后的完整参考快照，**执行时只改以上 a-f 6 处增量，禁止全文替换**）：
 
 ```typescript
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityProcess, type UtilityProcess } from 'electron';
@@ -2246,7 +2374,7 @@ app.on('before-quit', () => {
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: `5 passed`
 Run: `cd deskminis && npm test`
-Expected: 全部通过（152 passed；`ipc-contract.test.ts` 仍绿——它用 vi.mock 桩 import 本文件，`new Tray(...)` 等只在函数体内，import 路径不触碰）
+Expected: 全量通过（基线 396 + Task 1 新 8 + Task 2 新 11 + Task 5 chat.contextInfo 2 + Task 6 新 5 ≈ 422，以实际 `npm test` 输出为准；`ipc-contract.test.ts` 仍绿——它用 vi.mock 桩 import 本文件，`new Tray(...)` 等只在函数体内，import 路径不触碰）
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
 
