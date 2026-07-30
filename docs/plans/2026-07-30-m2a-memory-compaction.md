@@ -937,7 +937,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/c
 
 **语义**（设计 §4.2「大工具结果卸载」）：>20k 字符写 `offloads/`，历史替换为桩。决策：**落库时替换**（设计原文"历史替换为桩"），`toolEnd` 事件广播替换前完整 `output`（UI 可见），落库的 `tool_result.parts` 存桩。`toolUseId` 已是 UUID 大写（M1 约束），直接作文件名安全。原子写（tmp + rename）。`relativePath` 是相对 session 目录的路径（`offloads/<toolUseId>.txt`），供桩引用。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/offload.test.ts`:
 
@@ -1002,12 +1002,12 @@ describe('OffloadEngine', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/offload.test.ts`
 Expected: FAIL（`OffloadEngine` 未导出）
 
-- [ ] **Step 3: 创建 offload.ts**
+- [x] **Step 3: 创建 offload.ts**
 
 `deskminis/src/minisd/agent/offload.ts`:
 
@@ -1046,7 +1046,7 @@ export class OffloadEngine {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/offload.test.ts`
 Expected: PASS（6 个用例）
@@ -1054,7 +1054,7 @@ Expected: PASS（6 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-4 + M2b 189 个测试不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/offload.ts deskminis/tests/offload.test.ts && git commit -m "feat(m2a): OffloadEngine 大工具结果卸载（>20k 写 offloads + 桩替换 + 原子写）"
