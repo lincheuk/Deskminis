@@ -2362,7 +2362,7 @@ Expected: 16 passed（帮助与本地参数校验 7 + echo 线协议 6 + 真分�
 Run: `cd deskminis && npm test`
 Expected: 全套回归全绿（基线 313 + M2e 新增 72 ≈ 385 例：frame 7 / permissions 桥 6 / handlers 26 / server 12 / minisd 桥装配 4 / shell env 1 / cli 16）
 
-- [ ] **Step 5: 应用内手工验收（推荐，验真权限卡链路）**
+- [x] **Step 5: 应用内手工验收（推荐，验真权限卡链路）**
 
 自动化已覆盖真管道+真 PowerShell，但权限卡 UI 链路只在 minisd 装配测试里断言了 RPC 广播，最后过一遍真人验收：
 
