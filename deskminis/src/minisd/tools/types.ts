@@ -3,7 +3,17 @@ import type { MinisPaths } from '../paths';
 
 export interface ToolOutcome { output: string; success: boolean }
 
-export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read'; detail: string; sessionId: string; toolTitle: string }
+/** windows-* 桥的能力类目：kind 即权限类目（与 file-write/file-read 同款 1:1 路由）。 */
+export type BridgePermissionKind =
+  | 'bridge-notify'
+  | 'bridge-clipboard-read'
+  | 'bridge-clipboard-write'
+  | 'bridge-open'
+  | 'bridge-speak'
+  | 'bridge-screenshot'
+  | 'bridge-device';
+
+export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string }
 export type PermissionDecision = 'allow' | 'deny';
 export interface PermissionGateway { check(req: PermissionRequest): Promise<PermissionDecision> }
 

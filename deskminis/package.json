@@ -12,6 +12,7 @@
     "e2e:m2b": "node scripts/e2e-m2b-acceptance.mjs",
     "e2e:m2a": "node scripts/e2e-m2a-acceptance.mjs",
     "e2e:m2c": "node scripts/e2e-m2c-acceptance.mjs",
+    "e2e:m2e": "node scripts/e2e-m2e-acceptance.mjs",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
   },

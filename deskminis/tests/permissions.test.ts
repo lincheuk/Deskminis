@@ -138,3 +138,67 @@ describe('PermissionGatewayImpl', () => {
     expect(asked).toBe(2); // 读的批准不等于写的批准
   });
 });
+
+describe('桥类目（M2e 扩展）', () => {
+  const bridgeReq = (kind: PermissionRequest['kind'], detail: string, sessionId = 'S1'): PermissionRequest =>
+    ({ kind, detail, sessionId, toolTitle: 't' });
+
+  it('bridge-device 默认 bypass：放行且从不询问', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    expect(await g.check(bridgeReq('bridge-device', 'windows-device info'))).toBe('allow');
+    expect(asked).toBe(0);
+  });
+
+  it('bridge-clipboard-read / bridge-screenshot 默认 askOnce：先问，allow-session 后按能力串静默', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-session'; });
+    expect(await g.check(bridgeReq('bridge-clipboard-read', 'windows-clipboard get'))).toBe('allow');
+    expect(asked).toBe(1);
+    expect(await g.check(bridgeReq('bridge-clipboard-read', 'windows-clipboard get'))).toBe('allow'); // 同能力 → 静默
+    expect(asked).toBe(1);
+    expect(await g.check(bridgeReq('bridge-screenshot', 'windows-screenshot capture'))).toBe('allow'); // 不同能力 → 重新问
+    expect(asked).toBe(2);
+  });
+
+  it('六个 askOnce 桥类目逐个验证：notify/open/speak/clipboard-read/clipboard-write/screenshot', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
+    const cases: PermissionRequest['kind'][] = [
+      'bridge-notify', 'bridge-open', 'bridge-speak',
+      'bridge-clipboard-read', 'bridge-clipboard-write', 'bridge-screenshot',
+    ];
+    for (const kind of cases) {
+      expect(await g.check(bridgeReq(kind, `detail-of-${kind}`))).toBe('allow');
+    }
+    expect(asked).toBe(6); // allow-once 不持久，每个类目都问了
+  });
+
+  it('桥 kind 不经 shell 分类器：detail 含危险词也只是按桥级别询问', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
+    // 'Remove-Item' 作为 shell 命令是 danger → 若路由错误会静默 deny 且从不询问（对齐 M1 file-read 路由回归用例）
+    expect(await g.check(bridgeReq('bridge-notify', 'Remove-Item'))).toBe('allow');
+    expect(asked).toBe(1);
+  });
+
+  it('桥授权按会话隔离：S1 的 allow-session 不惠及 S2', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-session'; });
+    expect(await g.check(bridgeReq('bridge-open', 'windows-open open', 'S1'))).toBe('allow');
+    expect(asked).toBe(1);
+    expect(await g.check(bridgeReq('bridge-open', 'windows-open open', 'S2'))).toBe('allow');
+    expect(asked).toBe(2);
+  });
+
+  it('既有行为不回归：danger 硬拦不问、gated 问、file-read 问', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
+    expect(await g.check({ kind: 'shell', detail: 'Remove-Item -Recurse C:\\x', sessionId: 'S1', toolTitle: 't' })).toBe('deny');
+    expect(asked).toBe(0);
+    expect(await g.check({ kind: 'shell', detail: 'dir', sessionId: 'S1', toolTitle: 't' })).toBe('allow');
+    expect(asked).toBe(1);
+    expect(await g.check({ kind: 'file-read', detail: 'C:\\a.txt', sessionId: 'S1', toolTitle: 't' })).toBe('allow');
+    expect(asked).toBe(2);
+  });
+});

@@ -70,7 +70,7 @@ deskminis/
   - `function encodeFrame(payload: unknown): Buffer`——JSON 序列化 + 4 字节大端长度头；体超长抛错
   - `class FrameDecoder { constructor(maxBytes?: number); push(chunk: Buffer): Buffer[] }`——增量喂字节，返回本轮拆出的完整帧体（不含长度头）；长度头超上限抛错并复位缓冲
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-frame.test.ts`:
 
@@ -137,12 +137,12 @@ describe('encodeFrame / FrameDecoder', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-frame`
 Expected: FAIL（模块 `../src/minisd/bridge/frame` 不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/bridge/frame.ts`:
 
@@ -184,12 +184,12 @@ export class FrameDecoder {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-frame`
 Expected: 7 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/frame.ts deskminis/tests/bridge-frame.test.ts && git commit -m "feat(m2e): 桥线协议长度前缀帧编解码(半包/粘包/16MB上限)"
@@ -210,7 +210,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/
   - `types.ts`: `type BridgePermissionKind = 'bridge-notify' | 'bridge-clipboard-read' | 'bridge-clipboard-write' | 'bridge-open' | 'bridge-speak' | 'bridge-screenshot' | 'bridge-device'`；`PermissionRequest.kind: 'shell' | 'file-write' | 'file-read' | BridgePermissionKind`
   - `permissions.ts`: `type PermissionLevel = 'bypass' | 'askOnce' | 'notAllowed'`；`type PermissionClass = CommandClass | 'file-write' | 'file-read' | BridgePermissionKind`；默认级别：`bridge-device→bypass`，其余六个桥类目→`askOnce`，`danger/gated/file-*` 不变；`check()` 对非 shell kind 直接用 kind 作类目（不再只特判 file-write/file-read），`bypass→allow` 先于 `notAllowed→deny` 判定
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/permissions.test.ts` 文件**末尾追加**（不动既有内容）：
 
@@ -280,12 +280,12 @@ describe('桥类目（M2e 扩展）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- permissions`
 Expected: FAIL（`PermissionRequest['kind']` 不含 `bridge-*` 值，类型/运行期路由不存在——TS 报错或用例失败）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/tools/types.ts`（完整文件，**已对照现状核实**——M2c 已加入 `onFileRead` 钩子，原样保留；本 Task 改动点：`BridgePermissionKind` 导出 + `PermissionRequest.kind` 联合扩展）：
 
@@ -416,12 +416,12 @@ export class PermissionGatewayImpl implements PermissionGateway {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- permissions`
 Expected: 全部 passed（基线既有用例 + 新增 6 个桥用例）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/types.ts deskminis/src/minisd/tools/permissions.ts deskminis/tests/permissions.test.ts && git commit -m "feat(m2e): 权限网关扩展桥类目(恢复bypass级+六桥askOnce/device放行)"
@@ -448,7 +448,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/t
   - `interface BridgeDeps { permissions: PermissionGateway; paths: MinisPaths; runPs?: PsRunner }`
   - `function makeBridgeDispatcher(deps: BridgeDeps): (req: BridgeRequest) => Promise<BridgeEnvelope>`——分发表七个键：`windows-notify show` / `windows-clipboard get` / `windows-clipboard set` / `windows-open open` / `windows-speak say` / `windows-screenshot capture` / `windows-device info`；未知键→`INVALID_ARGS`；sessionId 必须匹配 UUID 形态（同 index.ts 的 SESSION_ID_RE）否则 `INVALID_ARGS`；权限 deny→`PERMISSION_DENIED`；PowerShell 非零退出→`EXEC_ERROR`；其余异常→`INTERNAL_ERROR`；**任何情况 resolve 信封、绝不 reject**
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-handlers.test.ts`:
 
@@ -757,12 +757,12 @@ describe('真实 PowerShell 集成（allow-all 网关）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-handlers`
 Expected: FAIL（模块 `../src/minisd/bridge/handlers` 不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/bridge/handlers.ts`:
 
@@ -1035,12 +1035,12 @@ export function makeBridgeDispatcher(deps: BridgeDeps): (req: BridgeRequest) => 
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-handlers`
 Expected: 全部 passed（分发 11 + handler 9 + runPowerShell 3 + 真实集成 3）。真实集成 3 例需要交互式 Windows 桌面会话（截屏/剪贴板），与日常 `npm test` 运行环境一致。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/handlers.ts deskminis/tests/bridge-handlers.test.ts && git commit -m "feat(m2e): 六桥handler+一次性PowerShell执行器(载荷走stdin JSON零插值)"
@@ -1063,7 +1063,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/
   - `function makeBridgeEnv(sessionId: string, pipePath: string | undefined, cliPath: string | undefined, execPath: string): Record<string, string>`——产出 `{MINIS_CHAT_SESSION_ID, MINIS_BRIDGE_PIPE, MINIS_BRIDGE_CLI, MINIS_BRIDGE_NODE}`；桥不可用时 PIPE/CLI 为空串
   - `function resolveBridgeCliPath(): string | undefined`——候选 ① `import.meta.url` 同目录 `bridge-cli.mjs`（vitest/ts 直跑）② 上两级 `src/minisd/bridge-cli.mjs`（electron-vite 产物 `out/main/` 布局），返回首个 existsSync 者
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-util.ts`（共享助手，先写它——本 Task 与 Task 5/6 的测试都 import）：
 
@@ -1277,12 +1277,12 @@ describe('resolveBridgeCliPath', () => {
 
 注意：`resolveBridgeCliPath` 的测试在本 Task 只会因"文件不存在"而失败——它指向的 `bridge-cli.mjs` 是 Task 6 才创建的文件。因此本 Task 的 Step 3 需要同时落一个**占位但可运行**的 `deskminis/src/minisd/bridge-cli.mjs`（仅一行导出空对象的合法 JS：`export {};`，Task 6 再整体替换为完整 stub）。这不是功能占位，是让路径解析测试在本里程碑内诚实通过的临时文件，Task 6 Step 3 将其完整重写。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-server`
 Expected: FAIL（模块 `../src/minisd/bridge/server` 不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/bridge/server.ts`:
 
@@ -1394,12 +1394,12 @@ export class BridgeServer {
 export {};
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-server`
 Expected: 全部 passed（bridgePipePath 2 + BridgeServer 7 + makeBridgeEnv 2 + resolveBridgeCliPath 1）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/server.ts deskminis/src/minisd/bridge-cli.mjs deskminis/tests/bridge-util.ts deskminis/tests/bridge-server.test.ts && git commit -m "feat(m2e): 命名管道桥服务(one-shot帧+占管降级+桥环境变量构造)"
@@ -1423,7 +1423,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/
   - 系统提示中的桥段落（渐进披露：一段话说清存在与调用法 + `--help` 按需详读，不内嵌任何桥的参数文档）：
     `本机提供六个 Windows 能力桥，在 shell 中调用：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]（若系统装有 Node.js，node "$env:MINIS_BRIDGE_CLI" ... 亦可）。工具：windows-notify（弹系统通知）、windows-clipboard（读/写剪贴板）、windows-open（用默认程序打开网址或文件）、windows-speak（语音播报文本）、windows-screenshot（截屏保存到会话附件目录）、windows-device（读取系统信息）。需要某个工具的详细参数时运行 & "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> --help 查看；剪贴板读取与截屏等隐私敏感操作会向用户请求确认。`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-minisd.test.ts`（新文件）：
 
@@ -1552,14 +1552,14 @@ describe('minisd 桥装配', () => {
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-minisd`
 Expected: FAIL（`bridgePipe`/`SYSTEM_PROMPT` 导出不存在）
 Run: `cd deskminis && npm test -- shell`
 Expected: FAIL（`makeShellTool` 第二参数不存在——新用例类型/行为缺失）
 
-- [ ] **Step 3: 实现 shell.ts 环境注入**
+- [x] **Step 3: 实现 shell.ts 环境注入**
 
 `deskminis/src/minisd/tools/shell.ts`（完整文件，**已对照现状核实**——M2b/M2a/M2c 未改动此文件，现状与 M1 基线一致；本 Task 改动点 4 处：PersistentShell 构造加 env、ensure 的 spawn 加 env、ShellManager.getShell/run 加 env 透传、makeShellTool 加 envFor）：
 
@@ -1722,7 +1722,7 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
 }
 ```
 
-- [ ] **Step 4: 实现 index.ts 装配**
+- [x] **Step 4: 实现 index.ts 装配**
 
 `deskminis/src/minisd/index.ts`（**增量修改**——废弃完整文件写法；现状含 M2b/M2a/M2c 全部能力，逐项增量标注现状锚点）：
 
@@ -1787,7 +1787,7 @@ await bridge?.close();
 
 **测试自查**：新基线下 `boot` 出的 minisd 含上述全部 M2b/M2a/M2c 方法（`modelgroup.*` / `chat.sessions.setMemoryEnabled` / `skills.*` 等）与 M2e 新增的 `bridgePipe` 字段；Task 5 测试断言 `SYSTEM_PROMPT` 导出、`bridgePipe` 字段存在、shell env 注入、桥降级——不与既有能力冲突。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-minisd`
 Expected: 4 passed
@@ -1796,7 +1796,7 @@ Expected: 全部 passed（基线既有 shell 用例 + 新增 env 注入 1 例）
 Run: `cd deskminis && npm test`
 Expected: 全套回归全绿（rpc/agent-loop 等基线测试不受签名扩展影响——`startMinisd` 返回值只增字段）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/index.ts deskminis/src/minisd/tools/shell.ts deskminis/tests/bridge-minisd.test.ts deskminis/tests/shell.test.ts && git commit -m "feat(m2e): minisd装配桥服务+shell注入桥环境变量+系统提示渐进披露"
@@ -1820,7 +1820,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/index.t
   - 退出码：0 成功 / 1 一般错误（EXEC_ERROR/INTERNAL_ERROR/INVALID_REQUEST）/ 2 PERMISSION_DENIED / 3 INVALID_ARGS / 4 BRIDGE_UNAVAILABLE
   - 超时：连接 5s；读响应 180s（覆盖 30s 权限询问 + 120s 语音播报 + 余量）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-cli.test.ts`:
 
@@ -2023,12 +2023,12 @@ describe('真分发端到端（真 PowerShell）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-cli`
 Expected: FAIL（Task 4 留下的 `bridge-cli.mjs` 只有 `export {};`——无解析/无输出，全部用例失败）
 
-- [ ] **Step 3: 实现完整 stub**
+- [x] **Step 3: 实现完整 stub**
 
 `deskminis/src/minisd/bridge-cli.mjs`（完整重写本文件；零依赖单文件——开发期 `node bridge-cli.mjs` 直跑，M4 用 Node SEA 打成 exe；帧编解码为 Task 1 算法的最小副本，**有意重复**以保持单文件自给）：
 
@@ -2354,7 +2354,7 @@ main().catch(e => {
 - 本地故障也出信封：`缺工具名/未知工具/解析失败/缺会话 id/载荷过大 → INVALID_ARGS(3)`；`缺管道变量/连不上/超时/对端早退 → BRIDGE_UNAVAILABLE(4)`——stub 使用者（模型）永远只需解析一种输出形态
 - `resolveAction` 里 `windows-open open https://x` 与 `windows-open https://x` 两种形态殊途同归（动作命中动作集先消费，剩余位置参数进 `positionalArg` 槽）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-cli`
 Expected: 16 passed（帮助与本地参数校验 7 + echo 线协议 6 + 真分发端到端 3）
@@ -2362,7 +2362,7 @@ Expected: 16 passed（帮助与本地参数校验 7 + echo 线协议 6 + 真分�
 Run: `cd deskminis && npm test`
 Expected: 全套回归全绿（基线 313 + M2e 新增 72 ≈ 385 例：frame 7 / permissions 桥 6 / handlers 26 / server 12 / minisd 桥装配 4 / shell env 1 / cli 16）
 
-- [ ] **Step 5: 应用内手工验收（推荐，验真权限卡链路）**
+- [x] **Step 5: 应用内手工验收（推荐，验真权限卡链路）**
 
 自动化已覆盖真管道+真 PowerShell，但权限卡 UI 链路只在 minisd 装配测试里断言了 RPC 广播，最后过一遍真人验收：
 
@@ -2382,7 +2382,7 @@ cd deskminis && npm run dev
 
 全部通过则 M2e 达成。若步骤 2-5 不弹卡直接执行，回查 Task 2 默认级别表与 Task 3 的 kind 映射；若桥命令报 BRIDGE_UNAVAILABLE，回查 Task 5 的 listen 降级日志（console.warn）与 `MINIS_BRIDGE_PIPE` 注入。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge-cli.mjs deskminis/tests/bridge-cli.test.ts && git commit -m "feat(m2e): 桥CLI stub(argv/stdin→管道帧→JSON信封,退出码0-4)+端到端测试"

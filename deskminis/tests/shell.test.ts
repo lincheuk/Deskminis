@@ -5,6 +5,7 @@ import { MinisPaths } from '../src/minisd/paths';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { makeBridgeEnv, resolveBridgeCliPath, resolveBridgeNode } from '../src/minisd/bridge/server';
 
 const shells: PersistentShell[] = [];
 afterAll(() => { for (const s of shells) s.dispose(); });
@@ -88,4 +89,36 @@ describe('shell_execute 工具', () => {
     expect(asked[0]).toMatchObject({ kind: 'shell', detail: 'Write-Output x' });
     mgr.disposeAll();
   });
+
+  it('envFor 注入的变量在会话 shell 可见（MINIS_* 桥环境）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dm-sh-env-'));
+    const paths = new MinisPaths(root); paths.ensureSessionDirs('S1');
+    const mgr = new ShellManager();
+    const tool = makeShellTool(mgr, ctx => ({ MINIS_CHAT_SESSION_ID: ctx.sessionId, MINIS_BRIDGE_PIPE: '\\\\.\\pipe\\deskminis-deadbeef' }));
+    const allowAll = { async check(): Promise<PermissionDecision> { return 'allow'; } };
+    const r = await tool.execute({ command: '$env:MINIS_CHAT_SESSION_ID + "|" + $env:MINIS_BRIDGE_PIPE', tool_title: '读桥环境变量' }, { sessionId: 'S1', paths, permissions: allowAll });
+    expect(r.success).toBe(true);
+    expect(r.output).toContain('S1|\\\\.\\pipe\\deskminis-deadbeef');
+    mgr.disposeAll();
+  });
+
+  it('真实 PowerShell 链路：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" --help 输出桥帮助（electron GUI PE 的 stdout 缺陷回归）', async () => {
+    // 手工验收步骤 1 发现：electron.exe 是 GUI 子系统 PE，PowerShell & 直调不等待/不接管 stdout，
+    // 输出全空且 $LASTEXITCODE 不设；node.exe（CONSOLE 子系统）正常。
+    // 本用例用 ShellManager + makeShellTool 真起 PowerShell，envFor 注入 makeBridgeEnv，
+    // 调用系统提示主推的 & 形式，确保 --help 纯本地链路拿到真实输出。
+    const root = mkdtempSync(join(tmpdir(), 'dm-sh-br-'));
+    const paths = new MinisPaths(root); paths.ensureSessionDirs('S1');
+    const bridgeCli = resolveBridgeCliPath();
+    expect(bridgeCli).toBeTruthy(); // 先决：stub 能定位（否则本用例挂起也没意义）
+    const mgr = new ShellManager();
+    const tool = makeShellTool(mgr, ctx => makeBridgeEnv(ctx.sessionId, undefined, bridgeCli!, resolveBridgeNode()));
+    const allowAll = { async check(): Promise<PermissionDecision> { return 'allow'; } };
+    const cmd = '& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" --help';
+    const r = await tool.execute({ command: cmd, tool_title: '调用桥 CLI --help' }, { sessionId: 'S1', paths, permissions: allowAll });
+    expect(r.success).toBe(true); // exitCode===0 → success=true（shell.ts 153 行）
+    expect(r.output).toContain('DeskMinis windows-* 桥 CLI');
+    expect(r.output).toContain('[exit=0, '); // shell 工具把 exitCode 拼进 output
+    mgr.disposeAll();
+  }, 60000);
 });
