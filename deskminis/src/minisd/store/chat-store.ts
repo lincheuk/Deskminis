@@ -24,10 +24,10 @@ export class ChatStore {
   }
 
   getSession(id: string): SessionMeta | undefined {
-    const r = this.db.prepare('SELECT id, title, model_binding, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
-      { id: string; title: string; model_binding: string | null; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
+    const r = this.db.prepare('SELECT id, title, model_binding, memory_enabled, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
+      { id: string; title: string; model_binding: string | null; memory_enabled: number; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
     if (!r) return undefined;
-    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
+    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, memoryEnabled: r.memory_enabled === 1, createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
   }
 
   listSessions(): SessionMeta[] {
@@ -43,6 +43,11 @@ export class ChatStore {
   setModelBinding(sessionId: string, binding: string | undefined): void {
     const val = (typeof binding === 'string' && binding.trim() !== '') ? binding.trim() : null;
     this.db.prepare('UPDATE sessions SET model_binding=?, updated_at=? WHERE id=?').run(val, this.nowEpoch(), sessionId);
+  }
+
+  /** 写入 sessions.memory_enabled（设计 §3.4 会话级记忆开关）。 */
+  setMemoryEnabled(sessionId: string, enabled: boolean): void {
+    this.db.prepare('UPDATE sessions SET memory_enabled=?, updated_at=? WHERE id=?').run(enabled ? 1 : 0, this.nowEpoch(), sessionId);
   }
 
   deleteSession(id: string): void {

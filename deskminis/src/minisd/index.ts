@@ -14,6 +14,12 @@ import { RpcServer } from './rpc/server';
 import { ProviderError, type AgentProvider, type StreamRequest } from './providers/types';
 import type { AgentStreamEvent } from '../shared/types';
 import { ModelCatalog } from './providers/model-catalog';
+import { MemoryStore } from './store/memory-store';
+import { MemoryInjector } from './store/memory-injector';
+import { memoryWriteTool, memoryGetTool, MEMORY_TOOL_NAMES } from './tools/memory';
+import { ContextPolicy } from './agent/context-policy';
+import { OffloadEngine } from './agent/offload';
+import { CompactEngine } from './agent/compact';
 import { randomUUID } from 'node:crypto';
 
 const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。';
@@ -122,6 +128,14 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
   tools.register(makeShellTool(shells));
+  tools.register(memoryWriteTool); tools.register(memoryGetTool);
+
+  // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）
+  const memoryStore = new MemoryStore(paths.globalDir('memory'));
+  const memoryInjector = new MemoryInjector(memoryStore);
+  const contextPolicy = new ContextPolicy(catalog);
+  const offloadEngine = new OffloadEngine(paths);
+  const compactEngine = new CompactEngine(chat);
 
   const fakeEnabled = process.env.DESKMINIS_FAKE_PROVIDER === '1';
 
@@ -141,6 +155,11 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     'chat.sessions.setModelBinding': (p: { sessionId: string; binding?: string }) => {
       const sessionId = assertSessionId(p.sessionId);
       chat.setModelBinding(sessionId, p.binding);
+      return { ok: true };
+    },
+    'chat.sessions.setMemoryEnabled': (p: { sessionId: string; enabled: boolean }) => {
+      const sessionId = assertSessionId(p.sessionId);
+      chat.setMemoryEnabled(sessionId, p.enabled);
       return { ok: true };
     },
     'chat.messages.list': (p: { sessionId: string }) => chat.listMessages(assertSessionId(p.sessionId)),
@@ -187,6 +206,11 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       // thinkingLevel 钳制（Task 4）
       const clampedThinking = catalog.clampThinkingLevel(provider.modelId, p.thinkingLevel ?? 'off');
 
+      // 记忆注入（设计 §3.4：每轮系统提示注入 GLOBAL/SOUL/日志）+ 工具过滤（memory_enabled=false 时排除记忆工具）
+      const session = chat.getSession(sessionId);
+      const injectedPrompt = memoryInjector.build(SYSTEM_PROMPT, { memoryEnabled: session?.memoryEnabled ?? true });
+      const excludedToolNames = (session?.memoryEnabled ?? true) ? undefined : new Set<string>(MEMORY_TOOL_NAMES);
+
       // 从这里到 IIFE 启动之间没有 await：占位与释放不会被别的请求插进来
       inFlight.add(sessionId);
       const controller = new AbortController();
@@ -200,9 +224,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
           for await (const event of runAgentLoop(chat, {
             sessionId, provider, tools,
             toolContext: { sessionId, paths, permissions: gateway },
-            systemPrompt: SYSTEM_PROMPT, thinkingLevel: clampedThinking,
+            systemPrompt: injectedPrompt, thinkingLevel: clampedThinking,
             signal: controller.signal,
             fallbackChain,
+            contextPolicy, compactEngine, offloadEngine, excludedToolNames,
           })) {
             // fallback 事件：记下候选 instanceId，但不立即改写——等该 slot 真正跑通（turnEnd）才落库
             if (event.kind === 'fallback' && !rebound) {

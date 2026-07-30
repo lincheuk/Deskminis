@@ -26,6 +26,7 @@ export interface RawMessage {
 
 export interface SessionMeta {
   id: string; title: string; modelBinding?: string;
+  memoryEnabled?: boolean;       // 会话级记忆开关，默认 true（db.ts memory_enabled DEFAULT 1）
   createdAt: number; updatedAt: number; pinnedAt?: number;
 }
 

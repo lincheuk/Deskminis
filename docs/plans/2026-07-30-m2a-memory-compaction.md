@@ -177,7 +177,7 @@ describe('MemoryStore', () => {
 Run: `cd deskminis && npm test -- tests/memory-store.test.ts`
 Expected: FAIL（`MemoryStore` 未导出）
 
-- [ ] **Step 3: 创建 memory-store.ts**
+- [x] **Step 3: 创建 memory-store.ts**
 
 `deskminis/src/minisd/store/memory-store.ts`:
 
@@ -264,7 +264,7 @@ Expected: PASS（13 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（M2b 的 189 个测试不受影响——纯新增文件）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/memory-store.ts deskminis/tests/memory-store.test.ts && git commit -m "feat(m2a): MemoryStore 记忆文件持久化（GLOBAL/SOUL/日志 CRUD + 条目前插 + 原子写）"
@@ -376,7 +376,7 @@ describe('MemoryInjector', () => {
 Run: `cd deskminis && npm test -- tests/memory-injector.test.ts`
 Expected: FAIL（`MemoryInjector` 未导出）
 
-- [ ] **Step 3: 创建 memory-injector.ts**
+- [x] **Step 3: 创建 memory-injector.ts**
 
 `deskminis/src/minisd/store/memory-injector.ts`:
 
@@ -444,7 +444,7 @@ Expected: PASS（8 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1 的 memory-store.test.ts + M2b 189 个测试不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/memory-injector.ts deskminis/tests/memory-injector.test.ts && git commit -m "feat(m2a): MemoryInjector 系统提示注入记忆（SOUL/GLOBAL/最近3日志 + 措辞框定 + 截断）"
@@ -581,7 +581,7 @@ describe('MEMORY_TOOL_NAMES', () => {
 Run: `cd deskminis && npm test -- tests/memory-tools.test.ts`
 Expected: FAIL（`memoryWriteTool` / `memoryGetTool` / `MEMORY_TOOL_NAMES` 未导出）
 
-- [ ] **Step 3: 创建 memory.ts**
+- [x] **Step 3: 创建 memory.ts**
 
 `deskminis/src/minisd/tools/memory.ts`:
 
@@ -727,7 +727,7 @@ Expected: PASS（11 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1/2 + M2b 189 个测试不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/memory.ts deskminis/tests/memory-tools.test.ts && git commit -m "feat(m2a): memory_write/memory_get 工具（关键词+新近度评分检索 + 60条/30KB 上限）"
@@ -843,7 +843,7 @@ describe('ContextPolicy.decide', () => {
 Run: `cd deskminis && npm test -- tests/context-policy.test.ts`
 Expected: FAIL（`ContextPolicy` 未导出）
 
-- [ ] **Step 3: 创建 context-policy.ts**
+- [x] **Step 3: 创建 context-policy.ts**
 
 `deskminis/src/minisd/agent/context-policy.ts`:
 
@@ -909,7 +909,7 @@ Expected: PASS（9 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-3 + M2b 189 个测试不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/context-policy.ts deskminis/tests/context-policy.test.ts && git commit -m "feat(m2a): ContextPolicy 水位分层决策（消费 ModelCatalog 窗口 + token 估算 + 4 档阈值）"
@@ -1524,7 +1524,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/c
 
 **装配约束**：压缩与降级链共存——压缩用当前 `activeSlot.provider`（降级后用备选 provider 压缩）；压缩失败（provider 抛错）不终止循环，跳过本次压缩继续流式请求（避免压缩失败杀掉对话）；卸载在降级循环之外（tool_result 落库是降级循环之后的事，此时 slot 已确定）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/agent-loop.test.ts` 追加（文件末尾新 describe）:
 
@@ -1545,7 +1545,7 @@ describe('runAgentLoop + 压缩/卸载装配', () => {
     tools.register(bigTool);
     store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '调用 big' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
     const provider = new ScriptedProvider([[
-      { kind: 'toolCallComplete', toolUseId: 'T1', name: 'big', input: '{}' },
+      { kind: 'toolCallComplete', toolUseId: 'T1', name: 'big', input: '{"tool_title":"大输出"}' },
       { kind: 'done', stopReason: 'toolUse' },
     ], [
       { kind: 'textDelta', text: '完成' }, { kind: 'done', stopReason: 'endTurn' },
@@ -1684,12 +1684,12 @@ describe('chat.sessions.setMemoryEnabled', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/agent-loop.test.ts tests/rpc.test.ts`
 Expected: FAIL（`offloadEngine` / `contextPolicy` / `compactEngine` / `excludedToolNames` 不在 `RunOptions`；`offloaded` / `compacted` 事件不存在；`setMemoryEnabled` RPC 不存在；`SessionMeta.memoryEnabled` 不存在）
 
-- [ ] **Step 3a: 修改 shared/types.ts**
+- [x] **Step 3a: 修改 shared/types.ts**
 
 `deskminis/src/shared/types.ts` 的 `SessionMeta` 增加字段：
 
@@ -1701,7 +1701,7 @@ export interface SessionMeta {
 }
 ```
 
-- [ ] **Step 3b: 修改 chat-store.ts**
+- [x] **Step 3b: 修改 chat-store.ts**
 
 `deskminis/src/minisd/store/chat-store.ts`：
 
@@ -1725,7 +1725,7 @@ export interface SessionMeta {
   }
 ```
 
-- [ ] **Step 3c: 修改 loop.ts**
+- [x] **Step 3c: 修改 loop.ts**
 
 `deskminis/src/minisd/agent/loop.ts`：
 
@@ -1837,7 +1837,7 @@ export interface RunOptions {
 
 注意：原代码里 `toolEnd` 事件在 `for` 循环内 yield，需要删掉原来的 `yield { kind: 'toolEnd', ... }` 行（被上方新逻辑替代）。
 
-- [ ] **Step 3d: 修改 index.ts**
+- [x] **Step 3d: 修改 index.ts**
 
 `deskminis/src/minisd/index.ts`：
 
@@ -1898,7 +1898,7 @@ import { CompactEngine } from './agent/compact';
     },
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/agent-loop.test.ts tests/rpc.test.ts`
 Expected: PASS（agent-loop 新增 4 个用例 + rpc 新增 2 个用例 + 既有用例全部通过）
@@ -1906,7 +1906,7 @@ Expected: PASS（agent-loop 新增 4 个用例 + rpc 新增 2 个用例 + 既有
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-6 新增测试 + M2b 189 个测试不回归——`RunOptions` 新字段全部可选，`SessionMeta.memoryEnabled` 可选，M2b 既有调用不传新参数行为不变）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/loop.ts deskminis/src/minisd/index.ts deskminis/src/minisd/store/chat-store.ts deskminis/src/shared/types.ts deskminis/tests/agent-loop.test.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2a): Agent 循环装配压缩/卸载/记忆（水位检查触发压缩 + 大结果卸载落桩 + memory_enabled 开关 + effectiveAgentHistory 合成）"
