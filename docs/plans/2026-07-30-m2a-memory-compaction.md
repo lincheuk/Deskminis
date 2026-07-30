@@ -4,7 +4,7 @@
 
 **Goal:** 为 minisd 补齐设计 §3.4（记忆）与 §4.2（大工具结果卸载 + 上下文水位检查 + LLM 压缩摘要）两块能力。记忆侧落地 `GLOBAL.md` / `SOUL.md` / `YYYY-MM-DD.md` 三类文件持久化、每轮系统提示注入、`memory_write` / `memory_get` 工具（随会话 `memory_enabled` 开关整体进出 schema）。压缩侧落地 `ContextPolicy`（消费 M2b `ModelCatalog.getModelContextWindow` 做分层水位决策）、`OffloadEngine`（>20k 字符工具结果落 `offloads/` 并替换为桩）、`CompactEngine`（LLM 摘要存 `compact_markers`、推理时合成 `effectiveAgentHistory`、不改写存储历史、保留最近 3 个用户回合原文、锚点丢失按 createdAt 自愈），并把三者插进 M2b 现状 Agent 循环（`activeSlot` / `fallbackChain` / 空响应两路）。
 
-**Architecture:** 沿用 M1 单方法 Provider 契约与 M2b 降级链结构。记忆是纯文件层（`<dataRoot>/memory/`），不经 SQLite，注入发生在 `chat.prompt` 入口构建 `systemPrompt` 时刻（一次注入整轮复用——记忆文件在单次对话中变化影响有限，`memory_write` 后下一次 `chat.prompt` 才重新注入；该决策简化实现且不违背设计"每轮注入"语义，因为单轮内记忆文件不变）。卸载在 `tool_result` 落库**前**就地把 `output` 替换为桩并写 `offloads/<toolUseId>.txt`——落库即桩，`effectiveAgentHistory` 无需二次替换；`toolEnd` 事件仍广播完整 `output` 供 UI 展示。压缩在每轮开头按 `ContextPolicy.decide` 触发，调用当前 `activeSlot.provider` 生成摘要写入 `compact_markers`（M1 已建表），压缩轮不消耗 `turn` 额度（每循环至多 3 次）；`effectiveAgentHistory` = `[摘要 as user text]` + `[lastCompactedMessageId 之后的消息]`，`pairToolResults` 在其上做配对（M2b 既有，不动）。设计依据见 `../specs/2026-07-26-deskminis-design.md` §3.4、§4.2。
+**Architecture:** 沿用 M1 单方法 Provider 契约与 M2b 降级链结构。记忆是纯文件层（`<dataRoot>/memory/`），不经 SQLite，注入发生在 `chat.prompt` 入口构建 `systemPrompt` 时刻（一次注入整轮复用——记忆文件在单次对话中变化影响有限，`memory_write` 后下一次 `chat.prompt` 才重新注入；该决策简化实现且不违背设计"每轮注入"语义，因为单轮内记忆文件不变）。卸载在 `tool_result` 落库**前**就地把 `output` 替换为桩并写 `offloads/<toolUseId>.txt`——落库即桩，`effectiveAgentHistory` 无需二次替换；`toolEnd` 事件仍广播完整 `output` 供 UI 展示。压缩的数据流：每轮**先** `buildEffectiveHistory(history, getLatestCompactMarker)` 合成 effectiveHistory，**再**在其上 `ContextPolicy.decide(modelId, estimateTokens(effectiveHistory))`——raw history 只用于 `summarize` 取材与落库、永不改写，estimate/decide/请求构建一律基于 effectiveHistory（这样压缩写 marker 后 effectiveHistory 变小、水位自然下降，不会出现「存储不改写 → 水位永不降 → 每次都重复压缩到 3 次上限」的缺陷）。`decide` 返回 `compact` 且本循环压缩次数 < 3 时调用当前 `activeSlot.provider` 生成摘要写入 `compact_markers`（M1 已建表，M2a 追加 `MIGRATIONS[1]` 建索引），压缩轮不消耗 `turn` 额度；`summarize` 不足 3 个真正用户回合（`role==='user'` 且含 text part 且不含 toolResult part——本仓库 tool_result 也落库为 user 消息）时返回 `undefined`、不写 marker、不 continue，直接用现有 effectiveHistory 继续流式请求（避免毒 marker 抹掉上下文 + 避免死循环）。`effectiveAgentHistory` = `[摘要 as user text]` + `[lastCompactedMessageId 之后的消息]`，`pairToolResults` 在其上做配对（M2b 既有，不动）。设计依据见 `../specs/2026-07-26-deskminis-design.md` §3.4、§4.2。
 
 **Tech Stack:** TypeScript (strict) / vitest / 无新增运行时依赖（记忆走 `node:fs`，压缩走既有 `AgentProvider`，卸载走 `node:fs`）
 
@@ -16,7 +16,7 @@
 - 提交信息用 conventional commits + 中文（如 `feat(m2a): …`）；全文中文
 - 压缩摘要的 LLM 调用一律用**脚本化假 Provider 回放**（复用 `agent-loop.test.ts` 的 `ScriptedProvider` 模式），禁止真连网络
 - 记忆文件用 `node:fs` 原子写（tmp + rename，对齐 `providers.json` / `models-dev-cache.json` 模式）；条目格式严格 `<!-- YYYY-MM-DD HH:mm:ss -->\n{markdown}\n\n`，前插（最新在前）
-- `compact_markers` 表 M1 已建（`db.ts` MIGRATIONS[0]），M2a 只补 CRUD；存储历史**永不改写**（压缩只追加 marker + 推理时合成）
+- `compact_markers` 表 M1 已建（`db.ts` MIGRATIONS[0]），M2a 只补 CRUD + 追加 `MIGRATIONS[1]` 建索引（不能改 MIGRATIONS[0]——迁移一经发布不可改，已发布库 user_version=1 不会重跑 [0]）；存储历史**永不改写**（压缩只追加 marker + 推理时合成）
 - 卸载**改写落库**（设计 §4.2 原文"历史替换为桩"）：`tool_result` 落库前替换 `output` 为桩并写 offload 文件；`toolEnd` 事件广播替换前的完整 `output`
 - `ContextPolicy` 直接消费 M2b `ModelCatalog.getModelContextWindow`（已存在，非假定），未知模型回退 32K 保守档
 - 时间戳一律 epoch 秒（浮点）；ID 一律 `crypto.randomUUID().toUpperCase()`（M1/M2b 约束延续）
@@ -72,7 +72,7 @@ deskminis/
       appendDailyLog(date: string, markdown: string): MemoryEntry; // 前插条目，原子写
     }`
 
-**语义**（设计 §3.4）：`GLOBAL.md` 用户维护 agent 只读（`MemoryStore` 不提供写接口）；`SOUL.md` 人设（YAML frontmatter + 正文）；`YYYY-MM-DD.md` 每日日志，条目格式 `<!-- YYYY-MM-DD HH:mm:ss -->\n{markdown}\n\n`，前插（最新在前）。`date` 参数格式 `YYYY-MM-DD`，非法格式抛错。`appendDailyLog` 用本地时区（`Asia/Singapore` 由系统决定，不硬编码——`new Date()` 取系统本地时间，格式化用 `toISOString` 的日期部分 + 本地时分秒）。原子写：先写 `tmp` 再 `rename`。
+**语义**（设计 §3.4）：`GLOBAL.md` 用户维护 agent 只读（`MemoryStore` 不提供写接口）；`SOUL.md` 人设（YAML frontmatter + 正文）；`YYYY-MM-DD.md` 每日日志，条目格式 `<!-- YYYY-MM-DD HH:mm:ss -->\n{markdown}\n\n`，前插（最新在前）。`date` 参数格式 `YYYY-MM-DD`，非法格式抛错。`appendDailyLog` 用系统本地时区（不硬编码——`new Date()` 取系统本地时间，`formatLocalTs` 用 `d.getFullYear()/getMonth()/...` 系列本地访问器拼出 `YYYY-MM-DD HH:mm:ss`，全程不碰 UTC，与 `toISOString` 无关）。原子写：先写 `tmp` 再 `rename`。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -624,8 +624,8 @@ function hitRate(query: string, markdown: string): number {
 
 /** 新近度：1 / (1 + daysSince)。 */
 function recency(entry: MemoryEntry): number {
-  const ts = new Date(entry.timestamp.replace(/-/g, (m, i: number) => i < 2 ? '/' : '-'));
-  // entry.timestamp 形如 '2026-07-30 14:05:00'，Date 能解析
+  // entry.timestamp 形如 '2026-07-30 14:05:00'，Date 能直接解析（V8 接受空格分隔的 ISO 风格）
+  const ts = new Date(entry.timestamp);
   const days = (Date.now() - ts.getTime()) / (1000 * 60 * 60 * 24);
   return 1 / (1 + Math.max(0, days));
 }
@@ -733,16 +733,16 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/m
 - Test: `deskminis/tests/context-policy.test.ts`
 
 **Interfaces:**
-- Consumes: `ModelCatalog.getModelContextWindow`（M2b 已存在，非假定）、`RawMessage`（M1 `shared/types`）
+- Consumes: `ModelCatalog.getModelContextWindow`（M2b 已存在，非假定）、`AgentMessage`（M1 `shared/types`，`{ role, parts }`）
 - Produces（Task 7 依赖）:
   - `type ContextAction = 'none' | 'offload' | 'compact'`
   - `class ContextPolicy {
       constructor(catalog: { getModelContextWindow(modelId: string): number | undefined });
-      estimateTokens(history: RawMessage[]): number;
+      estimateTokens(history: AgentMessage[]): number;
       decide(modelId: string, tokenCount: number): ContextAction;
     }`
 
-**语义**（设计 §4.2「上下文水位检查」）：按模型窗口分层——`<32K` 不管；`32-64K` 超 70% → offload；`64-128K` 超 50% → offload，超 70% → compact；`≥128K` 超 40% → offload，超 60% → compact。未知窗口（`getModelContextWindow` 返回 `undefined`）回退 32K 保守档（只 offload 不 compact）。`estimateTokens` 粗估：`JSON.stringify(parts).length / 4` + `reasoningContent.length / 4`（英文 ~4 字符/token，中文偏保守，不引 tokenizer 库）。
+**语义**（设计 §4.2「上下文水位检查」）：按模型窗口分层——`<32K` 不管；`32-64K` 超 70% → offload；`64-128K` 超 50% → offload，超 70% → compact；`≥128K` 超 40% → offload，超 60% → compact。未知窗口（`getModelContextWindow` 返回 `undefined`）回退 32K 保守档（只 offload 不 compact）。`estimateTokens` 入参是 **`AgentMessage[]`**（不是 `RawMessage[]`）——水位检查发生在 `buildEffectiveHistory` 之后，此时只剩 `{ role, parts }`，`reasoningContent` 不在 effectiveHistory 里（它随 RawMessage → AgentMessage 映射被丢弃），故估算只算 `JSON.stringify(parts).length / 4`（英文 ~4 字符/token，中文偏保守，不引 tokenizer 库）。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -751,19 +751,15 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/m
 ```typescript
 import { describe, it, expect } from 'vitest';
 import { ContextPolicy, type ContextAction } from '../src/minisd/agent/context-policy';
-import type { RawMessage } from '../src/shared/types';
+import type { AgentMessage } from '../src/shared/types';
 
 /** 假目录：固定窗口大小。 */
 function fakeCatalog(window: number | undefined) {
   return { getModelContextWindow: () => window };
 }
 
-function msg(text: string): RawMessage {
-  return {
-    id: 'X', sessionId: 'S', role: 'user',
-    parts: [{ type: 'text', value: text }],
-    createdAt: 1, updatedAt: 1, sortOrder: 0, streamInterruptCount: 0,
-  };
+function msg(text: string): AgentMessage {
+  return { role: 'user', parts: [{ type: 'text', value: text }] };
 }
 
 describe('ContextPolicy.estimateTokens', () => {
@@ -772,21 +768,21 @@ describe('ContextPolicy.estimateTokens', () => {
     expect(p.estimateTokens([])).toBe(0);
   });
 
-  it('粗估：字符数 / 4', () => {
+  it('粗估：parts JSON 字符数 / 4', () => {
     const p = new ContextPolicy(fakeCatalog(200_000));
-    const history = [msg('a'.repeat(400))];
+    const history: AgentMessage[] = [msg('a'.repeat(400))];
     const t = p.estimateTokens(history);
-    expect(t).toBe(100); // 400 / 4
+    // JSON.stringify([{type:'text',value:'aaa...'}]) 长度 = 400 + 固定壳 ~22 → ~422/4 ≈ 106
+    expect(t).toBe(Math.ceil((JSON.stringify(history[0].parts).length) / 4));
   });
 
-  it('含 reasoningContent', () => {
+  it('effectiveHistory 视角：只看 role+parts，没有 reasoningContent 字段可估', () => {
+    // 印证签名从 RawMessage[] 改为 AgentMessage[] 的理由：reasoningContent 在
+    // buildEffectiveHistory 时已被丢弃，水位估算拿不到它，所以这里也只算 parts。
     const p = new ContextPolicy(fakeCatalog(200_000));
-    const history: RawMessage[] = [{
-      ...msg(''), role: 'assistant',
-      reasoningContent: 'b'.repeat(200),
-    }];
+    const history: AgentMessage[] = [{ role: 'assistant', parts: [{ type: 'text', value: 'b'.repeat(200) }] }];
     const t = p.estimateTokens(history);
-    expect(t).toBe(50); // 200 / 4
+    expect(t).toBe(Math.ceil(JSON.stringify(history[0].parts).length / 4));
   });
 });
 
@@ -843,7 +839,7 @@ Expected: FAIL（`ContextPolicy` 未导出）
 `deskminis/src/minisd/agent/context-policy.ts`:
 
 ```typescript
-import type { RawMessage } from '../../shared/types';
+import type { AgentMessage } from '../../shared/types';
 
 export type ContextAction = 'none' | 'offload' | 'compact';
 
@@ -853,18 +849,19 @@ const FALLBACK_WINDOW = 32_000;
 /**
  * 上下文水位检查（设计 §4.2「上下文水位检查」段）。
  * 消费 M2b ModelCatalog.getModelContextWindow，按窗口分层决策。
+ *
+ * 注意：estimateTokens 的入参是 AgentMessage[]（不是 RawMessage[]）——
+ * 水位检查在 loop.ts 里发生在 buildEffectiveHistory 之后，此时只剩 { role, parts }，
+ * reasoningContent 已被丢弃，故估算只算 parts JSON 字符数 / 4。
  */
 export class ContextPolicy {
   constructor(private catalog: { getModelContextWindow(modelId: string): number | undefined }) {}
 
-  /** 粗估 token 数：parts JSON 字符数 / 4 + reasoningContent 字符数 / 4。
+  /** 粗估 token 数：parts JSON 字符数 / 4。
    *  英文 ~4 字符/token；中文偏保守（实际 2 字符/token，这里高估触发更早，安全侧）。 */
-  estimateTokens(history: RawMessage[]): number {
+  estimateTokens(history: AgentMessage[]): number {
     let chars = 0;
-    for (const m of history) {
-      chars += JSON.stringify(m.parts).length;
-      if (m.reasoningContent) chars += m.reasoningContent.length;
-    }
+    for (const m of history) chars += JSON.stringify(m.parts).length;
     return Math.ceil(chars / 4);
   }
 
@@ -1064,21 +1061,21 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/o
 - Test: `deskminis/tests/compact.test.ts`、`deskminis/tests/chat-store.test.ts`（追加）
 
 **Interfaces:**
-- Consumes: `ChatStore`（M1）、`AgentProvider`（M1）、`RawMessage`（M1）
+- Consumes: `ChatStore`（M1）、`AgentProvider`（M1）、`RawMessage`（M1，**仅用于取材与落库锚点定位**）
 - Produces（Task 7 依赖）:
   - `interface CompactMarker { id: string; sessionId: string; summary: string; lastCompactedMessageId: string; createdAt: number }`
   - `class CompactEngine {
       constructor(chat: ChatStore);
-      summarize(history: RawMessage[], sessionId: string, provider: AgentProvider): Promise<CompactMarker>;
+      summarize(history: RawMessage[], sessionId: string, provider: AgentProvider): Promise<CompactMarker | undefined>;
       buildEffectiveHistory(history: RawMessage[], marker: CompactMarker | undefined): AgentMessage[];
     }`
   - ChatStore 新增：`appendCompactMarker(sessionId, summary, lastCompactedMessageId): CompactMarker`、`getLatestCompactMarker(sessionId): CompactMarker | undefined`
-- `buildEffectiveHistory` 语义：
-  - 无 marker：`toAgentMessages(history)` 原样返回
+- `buildEffectiveHistory` 语义（raw history 只用于读取，永不改写）：
+  - 无 marker：`history.map(m => ({ role: m.role, parts: m.parts }))` 原样返回
   - 有 marker 且 `lastCompactedMessageId` 在 history 中存在：`[{role:'user', parts:[{type:'text', value: '[对话摘要] '+summary}]}]` + history 中该 id 之后的所有消息
   - 有 marker 但锚点丢失（id 不在 history 中，如同步后 id 重映射）：按 `createdAt` 自愈——找 history 中第一个 `createdAt >= marker.createdAt` 的消息作为锚点，取其后所有消息；若全早于 marker.createdAt，返回 `[summary]` + 全部 history（保守不丢内容）
 
-**语义**（设计 §4.2「压缩」）：LLM 摘要存 `compact_markers`，推理时合成 `effectiveAgentHistory`，**不改写存储历史**；保留最近 3 个用户回合原文。`summarize` 调用 provider 生成摘要，提示词要求模型总结到 marker 时已有的对话（不含最近 3 个用户回合——它们保留原文不进摘要）。锚点丢失按 `createdAt` 自愈（设计原文）。`compact_markers` 表 M1 已建（`db.ts` MIGRATIONS[0]），M2a 只补 CRUD + index。
+**语义**（设计 §4.2「压缩」）：LLM 摘要存 `compact_markers`，推理时合成 `effectiveAgentHistory`，**不改写存储历史**；保留最近 3 个用户回合原文。`summarize` 调用 provider 生成摘要，提示词要求模型总结到 marker 时已有的对话（不含最近 3 个用户回合——它们保留原文不进摘要）。**「最近 3 个用户回合」的判定**：只统计「`role === 'user'` 且 parts 中**含 `text` part 且不含 `toolResult` part**」的消息——本仓库 `tool_result` 也落库为 `user` 消息（M1 设计），若按 `role==='user'` 一刀切，工具密集会话里真正的用户提问会被压进摘要、丢失原文。**不足 3 个用户回合时不压缩**：返回 `undefined`、**不写任何 marker**、不调 provider（理由：若写一个锚点=最后一条消息的「跳过 marker」，下一轮 `buildEffectiveHistory` 只剩摘要占位符、整个对话上下文被抹掉——这是毒 marker）。锚点丢失按 `createdAt` 自愈（设计原文）。`compact_markers` 表 M1 已建（`db.ts` MIGRATIONS[0]），M2a 只补 CRUD + index。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1149,9 +1146,13 @@ class SummaryProvider implements AgentProvider {
   }
 }
 
-function mkMsg(sessionId: string, role: 'user' | 'assistant', text: string, id: string, createdAt: number): RawMessage {
+function mkMsg(
+  sessionId: string, role: 'user' | 'assistant', text: string, id: string, createdAt: number,
+  parts?: RawMessage['parts'],
+): RawMessage {
   return {
-    id, sessionId, role, parts: [{ type: 'text', value: text }],
+    id, sessionId, role,
+    parts: parts ?? (text ? [{ type: 'text', value: text }] : []),
     createdAt, updatedAt: createdAt, sortOrder: 0, streamInterruptCount: 0,
   };
 }
@@ -1178,15 +1179,46 @@ describe('CompactEngine.summarize', () => {
     expect(got?.summary).toBe('这是对话摘要');
   });
 
-  it('不足 3 个用户回合时不压缩（返回 marker 但摘要为跳过提示）', async () => {
+  it('不足 3 个用户回合时不压缩：返回 undefined + 不调 provider + 不写 marker', async () => {
     const store = new ChatStore(openDb(':memory:'));
     const sid = store.createSession().id;
     const history = [mkMsg(sid, 'user', '只有一条', 'U0', 1)];
     const provider = new SummaryProvider('不该被调用');
     const engine = new CompactEngine(store);
     const marker = await engine.summarize(history, sid, provider);
-    expect(provider.received).toHaveLength(0); // 不调 provider
-    expect(marker.summary).toContain('历史不足');
+    expect(marker).toBeUndefined();                 // 不写毒 marker
+    expect(provider.received).toHaveLength(0);      // 不调 provider
+    expect(store.getLatestCompactMarker(sid)).toBeUndefined(); // 库里仍无 marker
+  });
+
+  it('user 角色但只含 toolResult 的消息不计入「用户回合」（工具密集会话不丢真用户提问）', async () => {
+    const store = new ChatStore(openDb(':memory:'));
+    const sid = store.createSession().id;
+    // 历史：U0(文本) A0 U1(文本) A1 U2(仅 toolResult) A2 U3(文本) A3 U4(文本) A4
+    // 真正的「用户回合」= U0,U1,U3,U4 = 4 条 → 够 3 → 压缩
+    // 「最近 3 个用户回合」= U1,U3,U4（按位置从后往前数 3 个真用户回合）
+    // 锚点 = U1 前一条 = A0；toSummarize = [U0,A0]
+    const history: RawMessage[] = [
+      mkMsg(sid, 'user', '列目录', 'U0', 1),
+      mkMsg(sid, 'assistant', '好', 'A0', 2),
+      mkMsg(sid, 'user', '再列一次', 'U1', 3),
+      mkMsg(sid, 'assistant', '', 'A1', 4, [{ type: 'toolUse', value: { toolUseId: 'T1', name: 'shell', input: '{}' } }]),
+      mkMsg(sid, 'user', '', 'U2', 5, [{ type: 'toolResult', value: { toolUseId: 'T1', output: 'dir1\nfile1', success: true, status: 'success' } }]),
+      mkMsg(sid, 'assistant', '完成', 'A2', 6),
+      mkMsg(sid, 'user', '继续', 'U3', 7),
+      mkMsg(sid, 'assistant', '好', 'A3', 8),
+      mkMsg(sid, 'user', '谢谢', 'U4', 9),
+      mkMsg(sid, 'assistant', '不客气', 'A4', 10),
+    ];
+    const provider = new SummaryProvider('摘要');
+    const engine = new CompactEngine(store);
+    const marker = await engine.summarize(history, sid, provider);
+    expect(marker).toBeDefined();
+    expect(marker!.lastCompactedMessageId).toBe('A0');   // 修复后：锚点在 U1 之前 = A0
+    // 修复前（按 role==='user' 一刀切）：用户回合=U0,U1,U2,U3,U4=5，最近3=U2,U3,U4，锚点=A1 → 错误
+    // 验证 toSummarize 只含 U0,A0（不含 U1——U1 保留原文）
+    expect(provider.received[0].messages.map(m => m.role)).toEqual(['user', 'user', 'assistant']);
+    // 第一条是 summaryPrompt（user），后两条是 U0(user)、A0(assistant)
   });
 
   it('provider 抛错时 summarize 透传错误且不写 marker', async () => {
@@ -1276,13 +1308,23 @@ export interface CompactMarker {
 }
 ```
 
-- [ ] **Step 3b: 修改 db.ts 加 index**
+- [ ] **Step 3b: 修改 db.ts 加 index（追加 MIGRATIONS[1]）**
 
-在 `deskminis/src/minisd/store/db.ts` 的 `MIGRATIONS[0]` 末尾（`CREATE TABLE compact_markers` 之后）追加：
+在 `deskminis/src/minisd/store/db.ts` 的 `MIGRATIONS` 数组**追加一个新元素** `MIGRATIONS[1]`（**不要**往 `MIGRATIONS[0]` 里塞 CREATE INDEX）：
 
 ```typescript
-  CREATE INDEX idx_compact_markers_session ON compact_markers(session_id, created_at DESC);
+const MIGRATIONS = [
+  // [0] M1 已发布：CREATE TABLE sessions / messages / compact_markers / ...（原内容不动）
+  `CREATE TABLE ...原有 M1 语句...;`,
+  // [1] M2a 新增：compact_markers 按 (session_id, created_at DESC) 建索引
+  //  必须是新迁移条目，不能追加进 MIGRATIONS[0]——已有用户库 user_version=1，
+  //  db.ts 的迁移 runner 只对 user_version < N 的库跑 MIGRATIONS[0..N-1]，
+  //  改 MIGRATIONS[0] 对已发布库是 no-op（迁移一经发布不可改）。
+  `CREATE INDEX IF NOT EXISTS idx_compact_markers_session ON compact_markers(session_id, created_at DESC);`,
+];
 ```
+
+`IF NOT EXISTS` 是双保险：开发库（M1 时已建表但无索引，user_version=1）跑 MIGRATIONS[1] 建索引；若索引已存在则跳过。迁移 runner（M1 既有）会自动把 `user_version` 推到 2。
 
 - [ ] **Step 3c: 修改 chat-store.ts 增加 compact_markers CRUD**
 
@@ -1322,9 +1364,29 @@ import type { ChatStore } from '../store/chat-store';
 const RECENT_USER_TURNS = 3;
 
 /**
+ * 判定一条消息是否为「真正的用户回合」（用于压缩时数最近 3 个）。
+ * 本仓库 tool_result 也落库为 role='user'（M1 设计），但它不是用户提问——
+ * 工具密集会话里若把它也算进去，真正的用户提问会被挤进摘要、丢失原文。
+ * 判定：role==='user' 且 parts 含 text part 且不含 toolResult part。
+ */
+function isRealUserTurn(m: RawMessage): boolean {
+  if (m.role !== 'user') return false;
+  let hasText = false;
+  for (const p of m.parts) {
+    if (p.type === 'text') hasText = true;
+    if (p.type === 'toolResult') return false;
+  }
+  return hasText;
+}
+
+/**
  * LLM 压缩摘要（设计 §4.2「压缩」段）。
  * 摘要存 compact_markers，推理时合成 effectiveAgentHistory，不改写存储历史。
- * 保留最近 3 个用户回合原文；锚点丢失按 createdAt 自愈。
+ * 保留最近 3 个真正的用户回合原文；锚点丢失按 createdAt 自愈。
+ *
+ * 数据流契约（与 Task 7 一致）：
+ *  - raw history 在本类里只用于「取材（toSummarize）」和「锚点定位」——永不改写。
+ *  - effectiveAgentHistory 由 buildEffectiveHistory 合成，是请求构建与水位估算的唯一输入。
  */
 export class CompactEngine {
   constructor(private chat: ChatStore) {}
@@ -1332,19 +1394,20 @@ export class CompactEngine {
   /**
    * 调用 provider 生成摘要并写入 compact_markers。
    * lastCompactedMessageId 锚定到「保留最近 3 个用户回合」之前的最后一条消息。
+   *
+   * 不足 3 个真正的用户回合时返回 undefined、不写任何 marker、不调 provider——
+   * 否则写一个锚点=最后一条消息的「跳过 marker」会让下一轮 effectiveHistory
+   * 只剩摘要占位符、整个对话上下文被抹掉（毒 marker）。
    */
-  async summarize(history: RawMessage[], sessionId: string, provider: AgentProvider): Promise<CompactMarker> {
-    // 找到最近 3 个用户回合的边界：从后往前数 3 个 user 消息
+  async summarize(history: RawMessage[], sessionId: string, provider: AgentProvider): Promise<CompactMarker | undefined> {
+    // 从后往前数 3 个「真正的用户回合」
     const userIdxs: number[] = [];
     for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].role === 'user') userIdxs.push(i);
+      if (isRealUserTurn(history[i])) userIdxs.push(i);
       if (userIdxs.length >= RECENT_USER_TURNS) break;
     }
-    // 不足 3 个用户回合：不压缩（写一个跳过标记，不调 provider）
-    if (userIdxs.length < RECENT_USER_TURNS) {
-      const marker = this.chat.appendCompactMarker(sessionId, '[历史不足 3 个用户回合，跳过压缩]', history.at(-1)?.id ?? '');
-      return marker;
-    }
+    if (userIdxs.length < RECENT_USER_TURNS) return undefined; // 不写毒 marker
+
     // 锚点 = 第 3 个用户回合之前的那条消息
     const anchorIdx = userIdxs[userIdxs.length - 1] - 1;
     const anchorMsg = anchorIdx >= 0 ? history[anchorIdx] : history[0];
@@ -1369,6 +1432,7 @@ export class CompactEngine {
   /**
    * 合成 effectiveAgentHistory（设计 §4.2「推理时合成」）。
    * 无 marker → 原样；有 marker → 摘要 + 锚点之后的消息；锚点丢失按 createdAt 自愈。
+   * raw history 只读，永不改写。
    */
   buildEffectiveHistory(history: RawMessage[], marker: CompactMarker | undefined): AgentMessage[] {
     if (!marker) return history.map(m => ({ role: m.role, parts: m.parts }));
@@ -1401,7 +1465,7 @@ export class CompactEngine {
 - [ ] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/compact.test.ts tests/chat-store.test.ts`
-Expected: PASS（compact 7 个用例 + chat-store 新增 4 个用例）
+Expected: PASS（compact 8 个用例 + chat-store 新增 4 个用例）
 
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-5 + M2b 189 个测试不受影响——chat-store 只新增方法，M1 既有方法签名不变）
@@ -1441,8 +1505,11 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/c
 1. **记忆注入**（`index.ts` `chat.prompt` 入口）：用 `MemoryInjector.build(SYSTEM_PROMPT, { memoryEnabled: session.memoryEnabled })` 构建系统提示，一次注入整轮复用（决策见 Architecture）
 2. **工具过滤**（`index.ts` `chat.prompt` 入口）：`session.memoryEnabled === false` 时把 `MEMORY_TOOL_NAMES` 加入 `excludedToolNames` 传给 loop
 3. **卸载**（`loop.ts` tool_result 落库前）：`offloadEngine.shouldOffload(output)` 为 true 时调用 `offloadEngine.offload(...)` 替换 `output` 为桩，广播 `offloaded` 事件，再落库；`toolEnd` 事件广播替换前完整 `output`
-4. **压缩**（`loop.ts` 每轮开头）：`contextPolicy.decide(modelId, estimateTokens(history))` 返回 `compact` 且本循环压缩次数 < 3 时，调用 `compactEngine.summarize(history, sessionId, activeSlot.provider)` 写 marker，广播 `compacted` 事件，`turn--`（不消耗额度），`continue` 重新取 history
-5. **effectiveAgentHistory**（`loop.ts` 每轮请求构建）：`buildEffectiveHistory(history, chat.getLatestCompactMarker(sessionId))` 替代直接 `toAgentMessages(history)`；`pairToolResults` 在其上做配对（M2b 既有，不动）
+4. **effectiveAgentHistory 合成**（`loop.ts` 每轮开头，先于水位检查）：`buildEffectiveHistory(history, chat.getLatestCompactMarker(sessionId))` 合成推理用历史；raw history 只用于取材/落库，**永不改写**——effectiveHistory 是水位估算与请求构建的唯一输入
+5. **压缩**（`loop.ts` 每轮，在 effectiveHistory 之上）：`contextPolicy.decide(modelId, estimateTokens(effectiveHistory))` 返回 `compact` 且本循环压缩次数 < 3 时，调用 `compactEngine.summarize(history, sessionId, activeSlot.provider)`——返回 marker 则广播 `compacted` 事件、`turn--`、`continue` 重新取 history+effectiveHistory（水位下降）；返回 `undefined`（不足 3 个真正用户回合）则**不**发事件、**不** turn--、**不** continue，直接用现有 effectiveHistory 继续流式请求（绝不在 undefined 上 continue 重试，否则死循环）
+6. **请求构建**（`loop.ts`）：复用上方合成的 `effectiveHistory`，`pairToolResults` 在其上做配对（M2b 既有，不动）
+
+**数据流契约**（Task 4/6/7 共用同一叙述）：raw history 只用于 `summarize` 取材与落库；`estimateTokens` / `decide` / 请求构建一律基于 `effectiveHistory`。这样压缩写 marker 后 effectiveHistory 变小、水位自然下降，不会出现「存储不改写 → 水位永不降 → 每次 chat.prompt 都重复压缩到 3 次上限」的缺陷。
 
 **装配约束**：压缩与降级链共存——压缩用当前 `activeSlot.provider`（降级后用备选 provider 压缩）；压缩失败（provider 抛错）不终止循环，跳过本次压缩继续流式请求（避免压缩失败杀掉对话）；卸载在降级循环之外（tool_result 落库是降级循环之后的事，此时 slot 已确定）。
 
@@ -1489,46 +1556,26 @@ describe('runAgentLoop + 压缩/卸载装配', () => {
 
   it('压缩触发：水位超阈值 → compacted 事件 + effectiveHistory 含摘要', async () => {
     const { store, tools, toolContext, sessionId } = mkCtx();
-    // 构造足够长的历史（6 个用户回合）
+    // 6 个用户回合，每条 2000 字符：raw history ~6075 token → 窗口 8000 → ratio 0.76 → compact
+    // （注意：token ≠ 字符；JSON.stringify(parts).length/4 才是 estimateTokens 的口径，
+    //   500 字符/条只有 ~1575 token → ratio 0.197 → 不触发。必须 2000 字符/条才够。）
     for (let i = 0; i < 6; i++) {
-      store.appendMessage({ id: `U${i}`, sessionId, role: 'user', parts: [{ type: 'text', value: 'x'.repeat(500) }], createdAt: i + 1, streamInterruptCount: 0 });
-      store.appendMessage({ id: `A${i}`, sessionId, role: 'assistant', parts: [{ type: 'text', value: 'y'.repeat(500) }], createdAt: i + 1.5, streamInterruptCount: 0 });
+      store.appendMessage({ id: `U${i}`, sessionId, role: 'user', parts: [{ type: 'text', value: 'x'.repeat(2000) }], createdAt: i + 1, streamInterruptCount: 0 });
+      store.appendMessage({ id: `A${i}`, sessionId, role: 'assistant', parts: [{ type: 'text', value: 'y'.repeat(2000) }], createdAt: i + 1.5, streamInterruptCount: 0 });
     }
-    // 假目录：窗口 64K，历史约 6K token → ratio ~0.09，需调小窗口触发 compact
-    const policy = new ContextPolicy({ getModelContextWindow: () => 8_000 }); // 6K/8K = 0.75 > 0.7 → compact
+    const policy = new ContextPolicy({ getModelContextWindow: () => 8_000 });
     const compact = new CompactEngine(store);
-    // 摘要 provider + 正常回复 provider
-    const summaryProvider: AgentProvider = {
-      name: 'sum', modelId: 'fake',
-      async *streamAgentMessage() { yield { kind: 'textDelta', text: '压缩摘要' }; yield { kind: 'done', stopReason: 'endTurn' }; },
-    };
-    // 主 provider：第一次调用被压缩拦截（不会真的流式请求），压缩后第二次才真正回复
-    let mainCalled = 0;
-    const mainProvider: AgentProvider = {
-      name: 'main', modelId: 'fake',
-      async *streamAgentMessage(req) {
-        mainCalled++;
-        // 验证 effectiveHistory 含摘要
-        const firstUser = req.messages.find(m => m.role === 'user');
-        expect(JSON.stringify(firstUser?.parts)).toContain('[对话摘要]');
-        yield { kind: 'textDelta', text: '回复' }; yield { kind: 'done', stopReason: 'endTurn' };
-      },
-    };
-    // 用 ScriptedProvider 不好做这个断言，直接用上面两个 provider
-    // 需要让 compactEngine.summarize 用 summaryProvider
-    // 但 loop.ts 的 compactEngine.summarize(history, sid, activeSlot.provider) 用的是 activeSlot.provider
-    // 所以主 provider 第一次被当作摘要 provider 调用
+    // dualProvider：第 1 次被压缩引擎当摘要 provider 调，第 2 次才是正式回复
     let callCount = 0;
     const dualProvider: AgentProvider = {
       name: 'dual', modelId: 'fake',
       async *streamAgentMessage(req) {
         callCount++;
         if (callCount === 1) {
-          // 摘要请求
           yield { kind: 'textDelta', text: '压缩摘要' }; yield { kind: 'done', stopReason: 'endTurn' };
           return;
         }
-        // 正式回复
+        // 正式回复：effectiveHistory 含 [对话摘要]
         const firstUser = req.messages.find(m => m.role === 'user');
         expect(JSON.stringify(firstUser?.parts)).toContain('[对话摘要]');
         yield { kind: 'textDelta', text: '回复' }; yield { kind: 'done', stopReason: 'endTurn' };
@@ -1540,25 +1587,40 @@ describe('runAgentLoop + 压缩/卸载装配', () => {
     expect(events.at(-1)?.kind).toBe('turnEnd');
   });
 
-  it('压缩次数上限 3：不无限压缩', async () => {
+  it('压缩一次后水位下降：同一循环不再重复压缩', async () => {
     const { store, tools, toolContext, sessionId } = mkCtx();
-    store.appendMessage({ id: 'U0', sessionId, role: 'user', parts: [{ type: 'text', value: 'x'.repeat(500) }], createdAt: 1, streamInterruptCount: 0 });
-    store.appendMessage({ id: 'A0', sessionId, role: 'assistant', parts: [{ type: 'text', value: 'y'.repeat(500) }], createdAt: 2, streamInterruptCount: 0 });
-    // 窗口极小，每次都触发压缩
+    // 4 个用户回合：U0/A0 巨大（撑高水位），U1~A3 极小
+    // recent 3 真用户回合 = U1,U2,U3；anchor = A0；toSummarize = [U0,A0]
+    // 压缩后 effectiveHistory = [summary, U1,A1,U2,A2,U3,A3] 全小 → 水位降到 none → 不再 compact
+    store.appendMessage({ id: 'U0', sessionId, role: 'user', parts: [{ type: 'text', value: 'X'.repeat(2000) }], createdAt: 1, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A0', sessionId, role: 'assistant', parts: [{ type: 'text', value: 'Y'.repeat(2000) }], createdAt: 2, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '小1' }], createdAt: 3, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A1', sessionId, role: 'assistant', parts: [{ type: 'text', value: '小A1' }], createdAt: 4, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'U2', sessionId, role: 'user', parts: [{ type: 'text', value: '小2' }], createdAt: 5, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A2', sessionId, role: 'assistant', parts: [{ type: 'text', value: '小A2' }], createdAt: 6, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'U3', sessionId, role: 'user', parts: [{ type: 'text', value: '小3' }], createdAt: 7, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A3', sessionId, role: 'assistant', parts: [{ type: 'text', value: '小A3' }], createdAt: 8, streamInterruptCount: 0 });
+    // 窗口 1000：raw history ~1010 token → compact；压缩后 effectiveHistory ~80 token → none
     const policy = new ContextPolicy({ getModelContextWindow: () => 1_000 });
     const compact = new CompactEngine(store);
     let callCount = 0;
     const provider: AgentProvider = {
       name: 'p', modelId: 'fake',
-      async *streamAgentMessage() {
+      async *streamAgentMessage(req) {
         callCount++;
-        if (callCount <= 3) { yield { kind: 'textDelta', text: '摘要' }; yield { kind: 'done', stopReason: 'endTurn' }; return; }
+        if (callCount === 1) { yield { kind: 'textDelta', text: '对话摘要' }; yield { kind: 'done', stopReason: 'endTurn' }; return; }
+        // 第 2 次：effectiveHistory 已含摘要且水位下降不再 compact
+        const firstUser = req.messages.find(m => m.role === 'user');
+        expect(JSON.stringify(firstUser?.parts)).toContain('[对话摘要]');
         yield { kind: 'textDelta', text: '回复' }; yield { kind: 'done', stopReason: 'endTurn' };
       },
     };
     const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', contextPolicy: policy, compactEngine: compact }));
-    // 历史不足 3 用户回合时不调 provider 做摘要（Task 6 语义），所以这里只测不会无限循环
+    // 恰好 1 次 compacted（压缩后 effectiveHistory 变小、水位降到 none，同一循环不再重复压缩）
+    expect(events.filter(e => e.kind === 'compacted')).toHaveLength(1);
+    expect(callCount).toBe(2); // 1 次摘要 + 1 次正式回复
     expect(events.at(-1)?.kind).toBe('turnEnd');
+    expect(store.getLatestCompactMarker(sessionId)?.summary).toBe('对话摘要');
   });
 
   it('excludedToolNames: 过滤工具定义', async () => {
@@ -1692,32 +1754,50 @@ export interface RunOptions {
   let compactCount = 0; // 本循环已压缩次数（上限 3，设计 §4.2）
 ```
 
-5. 在 `for` 循环体内，`const history = store.listMessages(opts.sessionId);` 之后、构建 `req` 之前，插入压缩逻辑：
+5. 在 `for` 循环体内，`const history = store.listMessages(opts.sessionId);` 之后，**先合成 effectiveHistory**（raw history 只用于取材/落库，estimate/decide/请求构建一律基于 effectiveHistory——这是数据流契约，见 Task 6 数据流注释）：
+
+```typescript
+    // 推理时合成 effectiveAgentHistory（设计 §4.2「推理时合成」）
+    // raw history 永不改写；effectiveHistory 是水位估算与请求构建的唯一输入。
+    const curMarker = opts.compactEngine ? store.getLatestCompactMarker(opts.sessionId) : undefined;
+    const effectiveHistory = opts.compactEngine
+      ? opts.compactEngine.buildEffectiveHistory(history, curMarker)
+      : toAgentMessages(history);
+```
+
+6. 在 `effectiveHistory` 之上做水位检查 + 压缩（**不是**在原始 `history` 上——存储永不改写，压缩后 raw history 不变，在 raw history 上估算水位永远不会下降，会导致每次 `chat.prompt` 都重复压缩到 3 次上限。改为在 effectiveHistory 上估算：压缩写 marker 后 `continue`，下一轮重新取 marker + buildEffectiveHistory，effectiveHistory 变小、水位自然下降）：
 
 ```typescript
     // 上下文水位检查 + 压缩（设计 §4.2「上下文水位检查」+「压缩」段）
     if (opts.contextPolicy && opts.compactEngine && compactCount < 3) {
-      const action = opts.contextPolicy.decide(activeSlot.provider.modelId, opts.contextPolicy.estimateTokens(history));
+      const action = opts.contextPolicy.decide(
+        activeSlot.provider.modelId,
+        opts.contextPolicy.estimateTokens(effectiveHistory),  // ← 基于 effectiveHistory，不是 raw history
+      );
       if (action === 'compact') {
         try {
-          const marker = await opts.compactEngine.summarize(history, opts.sessionId, activeSlot.provider);
-          compactCount++;
-          yield { kind: 'compacted', markerId: marker.id, summary: marker.summary.slice(0, 200) };
-          turn--; // 压缩轮不消耗 turn 额度
-          continue; // 重新取 history（含新 marker）
+          const newMarker = await opts.compactEngine.summarize(history, opts.sessionId, activeSlot.provider);
+          if (newMarker) {
+            compactCount++;
+            yield { kind: 'compacted', markerId: newMarker.id, summary: newMarker.summary.slice(0, 200) };
+            turn--; // 压缩轮不消耗 turn 额度
+            continue; // 重新取 history + effectiveHistory（含新 marker，水位下降）
+          }
+          // summarize 返回 undefined（不足 3 个真正用户回合）：
+          //  不发 compacted 事件、不 turn--、不 continue——直接落到下面的 req 构建，
+          //  用现有 effectiveHistory 继续流式请求。
+          //  关键：绝不能因 undefined 而 continue 重试，否则 history 不变 → 水位不变 →
+          //  再次 compact → 再次 undefined → 死循环。落下去发请求才是正路。
         } catch {
-          // 压缩失败不杀对话：跳过本次压缩，继续流式请求
+          // 压缩失败（provider 抛错）不杀对话：跳过本次压缩，继续流式请求
         }
       }
     }
 ```
 
-6. 修改 `req` 构建——用 `effectiveAgentHistory` 替代直接 `toAgentMessages(history)`，并应用工具过滤：
+7. 构建 `req`（复用上方已合成的 `effectiveHistory`，不重复计算 marker / effectiveHistory）并应用工具过滤：
 
 ```typescript
-    // 推理时合成 effectiveAgentHistory（设计 §4.2「推理时合成」）
-    const marker = opts.compactEngine ? store.getLatestCompactMarker(opts.sessionId) : undefined;
-    const effectiveHistory = opts.compactEngine ? opts.compactEngine.buildEffectiveHistory(history, marker) : toAgentMessages(history);
     const allToolDefs = opts.tools.definitions();
     const toolDefs = opts.excludedToolNames ? allToolDefs.filter(t => !opts.excludedToolNames!.has(t.name)) : allToolDefs;
     const req: StreamRequest = {
@@ -1726,7 +1806,7 @@ export interface RunOptions {
     };
 ```
 
-7. 在 tool_result 落库前（`const resultMsg = store.appendMessage(...)` 之前）插入卸载逻辑。找到现有的 `for (const { c, outcome } of results) { ... resultParts.push(...) }` 块，改为：
+8. 在 tool_result 落库前（`const resultMsg = store.appendMessage(...)` 之前）插入卸载逻辑。找到现有的 `for (const { c, outcome } of results) { ... resultParts.push(...) }` 块，改为：
 
 ```typescript
     const resultParts: ContentPart[] = [];
@@ -1825,7 +1905,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/l
 
 ## M2a 完成定义
 
-- 自动化全绿（`npm test`）：M1+M2b 既有 189 个测试 + M2a 新增 memory-store（~13）/ memory-injector（~8）/ memory-tools（~11）/ context-policy（~9）/ offload（~6）/ compact（~7）/ chat-store 扩充（~4）/ agent-loop 扩充（~4）/ rpc 扩充（~2），合计 ~64 个新用例，总数约 253（相对基线估算）
+- 自动化全绿（`npm test`）：M1+M2b 既有 189 个测试 + M2a 新增 memory-store（~13）/ memory-injector（~8）/ memory-tools（~11）/ context-policy（~9）/ offload（~6）/ compact（~8）/ chat-store 扩充（~4）/ agent-loop 扩充（~4）/ rpc 扩充（~2），合计 ~65 个新用例，总数约 254（相对基线估算）
 - 端到端手工验收 5 步全过：
   1. 在 `%APPDATA%\DeskMinis\memory\GLOBAL.md` 写入用户偏好 → 新建会话对话 → 模型回复体现该偏好（系统提示已注入）
   2. 对话中调用 `memory_write` 写一条记忆 → 查看 `YYYY-MM-DD.md` 确认条目前插 → 调用 `memory_get` 按关键词检索到该条
