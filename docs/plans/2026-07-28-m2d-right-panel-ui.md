@@ -76,7 +76,9 @@ deskminis/
   src/renderer/src/components/FilesPanel.vue     新增：文件树 + 预览面板
   src/renderer/src/components/FileTreeNode.vue   新增：递归树节点（懒加载）
   src/renderer/src/components/TasksPanel.vue     新增：任务面板
-  tests/chat-context-info.test.ts    新增：chat.contextInfo RPC 测试（2 例，#7 水位条需要）
+  tests/chat-context-info.test.ts    新增：chat.contextInfo RPC 测试（2 例，#7 水位条需要；**例 2 为 M2a 红线锚点**——写入 compact marker 后 usedTokens 必须下降，且 usedTokens 基于 buildEffectiveHistory 而非 listMessages 原始历史）
+    • 例 1（基础链路）：provider 绑定 + 3 轮对话，chat.contextInfo 返回 windowTokens（catalog.getModelContextWindow(modelId) 或 32000 兜底）、usedTokens（estimateTokens + buildEffectiveHistory 无 marker 等价于历史数）、remaining = max(0, window - used)
+    • 例 2（compact 后水位下降 · M2a 红线）：连续写入 ≥4 轮真实对话 → chat.contextInfo 取 usedBefore → 调 compactEngine.summarize(history, sessionId, provider) 生成 CompactMarker 并落库（store/chat-store.ts addCompactMarker / getLatestCompactMarker 配对）→ 再调 chat.contextInfo 取 usedAfter → 断言 usedAfter < usedBefore（压缩后 summary token 数远小于压缩前的多轮对话；且禁止原始历史的 tokens 估算与 usedBefore 相等——这是红线：直接用原始历史估算此断言会永远相等且不下降）
   tests/terminal.test.ts             新增：terminal.* RPC 测试（6 例）
   tests/files-rpc.test.ts            新增：files.* RPC 测试（11 例）
   tests/tray-lifecycle.test.ts       新增：托盘生命周期源文本守卫（5 例）
@@ -433,18 +435,52 @@ import { FilesService } from './files';
   const filesSvc = new FilesService(paths);
 ```
 
-**c. methods 表追加 terminal.* + files.* 四方法**（锚点：L348 `permission.respond` 结束、L360 `// ---- M2c 技能 RPC 面 ----` 注释**之前**插入，因为 terminal/files 与权限处理同一域）：
+**c. methods 表追加 terminal.* + files.* 四方法 + chat.contextInfo（#7 水位小型 RPC）**（锚点：L348 `permission.respond` 结束、L360 `// ---- M2c 技能 RPC 面 ----` 注释**之前**插入，因为 terminal/files 与权限处理同一域）：
+
+> **（M2a 红线 · usedTokens 唯一输入）** 水位估算必须以 `compactEngine.buildEffectiveHistory(history, marker)` 返回的 AgentMessage[] 为唯一输入——禁止直接用 `chat.listMessages` 返回的 RawMessage[] 喂 `contextPolicy.estimateTokens`。压缩写入 CompactMarker 之后，原始 RawMessage[] 里的已压缩消息仍然存在（作为 meta 壳而非真实角色），直接估算会让水位永不下降、压缩/卸载 UI 永远不真实。真实链条（7 步全部锚定 c54dac4 现有 API）：
+> ① `history = chat.listMessages(sid)`（RawMessage[]，store/chat-store.ts L102）
+> ② `marker = chat.getLatestCompactMarker(sid)`（CompactMarker\|undefined，store/chat-store.ts L73）
+> ③ `effective = compactEngine.buildEffectiveHistory(history, marker)`（AgentMessage[]，compact.ts L78——这一步把 marker 之前的回合替换为 summary，是 M2a 数据流红线）
+> ④ `usedTokens = contextPolicy.estimateTokens(effective)`（context-policy.ts L21——入参类型是 AgentMessage[]，TS 强校验）
+> ⑤ `modelId`：**复用 chat.prompt 现有的「会话绑定 → provider/模型组解析」链（index.ts L217-L234）内联复刻**（不提炼 helper：只这一处调用，提炼会跨 200 行搬运 helper 反而增加阅读成本）——优先级：会话 modelBinding group:xxx → 模型组 slot0 的 instantiate().modelId；会话 modelBinding provider:xxx → providers.instantiate(pid).modelId；未绑定 → providers.getDefaultId() → instantiate().modelId。**模型组绑定下 windowTokens 取链首 slot（主 provider）的 modelId 解析**，与降级（fallbackChain[1..]）逻辑一致——fallback 生效后的真实窗口由 fallback 事件刷新任务面板再 fetchContextInfo 兜底
+> ⑥ `windowTokens = catalog.getModelContextWindow(modelId) ?? 32000`（catalog 在 index.ts L105 已装配；32000 与 context-policy.ts L6 的 `FALLBACK_WINDOW` 常量对齐，该常量未导出，字面量写入并加注释指向）
+> ⑦ `remaining = Math.max(0, windowTokens - usedTokens)`
+
 ```typescript
     'terminal.attach': (p: { sessionId: string }) => ({ scrollback: terminals.attach(assertSessionId(p.sessionId)) }),
     'terminal.input': (p: { sessionId: string; data: string }) => { terminals.input(assertSessionId(p.sessionId), String(p.data ?? '')); return { ok: true }; },
     'files.list': (p: { sessionId: string; dir?: string }) => filesSvc.list(assertSessionId(p.sessionId), typeof p.dir === 'string' ? p.dir : undefined),
     'files.read': (p: { sessionId: string; path: string }) => filesSvc.read(assertSessionId(p.sessionId), String(p.path ?? '')),
-    // 新增 chat.contextInfo（#7 过时假设修正：水位条按实际上下文窗口计算）
+    // chat.contextInfo（#7 过时假设修正：水位条按实际上下文窗口 + buildEffectiveHistory 计算；M2a 红线见上方注记）
     'chat.contextInfo': (p: { sessionId: string }) => {
       const sid = assertSessionId(p.sessionId);
-      const messages = chat.listMessages(sid);
-      // contextPolicy.resolveWindow 已含 catalog 查模型：按会话绑定/默认 provider 的 contextWindow 与 token 估算
-      const { windowTokens, usedTokens } = contextPolicy.summarize(sid, messages); // #7 新增小型 RPC
+      // ① ② ③ ④（M2a 红线：estimateTokens 必须喂 buildEffectiveHistory 的产物）
+      const history = chat.listMessages(sid);
+      const marker = chat.getLatestCompactMarker(sid);
+      const effective = compactEngine.buildEffectiveHistory(history, marker);
+      const usedTokens = contextPolicy.estimateTokens(effective);
+      // ⑤ modelId：会话绑定 → provider/模型组（内联复刻 chat.prompt L217-L234 链；模型组取 slot0）
+      let modelId: string;
+      const session = chat.getSession(sid);
+      const binding = session?.modelBinding;
+      if (binding?.startsWith('group:')) {
+        const members = providers.resolveGroupMembers(binding.slice('group:'.length));
+        modelId = members[0] ? (fakeEnabled ? 'fake' : members[0].instance.modelId) : 'unknown';
+      } else if (binding?.startsWith('provider:')) {
+        const pid = binding.slice('provider:'.length);
+        const prov = (fakeEnabled && pid === '__fake__') ? new FakeProvider() : providers.instantiate(pid);
+        modelId = prov.modelId;
+      } else {
+        const defaultId = providers.getDefaultId();
+        if (defaultId) {
+          const prov = (fakeEnabled && defaultId === '__fake__') ? new FakeProvider() : providers.instantiate(defaultId);
+          modelId = prov.modelId;
+        } else {
+          modelId = 'unknown';
+        }
+      }
+      // ⑥ ⑦（32000 对齐 context-policy.ts FALLBACK_WINDOW 未导出常量）
+      const windowTokens = modelId === 'unknown' ? 32000 : (catalog.getModelContextWindow(modelId) ?? 32000);
       return { windowTokens, usedTokens, remaining: Math.max(0, windowTokens - usedTokens) };
     },
 ```
@@ -2374,7 +2410,7 @@ app.on('before-quit', () => {
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: `5 passed`
 Run: `cd deskminis && npm test`
-Expected: 全量通过（基线 396 + Task 1 新 8 + Task 2 新 11 + Task 5 chat.contextInfo 2 + Task 6 新 5 ≈ 422，以实际 `npm test` 输出为准；`ipc-contract.test.ts` 仍绿——它用 vi.mock 桩 import 本文件，`new Tray(...)` 等只在函数体内，import 路径不触碰）
+Expected: 全量通过（基线 396 + 新 24 ≈ 420；分项：Task 1 8 = terminal 6 + chat.contextInfo 2 + Task 2 files-rpc 11 + Task 6 tray-lifecycle 5，**去重无重复计数**——chat.contextInfo 2 例已内含在 Task 1 新 8 例内；以实际 `npm test` 输出为准；`ipc-contract.test.ts` 仍绿——它用 vi.mock 桩 import 本文件，`new Tray(...)` 等只在函数体内，import 路径不触碰）
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
 
