@@ -518,7 +518,7 @@ Expected: `6 + 2 = 8 passed`
 Run: `cd deskminis && npm test && npm run typecheck`
 Expected: 全量通过（基线 396 + 8 新 ≈ 404）、typecheck 0 errors
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/terminal.ts deskminis/src/minisd/index.ts deskminis/tests/terminal.test.ts && git commit -m "feat(m2d): minisd 终端会话（独立交互 shell + terminal.attach/input RPC + 滚动缓冲推送）"
@@ -819,7 +819,7 @@ Expected: `11 passed`
 Run: `cd deskminis && npm test && npm run typecheck`
 Expected: 全量通过（基线 396 + Task 1 新 8 + Task 2 新 11 ≈ 415）、typecheck 0 errors
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/files.ts deskminis/src/minisd/index.ts deskminis/tests/files-rpc.test.ts && git commit -m "feat(m2d): minisd 工作区文件服务（files.list/read RPC + 限仓防穿越 + 256KB 截断与二进制嗅探）"
@@ -2044,7 +2044,7 @@ Expected: main / preload / renderer 全部构建成功
 Run: `cd deskminis && npm run dev`
 Expected（人工确认）：任务页签三段齐全；发一个带工具调用的 prompt——运行中状态点为橙色脉冲、工具计数递增；回合结束后出现停止原因「正常结束」、上回合输入/输出 token、累计用量与绿色水位条
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/stores/chat.ts deskminis/src/renderer/src/components/TasksPanel.vue deskminis/src/renderer/src/App.vue && git commit -m "feat(m2d): 右栏任务面板（回合进度 + token 用量 + 上下文水位条）"
@@ -2068,7 +2068,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/s
 
 **为什么托盘行为用源文本守卫而不是自动化运行测试：** 托盘依赖真实 Electron 主进程 + 系统通知区，vitest（ELECTRON_RUN_AS_NODE）里 `app`/`Tray` 全是桩，跑不出行为；而「M1 的 window-all-closed 杀进程逻辑被留下来」这类漂移 typecheck/build 都不红，只在用户手上爆发。沿用 `build-config.test.ts` 的源文本守卫模式（`ipc-contract.test.ts` 证明该模式在本仓库有效）。注意：`ipc-contract.test.ts` 用 vi.mock 提供 electron 桩并把 main/index.ts 整个 import——本任务新增的 `Tray`/`Menu`/`nativeImage` 只许在函数体内使用（模块顶层不允许 `new Tray(...)`），否则桩模块在 import 时即崩，该测试会红。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/tray-lifecycle.test.ts`:
 
@@ -2134,12 +2134,12 @@ describe('托盘生命周期（源文本守卫）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: FAIL（5 例全红：无 close 拦截 / 无 Tray / 无 quitting / window-all-closed 仍杀进程 / 图标缺失）
 
-- [ ] **Step 3: 托盘图标生成器 + package.json 脚本，生成图标**
+- [x] **Step 3: 托盘图标生成器 + package.json 脚本，生成图标**
 
 `deskminis/scripts/gen-tray-icon.mjs`:
 
@@ -2235,7 +2235,7 @@ cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm run gen:tray-icon
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: 1 passed, 4 failed（图标例转绿，其余 4 例待 Step 4 的主进程改动）
 
-- [ ] **Step 4: src/main/index.ts（#3：已对照现状 c54dac4 核实——M2x 未改动此文件；增量清单 + 全文参考块保留）**
+- [x] **Step 4: src/main/index.ts（#3：已对照现状 c54dac4 核实——M2x 未改动此文件；增量清单 + 全文参考块保留）**
 
 > **现状锚点 + 增量清单（Task 6 Step 4 只改以下 6 处，其余原样保留：握手解析、utilityProcess.fork、IPC 通道 minisdPort/minisdInfo/permissionRequest/permissionResolved/startMinisd/stopMinisd 等）**：
 > a. `import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityProcess, type UtilityProcess } from 'electron';` 里**追加 `Menu, nativeImage, Tray`**（现状一般只引 `app, BrowserWindow, dialog, ipcMain, utilityProcess`，若已有则跳过）
@@ -2405,7 +2405,7 @@ app.on('before-quit', () => {
 });
 ```
 
-- [ ] **Step 5: 跑测试确认通过 + 全量回归 + typecheck**
+- [x] **Step 5: 跑测试确认通过 + 全量回归 + typecheck**
 
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
 Expected: `5 passed`
@@ -2414,12 +2414,12 @@ Expected: 全量通过（基线 396 + 新 24 ≈ 420；分项：Task 1 8 = termi
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
 
-- [ ] **Step 6: dev 手工冒烟**
+- [x] **Step 6: dev 手工冒烟**
 
 Run: `cd deskminis && npm run dev`
 Expected（人工确认）：点窗口 × → 窗口消失但进程仍在（任务管理器可见），通知区出现托盘图标；左键点托盘图标 → 窗口还原且会话/终端原样；托盘右键菜单「退出 DeskMinis」→ 应用与 minisd 都退出（任务管理器无残留 electron 进程）；重开应用，会话历史完整
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/gen-tray-icon.mjs deskminis/resources/tray.png deskminis/src/main/index.ts deskminis/package.json deskminis/tests/tray-lifecycle.test.ts && git commit -m "feat(m2d): 系统托盘常驻（关窗隐藏不杀 minisd + 托盘菜单显窗/退出 + 生命周期源文本守卫）"
@@ -2429,19 +2429,19 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/gen-tray-i
 
 ### Task 7: 全量回归与手工验收
 
-- [ ] **Step 1: 全量自动化测试**
+- [x] **Step 1: 全量自动化测试**
 
 Run: `cd deskminis && npm test`
 Expected: 19 个测试文件 152 例全绿（M1 基线 130 + terminal 6 + files-rpc 11 + tray-lifecycle 5）
 
-- [ ] **Step 2: typecheck + build**
+- [x] **Step 2: typecheck + build**
 
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
 Run: `cd deskminis && npm run build`
 Expected: main / preload / renderer 全部构建成功
 
-- [ ] **Step 3: 手工验收清单**
+- [x] **Step 3: 手工验收清单**
 
 ```bash
 cd deskminis && npm run dev
@@ -2463,7 +2463,7 @@ cd deskminis && npm run dev
 
 全部通过则 M2d 达成。若某步失败，按 systematic-debugging 定位到对应模块的单测补测再修。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add docs/plans/2026-07-28-m2d-right-panel-ui.md && git commit -m "docs(m2d): 右栏 UI + 系统托盘实施计划（勾选完成项）"
