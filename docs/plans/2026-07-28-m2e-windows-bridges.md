@@ -1423,7 +1423,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/
   - 系统提示中的桥段落（渐进披露：一段话说清存在与调用法 + `--help` 按需详读，不内嵌任何桥的参数文档）：
     `本机提供六个 Windows 能力桥，在 shell 中调用：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]（若系统装有 Node.js，node "$env:MINIS_BRIDGE_CLI" ... 亦可）。工具：windows-notify（弹系统通知）、windows-clipboard（读/写剪贴板）、windows-open（用默认程序打开网址或文件）、windows-speak（语音播报文本）、windows-screenshot（截屏保存到会话附件目录）、windows-device（读取系统信息）。需要某个工具的详细参数时运行 & "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> --help 查看；剪贴板读取与截屏等隐私敏感操作会向用户请求确认。`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/bridge-minisd.test.ts`（新文件）：
 
@@ -1552,14 +1552,14 @@ describe('minisd 桥装配', () => {
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- bridge-minisd`
 Expected: FAIL（`bridgePipe`/`SYSTEM_PROMPT` 导出不存在）
 Run: `cd deskminis && npm test -- shell`
 Expected: FAIL（`makeShellTool` 第二参数不存在——新用例类型/行为缺失）
 
-- [ ] **Step 3: 实现 shell.ts 环境注入**
+- [x] **Step 3: 实现 shell.ts 环境注入**
 
 `deskminis/src/minisd/tools/shell.ts`（完整文件，**已对照现状核实**——M2b/M2a/M2c 未改动此文件，现状与 M1 基线一致；本 Task 改动点 4 处：PersistentShell 构造加 env、ensure 的 spawn 加 env、ShellManager.getShell/run 加 env 透传、makeShellTool 加 envFor）：
 
@@ -1722,7 +1722,7 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
 }
 ```
 
-- [ ] **Step 4: 实现 index.ts 装配**
+- [x] **Step 4: 实现 index.ts 装配**
 
 `deskminis/src/minisd/index.ts`（**增量修改**——废弃完整文件写法；现状含 M2b/M2a/M2c 全部能力，逐项增量标注现状锚点）：
 
@@ -1787,7 +1787,7 @@ await bridge?.close();
 
 **测试自查**：新基线下 `boot` 出的 minisd 含上述全部 M2b/M2a/M2c 方法（`modelgroup.*` / `chat.sessions.setMemoryEnabled` / `skills.*` 等）与 M2e 新增的 `bridgePipe` 字段；Task 5 测试断言 `SYSTEM_PROMPT` 导出、`bridgePipe` 字段存在、shell env 注入、桥降级——不与既有能力冲突。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-minisd`
 Expected: 4 passed
@@ -1796,7 +1796,7 @@ Expected: 全部 passed（基线既有 shell 用例 + 新增 env 注入 1 例）
 Run: `cd deskminis && npm test`
 Expected: 全套回归全绿（rpc/agent-loop 等基线测试不受签名扩展影响——`startMinisd` 返回值只增字段）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/index.ts deskminis/src/minisd/tools/shell.ts deskminis/tests/bridge-minisd.test.ts deskminis/tests/shell.test.ts && git commit -m "feat(m2e): minisd装配桥服务+shell注入桥环境变量+系统提示渐进披露"

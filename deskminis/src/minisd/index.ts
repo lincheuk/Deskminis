@@ -24,8 +24,10 @@ import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
 import { SkillImporter, type ImportKind } from './skills/importer';
+import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath } from './bridge/server';
+import { makeBridgeDispatcher } from './bridge/handlers';
 
-const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。';
+export const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。本机提供六个 Windows 能力桥，在 shell 中调用：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]（若系统装有 Node.js，node "$env:MINIS_BRIDGE_CLI" ... 亦可）。工具：windows-notify（弹系统通知）、windows-clipboard（读/写剪贴板）、windows-open（用默认程序打开网址或文件）、windows-speak（语音播报文本）、windows-screenshot（截屏保存到会话附件目录）、windows-device（读取系统信息）。需要某个工具的详细参数时运行 & "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> --help 查看；剪贴板读取与截屏等隐私敏感操作会向用户请求确认。';
 
 /** sessionId 直接被拼进文件系统路径（paths.ensureSessionDirs），必须限死成 UUID 形态：
  *  '..\\..\\Windows' 这类值会逃出数据根，在宿主任意目录建目录/落文件。 */
@@ -127,10 +129,27 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   });
   const gateway = new PermissionGatewayImpl(prompt, undefined, permTimeoutMs);
 
+  // windows-* 桥：命名管道服务。占管（同数据根双实例）等失败只降级，不拖垮 minisd（架构决策 8）。
+  // 装配位置说明：放在 shells/tools 之前（gateway 之后）而非 skills 装配段之后，是为了让下方
+  // makeShellTool 的 envFor 闭包能引用 bridgePipe/bridgeCli 而不触发 TS2448（block-scoped used before declaration）。
+  // envFor 是延迟执行（shell_execute 调用时才求值），运行时无 TDZ 问题；此位置符合计划指令 5 的备选。
+  const bridgeCli = resolveBridgeCliPath();
+  const pipePath = bridgePipePath(root);
+  let bridge: BridgeServer | undefined;
+  let bridgePipe: string | undefined;
+  try {
+    bridge = new BridgeServer(makeBridgeDispatcher({ permissions: gateway, paths }));
+    await bridge.listen(pipePath);
+    bridgePipe = pipePath;
+  } catch (e) {
+    console.warn('windows-* 桥服务监听失败，桥命令本次运行不可用:', e);
+    bridge = undefined;
+  }
+
   const shells = new ShellManager();
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
-  tools.register(makeShellTool(shells));
+  tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, process.execPath)));
   tools.register(memoryWriteTool); tools.register(memoryGetTool);
 
   // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）
@@ -372,12 +391,12 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   rpc = new RpcServer(methods, authToken);
   const port = await rpc.listen(opts?.host ?? '127.0.0.1', opts?.port ?? 0);
   return {
-    port, authToken,
+    port, authToken, bridgePipe,
     close: async () => {
       for (const c of controllers.values()) c.abort();
       for (const { timer } of pendingPerms.values()) clearTimeout(timer);
       pendingPerms.clear();
-      shells.disposeAll(); await rpc.close(); db.close();
+      shells.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
     },
   };
 }

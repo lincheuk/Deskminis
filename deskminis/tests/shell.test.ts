@@ -88,4 +88,16 @@ describe('shell_execute 工具', () => {
     expect(asked[0]).toMatchObject({ kind: 'shell', detail: 'Write-Output x' });
     mgr.disposeAll();
   });
+
+  it('envFor 注入的变量在会话 shell 可见（MINIS_* 桥环境）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dm-sh-env-'));
+    const paths = new MinisPaths(root); paths.ensureSessionDirs('S1');
+    const mgr = new ShellManager();
+    const tool = makeShellTool(mgr, ctx => ({ MINIS_CHAT_SESSION_ID: ctx.sessionId, MINIS_BRIDGE_PIPE: '\\\\.\\pipe\\deskminis-deadbeef' }));
+    const allowAll = { async check(): Promise<PermissionDecision> { return 'allow'; } };
+    const r = await tool.execute({ command: '$env:MINIS_CHAT_SESSION_ID + "|" + $env:MINIS_BRIDGE_PIPE', tool_title: '读桥环境变量' }, { sessionId: 'S1', paths, permissions: allowAll });
+    expect(r.success).toBe(true);
+    expect(r.output).toContain('S1|\\\\.\\pipe\\deskminis-deadbeef');
+    mgr.disposeAll();
+  });
 });

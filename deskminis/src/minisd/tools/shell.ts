@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import type { ToolExecutor } from './types';
+import type { ToolContext, ToolExecutor } from './types';
 
 const MAX_OUTPUT = 100 * 1024;
 
@@ -26,13 +26,15 @@ export class PersistentShell {
   private queue: Promise<unknown> = Promise.resolve();
   private disposed = false;
 
-  constructor(private cwd: string) {}
+  /** env：会话级环境变量（MINIS_CHAT_SESSION_ID/桥管道等），在 shell 首次创建时捕获——长驻进程出生后无法改环境。 */
+  constructor(private cwd: string, private env?: Record<string, string>) {}
 
   private ensure(): ChildProcessWithoutNullStreams {
     if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.proc;
     const encoded = Buffer.from(DRIVER_PS, 'utf16le').toString('base64');
     const proc = spawn('powershell.exe', ['-NoProfile', '-NoLogo', '-NonInteractive', '-EncodedCommand', encoded], {
       cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'],
+      env: this.env ? { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.env } : process.env,
     });
     // spawn 失败（cwd 不存在 / ENOENT / EACCES）会在 child 上发 'error'；
     // 没有监听器时该事件会在事件循环里抛出并杀死整个 minisd 进程。常驻一个兜底监听器，
@@ -112,20 +114,22 @@ export class PersistentShell {
 export class ShellManager {
   private shells = new Map<string, PersistentShell>();
 
-  getShell(sessionId: string, cwd: string): PersistentShell {
+  getShell(sessionId: string, cwd: string, env?: Record<string, string>): PersistentShell {
     let s = this.shells.get(sessionId);
-    if (!s) { s = new PersistentShell(cwd); this.shells.set(sessionId, s); }
+    if (!s) { s = new PersistentShell(cwd, env); this.shells.set(sessionId, s); }
     return s;
   }
 
-  run(sessionId: string, cwd: string, command: string, timeoutMs?: number): Promise<{ output: string; exitCode: number; durationMs: number }> {
-    return this.getShell(sessionId, cwd).run(command, timeoutMs);
+  run(sessionId: string, cwd: string, command: string, timeoutMs?: number, env?: Record<string, string>): Promise<{ output: string; exitCode: number; durationMs: number }> {
+    return this.getShell(sessionId, cwd, env).run(command, timeoutMs);
   }
 
   disposeAll(): void { for (const s of this.shells.values()) s.dispose(); this.shells.clear(); }
 }
 
-export function makeShellTool(manager: ShellManager): ToolExecutor {
+/** envFor：按 ToolContext 产出会话级环境变量（M2e 注入 MINIS_CHAT_SESSION_ID/桥三件套）。
+ *  注意只在会话 shell 首次创建时生效；envFor 每次调用都求值、由 getShell 决定是否使用。 */
+export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext) => Record<string, string>): ToolExecutor {
   return {
     definition: {
       name: 'shell_execute',
@@ -143,7 +147,7 @@ export function makeShellTool(manager: ShellManager): ToolExecutor {
       if (decision === 'deny') return { output: '命令被用户拒绝（可在设置-权限中调整）', success: false };
       const cwd = ctx.paths.sessionBucket(ctx.sessionId, 'workspace');
       const timeoutMs = (typeof input.timeout_seconds === 'number' ? input.timeout_seconds : 120) * 1000;
-      const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs);
+      const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx));
       let output = r.output;
       if (output.length > MAX_OUTPUT) output = output.slice(0, MAX_OUTPUT) + `\n[输出超过 100KB 被截断]`;
       return { output: `${output}\n[exit=${r.exitCode}, ${r.durationMs}ms]`, success: r.exitCode === 0 };
