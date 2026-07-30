@@ -55,3 +55,12 @@ export interface AgentToolDefinition {
 
 /** Provider 入参消息（与 RawMessage 解耦：无持久化字段） */
 export interface AgentMessage { role: Role; parts: ContentPart[] }
+
+/** 压缩摘要 marker（设计 §4.2「压缩」）：锚定 lastCompactedMessageId，合成 effectiveAgentHistory。 */
+export interface CompactMarker {
+  id: string;
+  sessionId: string;
+  summary: string;
+  lastCompactedMessageId: string;
+  createdAt: number;
+}

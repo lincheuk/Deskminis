@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import type { RawMessage, SessionMeta, TokenUsage } from '../../shared/types';
+import type { CompactMarker, RawMessage, SessionMeta, TokenUsage } from '../../shared/types';
 import { serializeParts, parseParts } from '../../shared/parts';
 
 interface MessageRow {
@@ -52,6 +52,24 @@ export class ChatStore {
       this.db.prepare('DELETE FROM sessions WHERE id=?').run(id);
     });
     tx();
+  }
+
+  /** 追加压缩摘要 marker（设计 §4.2「压缩」）：锚定 lastCompactedMessageId，推理时合成 effectiveAgentHistory。 */
+  appendCompactMarker(sessionId: string, summary: string, lastCompactedMessageId: string): CompactMarker {
+    const m: CompactMarker = { id: this.newId(), sessionId, summary, lastCompactedMessageId, createdAt: this.nowEpoch() };
+    this.db.prepare('INSERT INTO compact_markers (id, session_id, summary, last_compacted_message_id, created_at) VALUES (?,?,?,?,?)')
+      .run(m.id, m.sessionId, m.summary, m.lastCompactedMessageId, m.createdAt);
+    return m;
+  }
+
+  /** 取该会话最新的压缩 marker（按 createdAt DESC）；无则 undefined。
+   *  rowid DESC 作 tiebreaker：Windows 下 Date.now() 分辨率约 15ms，连续两次 appendCompactMarker
+   *  可能落到同一 createdAt，单按 created_at 排序非确定性，需以插入顺序（rowid）兜底确保「最新插入」返回。 */
+  getLatestCompactMarker(sessionId: string): CompactMarker | undefined {
+    const r = this.db.prepare('SELECT * FROM compact_markers WHERE session_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(sessionId) as
+      { id: string; session_id: string; summary: string; last_compacted_message_id: string; created_at: number } | undefined;
+    if (!r) return undefined;
+    return { id: r.id, sessionId: r.session_id, summary: r.summary, lastCompactedMessageId: r.last_compacted_message_id, createdAt: r.created_at };
   }
 
   appendMessage(m: Omit<RawMessage, 'sortOrder' | 'updatedAt'>): RawMessage {

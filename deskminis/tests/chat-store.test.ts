@@ -73,3 +73,41 @@ describe('ChatStore modelBinding', () => {
     expect(store.getSession(s.id)?.modelBinding).toBeUndefined();
   });
 });
+
+describe('ChatStore compact_markers', () => {
+  it('appendCompactMarker + getLatestCompactMarker', () => {
+    const store = new ChatStore(openDb(':memory:'));
+    const s = store.createSession();
+    const m1 = store.appendCompactMarker(s.id, '摘要1', 'MSG1');
+    expect(m1.id).toBeTruthy();
+    expect(m1.summary).toBe('摘要1');
+    expect(m1.lastCompactedMessageId).toBe('MSG1');
+    const got = store.getLatestCompactMarker(s.id);
+    expect(got?.summary).toBe('摘要1');
+  });
+
+  it('getLatestCompactMarker: 多个 marker 返回最新（createdAt 最大）', () => {
+    const store = new ChatStore(openDb(':memory:'));
+    const s = store.createSession();
+    store.appendCompactMarker(s.id, '旧', 'MSG1');
+    // 确保 createdAt 递增
+    const m2 = store.appendCompactMarker(s.id, '新', 'MSG2');
+    const got = store.getLatestCompactMarker(s.id);
+    expect(got?.summary).toBe('新');
+    expect(got?.lastCompactedMessageId).toBe('MSG2');
+  });
+
+  it('getLatestCompactMarker: 无 marker 返回 undefined', () => {
+    const store = new ChatStore(openDb(':memory:'));
+    const s = store.createSession();
+    expect(store.getLatestCompactMarker(s.id)).toBeUndefined();
+  });
+
+  it('getLatestCompactMarker: 跨会话隔离', () => {
+    const store = new ChatStore(openDb(':memory:'));
+    const a = store.createSession();
+    const b = store.createSession();
+    store.appendCompactMarker(a.id, 'A摘要', 'MA');
+    expect(store.getLatestCompactMarker(b.id)).toBeUndefined();
+  });
+});

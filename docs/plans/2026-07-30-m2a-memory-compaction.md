@@ -1088,7 +1088,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/o
 
 **语义**（设计 §4.2「压缩」）：LLM 摘要存 `compact_markers`，推理时合成 `effectiveAgentHistory`，**不改写存储历史**；保留最近 3 个用户回合原文。`summarize` 调用 provider 生成摘要，提示词要求模型总结到 marker 时已有的对话（不含最近 3 个用户回合——它们保留原文不进摘要）。**「最近 3 个用户回合」的判定**：只统计「`role === 'user'` 且 parts 中**含 `text` part 且不含 `toolResult` part**」的消息——本仓库 `tool_result` 也落库为 `user` 消息（M1 设计），若按 `role==='user'` 一刀切，工具密集会话里真正的用户提问会被压进摘要、丢失原文。**不足 3 个用户回合时不压缩**：返回 `undefined`、**不写任何 marker**、不调 provider（理由：若写一个锚点=最后一条消息的「跳过 marker」，下一轮 `buildEffectiveHistory` 只剩摘要占位符、整个对话上下文被抹掉——这是毒 marker）。锚点丢失按 `createdAt` 自愈（设计原文）。`compact_markers` 表 M1 已建（`db.ts` MIGRATIONS[0]），M2a 只补 CRUD + index。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/chat-store.test.ts` 追加（文件末尾新 describe）:
 
@@ -1300,12 +1300,12 @@ describe('CompactEngine.buildEffectiveHistory', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/compact.test.ts tests/chat-store.test.ts`
 Expected: FAIL（`CompactEngine` 未导出；`appendCompactMarker` / `getLatestCompactMarker` 不存在）
 
-- [ ] **Step 3a: 修改 shared/types.ts 增加 CompactMarker**
+- [x] **Step 3a: 修改 shared/types.ts 增加 CompactMarker**
 
 在 `deskminis/src/shared/types.ts` 末尾追加：
 
@@ -1319,7 +1319,7 @@ export interface CompactMarker {
 }
 ```
 
-- [ ] **Step 3b: 修改 db.ts 加 index（追加 MIGRATIONS[1]）**
+- [x] **Step 3b: 修改 db.ts 加 index（追加 MIGRATIONS[1]）**
 
 在 `deskminis/src/minisd/store/db.ts` 的 `MIGRATIONS` 数组**追加一个新元素** `MIGRATIONS[1]`（**不要**往 `MIGRATIONS[0]` 里塞 CREATE INDEX）：
 
@@ -1337,7 +1337,7 @@ const MIGRATIONS = [
 
 `IF NOT EXISTS` 是双保险：开发库（M1 时已建表但无索引，user_version=1）跑 MIGRATIONS[1] 建索引；若索引已存在则跳过。迁移 runner（M1 既有）会自动把 `user_version` 推到 2。
 
-- [ ] **Step 3c: 修改 chat-store.ts 增加 compact_markers CRUD**
+- [x] **Step 3c: 修改 chat-store.ts 增加 compact_markers CRUD**
 
 在 `deskminis/src/minisd/store/chat-store.ts` 的 `ChatStore` 类内（`deleteSession` 之后）追加：
 
@@ -1363,7 +1363,7 @@ const MIGRATIONS = [
 import type { CompactMarker, RawMessage, SessionMeta, TokenUsage } from '../../shared/types';
 ```
 
-- [ ] **Step 3d: 创建 compact.ts**
+- [x] **Step 3d: 创建 compact.ts**
 
 `deskminis/src/minisd/agent/compact.ts`:
 
@@ -1473,7 +1473,7 @@ export class CompactEngine {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/compact.test.ts tests/chat-store.test.ts`
 Expected: PASS（compact 8 个用例 + chat-store 新增 4 个用例）
@@ -1481,7 +1481,7 @@ Expected: PASS（compact 8 个用例 + chat-store 新增 4 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-5 + M2b 189 个测试不受影响——chat-store 只新增方法，M1 既有方法签名不变）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/compact.ts deskminis/src/minisd/store/chat-store.ts deskminis/src/minisd/store/db.ts deskminis/src/shared/types.ts deskminis/tests/compact.test.ts deskminis/tests/chat-store.test.ts && git commit -m "feat(m2a): CompactEngine LLM 压缩摘要 + effectiveAgentHistory 合成（compact_markers CRUD + 锚点自愈 + 保留最近3用户回合）"
