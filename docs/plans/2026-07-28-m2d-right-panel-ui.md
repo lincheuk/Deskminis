@@ -1213,7 +1213,7 @@ Expected: main / preload / renderer 全部构建成功（renderer 含 xterm css�
 Run: `cd deskminis && npm run dev`
 Expected（人工确认）：右栏默认终端页出现 `PS <工作区路径>> ` 提示符；键入 `echo hello` 回车后有逐字符回显 + 输出 + 新提示符；切到文件/任务页签仍是占位文案，切回终端内容仍在
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/package.json deskminis/package-lock.json deskminis/src/renderer/src/rpc.ts deskminis/src/renderer/src/App.vue deskminis/src/renderer/src/components/TerminalPanel.vue && git commit -m "feat(m2d): 右栏终端面板（xterm.js + 滚动缓冲重放 + 主题跟随 tokens）"
@@ -1235,7 +1235,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/package.json deskm
   - `FilesPanel.vue`：无 props；根列表 + 刷新按钮；`running` 由真变假（agent 回合落盘结束）自动刷新根与已展开目录；文件点击 → 底部预览（文本 / 截断提示 / 二进制提示）
   - `Icon.vue`：`PATHS` 新增 `refresh`
 
-- [ ] **Step 1: Icon.vue 追加 refresh 图标（#2：增量清单；保留 M2c 加的 pencil/edit 等）**
+- [x] **Step 1: Icon.vue 追加 refresh 图标（#2：增量清单；保留 M2c 加的 pencil/edit 等）**
 
 > **冲突点 #2 核实（cebf26d）**：main@c54dac4 的 Icon.vue PATHS 含 M2c 新增的 `pencil/shield/edit/alert/memory/book/info/gear/trash` 等，与原「完整替换」块有大量重叠但不是同一集合。**必须增量追加，禁止全文替换**。
 >
@@ -1299,7 +1299,7 @@ const inner = computed(() => PATHS[props.name] ?? PATHS.info);
 </template>
 ```
 
-- [ ] **Step 2: FileTreeNode.vue（新建，递归节点）**
+- [x] **Step 2: FileTreeNode.vue（新建，递归节点）**
 
 `deskminis/src/renderer/src/components/FileTreeNode.vue`:
 
@@ -1381,7 +1381,7 @@ watch(() => props.refreshKey, () => { if (expanded.value && children.value !== n
 </style>
 ```
 
-- [ ] **Step 3: FilesPanel.vue（新建）+ App.vue 接线（#3：App.vue 仅增量清单，禁止全文替换）**
+- [x] **Step 3: FilesPanel.vue（新建）+ App.vue 接线（#3：App.vue 仅增量清单，禁止全文替换）**
 
 > App.vue 增量（Task 4 只改这 3 处，其余锚点保持 Task 3 合入后的状态不变）：
 > a. `<script>` import 区追加：`import FilesPanel from './components/FilesPanel.vue';`
@@ -1652,7 +1652,7 @@ onMounted(() => { void chat.init(); });
 </style>
 ```
 
-- [ ] **Step 4: typecheck + build + dev 手工冒烟**
+- [x] **Step 4: typecheck + build + dev 手工冒烟**
 
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
