@@ -93,4 +93,26 @@ describe('文件工具', () => {
     const unknown = await reg.execute('nope', '{}', ctx);
     expect(unknown.success).toBe(false);
   });
+  it('file_read 成功后触发 onFileRead 钩子（归一化绝对路径）', async () => {
+    const seen: string[] = [];
+    writeFileSync(join(root, 'sessions', 'S1', 'workspace', 'h.txt'), 'x');
+    const r = await reg.execute('file_read', JSON.stringify({ path: 'h.txt', tool_title: '读' }), { ...ctx, onFileRead: (p) => seen.push(p) });
+    expect(r.success).toBe(true);
+    expect(seen).toEqual([join(root, 'sessions', 'S1', 'workspace', 'h.txt')]);
+  });
+  it('file_read 失败（文件不存在）不触发 onFileRead', async () => {
+    const seen: string[] = [];
+    const r = await reg.execute('file_read', JSON.stringify({ path: 'nope.txt', tool_title: '读' }), { ...ctx, onFileRead: (p) => seen.push(p) });
+    expect(r.success).toBe(false);
+    expect(seen).toEqual([]);
+  });
+  it('file_read 被权限拒绝时不触发 onFileRead', async () => {
+    const seen: string[] = [];
+    const deny = new DenyAllGateway();
+    const outside = join(mkdtempSync(join(tmpdir(), 'dm-out-')), 's.txt');
+    writeFileSync(outside, 'secret');
+    const r = await reg.execute('file_read', JSON.stringify({ path: outside, tool_title: '读' }), { ...ctx, permissions: deny, onFileRead: (p) => seen.push(p) });
+    expect(r.success).toBe(false);
+    expect(seen).toEqual([]);
+  });
 });

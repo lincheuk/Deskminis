@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
@@ -21,6 +21,9 @@ import { ContextPolicy } from './agent/context-policy';
 import { OffloadEngine } from './agent/offload';
 import { CompactEngine } from './agent/compact';
 import { randomUUID } from 'node:crypto';
+import { SkillStore, skillIdFromPath } from './skills/store';
+import { buildSkillsBlock } from './skills/prompt';
+import { SkillImporter, type ImportKind } from './skills/importer';
 
 const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。';
 
@@ -137,6 +140,14 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const offloadEngine = new OffloadEngine(paths);
   const compactEngine = new CompactEngine(chat);
 
+  // ---- M2c 技能子系统装配：元数据在 minis.db（Task 2），正文永不预载（模型 file_read 自行读取）----
+  const skillStore = new SkillStore(db);
+  const skillsRoot = paths.globalDir('skills');
+  mkdirSync(skillsRoot, { recursive: true });
+  const importer = new SkillImporter(skillsRoot, skillStore, undefined, t => rpc.broadcast('skills.import.progress', t));
+  // agent 直写目录的孤儿回收（设计 §5.1）：skillsRoot 下存在但不在表里的含 SKILL.md 目录入库
+  importer.adoptOrphans();
+
   const fakeEnabled = process.env.DESKMINIS_FAKE_PROVIDER === '1';
 
   /** 同一会话同时只允许跑一个 agent 循环：两个循环会读到彼此写了一半的历史，
@@ -208,7 +219,9 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
       // 记忆注入（设计 §3.4：每轮系统提示注入 GLOBAL/SOUL/日志）+ 工具过滤（memory_enabled=false 时排除记忆工具）
       const session = chat.getSession(sessionId);
-      const injectedPrompt = memoryInjector.build(SYSTEM_PROMPT, { memoryEnabled: session?.memoryEnabled ?? true });
+      // 技能块属于 base，记忆注入包在最外层（技能与记忆是独立开关：memoryEnabled=false 时仍注入技能块）
+      const baseWithSkills = SYSTEM_PROMPT + buildSkillsBlock(skillStore.listEnabledForSession(sessionId), skillsRoot, skillStore.nowEpoch());
+      const injectedPrompt = memoryInjector.build(baseWithSkills, { memoryEnabled: session?.memoryEnabled ?? true });
       const excludedToolNames = (session?.memoryEnabled ?? true) ? undefined : new Set<string>(MEMORY_TOOL_NAMES);
 
       // 从这里到 IIFE 启动之间没有 await：占位与释放不会被别的请求插进来
@@ -223,7 +236,14 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         try {
           for await (const event of runAgentLoop(chat, {
             sessionId, provider, tools,
-            toolContext: { sessionId, paths, permissions: gateway },
+            toolContext: {
+              sessionId, paths, permissions: gateway,
+              // use_count 采集点（Task 4 钩子）：仅恰好命中 <skillsRoot>/<id>/SKILL.md 的成功读取计数
+              onFileRead: (abs) => {
+                const id = skillIdFromPath(skillsRoot, abs);
+                if (id && skillStore.get(id)) skillStore.bumpUseCount(id);
+              },
+            },
             systemPrompt: injectedPrompt, thinkingLevel: clampedThinking,
             signal: controller.signal,
             fallbackChain,
@@ -315,6 +335,35 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         // 同一个请求可能在多个窗口里显示：告诉所有客户端这张卡片已了结
         rpc.broadcast('permission.resolved', { requestId: p.requestId });
       }
+      return { ok: true };
+    },
+    // ---- M2c 技能 RPC 面 ----
+    'skills.list': (p: { sessionId?: string }) =>
+      // 带 sessionId 返回该会话的生效启用集（会话覆盖优先）；不带返回全部（含禁用）
+      p.sessionId !== undefined ? skillStore.listEnabledForSession(assertSessionId(p.sessionId)) : skillStore.list(),
+    'skills.import': (p: { kind: ImportKind; source: string }) => {
+      if (p.kind !== 'github-url' && p.kind !== 'zip' && p.kind !== 'folder') throw new Error(`未知导入方式: ${String(p.kind)}`);
+      if (typeof p.source !== 'string' || p.source.trim() === '') throw new Error('source 不能为空');
+      return importer.startImport(p.kind, p.source.trim()); // 后台任务：脱离 UI 生命周期，进度走 importStatus/广播
+    },
+    'skills.importStatus': (p: { taskId?: string }) =>
+      p.taskId !== undefined ? importer.status(p.taskId) ?? null : importer.listTasks(),
+    'skills.setEnabled': (p: { id: string; enabled: boolean; sessionId?: string }) => {
+      if (typeof p.enabled !== 'boolean') throw new Error('enabled 必须是布尔值');
+      // 带 sessionId 写会话覆盖，否则写全局开关（技能不存在由 store 抛错）
+      if (p.sessionId !== undefined) skillStore.setSessionOverride(assertSessionId(p.sessionId), p.id, p.enabled);
+      else skillStore.setEnabled(p.id, p.enabled);
+      rpc.broadcast('skills.changed', {});
+      return { ok: true };
+    },
+    'skills.delete': (p: { id: string; confirm?: boolean }) => {
+      if (p.confirm !== true) throw new Error('删除技能需 confirm:true');
+      // 存在性检查同时是路径穿越防线：能入库的 id 只会是 slug 或 readdir 单层目录名，join 不会逃出 skillsRoot
+      if (!skillStore.get(p.id)) throw new Error(`技能不存在: ${p.id}`);
+      // 先删目录再删表行：顺序反过来时，目录删除失败留下的残骸会在下次启动被孤儿回收「复活」
+      rmSync(join(skillsRoot, p.id), { recursive: true, force: true });
+      skillStore.delete(p.id); // 表行 + 会话覆盖（事务）
+      rpc.broadcast('skills.changed', {});
       return { ok: true };
     },
   };

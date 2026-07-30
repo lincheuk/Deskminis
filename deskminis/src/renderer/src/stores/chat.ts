@@ -7,6 +7,7 @@ interface UiMessage { id: string; role: string; parts: any[] }
 interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
+interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
 
 export const useChat = defineStore('chat', {
   state: () => ({
@@ -17,6 +18,7 @@ export const useChat = defineStore('chat', {
     toolCards: [] as { toolUseId: string; name: string; title: string; output?: string; success?: boolean }[],
     pendingPerms: [] as PendingPerm[],
     providers: [] as UiProvider[],
+    skills: [] as UiSkill[],
     // 循环报错（API Key 错误、provider 故障…）必须看得见，否则界面就是「按了没反应」
     lastError: '' as string,
     // 透明重试期间的提示；下一个 textDelta / turnEnd 清掉
@@ -38,6 +40,11 @@ export const useChat = defineStore('chat', {
       rpc.on('permission.resolved', ({ requestId }: any) => { this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId); });
       await this.refreshSessions();
       await this.refreshProviders();
+      // 技能菜单数据源：开关/删除广播 changed；导入是后台任务不广播 changed，
+      // 靠 progress 终态刷新（否则导入完成菜单里看不到）
+      rpc.on('skills.changed', () => { void this.refreshSkills(); });
+      rpc.on('skills.import.progress', (t: any) => { if (t && t.state !== 'running') void this.refreshSkills(); });
+      await this.refreshSkills();
     },
     async refreshSessions() { this.sessions = await rpc.call('chat.sessions.list'); },
     async refreshProviders() {
@@ -45,12 +52,19 @@ export const useChat = defineStore('chat', {
       // 本地默认选择未定/已失效时，回落到列表首个（与后端 create() 的默认策略一致）
       if (!this.providers.some(p => p.id === this.defaultProviderId)) this.defaultProviderId = this.providers[0]?.id ?? '';
     },
+    async refreshSkills() {
+      // 斜杠菜单只列生效启用集：有活动会话走会话覆盖，否则退回全局启用项
+      this.skills = this.activeId
+        ? await rpc.call('skills.list', { sessionId: this.activeId })
+        : (await rpc.call('skills.list', {})).filter((s: UiSkill) => s.isEnabled);
+    },
     async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
     async open(id: string) {
       // 换会话才清错误横幅：turnEnd/error 之后的自刷新调用的也是 open，
       // 在那条路径上清掉的话，刚设置的 lastError 会被立刻抹掉（错误又变成看不见）。
       if (id !== this.activeId) { this.lastError = ''; this.retryNote = ''; this.running = false; }
       this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.toolCards = [];
+      void this.refreshSkills(); // 会话覆盖会改变生效启用集，换会话必须重取
     },
     async send(text: string) {
       this.streamingText = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';
