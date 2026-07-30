@@ -753,7 +753,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/m
 
 **语义**（设计 §4.2「上下文水位检查」）：按模型窗口分层——`<32K` 不管；`32-64K` 超 70% → offload；`64-128K` 超 50% → offload，超 70% → compact；`≥128K` 超 40% → offload，超 60% → compact。未知窗口（`getModelContextWindow` 返回 `undefined`）回退 32K 保守档（只 offload 不 compact）。`estimateTokens` 入参是 **`AgentMessage[]`**（不是 `RawMessage[]`）——水位检查发生在 `buildEffectiveHistory` 之后，此时只剩 `{ role, parts }`，`reasoningContent` 不在 effectiveHistory 里（它随 RawMessage → AgentMessage 映射被丢弃），故估算只算 `JSON.stringify(parts).length / 4`（英文 ~4 字符/token，中文偏保守，不引 tokenizer 库）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/context-policy.test.ts`:
 
@@ -838,7 +838,7 @@ describe('ContextPolicy.decide', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/context-policy.test.ts`
 Expected: FAIL（`ContextPolicy` 未导出）
@@ -874,17 +874,19 @@ export class ContextPolicy {
     return Math.ceil(chars / 4);
   }
 
-  /** 按窗口分层决策（设计 §4.2 阈值表）。 */
+  /** 按窗口分层决策（设计 §4.2 阈值表）。
+   *  档位边界：32K/64K/128K。128K 归入「64-128K」档（语义段以范围表述，
+   *  测试「128K 窗口：超 50% offload，超 70% compact」锚定此归属）。 */
   decide(modelId: string, tokenCount: number): ContextAction {
     const window = this.catalog.getModelContextWindow(modelId) ?? FALLBACK_WINDOW;
     const ratio = tokenCount / window;
 
-    if (window >= 128_000) {
+    if (window > 128_000) {
       if (ratio >= 0.6) return 'compact';
       if (ratio >= 0.4) return 'offload';
       return 'none';
     }
-    if (window >= 64_000) {
+    if (window >= 64_000) {  // 64K - 128K（含 128K）
       if (ratio >= 0.7) return 'compact';
       if (ratio >= 0.5) return 'offload';
       return 'none';
@@ -899,7 +901,7 @@ export class ContextPolicy {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/context-policy.test.ts`
 Expected: PASS（9 个用例）
