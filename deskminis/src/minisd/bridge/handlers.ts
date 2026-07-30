@@ -98,7 +98,7 @@ function err(req: BridgeRequest, code: string, message: string): BridgeEnvelope 
 
 // ---- 单个 handler：经权限网关后调 runPowerShell；载荷走 stdin JSON ----
 
-function parseRate(v: string | undefined): number | undefined {
+function parseRate(v: string | undefined): number | null | undefined {
   if (v === undefined) return undefined;
   if (!/^-?\d+$/.test(v)) return null; // 非整数 → 非法
   const n = Number(v);
@@ -106,14 +106,14 @@ function parseRate(v: string | undefined): number | undefined {
   return n;
 }
 
-async function notify(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEnvelope> {
+async function notify(req: BridgeRequest, deps: HandlerDeps): Promise<BridgeEnvelope> {
   const p = { title: req.args.title ?? 'DeskMinis', body: req.args.body ?? '' };
   const r = await deps.runPs(NOTIFY_SCRIPT, JSON.stringify(p));
   if (r.exitCode !== 0) return err(req, 'EXEC_ERROR', `windows-notify 失败 (exit=${r.exitCode}): ${r.stderr}`.trim());
   return ok(req, { shown: true });
 }
 
-async function clipboard(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEnvelope> {
+async function clipboard(req: BridgeRequest, deps: HandlerDeps): Promise<BridgeEnvelope> {
   if (req.action === 'get') {
     const r = await deps.runPs(CLIPBOARD_GET_SCRIPT);
     if (r.exitCode !== 0) return err(req, 'EXEC_ERROR', `windows-clipboard get 失败 (exit=${r.exitCode}): ${r.stderr}`.trim());
@@ -131,7 +131,7 @@ async function clipboard(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEn
   return err(req, 'INVALID_ARGS', `未知 action: ${req.action}`);
 }
 
-async function open(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEnvelope> {
+async function open(req: BridgeRequest, deps: HandlerDeps): Promise<BridgeEnvelope> {
   const target = req.args.target;
   if (!target) return err(req, 'INVALID_ARGS', 'open 需要 --target');
   const isUrl = /^https?:\/\//i.test(target);
@@ -142,7 +142,7 @@ async function open(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEnvelop
   return ok(req, { opened: target });
 }
 
-async function speak(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEnvelope> {
+async function speak(req: BridgeRequest, deps: HandlerDeps): Promise<BridgeEnvelope> {
   if (req.action !== 'say') return err(req, 'INVALID_ARGS', `未知 action: ${req.action}`);
   const text = req.args.text ?? req.stdin;
   if (text === undefined) return err(req, 'INVALID_ARGS', 'speak say 需要 --text 或 stdin');
@@ -156,7 +156,7 @@ async function speak(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEnvelo
   return ok(req, { spoken: true });
 }
 
-async function screenshot(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEnvelope> {
+async function screenshot(req: BridgeRequest, deps: HandlerDeps): Promise<BridgeEnvelope> {
   if (req.action !== 'capture') return err(req, 'INVALID_ARGS', `未知 action: ${req.action}`);
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const dir = deps.paths.sessionBucket(req.sessionId, 'attachments');
@@ -172,7 +172,7 @@ async function screenshot(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeE
   return ok(req, { path, width, height, bytes: st.size });
 }
 
-async function device(req: BridgeRequest, deps: BridgeDeps): Promise<BridgeEnvelope> {
+async function device(req: BridgeRequest, deps: HandlerDeps): Promise<BridgeEnvelope> {
   if (req.action !== 'info') return err(req, 'INVALID_ARGS', `未知 action: ${req.action}`);
   const r = await deps.runPs(DEVICE_SCRIPT);
   if (r.exitCode !== 0) return err(req, 'EXEC_ERROR', `windows-device 失败 (exit=${r.exitCode}): ${r.stderr}`.trim());
@@ -192,7 +192,14 @@ export interface BridgeDeps {
   runPs?: PsRunner; // 测试注入；运行时默认 runPowerShell
 }
 
-const ROUTES: Record<string, { action: string; kind: BridgePermissionKind; toolTitle: string; fn: (req: BridgeRequest, deps: BridgeDeps) => Promise<BridgeEnvelope> }> = {
+/** handler 实际接收的 deps：runPs 已由分发器解析为必填（BridgeDeps.runPs 是可选，供调用方省略走默认）。 */
+export interface HandlerDeps {
+  permissions: PermissionGateway;
+  paths: MinisPaths;
+  runPs: PsRunner;
+}
+
+const ROUTES: Record<string, { action: string; kind: BridgePermissionKind; toolTitle: string; fn: (req: BridgeRequest, deps: HandlerDeps) => Promise<BridgeEnvelope> }> = {
   'windows-notify|show': { action: 'show', kind: 'bridge-notify', toolTitle: '桌面通知', fn: notify },
   'windows-clipboard|get': { action: 'get', kind: 'bridge-clipboard-read', toolTitle: '读取剪贴板', fn: clipboard },
   'windows-clipboard|set': { action: 'set', kind: 'bridge-clipboard-write', toolTitle: '写入剪贴板', fn: clipboard },

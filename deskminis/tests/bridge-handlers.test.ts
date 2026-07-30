@@ -47,7 +47,7 @@ function mkDeps(gateway: PermissionGateway, runPs: PsRunner): { deps: BridgeDeps
   return { deps: { permissions: gateway, paths, runPs }, paths };
 }
 const req = (tool: string, action: string, args: Record<string, string> = {}, stdin?: string): BridgeRequest =>
-  ({ tool, action, args, sessionId: SESSION, ...(stdin !== undefined ? { stdin } : {}) });
+  ({ tool, action, args, sessionId: SESSION, ...(stdin !== undefined ? { stdin } : {}) }) as BridgeRequest;
 
 describe('分发与权限定域', () => {
   it.each([

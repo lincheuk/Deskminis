@@ -93,7 +93,7 @@ class FakeProvider implements AgentProvider {
   }
 }
 
-export async function startMinisd(opts?: { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number }): Promise<{ port: number; authToken: string; close(): Promise<void> }> {
+export async function startMinisd(opts?: { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number }): Promise<{ port: number; authToken: string; bridgePipe?: string; close(): Promise<void> }> {
   const root = opts?.dataDir ?? dataRoot();
   mkdirSync(root, { recursive: true });
   const paths = new MinisPaths(root);
