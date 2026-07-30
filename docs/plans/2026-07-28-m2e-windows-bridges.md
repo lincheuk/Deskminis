@@ -15,7 +15,7 @@
 - 时间戳一律 **epoch 秒（浮点）**（信封的 `timestamp` 同样遵守：`Date.now() / 1000`）
 - 测试命令统一 `npm test`（vitest run，跑在 electron as node 下，命名管道可用）；单文件 `npm test -- tests/xxx.test.ts` 或子串 `npm test -- bridge-frame`
 - 提交信息用 conventional commits + 中文描述（如 `feat(m2e): …`）
-- 代码基线 = M1 完成后（130 测试全绿）；假定其他 M2 子计划（Gemini/Ollama、记忆、技能等）未执行
+- 代码基线 = **M1 + M2b + M2a + M2c 已完成**（313 测试 / 31 个测试文件全绿，假定 M2d 未执行）；本里程碑新增测试约 72 例，完成后全量约 385 例
 - Windows-only：命名管道、powershell.exe、System.Speech/System.Drawing 均按 Windows 桌面交互会话前提设计，不做跨平台分支
 - 桥脚本安全红线：**永不把用户载荷插值进 PowerShell 源码**——载荷一律经 stdin JSON 传入，脚本内 `ConvertFrom-Json` 取用
 - M2e 明确不做：SEA 打包 exe（M4）、桥命令注册进系统 PATH（M4）、截图回传图像字节（先落盘 attachments）、更多桥（录屏/麦克风等）
@@ -31,7 +31,7 @@
 7. **stdin 载荷必须显式 `--stdin` 旗标才读取。** stub 若按"stdin 非 TTY 就读"惯例，在 PersistentShell 里运行时 stdin 是 minisd 持有的驱动管道（永不 EOF），会永久悬挂。`--stdin` 显式化后行为确定。
 8. **管道名 = `\\.\pipe\deskminis-<sha256(数据根绝对路径小写)前8位hex>`**——同机多数据根实例不冲突；同数据根双实例时第二个 listen 失败仅降级（console.warn + `bridgePipe=undefined` 继续服务），不拖垮 minisd。管道发现只经环境变量（`MINIS_BRIDGE_PIPE` 由 shell 注入）；stub 在 agent shell 外运行属用法错误，退出码 3/4 并提示。
 
-## 文件结构总览（相对 M1 的增量）
+## 文件结构总览（相对 M1+M2b+M2a+M2c 基线的增量）
 
 ```
 deskminis/
@@ -287,7 +287,7 @@ Expected: FAIL（`PermissionRequest['kind']` 不含 `bridge-*` 值，类型/运�
 
 - [ ] **Step 3: 实现**
 
-`deskminis/src/minisd/tools/types.ts`（完整文件，改动点：`BridgePermissionKind` 导出 + `PermissionRequest.kind` 联合扩展）：
+`deskminis/src/minisd/tools/types.ts`（完整文件，**已对照现状核实**——M2c 已加入 `onFileRead` 钩子，原样保留；本 Task 改动点：`BridgePermissionKind` 导出 + `PermissionRequest.kind` 联合扩展）：
 
 ```typescript
 import type { AgentToolDefinition } from '../../shared/types';
@@ -309,7 +309,11 @@ export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' 
 export type PermissionDecision = 'allow' | 'deny';
 export interface PermissionGateway { check(req: PermissionRequest): Promise<PermissionDecision> }
 
-export interface ToolContext { sessionId: string; paths: MinisPaths; permissions: PermissionGateway }
+export interface ToolContext {
+  sessionId: string; paths: MinisPaths; permissions: PermissionGateway;
+  /** file_read 成功读取后的通知钩子（技能 use_count 采集点，M2c）；失败/被拒/超限不触发。 */
+  onFileRead?: (absPath: string) => void;
+}
 
 export interface ToolExecutor {
   definition: AgentToolDefinition;
@@ -317,7 +321,7 @@ export interface ToolExecutor {
 }
 ```
 
-`deskminis/src/minisd/tools/permissions.ts`（完整文件，改动点：`PermissionLevel` 加 `bypass`、`PermissionClass` 并入 `BridgePermissionKind`、默认级别表加七个桥类目、`check` 路由从特判 file-write/file-read 改为"shell 走分类器、其余 kind 即类目"）：
+`deskminis/src/minisd/tools/permissions.ts`（完整文件，**已对照现状核实**——M2b/M2a/M2c 未改动此文件，现状与 M1 基线一致；本 Task 改动点：`PermissionLevel` 加 `bypass`、`PermissionClass` 并入 `BridgePermissionKind`、默认级别表加七个桥类目、`check` 路由从特判 file-write/file-read 改为"shell 走分类器、其余 kind 即类目"）：
 
 ```typescript
 import type { BridgePermissionKind, PermissionDecision, PermissionGateway, PermissionRequest } from './types';
@@ -415,7 +419,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- permissions`
-Expected: 全部 passed（M1 既有用例 + 新增 6 个桥用例）
+Expected: 全部 passed（基线既有用例 + 新增 6 个桥用例）
 
 - [ ] **Step 5: Commit**
 
@@ -1412,7 +1416,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/
 - Test: `deskminis/tests/shell.test.ts`（追加一个用例）
 
 **Interfaces:**
-- Consumes: Task 4 的 `BridgeServer`/`bridgePipePath`/`makeBridgeEnv`/`resolveBridgeCliPath`；Task 3 的 `makeBridgeDispatcher`；M1 全部装配件
+- Consumes: Task 4 的 `BridgeServer`/`bridgePipePath`/`makeBridgeEnv`/`resolveBridgeCliPath`；Task 3 的 `makeBridgeDispatcher`；M1+M2b+M2a+M2c 全部装配件（index.ts 增量清单必须原样保留这些既有能力）
 - Produces:
   - `shell.ts`: `class PersistentShell { constructor(cwd: string, env?: Record<string, string>) }`；`ShellManager.getShell(sessionId: string, cwd: string, env?: Record<string, string>)`、`ShellManager.run(sessionId, cwd, command, timeoutMs?, env?)`；`function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext) => Record<string, string>): ToolExecutor`——env 在 shell **首次创建时**捕获（长驻进程环境无法在出生后修改）
   - `index.ts`: `export const SYSTEM_PROMPT`（原私有常量改为导出并追加桥段落）；`startMinisd` 返回值加 `bridgePipe: string | undefined`；桥 listen 失败仅 `console.warn` 降级不拖垮启动
@@ -1557,7 +1561,7 @@ Expected: FAIL（`makeShellTool` 第二参数不存在——新用例类型/行�
 
 - [ ] **Step 3: 实现 shell.ts 环境注入**
 
-`deskminis/src/minisd/tools/shell.ts`（完整文件，改动点 4 处：PersistentShell 构造加 env、ensure 的 spawn 加 env、ShellManager.getShell/run 加 env 透传、makeShellTool 加 envFor）：
+`deskminis/src/minisd/tools/shell.ts`（完整文件，**已对照现状核实**——M2b/M2a/M2c 未改动此文件，现状与 M1 基线一致；本 Task 改动点 4 处：PersistentShell 构造加 env、ensure 的 spawn 加 env、ShellManager.getShell/run 加 env 透传、makeShellTool 加 envFor）：
 
 ```typescript
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -1720,262 +1724,77 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
 
 - [ ] **Step 4: 实现 index.ts 装配**
 
-`deskminis/src/minisd/index.ts`（完整文件；改动点：导入桥模块、SYSTEM_PROMPT 导出并加桥段落、装配 BridgeServer 带降级、makeShellTool 传 envFor、返回值加 bridgePipe、close 加桥关闭）：
+`deskminis/src/minisd/index.ts`（**增量修改**——废弃完整文件写法；现状含 M2b/M2a/M2c 全部能力，逐项增量标注现状锚点）：
+
+> **必须原样保留的 M2b/M2a/M2c 既有能力（禁止全文重写，下列能力一个都不能丢）**：
+> - **M2b**：`chat.prompt` 里的链式解析 `modelGroupId` / `group:` / `provider:` 与 `pendingRebind`（降级候选等 turnEnd 才落库）、`modelgroup.*` RPC、`gemini` / `ollama` kind、`catalog.clampThinkingLevel`
+> - **M2a**：`memoryInjector` / `contextPolicy` / `compactEngine` / `offloadEngine` / `excludedToolNames`、`chat.sessions.setModelBinding` / `setMemoryEnabled`、`memoryWriteTool` / `memoryGetTool` 注册、`CompactEngine` / `MemoryStore` / `MemoryInjector` / `ContextPolicy` / `OffloadEngine` 装配
+> - **M2c**：`skills` 装配段（`SkillStore` / `SkillImporter` / `adoptOrphans`）、`baseWithSkills` 系统提示组合、`toolContext.onFileRead` 钩子、`skills.*` RPC（`list` / `import` / `importStatus` / `setEnabled` / `delete`）、`FakeProvider` 的 `__fail__` 模式
+> - 现状 `import` 段含 `rmSync`（M2c `skills.delete` 用）；`SYSTEM_PROMPT` 当前是 `const`（非 export）
+
+**改动清单（a-f，严格增量）：**
+
+**a) import 桥模块**——追加到现有 import 段末尾（现状末尾是 `import { SkillImporter, type ImportKind } from './skills/importer';`）：
 
 ```typescript
-import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { dataRoot, MinisPaths } from './paths';
-import { openDb } from './store/db';
-import { ChatStore } from './store/chat-store';
-import { ProviderStore, KeyringVault, InMemoryVault, type SecretVault } from './store/provider-store';
-import { ToolRegistry } from './tools/registry';
-import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
-import { ShellManager, makeShellTool } from './tools/shell';
-import { PermissionGatewayImpl, type PermissionPrompt } from './tools/permissions';
-import type { PermissionRequest } from './tools/types';
 import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath } from './bridge/server';
 import { makeBridgeDispatcher } from './bridge/handlers';
-import { runAgentLoop } from './agent/loop';
-import { RpcServer } from './rpc/server';
-import type { AgentProvider, StreamRequest } from './providers/types';
-import type { AgentStreamEvent } from '../shared/types';
-import { randomUUID } from 'node:crypto';
+```
 
-export const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。\n\n本机提供六个 Windows 能力桥，在 shell 中调用：`& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]`（若系统装有 Node.js，`node "$env:MINIS_BRIDGE_CLI" ...` 亦可）。工具：windows-notify（弹系统通知）、windows-clipboard（读/写剪贴板）、windows-open（用默认程序打开网址或文件）、windows-speak（语音播报文本）、windows-screenshot（截屏保存到会话附件目录）、windows-device（读取系统信息）。需要某个工具的详细参数时运行 `& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> --help` 查看；剪贴板读取与截屏等隐私敏感操作会向用户请求确认。';
+**b) `SYSTEM_PROMPT` 改为 `export` 并在常量本体追加桥渐进披露段落**——现状是 `const SYSTEM_PROMPT = '...'`（单行字符串，无桥段落）；改为 `export const SYSTEM_PROMPT = '...'` 并在原文本末尾追加桥段落（windows-notify / windows-clipboard / windows-open / windows-speak / windows-screenshot / windows-device 六桥，`& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]` 调用方式，`--help` 按需详读，隐私敏感项会请求确认）。
+> **组合链不变**：现状是 `baseWithSkills = SYSTEM_PROMPT + buildSkillsBlock(...)` → `memoryInjector.build(baseWithSkills, ...)`。桥段落进的是 `SYSTEM_PROMPT` 常量本体，自动流经技能块与记忆注入全链，`chat.prompt` 的组装代码一行不动。Task 5 测试对 `SYSTEM_PROMPT` 导出的断言不受影响。
 
-/** sessionId 直接被拼进文件系统路径（paths.ensureSessionDirs），必须限死成 UUID 形态：
- *  '..\\..\\Windows' 这类值会逃出数据根，在宿主任意目录建目录/落文件。 */
-const SESSION_ID_RE = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
-function assertSessionId(id: unknown): string {
-  if (typeof id !== 'string' || !SESSION_ID_RE.test(id)) throw new Error('非法 sessionId');
-  return id;
-}
+**c) 装配 `BridgeServer`（带 listen 失败 `console.warn` 降级不拖垮启动）**——插在现状 skills 装配段（`importer.adoptOrphans()` 之后）：
 
-/** 权限询问未响应的兜底时限：与 PermissionGatewayImpl 的 askTimeoutMs 保持一致。 */
-const PERM_TIMEOUT_MS = 30000;
-
-/** 假 provider（仅测试用，DESKMINIS_FAKE_PROVIDER=1 时对 providerId '__fake__' 生效） */
-class FakeProvider implements AgentProvider {
-  readonly name = 'fake'; readonly modelId = 'fake';
-  /** 脚本化的工具调用只发一次：否则用户消息一直是 __tool__ 前缀，循环会一路撞到 maxTurns。 */
-  private toolCallSpent = false;
-
-  async *streamAgentMessage(req: StreamRequest): AsyncIterable<AgentStreamEvent> {
-    const script = this.parseScript(req);
-    if (script && !this.toolCallSpent) {
-      this.toolCallSpent = true;
-      yield { kind: 'toolCallComplete', toolUseId: randomUUID().toUpperCase(), name: script.name, input: script.input };
-      yield { kind: 'done', stopReason: 'toolUse' };
-      return;
-    }
-    yield { kind: 'textDelta', text: '（假回复）' };
-    // 真 provider 是网络 I/O：这里也让出一个宏任务，否则整个 agent 循环在微任务里
-    // 一口气跑完，"会话运行中"这个状态在外部永远观察不到（并发锁将无法测试）。
-    await new Promise(r => setTimeout(r, 30));
-    yield { kind: 'done', stopReason: 'endTurn' };
-  }
-
-  /** 首条用户文本形如 `__tool__ <工具名> <inputJSON>` 时，改为发起一次工具调用。 */
-  private parseScript(req: StreamRequest): { name: string; input: string } | undefined {
-    for (const m of req.messages) {
-      if (m.role !== 'user') continue;
-      for (const part of m.parts) {
-        const value: unknown = part.value; // ContentPart 有兜底成员 { type: string; value: unknown }，判别式收窄不生效
-        if (part.type !== 'text' || typeof value !== 'string') continue;
-        const m2 = /^__tool__ (\S+) ([\s\S]+)$/.exec(value);
-        if (m2) return { name: m2[1], input: m2[2] };
-      }
-    }
-    return undefined;
-  }
-}
-
-export async function startMinisd(opts?: { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number }): Promise<{ port: number; authToken: string; bridgePipe: string | undefined; close(): Promise<void> }> {
-  const root = opts?.dataDir ?? dataRoot();
-  mkdirSync(root, { recursive: true });
-  const paths = new MinisPaths(root);
-  const db = openDb(join(root, 'minis.db'));
-  const chat = new ChatStore(db);
-  const vault: SecretVault = process.env.DESKMINIS_TEST ? new InMemoryVault() : new KeyringVault();
-  const providers = new ProviderStore(root, vault);
-
-  // 权限：把询问经 RPC 广播给 UI，UI 用 permission.respond 回决议。
-  // 广播给所有连接是安全的——RpcServer 现在要求 per-run token，能连上的只可能是本应用自己的窗口。
-  interface PendingPerm { resolve: (d: 'allow-once' | 'allow-session' | 'deny') => void; timer: ReturnType<typeof setTimeout> }
-  const pendingPerms = new Map<string, PendingPerm>();
-  // 网关的兜底时限与这里的清理时限必须是同一个值，否则总有一侧留下悬挂状态
-  const permTimeoutMs = opts?.permTimeoutMs ?? PERM_TIMEOUT_MS;
-  let rpc: RpcServer;
-  const prompt: PermissionPrompt = (req: PermissionRequest) => new Promise(resolve => {
-    const requestId = randomUUID().toUpperCase();
-    // 超时不通知 UI 的话，卡片会永远留在界面上（而网关那边早已按 deny 继续），
-    // 同时 pendingPerms 只增不减。到点主动清理 + 广播 resolved。
-    const timer = setTimeout(() => {
-      if (!pendingPerms.has(requestId)) return;
-      pendingPerms.delete(requestId);
-      rpc.broadcast('permission.resolved', { requestId });
-      resolve('deny');
-    }, permTimeoutMs);
-    timer.unref?.();
-    pendingPerms.set(requestId, { resolve, timer });
-    rpc.broadcast('permission.request', { requestId, req });
-  });
-  const gateway = new PermissionGatewayImpl(prompt, undefined, permTimeoutMs);
-
-  // windows-* 桥：命名管道服务。占管（同数据根双实例）等失败只降级，不拖垮 minisd（架构决策 8）。
-  const bridgeCli = resolveBridgeCliPath();
-  const pipePath = bridgePipePath(root);
-  let bridge: BridgeServer | undefined;
-  let bridgePipe: string | undefined;
-  try {
-    bridge = new BridgeServer(makeBridgeDispatcher({ permissions: gateway, paths }));
-    await bridge.listen(pipePath);
-    bridgePipe = pipePath;
-  } catch (e) {
-    console.warn('windows-* 桥服务监听失败，桥命令本次运行不可用:', e);
-    bridge = undefined;
-  }
-
-  const shells = new ShellManager();
-  const tools = new ToolRegistry();
-  tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
-  tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, process.execPath)));
-
-  const fakeEnabled = process.env.DESKMINIS_FAKE_PROVIDER === '1';
-
-  /** 同一会话同时只允许跑一个 agent 循环：两个循环会读到彼此写了一半的历史，
-   *  交错落库出 Anthropic 直接 400 的消息序列（tool_use 没有配对的 tool_result）。 */
-  const inFlight = new Set<string>();
-  const controllers = new Map<string, AbortController>();
-
-  const methods = {
-    'chat.sessions.list': () => chat.listSessions(),
-    'chat.sessions.create': (p: { title?: string }) => chat.createSession(p.title),
-    'chat.sessions.delete': (p: { sessionId: string; confirm?: boolean }) => {
-      const sessionId = assertSessionId(p.sessionId);
-      if (p.confirm !== true) throw new Error('删除会话需 confirm:true');
-      chat.deleteSession(sessionId); return { ok: true };
-    },
-    'chat.messages.list': (p: { sessionId: string }) => chat.listMessages(assertSessionId(p.sessionId)),
-    'chat.prompt': (p: { sessionId: string; text: string; providerId?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high' }) => {
-      const sessionId = assertSessionId(p.sessionId);
-      // 纯空白的 text block 会被 Anthropic 以 400 拒收，而消息此时已落库 ⇒ 该会话此后每次请求都失败（永久变砖）
-      if (typeof p.text !== 'string' || p.text.trim() === '') throw new Error('消息内容不能为空');
-      if (inFlight.has(sessionId)) throw new Error('该会话正在运行中，请等待完成或取消');
-      // 先解析 provider 再落库：否则首次运行（未配置 provider）会留下孤儿用户消息
-      const providerId = p.providerId ?? providers.getDefaultId();
-      if (!providerId) throw new Error('尚未配置任何模型 provider，请先在设置中添加');
-      const provider: AgentProvider = (fakeEnabled && providerId === '__fake__')
-        ? new FakeProvider()
-        : providers.instantiate(providerId);
-      // 从这里到 IIFE 启动之间没有 await：占位与释放不会被别的请求插进来
-      inFlight.add(sessionId);
-      const controller = new AbortController();
-      controllers.set(sessionId, controller);
-      chat.appendMessage({ id: chat.newId(), sessionId, role: 'user', parts: [{ type: 'text', value: p.text }], createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
-      paths.ensureSessionDirs(sessionId);
-      void (async () => {
-        try {
-          for await (const event of runAgentLoop(chat, {
-            sessionId, provider, tools,
-            toolContext: { sessionId, paths, permissions: gateway },
-            systemPrompt: SYSTEM_PROMPT, thinkingLevel: p.thinkingLevel ?? 'off',
-            signal: controller.signal,
-          })) rpc.broadcast('chat.event', { sessionId, event });
-        } catch (e) { rpc.broadcast('chat.event', { sessionId, event: { kind: 'error', message: String(e) } }); }
-        finally { inFlight.delete(sessionId); controllers.delete(sessionId); }
-      })();
-      return { ok: true };
-    },
-    'chat.cancel': (p: { sessionId: string }) => {
-      const c = controllers.get(assertSessionId(p.sessionId));
-      if (c) c.abort();
-      return { ok: true };
-    },
-    'provider.instances.list': () => providers.list(),
-    'provider.instances.create': (p: { name: string; kind: 'anthropic' | 'openai-compat'; baseUrl?: string; modelId: string; apiKey: string }) => {
-      const baseUrl = (typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '') || undefined;
-      if (p.kind === 'openai-compat' && !baseUrl) throw new Error('OpenAI 兼容 provider 需要 base URL');
-      return providers.create({ name: p.name, kind: p.kind, baseUrl, modelId: p.modelId }, p.apiKey);
-    },
-    /** 改配置不必删了重建；apiKey 省略/空串 = 保留原密钥（前端也永远拿不到旧密钥回显）。 */
-    'provider.instances.update': (p: { id: string; name?: string; kind?: 'anthropic' | 'openai-compat'; baseUrl?: string; modelId?: string; apiKey?: string }) => {
-      const cur = providers.list().find(x => x.id === p.id);
-      if (!cur) throw new Error(`provider 不存在: ${p.id}`);
-      const patch: Partial<{ name: string; kind?: 'anthropic' | 'openai-compat'; baseUrl: string | undefined; modelId: string }> & { apiKey?: string } = {};
-      if (typeof p.name === 'string' && p.name.trim()) patch.name = p.name.trim();
-      if (p.kind === 'anthropic' || p.kind === 'openai-compat') patch.kind = p.kind;
-      if (typeof p.modelId === 'string' && p.modelId.trim()) patch.modelId = p.modelId.trim();
-      if (p.baseUrl !== undefined) patch.baseUrl = (typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '') || undefined;
-      if (typeof p.apiKey === 'string' && p.apiKey !== '') patch.apiKey = p.apiKey;
-      // 校验「改完之后」的形态，而不是补丁本身：openai-compat 没有 base URL 无法请求
-      const kind = patch.kind ?? cur.kind;
-      const baseUrl = 'baseUrl' in patch ? patch.baseUrl : cur.baseUrl;
-      if (kind === 'openai-compat' && !baseUrl) throw new Error('OpenAI 兼容 provider 需要 base URL');
-      providers.update(p.id, patch);
-      return { ok: true };
-    },
-    'provider.instances.delete': (p: { id: string; confirm?: boolean }) => {
-      if (p.confirm !== true) throw new Error('删除 provider 需 confirm:true');
-      providers.delete(p.id); return { ok: true };
-    },
-    'provider.setDefault': (p: { id: string }) => { providers.setDefaultId(p.id); return { ok: true }; },
-    'permission.respond': (p: { requestId: string; decision: 'allow-once' | 'allow-session' | 'deny' }) => {
-      const entry = pendingPerms.get(p.requestId);
-      if (entry) {
-        clearTimeout(entry.timer);
-        pendingPerms.delete(p.requestId);
-        entry.resolve(p.decision);
-        // 同一个请求可能在多个窗口里显示：告诉所有客户端这张卡片已了结
-        rpc.broadcast('permission.resolved', { requestId: p.requestId });
-      }
-      return { ok: true };
-    },
-  };
-
-  const authToken = randomUUID().toUpperCase();
-  rpc = new RpcServer(methods, authToken);
-  const port = await rpc.listen(opts?.host ?? '127.0.0.1', opts?.port ?? 0);
-  return {
-    port, authToken, bridgePipe,
-    close: async () => {
-      for (const c of controllers.values()) c.abort();
-      for (const { timer } of pendingPerms.values()) clearTimeout(timer);
-      pendingPerms.clear();
-      shells.disposeAll();
-      await bridge?.close();
-      await rpc.close();
-      db.close();
-    },
-  };
-}
-
-// 作为独立进程启动时（Electron utilityProcess / --headless）
-if (process.env.DESKMINIS_STANDALONE === '1') {
-  startMinisd()
-    // 握手行同时交出 token：主进程必须把它经 ipcMain.handle('minisd:info') 交给渲染进程，
-    // 否则渲染进程连不上自己的守护进程。
-    .then(({ port, authToken }) => { process.stdout.write(JSON.stringify({ minisdPort: port, authToken }) + '\n'); })
-    // 没有 .catch 的话，DB / 密钥库任一失败都只是一次未处理拒绝：进程静默退出，
-    // 父进程只能看到 "exit code=1"，真正的原因（哪一行、什么错）永远看不到。
-    .catch(e => {
-      process.stderr.write('minisd 启动失败: ' + (e instanceof Error ? e.stack ?? e.message : String(e)) + '\n');
-      process.exit(1);
-    });
+```typescript
+// windows-* 桥：命名管道服务。占管（同数据根双实例）等失败只降级，不拖垮 minisd（架构决策 8）。
+const bridgeCli = resolveBridgeCliPath();
+const pipePath = bridgePipePath(root);
+let bridge: BridgeServer | undefined;
+let bridgePipe: string | undefined;
+try {
+  bridge = new BridgeServer(makeBridgeDispatcher({ permissions: gateway, paths }));
+  await bridge.listen(pipePath);
+  bridgePipe = pipePath;
+} catch (e) {
+  console.warn('windows-* 桥服务监听失败，桥命令本次运行不可用:', e);
+  bridge = undefined;
 }
 ```
 
-注意：本文件顶部 `import { existsSync, mkdirSync } from 'node:fs';` 中 `existsSync` 未被使用——若 typecheck（`npm run typecheck`）报未使用导入警告，改为只导入 `mkdirSync`。实现时以 typecheck 结果为准。
+> 锚点说明：`gateway` 在现状代码里已声明（`const gateway = new PermissionGatewayImpl(...)`），`paths` / `root` 已在作用域内；桥装配段插在 skills 装配之后、`shells` / `tools` 装配之前均可，`gateway` 必须已声明。
+
+**d) 现状 `tools.register(makeShellTool(shells))` 改为传 `envFor`**：
+
+```typescript
+// 现状（M1）：
+tools.register(makeShellTool(shells));
+// 改为：
+tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, process.execPath)));
+```
+
+> `makeBridgeEnv` 产出 `MINIS_CHAT_SESSION_ID` / `MINIS_BRIDGE_PIPE` / `MINIS_BRIDGE_CLI` / `MINIS_BRIDGE_NODE` 四个环境变量；`bridgePipe` 为 `undefined` 时（降级）shell 不注入桥管道变量，桥命令自然会连不上并报退出码 4。
+
+**e) `startMinisd` 返回值加 `bridgePipe: string | undefined`**——现状返回类型是 `Promise<{ port: number; authToken: string; close(): Promise<void> }>`，改为 `Promise<{ port: number; authToken: string; bridgePipe: string | undefined; close(): Promise<void> }>`；返回对象加 `bridgePipe` 字段。
+
+**f) `close` 里加桥关闭**——插进现状 close 的清理序列（`shells.disposeAll()` 之后、`rpc.close()` 之前），其余清理项不动：
+
+```typescript
+await bridge?.close();
+```
+
+> 现状 close 序列：`controllers.abort()` → `pendingPerms clearTimeout` → `pendingPerms.clear()` → `shells.disposeAll()` → `rpc.close()` → `db.close()`。桥关闭插在 `shells.disposeAll()` 之后。
+
+**测试自查**：新基线下 `boot` 出的 minisd 含上述全部 M2b/M2a/M2c 方法（`modelgroup.*` / `chat.sessions.setMemoryEnabled` / `skills.*` 等）与 M2e 新增的 `bridgePipe` 字段；Task 5 测试断言 `SYSTEM_PROMPT` 导出、`bridgePipe` 字段存在、shell env 注入、桥降级——不与既有能力冲突。
 
 - [ ] **Step 5: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- bridge-minisd`
 Expected: 4 passed
 Run: `cd deskminis && npm test -- shell`
-Expected: 全部 passed（M1 既有 5 例 + 新增 env 注入 1 例）
+Expected: 全部 passed（基线既有 shell 用例 + 新增 env 注入 1 例）
 Run: `cd deskminis && npm test`
-Expected: 全套回归全绿（rpc/agent-loop 等 M1 测试不受签名扩展影响——`startMinisd` 返回值只增字段）
+Expected: 全套回归全绿（rpc/agent-loop 等基线测试不受签名扩展影响——`startMinisd` 返回值只增字段）
 
 - [ ] **Step 6: Commit**
 
@@ -2541,7 +2360,7 @@ Run: `cd deskminis && npm test -- bridge-cli`
 Expected: 16 passed（帮助与本地参数校验 7 + echo 线协议 6 + 真分发端到端 3）
 
 Run: `cd deskminis && npm test`
-Expected: 全套回归全绿（M1 基线 130 + M2e 新增 72 = 202 例：frame 7 / permissions 桥 6 / handlers 26 / server 12 / minisd 桥装配 4 / shell env 1 / cli 16）
+Expected: 全套回归全绿（基线 313 + M2e 新增 72 ≈ 385 例：frame 7 / permissions 桥 6 / handlers 26 / server 12 / minisd 桥装配 4 / shell env 1 / cli 16）
 
 - [ ] **Step 5: 应用内手工验收（推荐，验真权限卡链路）**
 
@@ -2573,7 +2392,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge-
 
 ## M2e 完成定义
 
-- 全套测试绿（`cd deskminis && npm test`，202 例 = M1 130 + M2e 72），含真管道、真 PowerShell、真剪贴板/截屏的端到端用例
+- 全套测试绿（`cd deskminis && npm test`，基线 313 + M2e 新增 ≈ 385 例），含真管道、真 PowerShell、真剪贴板/截屏的端到端用例
 - 六个 windows-* 桥在应用内手工验收 6 步全过（隐私敏感项弹卡、会话记忆生效、降级不拖垮）
 - 交付物：agent 在会话 shell 里可调用 windows-notify/clipboard/open/speak/screenshot/device；统一 JSON 信封 + 退出码 0-4；权限按会话定域；系统提示一段话渐进披露、`--help` 按需详读
 - 下一步（不在本里程碑）：M4 把 stub 用 Node SEA 打成 exe 并注册进 PATH（届时 `resolveBridgeCliPath` 退役）；截图字节回传与更多桥按后续子计划
