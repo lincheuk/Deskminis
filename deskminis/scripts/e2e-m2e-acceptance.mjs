@@ -12,7 +12,7 @@
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, readFileSync, copyFileSync, rmSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, copyFileSync, rmSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -59,6 +59,13 @@ const DATA_ROOT = mkdtempSync(join(tmpdir(), 'dm-e2e-m2e-'));
 const realProviders = join(REAL_ROOT, 'providers.json');
 if (!existsSync(realProviders)) { console.error('真实数据根没有 providers.json —— 先在应用里配置 provider'); process.exit(2); }
 copyFileSync(realProviders, join(DATA_ROOT, 'providers.json'));
+// E2E_MODEL：只改临时根副本的 modelId（不碰真实配置）——真实配置里的模型与中转站不兼容时用
+if (process.env.E2E_MODEL) {
+  const pj = JSON.parse(readFileSync(join(DATA_ROOT, 'providers.json'), 'utf8'));
+  for (const p of pj.providers) p.modelId = process.env.E2E_MODEL;
+  writeFileSync(join(DATA_ROOT, 'providers.json'), JSON.stringify(pj, null, 2));
+  console.log('模型覆盖(仅临时根): ' + process.env.E2E_MODEL);
+}
 console.log('临时数据根: ' + DATA_ROOT);
 
 const CLIP_TOKEN = 'M2E-剪贴板-验收①';
