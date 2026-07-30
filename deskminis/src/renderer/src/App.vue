@@ -8,6 +8,7 @@ import ChatView from './components/ChatView.vue';
 import ProviderSettings from './components/ProviderSettings.vue';
 import TerminalPanel from './components/TerminalPanel.vue';
 import FilesPanel from './components/FilesPanel.vue';
+import TasksPanel from './components/TasksPanel.vue';
 import Icon from './components/Icon.vue';
 
 const chat = useChat();
@@ -72,7 +73,7 @@ onMounted(() => { void chat.init(); });
         <template v-else>
           <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
           <div v-show="rightTab === 'files'" class="rfill"><FilesPanel v-if="visited.files" /></div>
-          <div v-if="rightTab === 'tasks'" class="rempty">M2d 后续任务填入任务进度</div>
+          <div v-show="rightTab === 'tasks'" class="rfill"><TasksPanel v-if="visited.tasks" /></div>
         </template>
       </aside>
     </div>

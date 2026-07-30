@@ -3,7 +3,7 @@ import { rpc } from '../rpc';
 
 let localSeq = 0;
 
-interface UiMessage { id: string; role: string; parts: any[] }
+interface UiMessage { id: string; role: string; parts: any[]; tokenUsage?: { inputTokens: number; outputTokens: number } }
 interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
@@ -30,6 +30,16 @@ export const useChat = defineStore('chat', {
     defaultProviderId: '' as string,
     // 权限档位为 M1 渲染端本地偏好（后端网关一次性构造、无对应设置）：只影响权限卡里预选高亮哪个按钮。
     permTier: 'ask' as PermTier,
+    // M2d · Task 5：上回合停止原因（turnEnd.stopReason）
+    lastStopReason: '' as string,
+    // M2d · #10 事件 UI 接线：四种目前未消费事件（fallback/compacted/offloaded/retry）的状态。
+    //   retry 已有 retryNote 字段沿用；其余三种新增会话级环内联提示 + 任务面板状态字典。
+    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'; ts: number; detail?: string }[], // 对话流内联气泡（最多保留 10 条）
+    fallbackState: null as null | { fromModel: string; toModel: string; reason?: string }, // 任务面板「降级」卡
+    compactedState: null as null | { fromCount: number; toCount: number; freedTokens?: number }, // 任务面板「压缩」卡
+    offloadedState: null as null | { count: number; oldestTs?: number; freedTokens?: number }, // 任务面板「卸载」卡
+    // M2d · #7：chat.contextInfo 轮询缓存（任务面板水位条显示窗口 + 当次用量）
+    contextInfo: null as null | { windowTokens: number; usedTokens: number; remaining: number },
   }),
   actions: {
     async init() {
@@ -45,6 +55,8 @@ export const useChat = defineStore('chat', {
       rpc.on('skills.changed', () => { void this.refreshSkills(); });
       rpc.on('skills.import.progress', (t: any) => { if (t && t.state !== 'running') void this.refreshSkills(); });
       await this.refreshSkills();
+      // #7：水位动态刷新——每次 turnEnd/重试/压缩/卸载 之后拉一次 chat.contextInfo 存 state.contextInfo（供 TasksPanel 用，不直接写死 200K）
+      void this.fetchContextInfo();
     },
     async refreshSessions() { this.sessions = await rpc.call('chat.sessions.list'); },
     async refreshProviders() {
@@ -62,12 +74,18 @@ export const useChat = defineStore('chat', {
     async open(id: string) {
       // 换会话才清错误横幅：turnEnd/error 之后的自刷新调用的也是 open，
       // 在那条路径上清掉的话，刚设置的 lastError 会被立刻抹掉（错误又变成看不见）。
-      if (id !== this.activeId) { this.lastError = ''; this.retryNote = ''; this.running = false; }
+      if (id !== this.activeId) {
+        this.lastError = ''; this.retryNote = ''; this.running = false;
+        this.lastStopReason = '';
+        this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
+        this.contextInfo = null;
+      }
       this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.toolCards = [];
       void this.refreshSkills(); // 会话覆盖会改变生效启用集，换会话必须重取
     },
     async send(text: string) {
       this.streamingText = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';
+      this.lastStopReason = ''; this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
       // 乐观消息用唯一 id：一次会话内连发多条时 'local' 会造成 :key 重复
       const optimisticId = `local-${++localSeq}`;
       this.messages.push({ id: optimisticId, role: 'user', parts: [{ type: 'text', value: text }] });
@@ -109,7 +127,12 @@ export const useChat = defineStore('chat', {
         this.streamingText = '';
         this.retryNote = `正在重试…（第 ${e.attempt} 次，${Math.round((e.delayMs ?? 0) / 1000)}s 后）`;
       }
-      else if (e.kind === 'turnEnd') { this.retryNote = ''; this.running = false; void this.open(this.activeId); }
+      else if (e.kind === 'turnEnd') {
+        this.retryNote = ''; this.running = false;
+        if (e.stopReason) this.lastStopReason = String(e.stopReason);
+        void this.open(this.activeId);
+        void this.fetchContextInfo();
+      }
       else if (e.kind === 'error') {
         // 先记错误再刷新：open 在同会话路径上不动 lastError，横幅得以留在界面上
         this.lastError = String(e.message ?? '未知错误');
@@ -117,6 +140,28 @@ export const useChat = defineStore('chat', {
         this.running = false;
         void this.open(this.activeId);
       }
+      // M2d · #10：四种未消费事件（M2b 降级 / M2a 压缩 / M2a 卸载 / retry）——retry 分支已有，仅补其余三种并在任务面板挂状态
+      else if (e.kind === 'fallback') {
+        this.fallbackState = { fromModel: String(e.fromModel ?? ''), toModel: String(e.toModel ?? ''), reason: e.reason ? String(e.reason) : undefined };
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'fallback', ts: Date.now(), detail: `${e.fromModel ?? '?'} → ${e.toModel ?? '?'}` }];
+        void this.fetchContextInfo(); // 降级后上下文窗口可能变（小模型 → 小窗口）
+      }
+      else if (e.kind === 'compacted') {
+        this.compactedState = { fromCount: Number(e.fromCount ?? 0), toCount: Number(e.toCount ?? 0), freedTokens: e.freedTokens ? Number(e.freedTokens) : undefined };
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'compacted', ts: Date.now(), detail: `${e.fromCount ?? 0} 条 → ${e.toCount ?? 0} 条` }];
+        void this.fetchContextInfo(); // 压缩后用量减少
+      }
+      else if (e.kind === 'offloaded') {
+        this.offloadedState = { count: Number(e.count ?? 0), oldestTs: e.oldestTs ? Number(e.oldestTs) : undefined, freedTokens: e.freedTokens ? Number(e.freedTokens) : undefined };
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'offloaded', ts: Date.now(), detail: `卸载 ${e.count ?? 0} 条历史` }];
+        void this.fetchContextInfo();
+      }
+    },
+    async fetchContextInfo() {
+      if (!this.activeId) return;
+      try {
+        this.contextInfo = await rpc.call('chat.contextInfo', { sessionId: this.activeId });
+      } catch { /* 水位 RPC 失败不影响主流程；缓存保持上一次值，任务面板显示「数据暂缺」 */ }
     },
   },
 });

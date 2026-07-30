@@ -1661,7 +1661,7 @@ Expected: main / preload / renderer 全部构建成功
 Run: `cd deskminis && npm run dev`
 Expected（人工确认）：文件页签出现「工作区」树；让 agent 创建 hello.txt 后回合结束树自动出现该文件（不手动刷新）；子目录首次点击展开才加载；点文件底部出预览；切走页签再切回，树的展开态与终端内容都保留
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/components/Icon.vue deskminis/src/renderer/src/components/FileTreeNode.vue deskminis/src/renderer/src/components/FilesPanel.vue deskminis/src/renderer/src/App.vue && git commit -m "feat(m2d): 右栏文件面板（懒加载文件树 + 文本预览 + 回合结束自动刷新）"
@@ -1683,7 +1683,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/c
   - store state `lastStopReason: string`——`turnEnd` 时记录；`send()` 与切换会话时清零
   - `TasksPanel.vue`：无 props；回合区（状态 / 重试提示 / 本回合工具计数 / 上回合停止原因）、token 区（上回合与会话累计）、上下文水位条（分子 = 最后一条带用量 assistant 消息的 input+output tokens；分母固定 200K 估算，代码留 `TODO(M2b)` 锚点接模型能力目录）
 
-- [ ] **Step 1: stores/chat.ts 补 tokenUsage / lastStopReason + 4 种事件消费（#1：增量清单 a-f；M2c 斜杠菜单 / skills 订阅 / provider 状态原样保留）**
+- [x] **Step 1: stores/chat.ts 补 tokenUsage / lastStopReason + 4 种事件消费（#1：增量清单 a-f；M2c 斜杠菜单 / skills 订阅 / provider 状态原样保留）**
 
 > **冲突点 #1 核实（4c0d707 + cebf26d + c6d08c4 三次改动）**：main@c54dac4 的 chat.ts 已含 M2c 的 state 字段：`slashOpen: boolean`、`slashText: string`、`slashPos: {top:number;left:number}|null`、`matchedSkills: SkillEntry[]`、`skills: {loadedIds: string[]; loading: boolean; importProgress: {id:string;percent:number}|null}`、`activeSkillId: string` 及对应 actions（toggleSlash/filterSkills/insertSkillCall/openSkillManager）、skills.changed / skills.import.progress 订阅、`deleteSession` 动作等。**必须增量追加，禁止全文替换——斜杠菜单状态与 provider 相关字段必须原样保留**。
 >
@@ -1762,7 +1762,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/c
 >
 > 以上 6 处增量之外（a-f），M2c 的 slash 菜单 state / actions / skills 订阅 / deleteSession 动作、`import { loadSkills } from '../utils/skills'`、`SkillEntry` 类型一律**不动**。
 
-- [ ] **Step 2: TasksPanel.vue（新建）**
+- [x] **Step 2: TasksPanel.vue（新建）**
 
 `deskminis/src/renderer/src/components/TasksPanel.vue`:
 
@@ -1910,7 +1910,7 @@ function fmt(n: number): string {
 </style>
 ```
 
-- [ ] **Step 3: App.vue 接线任务页签（#3：增量清单；基于 Task 4 合入后的 App.vue 做 2 处追加；禁止全文替换）**
+- [x] **Step 3: App.vue 接线任务页签（#3：增量清单；基于 Task 4 合入后的 App.vue 做 2 处追加；禁止全文替换）**
 
 > **演进关系（同 #3）**：在 Task 4 合入后的 App.vue 之上，**仅做以下 2 处追加**（Task 3 a-e + Task 4 a-c 的所有增量全部保留）：
 > a. `<script>` import 区追加：`import TasksPanel from './components/TasksPanel.vue';`
@@ -2035,7 +2035,7 @@ onMounted(() => { void chat.init(); });
 </style>
 ```
 
-- [ ] **Step 4: typecheck + build + dev 手工冒烟**
+- [x] **Step 4: typecheck + build + dev 手工冒烟**
 
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors
