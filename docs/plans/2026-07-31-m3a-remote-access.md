@@ -1464,7 +1464,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/cli/remote-cli
 
 **目标**：扮演「远程客户端」走完整链路——配对 → PASETO → WS 连接 → 调 chat.sessions.list → 收 chat.event 广播 → 断言 remote 不可调 remote.*。继承 M2 系列 e2e 临时数据根隔离。
 
-- [ ] **Step 1: 写 e2e 脚本**
+- [x] **Step 1: 写 e2e 脚本**
 
 `deskminis/scripts/e2e-m3a-acceptance.mjs`（参照 [`e2e-m2e-acceptance.mjs`](file:///c:/Users/24739/Downloads/openminis1/deskminis/scripts/e2e-m2e-acceptance.mjs) L1-70 的 spawn + 临时数据根模式）：
 
@@ -1595,13 +1595,13 @@ console.log(`\nM3a e2e: ${pass}/${results.length} passed`);
 process.exit(pass === results.length ? 0 : 1);
 ```
 
-- [ ] **Step 2: 构建并运行**
+- [x] **Step 2: 构建并运行**
 
 Run: `cd deskminis && npm run build`
 Run: `cd deskminis && npm run e2e:m3a`
 Expected: 6/6 passed（begin / complete / paseto / remote.list / broadcast / denied）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3a-acceptance.mjs deskminis/package.json && git commit -m "test(m3a): e2e验收驱动(配对→PASETO→WS→业务面→广播→权限边界)"

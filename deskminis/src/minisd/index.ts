@@ -446,7 +446,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // pairing 模式只能调 remote.pair.complete，其他业务面全拒。
   // remote.* 方法自带 assertAuthMode 守卫，不重复包装。
   for (const k of Object.keys(methods)) {
-    if (!k.startsWith('remote.')) methods[k] = guardBusinessMethod(methods[k] as any, k);
+    if (!k.startsWith('remote.')) (methods as any)[k] = guardBusinessMethod((methods as any)[k], k);
   }
   Object.assign(methods, remoteMethods);
   const additionalVerify = createAdditionalVerify(pairingService);

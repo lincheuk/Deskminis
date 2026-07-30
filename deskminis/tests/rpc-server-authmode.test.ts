@@ -1,12 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocket } from 'ws';
 import { networkInterfaces } from 'node:os';
-import { RpcServer, type AuthMode } from '../src/minisd/rpc/server';
+import { RpcServer, type AuthMode, type AdditionalVerify } from '../src/minisd/rpc/server';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
 
-async function boot(additionalVerify?: Parameters<RpcServer['constructor']>[2], host = '127.0.0.1') {
+async function boot(additionalVerify?: AdditionalVerify, host = '127.0.0.1') {
   const rpc = new RpcServer({ echo: (p) => p }, 'LOCAL-TOKEN', additionalVerify);
   const port = await rpc.listen(host, 0);
   cleanups.push(() => rpc.close());

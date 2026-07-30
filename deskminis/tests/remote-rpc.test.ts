@@ -224,15 +224,15 @@ describe('业务面拒 pairing（红线 4c）', () => {
 
 describe('guardBusinessMethod（业务面 pairing 模式守卫）', () => {
   it('pairing 模式调业务面 → 拒（同步抛错）', () => {
-    const fake = guardBusinessMethod(() => 'ok', 'chat.sessions.list');
+    const fake = guardBusinessMethod((_p: any, _c: any) => 'ok', 'chat.sessions.list');
     expect(() => fake({}, makeConn('pairing'))).toThrow(/pairing|chat\.sessions\.list/i);
   });
   it('local 模式调业务面 → 通过', () => {
-    const fake = guardBusinessMethod(() => 'ok', 'chat.sessions.list');
+    const fake = guardBusinessMethod((_p: any, _c: any) => 'ok', 'chat.sessions.list');
     expect(fake({}, makeConn('local'))).toBe('ok');
   });
   it('remote 模式调业务面 → 通过（remote 全开）', () => {
-    const fake = guardBusinessMethod(() => 'ok', 'chat.sessions.list');
+    const fake = guardBusinessMethod((_p: any, _c: any) => 'ok', 'chat.sessions.list');
     expect(fake({}, makeConn('remote'))).toBe('ok');
   });
 });
