@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /** 应用外壳（设计 §4）——自绘标题栏（顶，全宽）+ 三栏 260 | 1fr | 300（右栏可收起）。 */
-import { onMounted, ref, computed, provide } from 'vue';
+import { onMounted, ref, computed, provide, reactive } from 'vue';
 import { useChat } from './stores/chat';
 import TitleBar from './components/TitleBar.vue';
 import SessionList from './components/SessionList.vue';
 import ChatView from './components/ChatView.vue';
 import ProviderSettings from './components/ProviderSettings.vue';
+import TerminalPanel from './components/TerminalPanel.vue';
 import Icon from './components/Icon.vue';
 
 const chat = useChat();
@@ -14,6 +15,17 @@ const sidebarOpen = ref(true);
 const rightOpen = ref(true);
 const settingsOpen = ref(false);
 const rightTab = ref<'terminal' | 'files' | 'tasks'>('terminal');
+/** 懒挂载 + v-show 保活（首次切到才创建组件，之后切换只隐藏不销毁） */
+const visited = reactive({ terminal: true, files: false, tasks: false });
+function showTab(tab: 'terminal' | 'files' | 'tasks'): void {
+  settingsOpen.value = false;
+  rightTab.value = tab;
+  visited[tab] = true;
+}
+function toggleSettings(): void {
+  settingsOpen.value = !settingsOpen.value;
+  if (!settingsOpen.value) visited[rightTab.value] = true;
+}
 
 // 明暗：appearanceMode 0 跟随系统 / 1 强制浅 / 2 强制深——循环切换并落到 <html data-theme>
 type Theme = 'system' | 'light' | 'dark';
@@ -50,13 +62,16 @@ onMounted(() => { void chat.init(); });
       <main class="pane-c"><ChatView /></main>
       <aside v-show="rightOpen" class="pane-r">
         <div class="tabs">
-          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'terminal' }" @click="settingsOpen = false; rightTab = 'terminal'">终端</div>
-          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'files' }" @click="settingsOpen = false; rightTab = 'files'">文件</div>
-          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'tasks' }" @click="settingsOpen = false; rightTab = 'tasks'">任务</div>
-          <div class="tab gear" :class="{ on: settingsOpen }" title="模型设置" @click="settingsOpen = !settingsOpen"><Icon name="gear" :size="15" /></div>
+          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'terminal' }" @click="showTab('terminal')">终端</div>
+          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'files' }" @click="showTab('files')">文件</div>
+          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'tasks' }" @click="showTab('tasks')">任务</div>
+          <div class="tab gear" :class="{ on: settingsOpen }" title="模型设置" @click="toggleSettings"><Icon name="gear" :size="15" /></div>
         </div>
         <div v-if="settingsOpen" class="rbody"><ProviderSettings /></div>
-        <div v-else class="rempty">M1 占位<br />M2 填入实时终端、文件树与任务进度</div>
+        <template v-else>
+          <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
+          <div v-if="rightTab !== 'terminal'" class="rempty">M2d 后续任务填入文件树与任务进度</div>
+        </template>
       </aside>
     </div>
   </div>
@@ -83,6 +98,7 @@ onMounted(() => { void chat.init(); });
 .tab.gear { flex: 0 0 32px; }
 .tab.on { background: var(--fill-quaternary); color: var(--label); }
 .rbody { flex: 1; overflow: auto; padding: 12px 14px; }
+.rfill { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .rempty {
   flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
   font-size: 13px; color: var(--label-tertiary); padding: 24px; line-height: 1.6;

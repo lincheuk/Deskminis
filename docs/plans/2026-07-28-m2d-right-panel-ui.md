@@ -841,7 +841,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/files.t
   - `TerminalPanel.vue`：无 props；挂载时 attach 当前会话、键入直送 `terminal.input`、推送写入 xterm；`activeId` 变化时 reset 并重新 attach；主题从 `getComputedStyle` 读 tokens，随明暗切换重读
   - `App.vue`：右栏页签改为懒挂载 + `v-show` 保活（`visited` 记录首切）
 
-- [ ] **Step 1: 安装 xterm 依赖（package.json 仅增量追加，#5：保留既有 e2e/rebuild/postinstall）**
+- [x] **Step 1: 安装 xterm 依赖（package.json 仅增量追加，#5：保留既有 e2e/rebuild/postinstall）**
 
 > **增量清单 a（不全文替换 package.json，#5）**：
 > 1. `npm i @xterm/xterm @xterm/addon-fit`——由 npm 自动写入 dependencies（**追加**，不覆盖现有三条 @napi-rs/keyring + better-sqlite3 + ws + yauzl）
@@ -851,7 +851,7 @@ Run: `cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm i @xterm/xterm @
 Run: `cd deskminis && node -e "const p=require('./package.json'); console.log('@xterm:', !!p.dependencies['@xterm/xterm'], '; gen-tray:', typeof p.scripts['gen:tray-icon'])"`
 Expected: `@xterm: true ; gen-tray: true`（scripts 若未写入 gen-tray-icon 则手动补）
 
-- [ ] **Step 2: RpcClient 增加 off（已对照 main@c54dac4 现状核实：与 M1 完全一致；全文块保留 + 加注解）**
+- [x] **Step 2: RpcClient 增加 off（已对照 main@c54dac4 现状核实：与 M1 完全一致；全文块保留 + 加注解）**
 
 <!-- #3 冲突点核实：c54dac4 rpc.ts 共 51 行：type Handler + class RpcClient（handlers Map + on/无 off + connect minisdInfo/minisdPort 握手 + call reject error.message），与原计划替换块完全一致。因此保留全文块，仅末尾追加 off 方法。 -->
 `deskminis/src/renderer/src/rpc.ts`（**已对照现状 c54dac4 核实——M2x 未改动此文件**）：
@@ -919,7 +919,7 @@ export class RpcClient {
 export const rpc = new RpcClient();
 ```
 
-- [ ] **Step 3: TerminalPanel.vue（新建）**
+- [x] **Step 3: TerminalPanel.vue（新建）**
 
 `deskminis/src/renderer/src/components/TerminalPanel.vue`:
 
@@ -1041,7 +1041,7 @@ onBeforeUnmount(() => {
 </style>
 ```
 
-- [ ] **Step 4: App.vue 接线终端页签（#3：增量清单；已对照现状核实——M2x 未改动此文件；禁止全文替换）**
+- [x] **Step 4: App.vue 接线终端页签（#3：增量清单；已对照现状核实——M2x 未改动此文件；禁止全文替换）**
 
 > **现状锚点 + 增量清单（Task 3 Step 4 只改以下 5 处，其余原样保留现状 ChatView / ProviderSettings / TitleBar / 明暗切换 / openSettings provide 等所有既有内容）**：
 > a. `<script>` import 区**追加**：`import TerminalPanel from './components/TerminalPanel.vue';`（import Icon.vue 之前或之后都可）
@@ -1204,7 +1204,7 @@ onMounted(() => { void chat.init(); });
 </style>
 ```
 
-- [ ] **Step 5: typecheck + build + dev 手工冒烟**
+- [x] **Step 5: typecheck + build + dev 手工冒烟**
 
 Run: `cd deskminis && npm run typecheck`
 Expected: 0 errors

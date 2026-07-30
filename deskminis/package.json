@@ -14,7 +14,8 @@
     "e2e:m2c": "node scripts/e2e-m2c-acceptance.mjs",
     "e2e:m2e": "node scripts/e2e-m2e-acceptance.mjs",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
-    "postinstall": "electron-rebuild -f -w better-sqlite3"
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "gen:tray-icon": "node scripts/gen-tray-icon.mjs"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +23,8 @@
   "type": "module",
   "dependencies": {
     "@napi-rs/keyring": "^1.3.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^12.11.1",
     "ws": "^8.21.1",
     "yauzl": "^2.10.0"
