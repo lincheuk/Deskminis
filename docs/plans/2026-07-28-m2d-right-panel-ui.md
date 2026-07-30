@@ -543,7 +543,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/termina
     - `files.list({sessionId, dir?})` → `FileNode[]`（`dir` 省略 = 工作区根）
     - `files.read({sessionId, path})` → `FilePreview`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/files-rpc.test.ts`:
 
@@ -706,12 +706,12 @@ describe('files.* RPC（工作区文件树）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/files-rpc.test.ts`
 Expected: FAIL（`files.list` 未知方法 / 模块不存在）
 
-- [ ] **Step 3: 实现 files.ts**
+- [x] **Step 3: 实现 files.ts**
 
 `deskminis/src/minisd/files.ts`:
 
@@ -808,11 +808,11 @@ export class FilesService {
 }
 ```
 
-- [ ] **Step 4: 接线 minisd/index.ts（已并入 Task 1 Step 4 增量清单，Task 2 不再单独改 index.ts）**
+- [x] **Step 4: 接线 minisd/index.ts（已并入 Task 1 Step 4 增量清单，Task 2 不再单独改 index.ts）**
 
 > 注：Task 1 Step 4 的 b. 服务装配已同处插入 `const filesSvc = new FilesService(paths)`；c. methods 表已同处插入 `files.list / files.read / chat.contextInfo`；import 区 a. 已同处加 `import { FilesService } from './files'`。Task 2 执行时只改 files.ts + files-rpc.test.ts，index.ts 接线与 Task 1 同提交一次（减少 index.ts 多轮增量彼此覆盖的冲突面）。
 
-- [ ] **Step 5: 跑测试确认通过 + typecheck**
+- [x] **Step 5: 跑测试确认通过 + typecheck**
 
 Run: `cd deskminis && npm test -- tests/files-rpc.test.ts`
 Expected: `11 passed`

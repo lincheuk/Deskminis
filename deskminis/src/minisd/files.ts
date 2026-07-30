@@ -1,137 +1,90 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join, sep, posix } from 'node:path';
+import { readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
 import type { MinisPaths } from './paths';
 
+/** files.read 预览上限（超出截断并置 truncated）。 */
+const MAX_PREVIEW = 256 * 1024;
+/** 二进制嗅探窗口：前 8KB 含 NUL 即视为不可预览。 */
+const SNIFF_BYTES = 8192;
+
 export interface FileNode {
-  /** 显示名（含后缀） */
-  name: string;
-  /** 相对于 workspace 根的 POSIX 路径（目录分隔符为 `/`）；根层条目即 `basename` */
-  path: string;
-  /** 文件 vs 目录 */
+  name: string;          // 条目名（不含路径）
+  path: string;          // 工作区相对路径，POSIX 分隔（'sub/b.txt'；根层条目为 'a.txt'）
   kind: 'dir' | 'file';
-  /** 字节大小；目录 size 固定为 0（递归计算代价太高且会让大目录卡顿） */
-  size: number;
-  /** mtime 为 epoch 秒（浮点） */
-  mtime: number;
+  size: number;          // 字节；目录为 0
+  mtime: number;         // epoch 秒（浮点，全局约束）
 }
 
 export interface FilePreview {
-  /** 用户请求的 guest path（原样返回，便于 UI 标签） */
-  path: string;
-  /** 完整字节大小（content 被截断时 size 仍为原始大小） */
-  size: number;
-  /** utf8 前缀内容；二进制为空串；超限前缀为 256KB */
-  content: string;
-  /** content 与实际文件不等长（超过 256KB） */
-  truncated: boolean;
-  /** 内容含 NUL 字节或编码错误被判定为二进制，content 为空字符串 */
-  binary: boolean;
+  path: string;          // 工作区相对 POSIX 路径
+  size: number;          // 完整文件字节数（截断时也回全量大小，供 UI 展示）
+  content: string;       // 文本内容（可能只含前缀）；二进制时为空串
+  truncated: boolean;    // 因超过 256KB 只读了前缀
+  binary: boolean;       // 嗅探为二进制：不可预览
 }
 
-/** 前缀读取上限（与计划一致：256KB） */
-const PREVIEW_MAX_BYTES = 256 * 1024;
+/** 归一化后的包含判断（与 tools/files.ts 的 isInsideRoot 同策略：防 <root>\..\.. 前缀欺骗）。 */
+function isInside(abs: string, base: string): boolean {
+  const rel = relative(resolve(base), resolve(abs));
+  return rel === '' || (!rel.startsWith('..') && !/^[A-Za-z]:/.test(rel));
+}
 
-/** 工作区文件服务：目录在前按名排序；任何解析结果必须落在会话 workspace 内（绝对宿主路径/全局命名空间/穿越一律抛错）。 */
 export class FilesService {
   constructor(private paths: MinisPaths) {}
 
-  /** `dir` 省略 = 工作区根；`dir` 为相对 POSIX 路径，禁止穿越或全局命名空间引用。 */
+  /**
+   * 把 UI 给的目录/文件引用解析为「工作区内」绝对路径。
+   * resolveGuestPath 对绝对宿主路径（C:\...）与全局命名空间（/var/minis/memory）是放行的——
+   * 那是 agent 工具 + 权限网关的领域；文件面板是工作区树，必须额外收死在仓内（计划决策 4）。
+   */
+  private resolveInWorkspace(sessionId: string, ref?: string): { abs: string; rel: string } {
+    const base = this.paths.sessionBucket(sessionId, 'workspace');
+    const abs = this.paths.resolveGuestPath(sessionId, ref ?? '/var/minis/workspace');
+    if (!isInside(abs, base)) throw new Error(`文件面板只允许访问会话工作区: ${ref ?? '/'}`);
+    const rel = relative(base, abs).split('\\').join('/');
+    return { abs, rel };
+  }
+
+  /** 列目录一层（懒加载树的单步）。dir 省略 = 工作区根。目录在前、按名称排序。 */
   list(sessionId: string, dir?: string): FileNode[] {
     this.paths.ensureSessionDirs(sessionId);
-    const workspaceRoot = this.paths.sessionBucket(sessionId, 'workspace');
-    // 任何 dir（含空/undefined）经 resolveGuestPath 校验：绝对宿主路径/全局命名空间/穿越一律抛错；默认落到 workspace 根
-    const guest = dir && dir !== '' ? dir : '';
-    const absDir = guest === ''
-      ? workspaceRoot
-      : this.paths.resolveGuestPath(sessionId, guest);
-    // absDir 必须仍在 workspaceRoot 之下（resolveGuestPath 已防穿越；再检查保证显式安全）
-    if (absDir !== workspaceRoot && !absDir.startsWith(workspaceRoot + sep) && !absDir.startsWith(workspaceRoot + posix.sep)) {
-      throw new Error(`files.list: dir 越出 workspace: ${dir ?? ''}`);
-    }
-    let names: string[];
-    try { names = readdirSync(absDir); } catch { /* 不存在/非目录 -> 视为空（UI 友好） */ return []; }
-    const nodes: FileNode[] = [];
-    for (const n of names) {
-      const abs = join(absDir, n);
-      let st;
-      try { st = statSync(abs); } catch { continue; }
-      const relGuestAbs = guest === '' ? n : posixJoin(guest, n);
-      // 再次把最终相对 guest path 喂 resolveGuestPath 得到 abs（双重校验：不能因为 dir 合法但目标出界而漏掉）
-      const recheck = this.paths.resolveGuestPath(sessionId, relGuestAbs);
-      if (recheck !== abs) throw new Error(`files.list: 路径不一致: ${relGuestAbs}`);
-      nodes.push({
-        name: n,
-        path: relGuestAbs.split(sep).join(posix.sep), // 归一化为 POSIX 分隔
-        kind: st.isDirectory() ? 'dir' : (st.isFile() ? 'file' : 'file'), // 其他类型（符号链接/设备）按 file 显示；符号链接由 statSync 跟随的行为与 read 一致
-        size: st.isDirectory() ? 0 : st.size,
-        mtime: st.mtimeMs / 1000,
-      });
-    }
-    // 目录在前 + 各自按 localeCompare 名升序（Windows/中文都稳定）
-    nodes.sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1;
-      return a.name.localeCompare(b.name);
+    const { abs, rel } = this.resolveInWorkspace(sessionId, dir);
+    const st = statSync(abs); // ENOENT 原样抛给 RPC 层，前端显示「路径不存在」
+    if (!st.isDirectory()) throw new Error(`不是目录: ${rel || '/'}`);
+    const entries = readdirSync(abs, { withFileTypes: true });
+    const nodes: FileNode[] = entries.map(e => {
+      const isDir = e.isDirectory();
+      let size = 0; let mtime = 0;
+      try {
+        const cs = statSync(resolve(abs, e.name));
+        size = isDir ? 0 : cs.size;
+        mtime = cs.mtimeMs / 1000;
+      } catch { /* 列目录瞬间被删的条目：按 0 返回，不让整层失败 */ }
+      return { name: e.name, path: rel ? `${rel}/${e.name}` : e.name, kind: isDir ? 'dir' as const : 'file' as const, size, mtime };
     });
+    nodes.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'dir' ? -1 : 1));
     return nodes;
   }
 
-  /** `path` 为 guest 路径（支持相对 /var/minis/*，但 /var/minis/attachments 等命名空间也经 resolveGuestPath——与 UI 的 workspace-only 策略一致：UI 传相对路径都会落到 workspace，不存在跨 bucket 混淆）。 */
+  /** 读文本预览：只读前 256KB+1 字节（不整文件入内存）；嗅探含 NUL 视为二进制不返回内容。 */
   read(sessionId: string, path: string): FilePreview {
-    if (typeof path !== 'string' || path.trim() === '') throw new Error('files.read 需要 path');
     this.paths.ensureSessionDirs(sessionId);
-    const abs = this.paths.resolveGuestPath(sessionId, path);
-    const workspaceRoot = this.paths.sessionBucket(sessionId, 'workspace');
-    if (abs !== workspaceRoot && !abs.startsWith(workspaceRoot + sep) && !abs.startsWith(workspaceRoot + posix.sep)) {
-      throw new Error(`files.read: path 越出 workspace: ${path}`);
-    }
-    let st;
-    try { st = statSync(abs); } catch (e: any) {
-      throw new Error(`文件不存在或不可读: ${basename(path)} (${e?.message ?? String(e)})`);
-    }
-    if (!st.isFile()) throw new Error(`不是文件: ${basename(path)}`);
-    const size = st.size;
-    // 读前 PREVIEW_MAX_BYTES（文件更大时只读前缀——content 被截断、binary 判定基于前缀即可；若前缀无 NUL 则当作文本显示，UI 侧显示「文件过大，仅预览前 256KB」）
+    const { abs, rel } = this.resolveInWorkspace(sessionId, path);
+    const st = statSync(abs);
+    if (st.isDirectory()) throw new Error(`不能预览目录: ${rel}`);
+    const fd = openSync(abs, 'r');
     let buf: Buffer;
     try {
-      const fd = require('node:fs').openSync(abs, 'r');
-      try {
-        const toRead = Math.min(size, PREVIEW_MAX_BYTES);
-        buf = Buffer.alloc(toRead);
-        let read = 0;
-        while (read < toRead) {
-          const got = require('node:fs').readSync(fd, buf, read, toRead - read, null);
-          if (got <= 0) break;
-          read += got;
-        }
-        if (read < buf.length) buf = buf.subarray(0, read);
-      } finally { require('node:fs').closeSync(fd); }
-    } catch (e: any) {
-      throw new Error(`读取失败: ${basename(path)} (${e?.message ?? String(e)})`);
+      const head = Buffer.alloc(Math.min(st.size, MAX_PREVIEW + 1));
+      const n = readSync(fd, head, 0, head.length, 0);
+      buf = head.subarray(0, n);
+    } finally { closeSync(fd); }
+    const sniffLen = Math.min(buf.length, SNIFF_BYTES);
+    for (let i = 0; i < sniffLen; i++) {
+      if (buf[i] === 0) return { path: rel, size: st.size, content: '', truncated: false, binary: true };
     }
-    const truncated = size > PREVIEW_MAX_BYTES;
-    // 二进制判定：NUL 字节（简单可靠——兼容 UTF-16 等极端情形由 UI 的 binary=true 空串兜底即可）
-    const binary = buf.includes(0x00);
-    let content = '';
-    if (!binary) {
-      try { content = buf.toString('utf8'); } catch { content = ''; }
-      // UTF-8 解码后含 替代字符（大量）时判二进制（防止乱码渲染撑满面板）
-      if (countReplacement(content) > Math.max(1, Math.floor(buf.length / 500))) {
-        content = '';
-      }
-    }
-    return { path, size, content, truncated, binary: binary || content === '' && buf.length > 0 };
+    const truncated = st.size > MAX_PREVIEW;
+    const content = buf.subarray(0, truncated ? MAX_PREVIEW : buf.length).toString('utf8');
+    return { path: rel, size: st.size, content, truncated, binary: false };
   }
-}
-
-function countReplacement(s: string): number {
-  let n = 0;
-  for (const c of s) if (c === '\uFFFD') n++;
-  return n;
-}
-
-/** 把可能含反斜杠的 guest 路径段拼接成 POSIX 风格（计划要求 path 为 POSIX 分隔）。 */
-function posixJoin(a: string, b: string): string {
-  const aN = a.replace(/\\/g, '/').replace(/\/+$/, '');
-  const bN = b.replace(/\\/g, '/').replace(/^\/+/, '');
-  return aN === '' ? bN : `${aN}/${bN}`;
 }
