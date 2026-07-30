@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, utilityProcess, type UtilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityProcess, type UtilityProcess } from 'electron';
 import { join } from 'node:path';
 
 let minisd: UtilityProcess | undefined;
@@ -6,6 +6,8 @@ let minisdPort = 0;
 // per-run token：从握手行里接住并经 minisd:info 通道交给渲染进程；
 // 没有它渲染进程连 RPC 会被 401 拒绝（RpcServer 要求 ?token=<authToken>），应用只能开一个空窗口。
 let minisdToken = '';
+let tray: Tray | undefined;
+let quitting = false;
 
 /** 子进程未在此时限内上报端口就判定启动失败——否则挂死的子进程会让主进程永远停在白屏前。 */
 const MINISD_START_TIMEOUT_MS = 30_000;
@@ -61,7 +63,21 @@ function startMinisdProcess(): Promise<number> {
   });
 }
 
-async function createWindow(): Promise<void> {
+function loadTrayIcon(): import('electron').NativeImage {
+  return nativeImage.createFromPath(join(__dirname, '../../resources/tray.png'));
+}
+
+function createTrayMenu(win: BrowserWindow): import('electron').Menu {
+  return Menu.buildFromTemplate([
+    { label: '显示主窗口', click: () => { win.show(); win.focus(); } },
+    { label: '切换右栏', click: () => { win.show(); win.webContents.send('menu:toggle-right'); } },
+    { label: '打开设置', click: () => { win.show(); win.webContents.send('menu:open-settings'); } },
+    { type: 'separator' as const },
+    { label: '退出 DeskMinis', click: () => { app.quit(); } },
+  ]);
+}
+
+async function createWindow(): Promise<BrowserWindow> {
   const win = new BrowserWindow({
     width: 1280, height: 800, minWidth: 900, minHeight: 600,
     // 无边框 + 自绘标题栏（设计 §4.0）：DOM 里不画窗口控制，
@@ -73,6 +89,10 @@ async function createWindow(): Promise<void> {
   });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, '../renderer/index.html'));
+
+  // 关窗不退出：隐藏到托盘（× / Alt+F4 都走这里；托盘退出 / before-quit 才真放行）
+  win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } });
+  return win;
 }
 
 // 旧通道保留（无害；渲染层重写后会弃用）：只给端口，连不上带 token 认证的 minisd。
@@ -86,8 +106,12 @@ app.whenReady().then(async () => {
   // 应用「启动了但什么都不显示」，用户和开发者都拿不到任何线索。
   try {
     await startMinisdProcess();
-    await createWindow();
-    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });
+    const mainWindow = await createWindow();
+    tray = new Tray(loadTrayIcon());
+    tray.setToolTip('DeskMinis');
+    tray.setContextMenu(createTrayMenu(mainWindow));
+    tray.on('click', () => { if (mainWindow.isVisible()) mainWindow.hide(); else { mainWindow.show(); mainWindow.focus(); } });
+    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); else mainWindow.show(); });
   } catch (e) {
     const message = e instanceof Error ? (e.stack ?? e.message) : String(e);
     process.stderr.write('DeskMinis 启动失败: ' + message + '\n');
@@ -96,4 +120,7 @@ app.whenReady().then(async () => {
     app.quit();
   }
 });
-app.on('window-all-closed', () => { /* 关窗不杀 minisd：托盘常驻在 M2 补，M1 直接退出 */ if (process.platform !== 'darwin') { minisd?.kill(); app.quit(); } });
+app.on('before-quit', () => { quitting = true; minisd?.kill(); });
+app.on('window-all-closed', () => {
+  // 托盘常驻：关窗默认隐藏不销毁，退出只走托盘菜单 / before-quit
+});
