@@ -4,6 +4,9 @@ import { ProviderError, isFallbackable } from '../providers/types';
 import type { ChatStore } from '../store/chat-store';
 import type { ToolRegistry } from '../tools/registry';
 import type { ToolContext } from '../tools/types';
+import type { ContextPolicy } from './context-policy';
+import type { OffloadEngine } from './offload';
+import type { CompactEngine } from './compact';
 
 export type LoopEvent =
   | { kind: 'textDelta'; text: string }
@@ -14,6 +17,8 @@ export type LoopEvent =
   | { kind: 'turnEnd'; stopReason: StopReason }
   | { kind: 'retry'; attempt: number; delayMs: number; reason: string }
   | { kind: 'fallback'; from: string; to: string; reason: string }
+  | { kind: 'compacted'; markerId: string; summary: string }
+  | { kind: 'offloaded'; toolUseId: string; relativePath: string }
   | { kind: 'error'; message: string };
 
 export interface ProviderSlot { provider: AgentProvider; label: string }
@@ -23,6 +28,10 @@ export interface RunOptions {
   systemPrompt: string; maxTokens?: number; thinkingLevel?: ThinkingLevel; maxTurns?: number;
   signal?: AbortSignal; retryDelaysMs?: number[];
   fallbackChain?: ProviderSlot[];
+  contextPolicy?: ContextPolicy;       // 上下文水位分层决策（Task 4）
+  compactEngine?: CompactEngine;       // LLM 压缩摘要（Task 6）
+  offloadEngine?: OffloadEngine;       // 大工具结果卸载（Task 5）
+  excludedToolNames?: Set<string>;     // 按会话过滤工具（memory_enabled=false 时排除记忆工具）
 }
 
 const DEFAULT_RETRY = [3000, 5000, 10000, 15000, 30000];
@@ -145,15 +154,56 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   }
 
   let hadToolCallInPrevTurn = false; // 上一轮是否有工具调用（用于空响应两路处理判定）
+  let compactCount = 0; // 本循环已压缩次数（上限 3，设计 §4.2）
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
     const history = store.listMessages(opts.sessionId);
     clock.observe(history);
+
+    // 推理时合成 effectiveAgentHistory（设计 §4.2「推理时合成」）
+    // raw history 永不改写；effectiveHistory 是水位估算与请求构建的唯一输入。
+    const curMarker = opts.compactEngine ? store.getLatestCompactMarker(opts.sessionId) : undefined;
+    const effectiveHistory = opts.compactEngine
+      ? opts.compactEngine.buildEffectiveHistory(history, curMarker)
+      : toAgentMessages(history);
+
+    // 上下文水位检查 + 压缩（设计 §4.2「上下文水位检查」+「压缩」段）
+    // 关键：estimateTokens 基于 effectiveHistory，不是 raw history——
+    //   压缩写 marker 后 effectiveHistory 变小、水位自然下降，不会出现
+    //   「存储不改写 → 水位永不降 → 每次都重复压缩到 3 次上限」的缺陷。
+    if (opts.contextPolicy && opts.compactEngine && compactCount < 3) {
+      const action = opts.contextPolicy.decide(
+        activeSlot.provider.modelId,
+        opts.contextPolicy.estimateTokens(effectiveHistory),
+      );
+      if (action === 'compact') {
+        try {
+          const newMarker = await opts.compactEngine.summarize(history, opts.sessionId, activeSlot.provider);
+          if (newMarker) {
+            compactCount++;
+            yield { kind: 'compacted', markerId: newMarker.id, summary: newMarker.summary.slice(0, 200) };
+            turn--; // 压缩轮不消耗 turn 额度
+            continue; // 重新取 history + effectiveHistory（含新 marker，水位下降）
+          }
+          // summarize 返回 undefined（不足 3 个真正用户回合）：
+          //  不发 compacted 事件、不 turn--、不 continue——直接落到下面的 req 构建，
+          //  用现有 effectiveHistory 继续流式请求。
+          //  关键：绝不能因 undefined 而 continue 重试，否则 history 不变 → 水位不变 →
+          //  再次 compact → 再次 undefined → 死循环。落下去发请求才是正路。
+        } catch {
+          // 压缩失败（provider 抛错）不杀对话：跳过本次压缩，继续流式请求
+        }
+      }
+    }
+
+    // 构建 req（复用上方已合成的 effectiveHistory，不重复计算 marker / effectiveHistory）
+    const allToolDefs = opts.tools.definitions();
+    const toolDefs = opts.excludedToolNames ? allToolDefs.filter(t => !opts.excludedToolNames!.has(t.name)) : allToolDefs;
     const req: StreamRequest = {
       // 发送前在 provider 边界配对 tool_use/tool_result（修中断后会话永久损坏），不改存储
-      messages: pairToolResults(toAgentMessages(history)),
-      systemPrompt: opts.systemPrompt, tools: opts.tools.definitions(), maxTokens, thinkingLevel,
+      messages: pairToolResults(effectiveHistory),
+      systemPrompt: opts.systemPrompt, tools: toolDefs, maxTokens, thinkingLevel,
     };
 
     let text = ''; let reasoning = ''; let usage: TokenUsage | undefined; let stopReason: StopReason = 'endTurn';
@@ -297,8 +347,16 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     });
     const resultParts: ContentPart[] = [];
     for (const { c, outcome } of results) {
+      // 卸载：大工具结果落库前替换为桩（设计 §4.2「大工具结果卸载」）
+      let outputToStore = outcome.output;
+      if (opts.offloadEngine && opts.offloadEngine.shouldOffload(outcome.output)) {
+        const { stub, relativePath } = opts.offloadEngine.offload(opts.sessionId, c.toolUseId, outcome.output);
+        yield { kind: 'offloaded', toolUseId: c.toolUseId, relativePath };
+        outputToStore = stub;
+      }
+      // toolEnd 事件广播替换前完整 output（UI 可见）；落库的是 outputToStore（可能是桩）
       yield { kind: 'toolEnd', toolUseId: c.toolUseId, success: outcome.success, output: outcome.output };
-      resultParts.push({ type: 'toolResult', value: { toolUseId: c.toolUseId, output: outcome.output, success: outcome.success, status: outcome.success ? 'success' : 'failed' } });
+      resultParts.push({ type: 'toolResult', value: { toolUseId: c.toolUseId, output: outputToStore, success: outcome.success, status: outcome.success ? 'success' : 'failed' } });
     }
     const resultMsg = store.appendMessage({
       id: store.newId(), sessionId: opts.sessionId, role: 'user', parts: resultParts,

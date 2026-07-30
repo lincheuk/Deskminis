@@ -12,6 +12,9 @@ import { MinisPaths } from '../src/minisd/paths';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ContextPolicy } from '../src/minisd/agent/context-policy';
+import { OffloadEngine } from '../src/minisd/agent/offload';
+import { CompactEngine } from '../src/minisd/agent/compact';
 
 /** 一次「先吐半截再炸」的脚本：用于验证重试不会把两次尝试的文本拼在一起。 */
 type Script = AgentStreamEvent[] | ProviderError | { events: AgentStreamEvent[]; error: ProviderError };
@@ -406,5 +409,128 @@ describe('pairToolResults', () => {
     // 孤儿 toolResult 被丢弃, 该 user 消息只剩空 parts, 后续文本保留
     expect(out[0].parts).toHaveLength(0);
     expect(out[1]).toEqual(text('hi'));
+  });
+});
+
+describe('runAgentLoop + 压缩/卸载装配', () => {
+  it('大工具结果触发卸载：toolEnd 广播完整 output，落库为桩', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    // 注册一个返回大输出的工具
+    const bigTool: ToolExecutor = {
+      definition: { name: 'big', description: '大输出', parameters: { tool_title: { type: 'string', description: 't' } }, required: ['tool_title'] },
+      async execute() { return { output: 'B'.repeat(25_000), success: true }; },
+    };
+    tools.register(bigTool);
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '调用 big' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([[
+      { kind: 'toolCallComplete', toolUseId: 'T1', name: 'big', input: '{"tool_title":"大输出"}' },
+      { kind: 'done', stopReason: 'toolUse' },
+    ], [
+      { kind: 'textDelta', text: '完成' }, { kind: 'done', stopReason: 'endTurn' },
+    ]]);
+    const offload = new OffloadEngine(new MinisPaths(mkdtempSync(join(tmpdir(), 'dm-off-'))));
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', offloadEngine: offload }));
+    // toolEnd 事件广播完整 output
+    const toolEnd = events.find(e => e.kind === 'toolEnd') as any;
+    expect(toolEnd.output.length).toBe(25_000);
+    // 落库的 tool_result output 是桩
+    const msgs = store.listMessages(sessionId);
+    const toolResultMsg = msgs.find(m => m.parts.some(p => p.type === 'toolResult'));
+    const trPart = toolResultMsg!.parts.find(p => p.type === 'toolResult')!.value as any;
+    expect(trPart.output).toContain('[CONTEXT OFFLOADED');
+    expect(trPart.output.length).toBeLessThan(500);
+    // offloaded 事件
+    expect(events.some(e => e.kind === 'offloaded')).toBe(true);
+  });
+
+  it('压缩触发：水位超阈值 → compacted 事件 + effectiveHistory 含摘要', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    // 计划内修正：原计划用 window=8000 + 2000字符/条，但 Task 4 的 ContextPolicy.decide
+    //   对 <32K 窗口只 offload 不 compact（context-policy.test.ts 已锚定）。
+    //   改为 window=64000 + 15000字符/条：12 条 ~180300 chars → ~45075 token → ratio 0.704 → compact；
+    //   压缩后 effectiveHistory = [summary, U3,A3,U4,A4,U5,A5] ~90200 chars → ~22550 token → ratio 0.352 → none。
+    for (let i = 0; i < 6; i++) {
+      store.appendMessage({ id: `U${i}`, sessionId, role: 'user', parts: [{ type: 'text', value: 'x'.repeat(15_000) }], createdAt: i + 1, streamInterruptCount: 0 });
+      store.appendMessage({ id: `A${i}`, sessionId, role: 'assistant', parts: [{ type: 'text', value: 'y'.repeat(15_000) }], createdAt: i + 1.5, streamInterruptCount: 0 });
+    }
+    const policy = new ContextPolicy({ getModelContextWindow: () => 64_000 });
+    const compact = new CompactEngine(store);
+    // dualProvider：第 1 次被压缩引擎当摘要 provider 调，第 2 次才是正式回复
+    let callCount = 0;
+    const dualProvider: AgentProvider = {
+      name: 'dual', modelId: 'fake',
+      async *streamAgentMessage(req) {
+        callCount++;
+        if (callCount === 1) {
+          yield { kind: 'textDelta', text: '压缩摘要' }; yield { kind: 'done', stopReason: 'endTurn' };
+          return;
+        }
+        // 正式回复：effectiveHistory 含 [对话摘要]
+        const firstUser = req.messages.find(m => m.role === 'user');
+        expect(JSON.stringify(firstUser?.parts)).toContain('[对话摘要]');
+        yield { kind: 'textDelta', text: '回复' }; yield { kind: 'done', stopReason: 'endTurn' };
+      },
+    };
+    const events = await collect(runAgentLoop(store, { sessionId, provider: dualProvider, tools, toolContext, systemPrompt: 'sys', contextPolicy: policy, compactEngine: compact }));
+    expect(events.some(e => e.kind === 'compacted')).toBe(true);
+    expect(callCount).toBe(2); // 1 次摘要 + 1 次正式回复
+    expect(events.at(-1)?.kind).toBe('turnEnd');
+  });
+
+  it('压缩一次后水位下降：同一循环不再重复压缩', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    // 4 个用户回合：U0/A0 巨大（撑高水位），U1~A3 极小
+    // recent 3 真用户回合 = U1,U2,U3；anchor = A0；toSummarize = [U0,A0]
+    // 压缩后 effectiveHistory = [summary, U1,A1,U2,A2,U3,A3] 全小 → 水位降到 none → 不再 compact
+    // 计划内修正：原计划用 window=1000 + U0/A0=2000字符，但 <32K 窗口不 compact（见上）。
+    //   改为 window=64000 + U0/A0=90000字符：raw ~180170 chars → ~45043 token → ratio 0.704 → compact；
+    //   压缩后 effectiveHistory = [summary + 6 小消息] ~170 chars → ~43 token → ratio 0.0007 → none。
+    store.appendMessage({ id: 'U0', sessionId, role: 'user', parts: [{ type: 'text', value: 'X'.repeat(90_000) }], createdAt: 1, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A0', sessionId, role: 'assistant', parts: [{ type: 'text', value: 'Y'.repeat(90_000) }], createdAt: 2, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '小1' }], createdAt: 3, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A1', sessionId, role: 'assistant', parts: [{ type: 'text', value: '小A1' }], createdAt: 4, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'U2', sessionId, role: 'user', parts: [{ type: 'text', value: '小2' }], createdAt: 5, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A2', sessionId, role: 'assistant', parts: [{ type: 'text', value: '小A2' }], createdAt: 6, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'U3', sessionId, role: 'user', parts: [{ type: 'text', value: '小3' }], createdAt: 7, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A3', sessionId, role: 'assistant', parts: [{ type: 'text', value: '小A3' }], createdAt: 8, streamInterruptCount: 0 });
+    const policy = new ContextPolicy({ getModelContextWindow: () => 64_000 });
+    const compact = new CompactEngine(store);
+    let callCount = 0;
+    const provider: AgentProvider = {
+      name: 'p', modelId: 'fake',
+      async *streamAgentMessage(req) {
+        callCount++;
+        if (callCount === 1) { yield { kind: 'textDelta', text: '对话摘要' }; yield { kind: 'done', stopReason: 'endTurn' }; return; }
+        // 第 2 次：effectiveHistory 已含摘要且水位下降不再 compact
+        const firstUser = req.messages.find(m => m.role === 'user');
+        expect(JSON.stringify(firstUser?.parts)).toContain('[对话摘要]');
+        yield { kind: 'textDelta', text: '回复' }; yield { kind: 'done', stopReason: 'endTurn' };
+      },
+    };
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', contextPolicy: policy, compactEngine: compact }));
+    // 恰好 1 次 compacted（压缩后 effectiveHistory 变小、水位降到 none，同一循环不再重复压缩）
+    expect(events.filter(e => e.kind === 'compacted')).toHaveLength(1);
+    expect(callCount).toBe(2); // 1 次摘要 + 1 次正式回复
+    expect(events.at(-1)?.kind).toBe('turnEnd');
+    expect(store.getLatestCompactMarker(sessionId)?.summary).toBe('对话摘要');
+  });
+
+  it('excludedToolNames: 过滤工具定义', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    const hiddenTool: ToolExecutor = {
+      definition: { name: 'hidden', description: '应被隐藏', parameters: { tool_title: { type: 'string', description: 't' } }, required: ['tool_title'] },
+      async execute() { return { output: '不该被调用', success: true }; },
+    };
+    tools.register(hiddenTool);
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '你好' }], createdAt: 1, streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([[
+      // provider 能看到的 tools 不应含 hidden
+      { kind: 'textDelta', text: 'ok' }, { kind: 'done', stopReason: 'endTurn' },
+    ]]);
+    provider.seen.length = 0;
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', excludedToolNames: new Set(['hidden']) }));
+    // 验证 provider 收到的 tools 不含 hidden
+    expect(provider.seen[0].tools.find(t => t.name === 'hidden')).toBeUndefined();
+    expect(events.at(-1)?.kind).toBe('turnEnd');
   });
 });

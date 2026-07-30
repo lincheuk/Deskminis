@@ -409,3 +409,28 @@ describe('fallback 改写会话绑定时机', () => {
     c.close();
   });
 });
+
+describe('chat.sessions.setMemoryEnabled', () => {
+  it('设置 memoryEnabled 并在 getSession 读回', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', { title: 'M' })).result;
+    // 默认 memoryEnabled = true（db.ts memory_enabled DEFAULT 1）
+    expect((await c.call('chat.sessions.list')).result[0].memoryEnabled).toBe(true);
+    // 关闭
+    await c.call('chat.sessions.setMemoryEnabled', { sessionId: s.id, enabled: false });
+    const list = (await c.call('chat.sessions.list')).result;
+    expect(list[0].memoryEnabled).toBe(false);
+    // 再开
+    await c.call('chat.sessions.setMemoryEnabled', { sessionId: s.id, enabled: true });
+    expect((await c.call('chat.sessions.list')).result[0].memoryEnabled).toBe(true);
+    c.close();
+  });
+
+  it('非法 sessionId 被拒', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    expect((await c.call('chat.sessions.setMemoryEnabled', { sessionId: 'evil', enabled: false })).error).toBeTruthy();
+    c.close();
+  });
+});

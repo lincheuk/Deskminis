@@ -74,7 +74,7 @@ deskminis/
 
 **语义**（设计 §3.4）：`GLOBAL.md` 用户维护 agent 只读（`MemoryStore` 不提供写接口）；`SOUL.md` 人设（YAML frontmatter + 正文）；`YYYY-MM-DD.md` 每日日志，条目格式 `<!-- YYYY-MM-DD HH:mm:ss -->\n{markdown}\n\n`，前插（最新在前）。`date` 参数格式 `YYYY-MM-DD`，非法格式抛错。`appendDailyLog` 用系统本地时区（不硬编码——`new Date()` 取系统本地时间，`formatLocalTs` 用 `d.getFullYear()/getMonth()/...` 系列本地访问器拼出 `YYYY-MM-DD HH:mm:ss`，全程不碰 UTC，与 `toISOString` 无关）。原子写：先写 `tmp` 再 `rename`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/memory-store.test.ts`:
 
@@ -172,12 +172,12 @@ describe('MemoryStore', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/memory-store.test.ts`
 Expected: FAIL（`MemoryStore` 未导出）
 
-- [ ] **Step 3: 创建 memory-store.ts**
+- [x] **Step 3: 创建 memory-store.ts**
 
 `deskminis/src/minisd/store/memory-store.ts`:
 
@@ -256,7 +256,7 @@ export class MemoryStore {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + M2b 测试不回归**
+- [x] **Step 4: 跑测试确认通过 + M2b 测试不回归**
 
 Run: `cd deskminis && npm test -- tests/memory-store.test.ts`
 Expected: PASS（13 个用例）
@@ -264,7 +264,7 @@ Expected: PASS（13 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（M2b 的 189 个测试不受影响——纯新增文件）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/memory-store.ts deskminis/tests/memory-store.test.ts && git commit -m "feat(m2a): MemoryStore 记忆文件持久化（GLOBAL/SOUL/日志 CRUD + 条目前插 + 原子写）"
@@ -290,7 +290,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/m
 
 **语义**（设计 §3.4）：注入完整 `GLOBAL.md` + 最近 3 个非空日志（各 200 行内），措辞框定为"背景上下文而非常设指令，以用户最新消息为准"。`SOUL.md` 设计文档未在注入段明示，但它是人设文件——决策：注入到 `basePrompt` 之前作为人设基础（不存在则跳过）。`GLOBAL.md` 截断到 4096 字符（防爆），单条日志截断到 200 行。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/memory-injector.test.ts`:
 
@@ -371,12 +371,12 @@ describe('MemoryInjector', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/memory-injector.test.ts`
 Expected: FAIL（`MemoryInjector` 未导出）
 
-- [ ] **Step 3: 创建 memory-injector.ts**
+- [x] **Step 3: 创建 memory-injector.ts**
 
 `deskminis/src/minisd/store/memory-injector.ts`:
 
@@ -436,7 +436,7 @@ export class MemoryInjector {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/memory-injector.test.ts`
 Expected: PASS（8 个用例）
@@ -444,7 +444,7 @@ Expected: PASS（8 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1 的 memory-store.test.ts + M2b 189 个测试不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/memory-injector.ts deskminis/tests/memory-injector.test.ts && git commit -m "feat(m2a): MemoryInjector 系统提示注入记忆（SOUL/GLOBAL/最近3日志 + 措辞框定 + 截断）"
@@ -467,7 +467,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/m
 
 **语义**（设计 §3.4）：`memory_write` 写当日日志（`date` 省略时取本地今天）；`memory_get` 遍历所有日志条目，按 `0.5×关键词命中率 + 0.5×新近度` 评分降序，上限 60 条 / 30KB。关键词命中率 = query 分词后在 markdown 中命中的词数 / query 总词数（中文按单字、英文按空格分词，简单实现不引分词库）。新近度 = `1 / (1 + daysSinceTimestamp)`。会话级 `memory_enabled` 关闭时工具整个从 schema 移除（Task 7 在 `index.ts` 按会话过滤，本 Task 只造工具）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/memory-tools.test.ts`:
 
@@ -538,8 +538,9 @@ describe('memory_get 工具', () => {
     const ctx = { sessionId, paths, permissions: { async check() { return 'allow'; } } };
     const r = await memoryGetTool.execute(JSON.stringify({ query: 'TypeScript', tool_title: '查记忆' }), ctx);
     expect(r.success).toBe(true);
-    // TypeScript 命中的条目应排在前面
-    expect(r.output.indexOf('TypeScript 类型')).toBeLessThan(r.output.indexOf('Rust 异步'));
+    // 命中的条目出现；未命中的条目（Rust 异步）不参与返回（bigram 语义：命中是检索前提）
+    expect(r.output).toContain('TypeScript 类型');
+    expect(r.output).not.toContain('Rust 异步');
   });
 
   it('无匹配时返回提示而非空', async () => {
@@ -575,12 +576,12 @@ describe('MEMORY_TOOL_NAMES', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/memory-tools.test.ts`
 Expected: FAIL（`memoryWriteTool` / `memoryGetTool` / `MEMORY_TOOL_NAMES` 未导出）
 
-- [ ] **Step 3: 创建 memory.ts**
+- [x] **Step 3: 创建 memory.ts**
 
 `deskminis/src/minisd/tools/memory.ts`:
 
@@ -601,16 +602,19 @@ function makeStore(ctx: { paths: { root: string } }): MemoryStore {
   return new MemoryStore(join(ctx.paths.root, MEMORY_DIR_REL));
 }
 
-/** 中文按单字、英文按空格分词（简单实现，不引分词库）。 */
+/** 分词：英文数字按词（≥2 连续），中文按滑动二字组（bigram）。
+ *  中文单字高频字（的/不/在/关…）几乎命中一切中文文本，会让「未找到」分支不可达；
+ *  bigram 让无关文本自然得 0 命中。连续汉字段长度为 1 时退化为单字。 */
 function tokenize(text: string): string[] {
   const tokens: string[] = [];
-  // 英文单词
-  const en = text.match(/[A-Za-z]{2,}/g);
+  const en = text.match(/[A-Za-z0-9]{2,}/g);
   if (en) tokens.push(...en.map(s => s.toLowerCase()));
-  // 中文字符
-  const zh = text.match(/[\u4e00-\u9fa5]/g);
-  if (zh) tokens.push(...zh);
-  return tokens;
+  const runs = text.match(/[\u4e00-\u9fa5]+/g);
+  if (runs) for (const run of runs) {
+    if (run.length === 1) { tokens.push(run); continue; }
+    for (let i = 0; i < run.length - 1; i++) tokens.push(run.slice(i, i + 2));
+  }
+  return [...new Set(tokens)];
 }
 
 /** 关键词命中率：query 分词后在 markdown 中命中的词数 / query 总词数。 */
@@ -678,17 +682,22 @@ export const memoryGetTool: ToolExecutor = {
     const limit = Math.min(input.limit ?? MAX_ENTRIES, MAX_ENTRIES);
     const store = makeStore(ctx as { paths: { root: string } });
 
-    // 收集所有条目
+    // 收集命中条目：评分公式只用于命中条目的排序，未命中不参与返回
     const all: { entry: MemoryEntry; date: string; score: number }[] = [];
+    let parsedCount = 0;
     for (const date of store.listDailyLogs()) {
       const text = store.readDailyLog(date);
       for (const entry of store.parseEntries(text)) {
-        const score = 0.5 * hitRate(query, entry.markdown) + 0.5 * recency(entry);
+        parsedCount++;
+        const hr = hitRate(query, entry.markdown);
+        if (hr === 0) continue;            // 关键词命中是检索前提
+        const score = 0.5 * hr + 0.5 * recency(entry);
         all.push({ entry, date, score });
       }
     }
 
-    if (all.length === 0) return { output: '暂无记忆日志', success: true };
+    if (parsedCount === 0) return { output: '暂无记忆日志', success: true };
+    if (all.length === 0) return { output: '未找到匹配的记忆条目', success: true };
 
     // 按评分降序
     all.sort((a, b) => b.score - a.score);
@@ -710,7 +719,7 @@ export const memoryGetTool: ToolExecutor = {
 };
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/memory-tools.test.ts`
 Expected: PASS（11 个用例）
@@ -718,7 +727,7 @@ Expected: PASS（11 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1/2 + M2b 189 个测试不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/memory.ts deskminis/tests/memory-tools.test.ts && git commit -m "feat(m2a): memory_write/memory_get 工具（关键词+新近度评分检索 + 60条/30KB 上限）"
@@ -744,7 +753,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/m
 
 **语义**（设计 §4.2「上下文水位检查」）：按模型窗口分层——`<32K` 不管；`32-64K` 超 70% → offload；`64-128K` 超 50% → offload，超 70% → compact；`≥128K` 超 40% → offload，超 60% → compact。未知窗口（`getModelContextWindow` 返回 `undefined`）回退 32K 保守档（只 offload 不 compact）。`estimateTokens` 入参是 **`AgentMessage[]`**（不是 `RawMessage[]`）——水位检查发生在 `buildEffectiveHistory` 之后，此时只剩 `{ role, parts }`，`reasoningContent` 不在 effectiveHistory 里（它随 RawMessage → AgentMessage 映射被丢弃），故估算只算 `JSON.stringify(parts).length / 4`（英文 ~4 字符/token，中文偏保守，不引 tokenizer 库）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/context-policy.test.ts`:
 
@@ -829,12 +838,12 @@ describe('ContextPolicy.decide', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/context-policy.test.ts`
 Expected: FAIL（`ContextPolicy` 未导出）
 
-- [ ] **Step 3: 创建 context-policy.ts**
+- [x] **Step 3: 创建 context-policy.ts**
 
 `deskminis/src/minisd/agent/context-policy.ts`:
 
@@ -865,17 +874,19 @@ export class ContextPolicy {
     return Math.ceil(chars / 4);
   }
 
-  /** 按窗口分层决策（设计 §4.2 阈值表）。 */
+  /** 按窗口分层决策（设计 §4.2 阈值表）。
+   *  档位边界：32K/64K/128K。128K 归入「64-128K」档（语义段以范围表述，
+   *  测试「128K 窗口：超 50% offload，超 70% compact」锚定此归属）。 */
   decide(modelId: string, tokenCount: number): ContextAction {
     const window = this.catalog.getModelContextWindow(modelId) ?? FALLBACK_WINDOW;
     const ratio = tokenCount / window;
 
-    if (window >= 128_000) {
+    if (window > 128_000) {
       if (ratio >= 0.6) return 'compact';
       if (ratio >= 0.4) return 'offload';
       return 'none';
     }
-    if (window >= 64_000) {
+    if (window >= 64_000) {  // 64K - 128K（含 128K）
       if (ratio >= 0.7) return 'compact';
       if (ratio >= 0.5) return 'offload';
       return 'none';
@@ -890,7 +901,7 @@ export class ContextPolicy {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/context-policy.test.ts`
 Expected: PASS（9 个用例）
@@ -898,7 +909,7 @@ Expected: PASS（9 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-3 + M2b 189 个测试不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/context-policy.ts deskminis/tests/context-policy.test.ts && git commit -m "feat(m2a): ContextPolicy 水位分层决策（消费 ModelCatalog 窗口 + token 估算 + 4 档阈值）"
@@ -926,7 +937,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/c
 
 **语义**（设计 §4.2「大工具结果卸载」）：>20k 字符写 `offloads/`，历史替换为桩。决策：**落库时替换**（设计原文"历史替换为桩"），`toolEnd` 事件广播替换前完整 `output`（UI 可见），落库的 `tool_result.parts` 存桩。`toolUseId` 已是 UUID 大写（M1 约束），直接作文件名安全。原子写（tmp + rename）。`relativePath` 是相对 session 目录的路径（`offloads/<toolUseId>.txt`），供桩引用。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/offload.test.ts`:
 
@@ -991,12 +1002,12 @@ describe('OffloadEngine', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/offload.test.ts`
 Expected: FAIL（`OffloadEngine` 未导出）
 
-- [ ] **Step 3: 创建 offload.ts**
+- [x] **Step 3: 创建 offload.ts**
 
 `deskminis/src/minisd/agent/offload.ts`:
 
@@ -1035,7 +1046,7 @@ export class OffloadEngine {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/offload.test.ts`
 Expected: PASS（6 个用例）
@@ -1043,7 +1054,7 @@ Expected: PASS（6 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-4 + M2b 189 个测试不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/offload.ts deskminis/tests/offload.test.ts && git commit -m "feat(m2a): OffloadEngine 大工具结果卸载（>20k 写 offloads + 桩替换 + 原子写）"
@@ -1077,7 +1088,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/o
 
 **语义**（设计 §4.2「压缩」）：LLM 摘要存 `compact_markers`，推理时合成 `effectiveAgentHistory`，**不改写存储历史**；保留最近 3 个用户回合原文。`summarize` 调用 provider 生成摘要，提示词要求模型总结到 marker 时已有的对话（不含最近 3 个用户回合——它们保留原文不进摘要）。**「最近 3 个用户回合」的判定**：只统计「`role === 'user'` 且 parts 中**含 `text` part 且不含 `toolResult` part**」的消息——本仓库 `tool_result` 也落库为 `user` 消息（M1 设计），若按 `role==='user'` 一刀切，工具密集会话里真正的用户提问会被压进摘要、丢失原文。**不足 3 个用户回合时不压缩**：返回 `undefined`、**不写任何 marker**、不调 provider（理由：若写一个锚点=最后一条消息的「跳过 marker」，下一轮 `buildEffectiveHistory` 只剩摘要占位符、整个对话上下文被抹掉——这是毒 marker）。锚点丢失按 `createdAt` 自愈（设计原文）。`compact_markers` 表 M1 已建（`db.ts` MIGRATIONS[0]），M2a 只补 CRUD + index。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/chat-store.test.ts` 追加（文件末尾新 describe）:
 
@@ -1289,12 +1300,12 @@ describe('CompactEngine.buildEffectiveHistory', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/compact.test.ts tests/chat-store.test.ts`
 Expected: FAIL（`CompactEngine` 未导出；`appendCompactMarker` / `getLatestCompactMarker` 不存在）
 
-- [ ] **Step 3a: 修改 shared/types.ts 增加 CompactMarker**
+- [x] **Step 3a: 修改 shared/types.ts 增加 CompactMarker**
 
 在 `deskminis/src/shared/types.ts` 末尾追加：
 
@@ -1308,7 +1319,7 @@ export interface CompactMarker {
 }
 ```
 
-- [ ] **Step 3b: 修改 db.ts 加 index（追加 MIGRATIONS[1]）**
+- [x] **Step 3b: 修改 db.ts 加 index（追加 MIGRATIONS[1]）**
 
 在 `deskminis/src/minisd/store/db.ts` 的 `MIGRATIONS` 数组**追加一个新元素** `MIGRATIONS[1]`（**不要**往 `MIGRATIONS[0]` 里塞 CREATE INDEX）：
 
@@ -1326,7 +1337,7 @@ const MIGRATIONS = [
 
 `IF NOT EXISTS` 是双保险：开发库（M1 时已建表但无索引，user_version=1）跑 MIGRATIONS[1] 建索引；若索引已存在则跳过。迁移 runner（M1 既有）会自动把 `user_version` 推到 2。
 
-- [ ] **Step 3c: 修改 chat-store.ts 增加 compact_markers CRUD**
+- [x] **Step 3c: 修改 chat-store.ts 增加 compact_markers CRUD**
 
 在 `deskminis/src/minisd/store/chat-store.ts` 的 `ChatStore` 类内（`deleteSession` 之后）追加：
 
@@ -1352,7 +1363,7 @@ const MIGRATIONS = [
 import type { CompactMarker, RawMessage, SessionMeta, TokenUsage } from '../../shared/types';
 ```
 
-- [ ] **Step 3d: 创建 compact.ts**
+- [x] **Step 3d: 创建 compact.ts**
 
 `deskminis/src/minisd/agent/compact.ts`:
 
@@ -1462,7 +1473,7 @@ export class CompactEngine {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/compact.test.ts tests/chat-store.test.ts`
 Expected: PASS（compact 8 个用例 + chat-store 新增 4 个用例）
@@ -1470,7 +1481,7 @@ Expected: PASS（compact 8 个用例 + chat-store 新增 4 个用例）
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-5 + M2b 189 个测试不受影响——chat-store 只新增方法，M1 既有方法签名不变）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/compact.ts deskminis/src/minisd/store/chat-store.ts deskminis/src/minisd/store/db.ts deskminis/src/shared/types.ts deskminis/tests/compact.test.ts deskminis/tests/chat-store.test.ts && git commit -m "feat(m2a): CompactEngine LLM 压缩摘要 + effectiveAgentHistory 合成（compact_markers CRUD + 锚点自愈 + 保留最近3用户回合）"
@@ -1513,7 +1524,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/c
 
 **装配约束**：压缩与降级链共存——压缩用当前 `activeSlot.provider`（降级后用备选 provider 压缩）；压缩失败（provider 抛错）不终止循环，跳过本次压缩继续流式请求（避免压缩失败杀掉对话）；卸载在降级循环之外（tool_result 落库是降级循环之后的事，此时 slot 已确定）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/agent-loop.test.ts` 追加（文件末尾新 describe）:
 
@@ -1534,7 +1545,7 @@ describe('runAgentLoop + 压缩/卸载装配', () => {
     tools.register(bigTool);
     store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '调用 big' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
     const provider = new ScriptedProvider([[
-      { kind: 'toolCallComplete', toolUseId: 'T1', name: 'big', input: '{}' },
+      { kind: 'toolCallComplete', toolUseId: 'T1', name: 'big', input: '{"tool_title":"大输出"}' },
       { kind: 'done', stopReason: 'toolUse' },
     ], [
       { kind: 'textDelta', text: '完成' }, { kind: 'done', stopReason: 'endTurn' },
@@ -1673,12 +1684,12 @@ describe('chat.sessions.setMemoryEnabled', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- tests/agent-loop.test.ts tests/rpc.test.ts`
 Expected: FAIL（`offloadEngine` / `contextPolicy` / `compactEngine` / `excludedToolNames` 不在 `RunOptions`；`offloaded` / `compacted` 事件不存在；`setMemoryEnabled` RPC 不存在；`SessionMeta.memoryEnabled` 不存在）
 
-- [ ] **Step 3a: 修改 shared/types.ts**
+- [x] **Step 3a: 修改 shared/types.ts**
 
 `deskminis/src/shared/types.ts` 的 `SessionMeta` 增加字段：
 
@@ -1690,7 +1701,7 @@ export interface SessionMeta {
 }
 ```
 
-- [ ] **Step 3b: 修改 chat-store.ts**
+- [x] **Step 3b: 修改 chat-store.ts**
 
 `deskminis/src/minisd/store/chat-store.ts`：
 
@@ -1714,7 +1725,7 @@ export interface SessionMeta {
   }
 ```
 
-- [ ] **Step 3c: 修改 loop.ts**
+- [x] **Step 3c: 修改 loop.ts**
 
 `deskminis/src/minisd/agent/loop.ts`：
 
@@ -1826,7 +1837,7 @@ export interface RunOptions {
 
 注意：原代码里 `toolEnd` 事件在 `for` 循环内 yield，需要删掉原来的 `yield { kind: 'toolEnd', ... }` 行（被上方新逻辑替代）。
 
-- [ ] **Step 3d: 修改 index.ts**
+- [x] **Step 3d: 修改 index.ts**
 
 `deskminis/src/minisd/index.ts`：
 
@@ -1887,7 +1898,7 @@ import { CompactEngine } from './agent/compact';
     },
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量不回归**
+- [x] **Step 4: 跑测试确认通过 + 全量不回归**
 
 Run: `cd deskminis && npm test -- tests/agent-loop.test.ts tests/rpc.test.ts`
 Expected: PASS（agent-loop 新增 4 个用例 + rpc 新增 2 个用例 + 既有用例全部通过）
@@ -1895,7 +1906,7 @@ Expected: PASS（agent-loop 新增 4 个用例 + rpc 新增 2 个用例 + 既有
 Run: `cd deskminis && npm test`
 Expected: 全部通过（Task 1-6 新增测试 + M2b 189 个测试不回归——`RunOptions` 新字段全部可选，`SessionMeta.memoryEnabled` 可选，M2b 既有调用不传新参数行为不变）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/loop.ts deskminis/src/minisd/index.ts deskminis/src/minisd/store/chat-store.ts deskminis/src/shared/types.ts deskminis/tests/agent-loop.test.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2a): Agent 循环装配压缩/卸载/记忆（水位检查触发压缩 + 大结果卸载落桩 + memory_enabled 开关 + effectiveAgentHistory 合成）"

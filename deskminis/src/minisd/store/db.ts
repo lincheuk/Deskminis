@@ -24,6 +24,12 @@ const MIGRATIONS: string[] = [
     summary TEXT NOT NULL, last_compacted_message_id TEXT NOT NULL, created_at REAL NOT NULL
   );
   `,
+  // [1] M2a 新增：compact_markers 按 (session_id, created_at DESC) 建索引
+  //  必须是新迁移条目，不能追加进 MIGRATIONS[0]——已有用户库 user_version=1，
+  //  db.ts 的迁移 runner 只对 user_version < N 的库跑 MIGRATIONS[0..N-1]，
+  //  改 MIGRATIONS[0] 对已发布库是 no-op（迁移一经发布不可改）。
+  //  IF NOT EXISTS 双保险：开发库（M1 时已建表但无索引）跑此迁移建索引；若已存在则跳过。
+  `CREATE INDEX IF NOT EXISTS idx_compact_markers_session ON compact_markers(session_id, created_at DESC);`,
 ];
 
 export function openDb(filePath: string): Database.Database {

@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import type { RawMessage, SessionMeta, TokenUsage } from '../../shared/types';
+import type { CompactMarker, RawMessage, SessionMeta, TokenUsage } from '../../shared/types';
 import { serializeParts, parseParts } from '../../shared/parts';
 
 interface MessageRow {
@@ -24,10 +24,10 @@ export class ChatStore {
   }
 
   getSession(id: string): SessionMeta | undefined {
-    const r = this.db.prepare('SELECT id, title, model_binding, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
-      { id: string; title: string; model_binding: string | null; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
+    const r = this.db.prepare('SELECT id, title, model_binding, memory_enabled, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
+      { id: string; title: string; model_binding: string | null; memory_enabled: number; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
     if (!r) return undefined;
-    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
+    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, memoryEnabled: r.memory_enabled === 1, createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
   }
 
   listSessions(): SessionMeta[] {
@@ -45,6 +45,11 @@ export class ChatStore {
     this.db.prepare('UPDATE sessions SET model_binding=?, updated_at=? WHERE id=?').run(val, this.nowEpoch(), sessionId);
   }
 
+  /** 写入 sessions.memory_enabled（设计 §3.4 会话级记忆开关）。 */
+  setMemoryEnabled(sessionId: string, enabled: boolean): void {
+    this.db.prepare('UPDATE sessions SET memory_enabled=?, updated_at=? WHERE id=?').run(enabled ? 1 : 0, this.nowEpoch(), sessionId);
+  }
+
   deleteSession(id: string): void {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM messages WHERE session_id=?').run(id);
@@ -52,6 +57,24 @@ export class ChatStore {
       this.db.prepare('DELETE FROM sessions WHERE id=?').run(id);
     });
     tx();
+  }
+
+  /** 追加压缩摘要 marker（设计 §4.2「压缩」）：锚定 lastCompactedMessageId，推理时合成 effectiveAgentHistory。 */
+  appendCompactMarker(sessionId: string, summary: string, lastCompactedMessageId: string): CompactMarker {
+    const m: CompactMarker = { id: this.newId(), sessionId, summary, lastCompactedMessageId, createdAt: this.nowEpoch() };
+    this.db.prepare('INSERT INTO compact_markers (id, session_id, summary, last_compacted_message_id, created_at) VALUES (?,?,?,?,?)')
+      .run(m.id, m.sessionId, m.summary, m.lastCompactedMessageId, m.createdAt);
+    return m;
+  }
+
+  /** 取该会话最新的压缩 marker（按 createdAt DESC）；无则 undefined。
+   *  rowid DESC 作 tiebreaker：Windows 下 Date.now() 分辨率约 15ms，连续两次 appendCompactMarker
+   *  可能落到同一 createdAt，单按 created_at 排序非确定性，需以插入顺序（rowid）兜底确保「最新插入」返回。 */
+  getLatestCompactMarker(sessionId: string): CompactMarker | undefined {
+    const r = this.db.prepare('SELECT * FROM compact_markers WHERE session_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(sessionId) as
+      { id: string; session_id: string; summary: string; last_compacted_message_id: string; created_at: number } | undefined;
+    if (!r) return undefined;
+    return { id: r.id, sessionId: r.session_id, summary: r.summary, lastCompactedMessageId: r.last_compacted_message_id, createdAt: r.created_at };
   }
 
   appendMessage(m: Omit<RawMessage, 'sortOrder' | 'updatedAt'>): RawMessage {
