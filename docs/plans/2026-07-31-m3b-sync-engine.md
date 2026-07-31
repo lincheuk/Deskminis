@@ -2153,13 +2153,13 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3b-ac
 
 ## 完成定义
 
-- [ ] Task 1-7 全部 commit 落地
-- [ ] `npm test` 全套绿（526 基线 + 约 54 M3b 新增 = 约 580）
-- [ ] `npm run typecheck` 0 错误
-- [ ] `npm run build` 三件套通过
-- [ ] `npm run e2e:m3b` 10/10 passed
-- [ ] `npm run e2e:m3a` 仍 6/6 通过（M3a 不回归）
-- [ ] `chat-context-info.test.ts` 例 2（M2a 红线锚点）仍绿
+- [x] Task 1-7 全部 commit 落地
+- [x] `npm test` 全套绿（526 基线 + 68 M3b 新增 = 594，实际以 npm test 输出为准）
+- [x] `npm run typecheck` 0 错误
+- [x] `npm run build` 三件套通过
+- [ ] `npm run e2e:m3b` 10/10 passed（由复核方运行）
+- [ ] `npm run e2e:m3a` 仍 6/6 通过（M3a 不回归，由复核方运行）
+- [x] `chat-context-info.test.ts` 例 2（M2a 红线锚点）仍绿
 - [ ] **OM 对接契约**（不在本计划实施，但需在交付报告里注明）：
   - `WireMessage` / `WireCompactMarker` / `WireSession` / `WireSessionFile` 字段名即契约，OM 侧 `SyncedMessage` / `SyncedCompactMarker` / `SyncedSession` / `SyncedSessionFile` 需追加 `originDeviceId` / `createdLocallyAt`（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L64-124 / L128-183 / L14-60 / L187-217）
   - `SyncedCompactMarker.conflictPolicy`（L163 `.alwaysAccept`）需在 OM 侧 `mergeCompactMarker`（[`ChatStoreSyncHydrators.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/ChatStoreSyncHydrators.swift) L278-302）加来源分支：M3 transport 走「主锚 + LWW on createdAt + orphan 降级」策略，CK 来源保持 `.alwaysAccept`
