@@ -195,16 +195,16 @@
 
 **目标**：file_edit 工具的展开区从裸 JSON → 文件头槽（相对路径 mono + `+N/−M` 徽标）+ 行级 diff（行号 / +绿 −红 / 上下文 2 行折叠「⋯ 收起 N 行」）；纯前端 LCS，零后端改动。
 
-- [ ] **Step 1（红）**：新建 `tests/diff.test.ts`（纯模块 `lib/diff/lcs.ts`）：
+- [x] **Step 1（红）**：新建 `tests/diff.test.ts`（纯模块 `lib/diff/lcs.ts`）：
   - `diffLines(oldStr, newStr): DiffLine[]`（`{ type: 'ctx'|'add'|'del'; text: string; oldNo?: number; newNo?: number }`）：同文件 → 全 ctx；纯插入；纯删除；中段替换；多空行块
   - `collapseCtx(lines, keep=2): (DiffLine | { type: 'fold'; count: number })[]`——上下文 >2*keep 折叠中间；边界不足不折
   - `countAddDel(lines): { add: number; del: number }`
   - `\r\n` 归一；old/new 为空串（新建/清空）；超 2000 行降级为「整段替换」标记（性能闸）
   - file_edit 载荷提取 `lib/diff/payload.ts`：`extractEditPair(inputJson): { path: string; oldStr: string; newStr: string } | null`——从工具 input JSON 取 path/old_string/new_string（缺字段 → null 回落 JSON 展开）；**相对路径化**（数据根前缀剥掉，守卫不含数据根）
-- [ ] **Step 2（红→绿）**：守卫 `DiffView.vue`（props `{ path; addCount; delCount; lines }`；文件头槽 + 行列表 + 折叠行锚）+ ToolLine 展开区在 `name === 'file_edit'` 且 `extractEditPair` 命中时渲染 DiffView（否则原参数/输出区）；diff 红绿底走 `--state-ok-bg`/`--state-err-bg` 槽（Task 4 已立，暗色 alpha 12% 三模式各调——守卫在 tokens.css 四段）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 目视：假 provider file_edit → 展开见红绿行与 +N/−M
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): file_edit diff 视图（LCS 行级/上下文折叠/增删徽标，纯前端）`
+- [x] **Step 2（红→绿）**：守卫 `DiffView.vue`（props `{ path; addCount; delCount; lines }`；文件头槽 + 行列表 + 折叠行锚）+ ToolLine 展开区在 `name === 'file_edit'` 且 `extractEditPair` 命中时渲染 DiffView（否则原参数/输出区）；diff 红绿底走 `--state-ok-bg`/`--state-err-bg` 槽（Task 4 已立，暗色 alpha 12% 三模式各调——守卫在 tokens.css 四段）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 目视：假 provider file_edit → 展开见红绿行与 +N/−M
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): file_edit diff 视图（LCS 行级/上下文折叠/增删徽标，纯前端）`
 
 测试估算：+14 例（lcs 8 / payload 3 / 守卫 3）。
 

@@ -4,7 +4,10 @@
  *  展开区默认呈现参数/输出（mono 内滚 240px）；默认插槽可覆写展开内容（同型成组时嵌子行）。 */
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import Icon from './Icon.vue';
+import DiffView from './DiffView.vue';
 import { fmtDuration } from '../lib/toolline/duration';
+import { diffLines, countAddDel } from '../lib/diff/lcs';
+import { extractEditPair } from '../lib/diff/payload';
 
 const props = withDefaults(defineProps<{
   name?: string;
@@ -25,6 +28,11 @@ const TYPE_ICON: Record<string, string> = {
 };
 const icon = computed(() => TYPE_ICON[props.name] ?? 'gear');
 const label = computed(() => (props.title ?? '').trim() || props.name || '工具');
+
+// file_edit 展开区换 diff 视图（§5.4）：载荷可提取即渲染 DiffView，否则回落参数/输出 JSON 区
+const editPair = computed(() => (props.name === 'file_edit' ? extractEditPair(props.input) : null));
+const editLines = computed(() => (editPair.value ? diffLines(editPair.value.oldStr, editPair.value.newStr) : []));
+const editCounts = computed(() => countAddDel(editLines.value));
 
 // 展开态
 const open = ref(false);
@@ -67,15 +75,24 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
     </button>
     <div v-if="open" class="texpand">
       <slot>
-        <div v-if="prettyInput" class="tblock">
-          <div class="tlabel">参数</div>
-          <pre>{{ prettyInput }}</pre>
-        </div>
-        <div v-if="output" class="tblock">
-          <div class="tlabel">输出</div>
-          <pre>{{ output }}</pre>
-        </div>
-        <div v-if="!prettyInput && !output" class="tlabel">无内容</div>
+        <template v-if="editPair">
+          <DiffView :path="editPair.path" :add-count="editCounts.add" :del-count="editCounts.del" :lines="editLines" />
+          <div v-if="output" class="tblock">
+            <div class="tlabel">输出</div>
+            <pre>{{ output }}</pre>
+          </div>
+        </template>
+        <template v-else>
+          <div v-if="prettyInput" class="tblock">
+            <div class="tlabel">参数</div>
+            <pre>{{ prettyInput }}</pre>
+          </div>
+          <div v-if="output" class="tblock">
+            <div class="tlabel">输出</div>
+            <pre>{{ output }}</pre>
+          </div>
+          <div v-if="!prettyInput && !output" class="tlabel">无内容</div>
+        </template>
       </slot>
     </div>
   </div>
