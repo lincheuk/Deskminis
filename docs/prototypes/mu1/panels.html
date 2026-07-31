@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MU1 原型 · 右栏三面板</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  /* mini 窗口内让右栏撑满 */
+  .window.mini .pane-r { width: 100%; flex: 1; }
+</style>
+</head>
+<body>
+<input type="checkbox" id="t" class="theme-cb" checked>
+<label class="theme-switch" for="t"></label>
+
+<div class="stage-cap">右栏三面板 —— WorkBuddy 式任务区（进度 / 产物·文件 / 终端）</div>
+<div class="stage-sub">360px 默认宽（可拖 320–480）；进度叙事 + 产物汇总 + 真实终端，各有其职不重复</div>
+
+<div class="stage-row">
+
+  <!-- 面板一：进度 -->
+  <div>
+    <div class="stage-sub" style="text-align:center;margin-bottom:8px">① 进度（默认 tab）</div>
+    <div class="window mini">
+      <div class="titlebar"><div class="tb-title">任务 · 进度</div><div class="tb-spacer"></div></div>
+      <div class="win-body">
+        <aside class="pane-r">
+          <div class="r-tabs">
+            <div class="r-tab on">进度<span class="nudge"></span></div>
+            <div class="r-tab">产物</div><div class="r-tab">文件</div><div class="r-tab">终端</div>
+          </div>
+          <div class="r-body">
+            <div class="task-hero">
+              <div class="task-status"><span class="dot"></span>正在执行<span class="elapsed">已用 42s</span></div>
+              <div class="task-title">读 config.json → 翻译 title → 发系统通知</div>
+              <div class="steps">
+                <div class="step"><span class="s-mark ok">✓</span>读取 config.json<span class="s-dur">0.2s</span></div>
+                <div class="step"><span class="s-mark ok">✓</span>翻译 title 字段<span class="s-dur">1.1s</span></div>
+                <div class="step doing"><span class="spinner" style="width:11px;height:11px"></span>等待你的确认<span class="go">去处理</span></div>
+                <div class="step todo"><span class="s-mark">4</span>汇报结果</div>
+              </div>
+            </div>
+            <div class="minigrid">
+              <div class="minicard"><div class="mc-k">Token 用量</div><div class="mc-v">3.2k <small>入</small> · 0.8k <small>出</small></div></div>
+              <div class="minicard"><div class="mc-k">上下文水位 <small>实时</small></div><div class="mc-v">12%</div><div class="wbar"><div class="wfill" style="width:12%"></div></div></div>
+            </div>
+            <div class="statecard">
+              <div class="sc-h">⚠ 模型已降级</div>
+              <div class="sc-b">grok-4.5 → grok-4（主模型限流），剩余步骤由备选模型完成。</div>
+            </div>
+            <div class="statecard" style="border-left-color:var(--state-info)">
+              <div class="sc-h" style="color:var(--state-info)">≣ 上下文已压缩</div>
+              <div class="sc-b">较早的 12 条消息已折叠为摘要，释放约 18% 上下文空间。</div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- 面板二：产物 + 文件 -->
+  <div>
+    <div class="stage-sub" style="text-align:center;margin-bottom:8px">② 产物 / 文件</div>
+    <div class="window mini">
+      <div class="titlebar"><div class="tb-title">任务 · 产物</div><div class="tb-spacer"></div></div>
+      <div class="win-body">
+        <aside class="pane-r">
+          <div class="r-tabs">
+            <div class="r-tab">进度</div>
+            <div class="r-tab on">产物</div><div class="r-tab">文件</div><div class="r-tab">终端</div>
+          </div>
+          <div class="r-body">
+            <div class="prod-card">
+              <div class="prod-head">本轮产物<span class="cnt">3</span></div>
+              <div class="prod-item">
+                <span class="p-ico">TXT</span>
+                <span><div class="p-name">hello.txt</div><div class="p-sub">已编辑 · 工作区根目录</div></span>
+                <span class="p-diff"><span style="color:var(--state-ok)">+4</span> <span style="color:var(--state-err)">−1</span></span>
+              </div>
+              <div class="prod-item">
+                <span class="p-ico" style="background:var(--ok-bg);color:var(--state-ok)">MD</span>
+                <span><div class="p-name">weekly-report.md</div><div class="p-sub">新建 · docs/</div></span>
+                <span class="p-diff"><span style="color:var(--state-ok)">+86</span></span>
+              </div>
+              <div class="prod-item">
+                <span class="p-ico" style="background:var(--warn-bg);color:var(--state-warn)">PS</span>
+                <span><div class="p-name">rename-invoices.ps1</div><div class="p-sub">已编辑 · scripts/</div></span>
+                <span class="p-diff"><span style="color:var(--state-ok)">+12</span> <span style="color:var(--state-err)">−9</span></span>
+              </div>
+            </div>
+            <div class="prod-card">
+              <div class="prod-head">工作区文件</div>
+              <div class="prod-item">
+                <span class="p-ico" style="background:var(--fill-quaternary);color:var(--label-secondary)">▸</span>
+                <span><div class="p-name" style="font-weight:500">docs/</div><div class="p-sub">4 项</div></span>
+              </div>
+              <div class="prod-item">
+                <span class="p-ico" style="background:var(--fill-quaternary);color:var(--label-secondary)">▸</span>
+                <span><div class="p-name" style="font-weight:500">scripts/</div><div class="p-sub">2 项</div></span>
+              </div>
+              <div class="prod-item">
+                <span class="p-ico" style="background:var(--ok-bg);color:var(--state-ok)">{ }</span>
+                <span><div class="p-name" style="font-weight:500">config.json</div><div class="p-sub">1.2 KB</div></span>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- 面板三：终端 -->
+  <div>
+    <div class="stage-sub" style="text-align:center;margin-bottom:8px">③ 终端（xterm 内嵌，80 列可用）</div>
+    <div class="window mini">
+      <div class="titlebar"><div class="tb-title">任务 · 终端</div><div class="tb-spacer"></div></div>
+      <div class="win-body">
+        <aside class="pane-r">
+          <div class="r-tabs">
+            <div class="r-tab">进度</div>
+            <div class="r-tab">产物</div><div class="r-tab">文件</div><div class="r-tab on">终端</div>
+          </div>
+          <div class="r-body">
+            <div class="term">
+<span class="p">PS</span> <span class="g">C:\…\sessions\A471…\workspace</span>
+&gt; Get-Content hello.txt
+HELLO WORLD, THIS IS DESKMINIS.
+EVERY LINE NOW SHOUTS.
+NO LOWERCASE SURVIVED.
+DONE.
+
+<span class="p">PS</span> <span class="g">C:\…\sessions\A471…\workspace</span>
+&gt; minis notify --title "翻译完成" <span class="c"># 桥命令：将弹权限卡</span>
+
+<span class="g">──────────────────────────────</span>
+<span class="p">PS</span> <span class="g">C:\…\sessions\A471…\workspace</span>
+&gt; █
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

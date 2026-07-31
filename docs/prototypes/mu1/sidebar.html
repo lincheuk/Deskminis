@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MU1 原型 · 左栏双变体</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .rail { width: 300px; height: 720px; border-radius: 12px; overflow: hidden; background: var(--surface-0); color: var(--label);
+          box-shadow: 0 24px 80px rgba(0,0,0,.45), 0 0 0 .5px rgba(0,0,0,.2); display: flex; flex-direction: column; font-size: var(--fs-body); }
+  .rail .r-head { height: 40px; flex: 0 0 40px; display: flex; align-items: center; padding: 0 12px; gap: 8px;
+                  background: var(--material-tint); border-bottom: .5px solid var(--separator); font-size: var(--fs-ui); font-weight: 700; }
+  .rail .r-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .rail .pane-l { width: 100%; flex: 1; border-right: none; }
+
+  /* ===== 变体 A：任务卡式（WorkBuddy 影响的左栏） ===== */
+  .va .s-card { padding: 9px 10px; border-radius: var(--r-md); margin-bottom: 2px; }
+  .va .s-card:hover { background: var(--fill-quaternary); }
+  .va .s-card.on { background: color-mix(in srgb, var(--action) 10%, transparent); }
+  .va .s-card.on .s-title { color: var(--action); }
+  .va .s-top { display: flex; align-items: center; gap: 8px; }
+  .va .s-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+  .va .s-dot.run { background: var(--state-warn); animation: pulse 1.2s ease-in-out infinite; }
+  .va .s-dot.ok { background: var(--state-ok); }
+  .va .s-dot.err { background: var(--state-err); }
+  .va .s-title { font-size: var(--fs-ui); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .va .s-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding-left: 15px; font-size: var(--fs-micro); color: var(--label-tertiary); }
+  .va .s-prod { color: var(--label-secondary); }
+
+  /* ===== 变体 B：紧凑列表式（Codex 影响的左栏） ===== */
+  .vb .newbtn { background: transparent; border: .5px dashed var(--separator); color: var(--label-secondary); font-weight: 500; }
+  .vb .newbtn:hover { color: var(--label); border-color: var(--label-tertiary); }
+  .vb .s-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 6px; }
+  .vb .s-row:hover { background: var(--fill-quaternary); }
+  .vb .s-row.on { background: var(--fill-tertiary); }
+  .vb .s-row.on .s-title { font-weight: 700; }
+  .vb .s-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+  .vb .s-dot.run { background: var(--state-warn); animation: pulse 1.2s ease-in-out infinite; }
+  .vb .s-dot.ok { background: var(--label-quaternary); }
+  .vb .s-dot.err { background: var(--state-err); }
+  .vb .s-title { font-size: var(--fs-ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vb .s-time { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--label-tertiary); flex: 0 0 auto; }
+  .vb .datehead { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+</style>
+</head>
+<body>
+<input type="checkbox" id="t" class="theme-cb" checked>
+<label class="theme-switch" for="t"></label>
+
+<div class="stage-cap">左栏会话列表 · 双变体（仅此分区两可，请挑选）</div>
+<div class="stage-sub">A = 任务卡式（状态徽标 + 产物角标，亲和）；B = 紧凑列表式（30px 行高 + mono 时间，克制）</div>
+
+<div class="stage-row">
+
+  <!-- 变体 A -->
+  <div>
+    <div class="stage-sub" style="text-align:center;margin-bottom:8px">变体 A · 任务卡式</div>
+    <div class="rail va">
+      <div class="r-head">DeskMinis</div>
+      <div class="r-body"><div class="pane-l">
+        <div class="side-head"><div class="newbtn">＋ 新建会话</div></div>
+        <div class="side-list">
+          <div class="datehead">今天</div>
+          <div class="s-card on">
+            <div class="s-top"><span class="s-dot run"></span><span class="s-title">翻译 hello.txt 为大写</span></div>
+            <div class="s-meta"><span>14:32</span><span>● 进行中</span><span class="s-prod">◈ 2</span></div>
+          </div>
+          <div class="s-card">
+            <div class="s-top"><span class="s-dot ok"></span><span class="s-title">整理下载目录截图</span></div>
+            <div class="s-meta"><span>11:08</span><span>✓ 完成</span><span class="s-prod">◈ 5</span></div>
+          </div>
+          <div class="s-card">
+            <div class="s-top"><span class="s-dot ok"></span><span class="s-title">给绿植浇水提醒（每周）</span></div>
+            <div class="s-meta"><span>09:00</span><span>✓ 完成</span></div>
+          </div>
+          <div class="datehead">昨天</div>
+          <div class="s-card">
+            <div class="s-top"><span class="s-dot err"></span><span class="s-title">批量重命名发票 PDF</span></div>
+            <div class="s-meta"><span>18:40</span><span>✕ 失败 · 已中断</span></div>
+          </div>
+          <div class="s-card">
+            <div class="s-top"><span class="s-dot ok"></span><span class="s-title">周报初稿（Markdown）</span></div>
+            <div class="s-meta"><span>15:02</span><span>✓ 完成</span><span class="s-prod">◈ 1</span></div>
+          </div>
+        </div>
+        <div class="side-foot"><div class="foot-item">⚙ 设置</div><div class="foot-item">⌁ 设备</div></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- 变体 B -->
+  <div>
+    <div class="stage-sub" style="text-align:center;margin-bottom:8px">变体 B · 紧凑列表式</div>
+    <div class="rail vb">
+      <div class="r-head">DeskMinis</div>
+      <div class="r-body"><div class="pane-l">
+        <div class="side-head"><div class="newbtn">＋ 新建会话</div></div>
+        <div class="side-list">
+          <div class="datehead">今天</div>
+          <div class="s-row on"><span class="s-dot run"></span><span class="s-title">翻译 hello.txt 为大写</span><span class="s-time">14:32</span></div>
+          <div class="s-row"><span class="s-dot ok"></span><span class="s-title">整理下载目录截图</span><span class="s-time">11:08</span></div>
+          <div class="s-row"><span class="s-dot ok"></span><span class="s-title">给绿植浇水提醒（每周）</span><span class="s-time">09:00</span></div>
+          <div class="datehead">昨天</div>
+          <div class="s-row"><span class="s-dot err"></span><span class="s-title">批量重命名发票 PDF</span><span class="s-time">18:40</span></div>
+          <div class="s-row"><span class="s-dot ok"></span><span class="s-title">周报初稿（Markdown）</span><span class="s-time">15:02</span></div>
+          <div class="s-row"><span class="s-dot ok"></span><span class="s-title">清理临时文件夹</span><span class="s-time">10:26</span></div>
+          <div class="datehead">本周</div>
+          <div class="s-row"><span class="s-dot ok"></span><span class="s-title">M3a 验收脚本复核</span><span class="s-time">周三</span></div>
+          <div class="s-row"><span class="s-dot ok"></span><span class="s-title">导出浏览器书签</span><span class="s-time">周二</span></div>
+        </div>
+        <div class="side-foot"><div class="foot-item">⚙ 设置</div><div class="foot-item">⌁ 设备</div></div>
+      </div></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

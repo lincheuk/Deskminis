@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MU1 原型 · 配对管理预演</title>
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<input type="checkbox" id="t" class="theme-cb" checked>
+<label class="theme-switch" for="t"></label>
+
+<div class="stage-cap">配对管理预演 —— M3a 后端已就绪，M3b/c 前端落地处（左栏底部「设备」进入）</div>
+<div class="stage-sub">亲和壳（WorkBuddy）+ 可信核（配对码/指纹 mono 呈现）；同步状态与执行端钉选预留</div>
+
+<div class="window rel">
+  <div class="titlebar">
+    <div class="tb-ico">☰</div>
+    <div class="tb-title">翻译 hello.txt 为大写</div>
+    <div class="tb-spacer"></div>
+    <div class="sync-dot busy"><i></i>同步中</div>
+    <div class="tb-win"><i></i><i></i><i></i></div>
+  </div>
+  <div class="win-body" style="filter:saturate(.6)">
+    <aside class="pane-l">
+      <div class="side-head"><div class="newbtn">＋ 新建会话</div></div>
+      <div class="side-list"></div>
+      <div class="side-foot"><div class="foot-item">⚙ 设置</div><div class="foot-item">⌁ 设备</div></div>
+    </aside>
+    <main class="pane-c"></main>
+    <aside class="pane-r"></aside>
+  </div>
+
+  <div class="modal-mask">
+    <div class="modal">
+      <div class="modal-side">
+        <div class="ms-title">设置</div>
+        <div class="ms-item"><span class="ms-ico">◈</span>模型</div>
+        <div class="ms-item"><span class="ms-ico">◐</span>外观</div>
+        <div class="ms-item"><span class="ms-ico">🛡</span>权限</div>
+        <div class="ms-item on"><span class="ms-ico">⌁</span>设备与同步</div>
+      </div>
+      <div class="modal-body" style="gap:var(--sp-3)">
+        <div class="mb-title">设备与同步</div>
+
+        <!-- 发起配对 -->
+        <div class="pair-hero">
+          <div style="font-size:var(--fs-ui);font-weight:700">将此设备与手机配对</div>
+          <div class="pair-code">K7M2·Q9X4</div>
+          <div class="pair-hint">在 iPhone 的 OpenMinis 中输入此配对码</div>
+          <div class="pair-timer">47s 后过期</div>
+        </div>
+
+        <!-- 已配对设备 -->
+        <div>
+          <div style="font-size:var(--fs-caption);font-weight:700;color:var(--label-secondary);margin-bottom:8px">已配对设备</div>
+          <div class="set-group">
+            <div class="dev-item">
+              <span class="dev-ava">📱</span>
+              <span>
+                <div class="dev-name">iPhone 15 Pro</div>
+                <div class="dev-sub">指纹 a3f9c21e7b04 · 会话 / 记忆 / 技能</div>
+              </span>
+              <span class="dev-state"><i></i>在线 · 刚刚同步</span>
+            </div>
+            <div class="dev-item">
+              <span class="dev-ava" style="background:linear-gradient(135deg,#8e8e93,#6e6e73)">💻</span>
+              <span>
+                <div class="dev-name">旧 ThinkPad</div>
+                <div class="dev-sub">指纹 77d10be29c58 · 仅会话</div>
+              </span>
+              <span class="dev-state off"><i></i>离线 · 3 天前</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 同步与钉选（M3b/c） -->
+        <div>
+          <div style="font-size:var(--fs-caption);font-weight:700;color:var(--label-secondary);margin-bottom:8px">同步（M3b）与执行端（M3c）</div>
+          <div class="set-group">
+            <div class="set-row">
+              <span class="sr-k">双向会话同步<div class="sr-sub">在线设备间自动合并会话与压缩标记</div></span>
+              <span class="sr-v" style="color:var(--state-ok)">已开启</span>
+            </div>
+            <div class="set-row">
+              <span class="sr-k">本会话执行端<div class="sr-sub">「翻译 hello.txt 为大写」当前在本机执行</div></span>
+              <div class="seg"><span class="on">本机</span><span>iPhone 15 Pro</span></div>
+            </div>
+            <div class="set-row">
+              <span class="sr-k">同步冲突<div class="sr-sub">等待人工裁决的冲突</div></span>
+              <span class="sr-v">无</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

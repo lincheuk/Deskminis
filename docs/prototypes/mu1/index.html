@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MU1 原型 · 主对话屏</title>
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<input type="checkbox" id="t" class="theme-cb" checked>
+<label class="theme-switch" for="t"></label>
+
+<div class="stage-cap">主对话屏 —— 中栏 Codex 式 · 右栏 WorkBuddy 式 · 皮肤 OpenMinis（左栏为变体 A）</div>
+<div class="stage-sub">含：Markdown 渲染 / 工具行 / diff 视图 / 权限卡（桥双段）/ 事件条 / 错误治理 / 流式词淡入 / 进度面板</div>
+
+<div class="window rel">
+  <div class="zone-tag zone-codex" style="left:260px;right:auto">中栏 · CODEX 式</div>
+  <div class="zone-tag zone-wb">右栏 · WORKBUDDY 式</div>
+
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="tb-ico">☰</div>
+    <div class="tb-title">翻译 hello.txt 为大写</div>
+    <div class="tb-spacer"></div>
+    <div class="sync-dot"><i></i>已同步</div>
+    <div class="tb-win"><i></i><i></i><i></i></div>
+  </div>
+
+  <div class="win-body">
+    <!-- 左栏 · 变体 A：任务卡式 -->
+    <aside class="pane-l">
+      <div class="side-head"><div class="newbtn">＋ 新建会话</div></div>
+      <div class="side-list">
+        <div class="datehead">今天</div>
+        <div class="s-card on">
+          <div class="s-top"><span class="s-dot run"></span><span class="s-title">翻译 hello.txt 为大写</span></div>
+          <div class="s-meta"><span>14:32</span><span class="s-prod">◈ 2</span></div>
+        </div>
+        <div class="s-card">
+          <div class="s-top"><span class="s-dot ok"></span><span class="s-title">整理下载目录截图</span></div>
+          <div class="s-meta"><span>11:08</span><span class="s-prod">◈ 5</span></div>
+        </div>
+        <div class="datehead">昨天</div>
+        <div class="s-card">
+          <div class="s-top"><span class="s-dot err"></span><span class="s-title">批量重命名发票 PDF</span></div>
+          <div class="s-meta"><span>昨天 18:40</span></div>
+        </div>
+        <div class="s-card">
+          <div class="s-top"><span class="s-dot ok"></span><span class="s-title">周报初稿（Markdown）</span></div>
+          <div class="s-meta"><span>昨天 15:02</span><span class="s-prod">◈ 1</span></div>
+        </div>
+      </div>
+      <div class="side-foot">
+        <div class="foot-item">⚙ 设置</div>
+        <div class="foot-item">⌁ 设备</div>
+      </div>
+    </aside>
+
+    <!-- 中栏 · 对话流（Codex 式） -->
+    <main class="pane-c rel">
+      <div class="stream">
+        <!-- 回合 1（完成） -->
+        <section class="turn">
+          <div class="u-row"><span class="u-tag">你</span><span class="u-time">14:32</span><span class="u-copy">复制</span></div>
+          <div class="u-text">把 hello.txt 的内容改成全大写，然后总结一下你做了什么。</div>
+
+          <div class="a-head"><div class="a-icon"></div><div class="a-name">DeskMinis</div></div>
+          <div class="a-body">
+            <div class="toolline">
+              <span class="t-mark ok">✓</span><span class="t-ico">▤</span>
+              <span class="t-title">读取 hello.txt</span>
+              <span class="t-dur">0.3s</span><span class="t-chev">›</span>
+            </div>
+            <div class="diff-sum">
+              <span class="t-mark ok">✓</span><span class="t-ico" style="width:15px;color:var(--label-secondary)">✎</span>
+              <span>已编辑 <b>hello.txt</b></span>
+              <span class="diff-badge"><span class="add">+4</span> <span class="del">−1</span></span>
+              <span class="t-dur">0.2s</span><span class="t-chev" style="color:var(--label-tertiary);font-size:11px">⌄</span>
+            </div>
+            <div class="diff">
+              <div class="diff-head"><span class="path">hello.txt</span><span class="diff-badge"><span class="add">+4</span> <span class="del">−1</span></span></div>
+              <div class="diff-row fold">⋯ 收起 0 行上文</div>
+              <div class="diff-row del"><span class="ln">1</span><span class="lc">hello world, this is deskminis.</span></div>
+              <div class="diff-row add"><span class="ln">1</span><span class="lc">HELLO WORLD, THIS IS DESKMINIS.</span></div>
+              <div class="diff-row add"><span class="ln">2</span><span class="lc">EVERY LINE NOW SHOUTS.</span></div>
+              <div class="diff-row add"><span class="ln">3</span><span class="lc">NO LOWERCASE SURVIVED.</span></div>
+              <div class="diff-row add"><span class="ln">4</span><span class="lc">DONE.</span></div>
+            </div>
+            <div class="md">
+              <h2>完成情况</h2>
+              <p>已将 <code>hello.txt</code> 全量转为大写，共改写 <b>4 行</b>，原文件其余部分未动。</p>
+              <ul>
+                <li>读取原文 <b>1 行</b>，内容为一句问候</li>
+                <li>改写为 <code>HELLO WORLD</code> 等 4 行大写文本</li>
+                <li>写入耗时 <code>0.2s</code>，无格式损失</li>
+              </ul>
+              <p>如需回滚，可执行：</p>
+              <div class="codefence">
+                <div class="cf-head"><span class="cf-lang">powershell</span><span class="cf-copy">复制</span></div>
+                <pre><span class="c"># 还原为原始内容</span>
+<span class="k">Set-Content</span> hello.txt <span class="s">"hello world, this is deskminis."</span></pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 回合 2（进行中） -->
+        <section class="turn">
+          <div class="u-row"><span class="u-tag">你</span><span class="u-time">14:36</span><span class="u-copy">复制</span></div>
+          <div class="u-text">读一下工作区的 config.json，把里面的 title 翻成英文，然后发个系统通知告诉我结果。</div>
+
+          <div class="a-head"><div class="a-icon"></div><div class="a-name">DeskMinis</div></div>
+          <div class="a-body">
+            <div class="evnote info"><span class="e-ico">≣</span><span>上下文已压缩：较早的 12 条消息已折叠为摘要</span><span class="e-more">详情 ›</span></div>
+
+            <div class="toolline">
+              <span class="t-mark ok">✓</span><span class="t-ico">▤</span>
+              <span class="t-title">读取 config.json</span>
+              <span class="t-dur">0.2s</span><span class="t-chev">›</span>
+            </div>
+            <div class="toolline">
+              <span class="spinner"></span>
+              <span class="t-title">发送系统通知</span>
+              <span class="t-dur">等待批准</span>
+            </div>
+
+            <!-- 权限卡：桥命令一卡两段（H3 治理） -->
+            <div class="perm">
+              <div class="perm-head"><span class="shield">🛡</span>需要你的批准<span class="perm-count">67s</span></div>
+              <div class="perm-cmd">
+                <div class="k">命令</div>
+                <div class="v">minis notify --title "翻译完成" --body "title 已译为 &quot;DeskMinis Sync Settings&quot;"</div>
+              </div>
+              <div class="perm-bridge"><i></i>此命令将同时触发桥权限：<b>通知</b>（本次批准将一并放行）</div>
+              <div class="perm-btns">
+                <span class="btn primary">允许</span>
+                <span class="btn">本会话允许</span>
+                <span class="btn deny">拒绝</span>
+              </div>
+            </div>
+
+            <div class="md">
+              <p><span class="w">已</span> <span class="w">读完</span> <span class="w">配置，</span><span class="w">title</span> <span class="w">字段原文为「桌面同步设置」，译文是</span> <code class="w">DeskMinis Sync Settings</code><span class="w">。</span><span class="caret"></span></p>
+            </div>
+
+            <div class="evnote warn"><span class="e-ico">⚠</span><span>模型已降级：grok-4.5 → grok-4（原因：主模型 429）</span><span class="e-more">详情 ›</span></div>
+
+            <!-- 错误治理卡（H4/X-5） -->
+            <div class="errcard">
+              <div class="e-top">⚠ 模型服务暂时不可用（503）</div>
+              <div class="e-acts">
+                <span class="btn primary" style="height:28px;font-size:12px">重试</span>
+                <span class="e-link">详情 ›</span>
+              </div>
+              <div class="e-raw">OpenAI HTTP 503: {"error":{"message":"No available channel for model grok-4.5 under group 所有模型","code":"model_not_found"}}</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="tobottom">↓</div>
+
+      <!-- 输入区 -->
+      <div class="composer">
+        <div class="field"><span class="ph">让 DeskMinis 做点什么…</span></div>
+        <div class="ctools">
+          <span class="cpill">▣ 工作区</span>
+          <span class="cpill">🛡 每次确认</span>
+          <span class="cpill">nodetect · grok-4.5 ⌄</span>
+          <span class="send">↑</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- 右栏 · 任务区（WorkBuddy 式） -->
+    <aside class="pane-r">
+      <div class="r-tabs">
+        <div class="r-tab on">进度<span class="nudge"></span></div>
+        <div class="r-tab">产物</div>
+        <div class="r-tab">文件</div>
+        <div class="r-tab">终端</div>
+      </div>
+      <div class="r-body">
+        <div class="task-hero">
+          <div class="task-status"><span class="dot"></span>正在执行<span class="elapsed">已用 42s</span></div>
+          <div class="task-title">读 config.json → 翻译 title → 发系统通知</div>
+          <div class="steps">
+            <div class="step"><span class="s-mark ok">✓</span>读取 config.json<span class="s-dur">0.2s</span></div>
+            <div class="step"><span class="s-mark ok">✓</span>翻译 title 字段<span class="s-dur">1.1s</span></div>
+            <div class="step doing"><span class="spinner" style="width:11px;height:11px"></span>等待你的确认 — 发送通知<span class="go">去处理</span></div>
+            <div class="step todo"><span class="s-mark">4</span>汇报结果</div>
+          </div>
+        </div>
+
+        <div class="minigrid">
+          <div class="minicard">
+            <div class="mc-k">Token 用量</div>
+            <div class="mc-v">3.2k <small>入</small> · 0.8k <small>出</small></div>
+          </div>
+          <div class="minicard">
+            <div class="mc-k">上下文水位 <small>实时</small></div>
+            <div class="mc-v">12%</div>
+            <div class="wbar"><div class="wfill" style="width:12%"></div></div>
+          </div>
+        </div>
+
+        <div class="statecard">
+          <div class="sc-h">⚠ 模型已降级</div>
+          <div class="sc-b">grok-4.5 → grok-4（主模型限流），本轮剩余步骤将由备选模型完成。</div>
+        </div>
+
+        <div class="prod-card">
+          <div class="prod-head">本轮产物<span class="cnt">2</span></div>
+          <div class="prod-item">
+            <span class="p-ico">TXT</span>
+            <span><div class="p-name">hello.txt</div><div class="p-sub">已编辑 · 工作区根目录</div></span>
+            <span class="p-diff"><span style="color:var(--state-ok)">+4</span> <span style="color:var(--state-err)">−1</span></span>
+          </div>
+          <div class="prod-item">
+            <span class="p-ico" style="background:var(--ok-bg);color:var(--state-ok)">{ }</span>
+            <span><div class="p-name">config.json</div><div class="p-sub">已读取 · 未修改</div></span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<style>
+/* 左栏变体 A · 任务卡式（WorkBuddy 影响的左栏） */
+.s-card { padding: 9px 10px; border-radius: var(--r-md); margin-bottom: 2px; }
+.s-card:hover { background: var(--fill-quaternary); }
+.s-card.on { background: color-mix(in srgb, var(--action) 10%, transparent); }
+.s-card.on .s-title { color: var(--action); }
+.s-top { display: flex; align-items: center; gap: 8px; }
+.s-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.s-dot.run { background: var(--state-warn); animation: pulse 1.2s ease-in-out infinite; }
+.s-dot.ok { background: var(--state-ok); }
+.s-dot.err { background: var(--state-err); }
+.s-title { font-size: var(--fs-ui); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding-left: 15px; font-size: var(--fs-micro); color: var(--label-tertiary); }
+.s-prod { color: var(--label-secondary); }
+</style>
+</body>
+</html>
