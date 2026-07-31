@@ -14,6 +14,7 @@ import { RpcServer } from './rpc/server';
 import { ProviderError, type AgentProvider, type StreamRequest } from './providers/types';
 import { PairingStore, PairingService } from './remote/pairing';
 import { createRemoteMethods, createAdditionalVerify, guardBusinessMethod } from './remote';
+import { SyncCoordinator, createSyncMethods } from './sync';
 import type { AgentStreamEvent } from '../shared/types';
 import { ModelCatalog } from './providers/model-catalog';
 import { MemoryStore } from './store/memory-store';
@@ -102,8 +103,13 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   mkdirSync(root, { recursive: true });
   const paths = new MinisPaths(root);
   const db = openDb(join(root, 'minis.db'));
-  const chat = new ChatStore(db);
+  // M3b 评审命门 3：PairingService 装配前移到 ChatStore 之前——
+  // 静态身份（vault+dataDir）不依赖 db/chat，前移让 chat 构造时即可拿到 myFingerprint 注入 originDeviceId，
+  // 避免 ChatStore 被多处引用（AgentLoop/CompactEngine/SyncCoordinator）前出现 setOriginDeviceId 注入空窗。
   const vault: SecretVault = process.env.DESKMINIS_TEST ? new InMemoryVault() : new KeyringVault();
+  const pairingStore = new PairingStore(root, vault);
+  const pairingService = new PairingService(pairingStore, vault);
+  const chat = new ChatStore(db, pairingService.myFingerprint);
   const providers = new ProviderStore(root, vault);
 
   // 模型能力目录：后台预热 models.dev；失败静默回退磁盘缓存/内置兜底表
@@ -436,11 +442,9 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
   const authToken = randomUUID().toUpperCase();
 
-  // M3a 接线：PairingStore 持久化 + PairingService 配对生命周期 + additionalVerify 回调
+  // M3a 接线：PairingService 已前移至 ChatStore 之前（评审命门 3），此处仅接线 remote.* 方法面 + additionalVerify。
   // 沿用 M1 vault/keyring 路径（KeyringVault L26-36）；DESKMINIS_TEST=1 时 vault 已是 InMemoryVault
   // StaticIdentity 首次生成后持久化到 vault，后续启动复用（设计 §2.1「长期身份」）
-  const pairingStore = new PairingStore(root, vault);
-  const pairingService = new PairingService(pairingStore, vault);
   const remoteMethods = createRemoteMethods(pairingService);
   // 业务面方法（chat.*/permission.*/skills.* 等）统一加 pairing 模式守卫（红线 4c）：
   // pairing 模式只能调 remote.pair.complete，其他业务面全拒。
@@ -451,11 +455,27 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   Object.assign(methods, remoteMethods);
   const additionalVerify = createAdditionalVerify(pairingService);
 
+  // M3b 接线：sync.* 方法面（经 guardBusinessMethod 包装拒 pairing，红线 4e——sync.* 唯一接触点）
+  // 注：计划伪代码先写 methods[k]=guard(syncMethods[k]) 再 Object.assign(methods, syncMethods) 会用未包装版本覆盖——
+  // 最小修正为原地包装 syncMethods 后再 assign（Produces 接口不变：sync.* 仍经 guardBusinessMethod 拒 pairing）。
+  const syncMethods = createSyncMethods(chat);
+  for (const k of Object.keys(syncMethods)) {
+    (syncMethods as any)[k] = guardBusinessMethod((syncMethods as any)[k], k);
+  }
+  Object.assign(methods, syncMethods);
+
   rpc = new RpcServer(methods, authToken, additionalVerify);
   const port = await rpc.listen(opts?.host ?? '127.0.0.1', opts?.port ?? 0);
+
+  // M3b 接线：SyncCoordinator（服务端被动，评审命门 4）——chat.onDirty 去抖广播 sync.dirty
+  const syncCoordinator = new SyncCoordinator(chat, rpc);
+  chat.onDirty = sid => syncCoordinator.onDirty(sid);
+  syncCoordinator.start(); // 空实现（评审命门 4），保留调用供 M3c 扩展
+
   return {
     port, authToken, bridgePipe,
     close: async () => {
+      syncCoordinator.stop();
       for (const c of controllers.values()) c.abort();
       for (const { timer } of pendingPerms.values()) clearTimeout(timer);
       pendingPerms.clear();

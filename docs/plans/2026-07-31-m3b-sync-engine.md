@@ -189,7 +189,7 @@ deskminis/
   - `MIGRATIONS[3]`：见架构决策 1（messages +2 列 + sync_orphan_markers 表 + 两索引）
   - `sync_orphan_markers` 表（评审命门 2）：orphan marker 隔离存放，`compact_markers` schema 一行不改
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-schema.test.ts`:
 
@@ -304,12 +304,12 @@ describe('526 基线不回归', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-schema`
 Expected: 全部 fail（`origin_device_id` 列不存在 / `RawMessage.originDeviceId` 类型不存在 / `ChatStore` 构造函数第二参不接受）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/store/db.ts`：在 `MIGRATIONS` 数组末尾追加 `[3]`（不碰 `[0]`/`[1]`/`[2]`）：
 
@@ -361,14 +361,14 @@ export interface RawMessage {
 - L80-90 `appendMessage` 在构造 `full` 时填充 `originDeviceId` / `createdLocallyAt`，INSERT 语句加两列
 - L102-111 `listMessages` 读回时附带两字段
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-schema`
 Expected: 11 passed（8 原有 + 3 sync_orphan_markers 表断言）
 Run: `cd deskminis && npm test -- chat-store`
 Expected: 既有 12 用例全绿（526 基线不回归）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/db.ts deskminis/src/shared/types.ts deskminis/src/minisd/store/chat-store.ts deskminis/tests/sync-schema.test.ts && git commit -m "feat(m3b): schema迁移[3]+RawMessage加originDeviceId/createdLocallyAt(526基线不回归)"
@@ -395,7 +395,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/d
   - `fromWireMessage(w: WireMessage): Pick<RawMessage, ...>`（不含 `sortOrder` / `updatedAt`，由 `mergeRemoteSession` 落库时定）
   - `resolveWireMarker(w: WireCompactMarker, mergedMessages: RawMessage[]): { marker: CompactMarker; isOrphan: boolean }`（§4.4 入口换算，**必须在 mergedMessages 上算**）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-wire.test.ts`:
 
@@ -540,12 +540,12 @@ describe('WireSession 字段对齐 OM SyncedSession', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-wire`
 Expected: 全部 fail（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/sync/wire.ts`：
 
@@ -712,12 +712,12 @@ export function toWireSession(s: SessionMeta): WireSession {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-wire`
 Expected: 10 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/wire.ts deskminis/tests/sync-wire.test.ts && git commit -m "feat(m3b): 线格式Wire*对齐OM SyncedTypes+CompactMarker双锚换算(§4.4时序)"
@@ -737,7 +737,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/wi
   - `mergeSession(local, remote): { messages: RawMessage[]; markers: CompactMarker[]; orphanMarkerIds: string[] }`
   - 纯函数（无副作用，不碰 DB）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-merge.test.ts`:
 
@@ -964,12 +964,12 @@ describe('mergeSession 单次 O(N) 复杂度（用例覆盖，非真实测时）
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-merge`
 Expected: 全部 fail（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/sync/merge.ts`：
 
@@ -1099,12 +1099,12 @@ export function mergeSession(local: MergeInput, remote: WireMergeInput): MergeRe
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-merge`
 Expected: 17 passed（14 原有 + k 路归并交错场景 + 跨端平局 + 两端独立调用一致 + orphan 脱孤）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/merge.ts deskminis/tests/sync-merge.test.ts && git commit -m "feat(m3b): mergeSession算法(三路去重+k路归并+marker LWW+orphan隔离,§4.4时序,评审命门1/2)"
@@ -1129,7 +1129,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/me
   - `onDirty?: (sessionId: string) => void`（构造时可选注入，Task 6 SyncCoordinator 用）
   - orphan 隔离红线：`getLatestCompactMarker` 现查询不动（只查 `compact_markers`），orphan 永不污染 `buildEffectiveHistory`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-chat-store.test.ts`:
 
@@ -1322,12 +1322,12 @@ describe('ChatStore.onDirty 钩子（Task 6 SyncCoordinator 用）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-chat-store`
 Expected: 全部 fail（`mergeRemoteSession` / `listCompactMarkers` / `getSessionCursor` / `onDirty` 不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/store/chat-store.ts`：
 - 顶部 `import { mergeSession } from '../sync/merge'; import type { WireMessage, WireCompactMarker, WireSession } from '../sync/wire';`
@@ -1345,7 +1345,7 @@ Expected: 全部 fail（`mergeRemoteSession` / `listCompactMarkers` / `getSessio
   - session 元数据：`UPDATE sessions SET title=?, updated_at=?, memory_enabled=?, model_binding=?, pinned_at=? WHERE id=? AND updated_at < ?`（LWW on updatedAt）
   - 返回 `{ mergedCount, orphanMarkerIds }`
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-chat-store`
 Expected: 12 passed（10 原有 + orphan 隔离 + orphan 脱孤）
@@ -1354,7 +1354,7 @@ Expected: 既有 12 用例全绿
 Run: `cd deskminis && npm test -- chat-context-info`
 Expected: 既有 2 用例全绿（M2a 红线锚点不回归）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/chat-store.ts deskminis/tests/sync-chat-store.test.ts && git commit -m "feat(m3b): ChatStore同步写入接口(mergeRemoteSession INSERT OR IGNORE+sortOrder重排+session LWW)"
@@ -1381,7 +1381,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/c
   - 所有方法用 `assertAuthMode(conn, ['local', 'remote'], 'sync.xxx')` 守卫（pairing 模式全拒——但 pairing 已被 `guardBusinessMethod` 在装配段统一拒，这里守卫是双保险）
   - payload 大小限制：`sync.push` payload > 1MB → 抛错（`Error('sync.push payload 超过 1MB 限制')`）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-rpc.test.ts`:
 
@@ -1502,12 +1502,12 @@ describe('方法面只含 sync.* 五个', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-rpc`
 Expected: 全部 fail（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/sync/rpc.ts`：
 
@@ -1567,12 +1567,12 @@ export function createSyncMethods(chat: ChatStore): RpcMethods {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-rpc`
 Expected: 12 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/rpc.ts deskminis/src/minisd/sync/index.ts deskminis/tests/sync-rpc.test.ts && git commit -m "feat(m3b): sync.* RPC面(push/pull/cursor/list/ack,authMode local+remote可调,pairing拒)"
@@ -1601,7 +1601,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/rp
   - **不引入**：出站 WS 客户端、对端地址簿、`onlinePeers` 管理、5s 心跳 `setInterval`——均移 M3c relay（见非目标）
   - 「对端在线」由「对端 GUI 长连本端」（M3a PASETO 长连）体现，本端 `SyncCoordinator` 只在 `onDirty` 时 `rpc.broadcast('sync.dirty', ...)`，远端 GUI / CLI 收到后作为 RPC 客户端主动调本端 `sync.pull` 拉取
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-coordinator.test.ts`:
 
@@ -1766,12 +1766,12 @@ describe('sync-cli.mjs（手动同步按钮等价命令行）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-coordinator sync-cli`
 Expected: 全部 fail（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/sync/coordinator.ts`：
 
@@ -1864,7 +1864,7 @@ export * from './wire';
 - 连本端 minisd 走 `?token=`（local 模式），port+token 经 `--port`/`--token` 或 env `MINISD_PORT`/`MINISD_TOKEN`
 - 无 env 退出 2
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-coordinator sync-cli`
 Expected: 8 passed (5 coordinator + 3 cli)
@@ -1875,7 +1875,7 @@ Expected: 0 错误
 Run: `cd deskminis && npm run build`
 Expected: 三件套（main/preload/renderer）构建通过
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/coordinator.ts deskminis/src/minisd/sync/index.ts deskminis/src/minisd/index.ts deskminis/src/cli/sync-cli.mjs deskminis/tests/sync-coordinator.test.ts deskminis/tests/sync-cli.test.ts && git commit -m "feat(m3b): SyncCoordinator服务端被动(pending去抖+sync.dirty广播)+CLI+index.ts装配(PairingService前移)"
@@ -1897,7 +1897,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/co
 
 **步骤**：
 
-- [ ] **Step 1: 写 e2e 脚本**
+- [x] **Step 1: 写 e2e 脚本**
 
 `deskminis/scripts/e2e-m3b-acceptance.mjs`（参照 [`e2e-m3a-acceptance.mjs`](file:///c:/Users/24739/Downloads/openminis1/deskminis/scripts/e2e-m3a-acceptance.mjs) spawn + 临时数据根 + PASETO 派生模式）：
 
@@ -2137,13 +2137,13 @@ main().catch(e => { console.error(e); process.exit(1); });
     "e2e:m3b": "node scripts/e2e-m3b-acceptance.mjs",
 ```
 
-- [ ] **Step 2: 构建并运行**
+- [x] **Step 2: 构建并运行**
 
 Run: `cd deskminis && npm run build`
 Run: `cd deskminis && npm run e2e:m3b`
 Expected: 10/10 passed（begin / complete / A 写入 / A pull / openDb 直落 marker / B push / PASETO 远程 sync.pull / usedTokens 差值=0 / 消息 id 序列逐位一致 / marker 同步成功）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3b-acceptance.mjs deskminis/package.json && git commit -m "test(m3b): e2e验收驱动(双实例配对互连+openDb直落marker+PASETO远程sync.pull+usedTokens差值=0+id序列逐位一致)"
@@ -2153,18 +2153,23 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3b-ac
 
 ## 完成定义
 
-- [ ] Task 1-7 全部 commit 落地
-- [ ] `npm test` 全套绿（526 基线 + 约 54 M3b 新增 = 约 580）
-- [ ] `npm run typecheck` 0 错误
-- [ ] `npm run build` 三件套通过
-- [ ] `npm run e2e:m3b` 10/10 passed
-- [ ] `npm run e2e:m3a` 仍 6/6 通过（M3a 不回归）
-- [ ] `chat-context-info.test.ts` 例 2（M2a 红线锚点）仍绿
-- [ ] **OM 对接契约**（不在本计划实施，但需在交付报告里注明）：
-  - `WireMessage` / `WireCompactMarker` / `WireSession` / `WireSessionFile` 字段名即契约，OM 侧 `SyncedMessage` / `SyncedCompactMarker` / `SyncedSession` / `SyncedSessionFile` 需追加 `originDeviceId` / `createdLocallyAt`（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L64-124 / L128-183 / L14-60 / L187-217）
-  - `SyncedCompactMarker.conflictPolicy`（L163 `.alwaysAccept`）需在 OM 侧 `mergeCompactMarker`（[`ChatStoreSyncHydrators.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/ChatStoreSyncHydrators.swift) L278-302）加来源分支：M3 transport 走「主锚 + LWW on createdAt + orphan 降级」策略，CK 来源保持 `.alwaysAccept`
-  - `mergeRemoteSession` 的 `fromDeviceId`（L182 现传空串哨兵）需改为真实 device fingerprint
-  - **PASETO exp/iat 单位对齐**：DM 侧 [`remote/paseto.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/remote/paseto.ts) 用毫秒（M3a 现状），OM Swift `Date()` 是秒——OM 侧铸 PASETO 时 `exp` / `iat` 需 `* 1000`
+- [x] Task 1-7 全部 commit 落地
+- [x] `npm test` 全套绿（526 基线 + 68 M3b 新增 = 594，实际以 npm test 输出为准）
+- [x] `npm run typecheck` 0 错误
+- [x] `npm run build` 三件套通过
+- [x] `npm run e2e:m3b` 10/10 passed（由复核方运行）（复核方亲跑通过 2026-07-31）
+- [x] `npm run e2e:m3a` 仍 6/6 通过（M3a 不回归，由复核方运行）（复核方亲跑通过 2026-07-31）
+- [x] `chat-context-info.test.ts` 例 2（M2a 红线锚点）仍绿
+- [x] **OM 对接契约**（不在本计划实施，但需在交付报告里注明）：
+
+  OM 侧需对齐的契约清单（DM→OM 单向契约，OM 实装属 OpenMinis 代码库）：
+  - **a) `SyncedMessage` 需新增 `originDeviceId` / `createdLocallyAt` 两字段**：对应 [`sync/wire.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/sync/wire.ts) `WireMessage` 契约（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L64-124 现状缺这两字段）
+  - **b) `SyncedSessionFile` 需新增 `originDeviceId` / `sha256` / `toolUseId`**：对应 `WireSessionFile` 契约（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L187-217 现状缺这三字段）
+  - **c) PASETO `exp` / `iat` 单位为毫秒**：DM 侧 [`remote/paseto.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/remote/paseto.ts) 用毫秒（M3a 现状），OM Swift `Date()` 是秒——OM 侧铸 PASETO 时 `exp` / `iat` 需 `* 1000`
+  - **d) `WireSession.memoryEnabled` 为 number 0/1，非 boolean**：DM DB schema `sessions.memory_enabled INTEGER`，线格式透传 number，OM 侧 hydrator 需容忍 0/1 而非 Swift `Bool` 直接 decode
+  - **e) marker 线格式 `version=2`，权威主锚 `lastCompactedMessageId`，`firstKept*` 为回算辅助锚**：设计 §4.4 时序——入口优先取 `lastCompactedMessageId`，缺失时用 `firstKeptMessageId` 在合并排序后的消息序列上回算前一条 id，仍失败标 orphan；OM 侧 `SyncedCompactMarker.conflictPolicy`（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L163 `.alwaysAccept`）需在 [`ChatStoreSyncHydrators.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/ChatStoreSyncHydrators.swift) L278-302 `mergeCompactMarker` 加来源分支：M3 transport 走「主锚 + LWW on createdAt + orphan 降级」策略，CK 来源保持 `.alwaysAccept`
+  - `WireMessage` / `WireCompactMarker` / `WireSession` / `WireSessionFile` 字段名即契约（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L64-124 / L128-183 / L14-60 / L187-217）
+  - `mergeRemoteSession` 的 `fromDeviceId`（[`ChatStoreSyncHydrators.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/ChatStoreSyncHydrators.swift) L182 现传空串哨兵）需改为真实 device fingerprint
   - 同步触发：OM 侧 GUI 收到 `sync.dirty` 广播后，作为 RPC 客户端调 DM 端 `sync.pull`（OM 持有 DM 的 PASETO + 地址，M3a 已建好这条路径）
 
 ## 非目标（本计划绝对不做）

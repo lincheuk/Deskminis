@@ -14,6 +14,7 @@
     "e2e:m2c": "node scripts/e2e-m2c-acceptance.mjs",
     "e2e:m2e": "node scripts/e2e-m2e-acceptance.mjs",
     "e2e:m3a": "node scripts/e2e-m3a-acceptance.mjs",
+    "e2e:m3b": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/e2e-m3b-acceptance.mjs",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "gen:tray-icon": "node scripts/gen-tray-icon.mjs"
