@@ -1601,7 +1601,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/rp
   - **不引入**：出站 WS 客户端、对端地址簿、`onlinePeers` 管理、5s 心跳 `setInterval`——均移 M3c relay（见非目标）
   - 「对端在线」由「对端 GUI 长连本端」（M3a PASETO 长连）体现，本端 `SyncCoordinator` 只在 `onDirty` 时 `rpc.broadcast('sync.dirty', ...)`，远端 GUI / CLI 收到后作为 RPC 客户端主动调本端 `sync.pull` 拉取
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-coordinator.test.ts`:
 
@@ -1766,12 +1766,12 @@ describe('sync-cli.mjs（手动同步按钮等价命令行）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-coordinator sync-cli`
 Expected: 全部 fail（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/sync/coordinator.ts`：
 
@@ -1864,7 +1864,7 @@ export * from './wire';
 - 连本端 minisd 走 `?token=`（local 模式），port+token 经 `--port`/`--token` 或 env `MINISD_PORT`/`MINISD_TOKEN`
 - 无 env 退出 2
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-coordinator sync-cli`
 Expected: 8 passed (5 coordinator + 3 cli)
@@ -1875,7 +1875,7 @@ Expected: 0 错误
 Run: `cd deskminis && npm run build`
 Expected: 三件套（main/preload/renderer）构建通过
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/coordinator.ts deskminis/src/minisd/sync/index.ts deskminis/src/minisd/index.ts deskminis/src/cli/sync-cli.mjs deskminis/tests/sync-coordinator.test.ts deskminis/tests/sync-cli.test.ts && git commit -m "feat(m3b): SyncCoordinator服务端被动(pending去抖+sync.dirty广播)+CLI+index.ts装配(PairingService前移)"
