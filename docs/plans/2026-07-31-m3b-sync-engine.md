@@ -1381,7 +1381,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/c
   - 所有方法用 `assertAuthMode(conn, ['local', 'remote'], 'sync.xxx')` 守卫（pairing 模式全拒——但 pairing 已被 `guardBusinessMethod` 在装配段统一拒，这里守卫是双保险）
   - payload 大小限制：`sync.push` payload > 1MB → 抛错（`Error('sync.push payload 超过 1MB 限制')`）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-rpc.test.ts`:
 
@@ -1502,12 +1502,12 @@ describe('方法面只含 sync.* 五个', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-rpc`
 Expected: 全部 fail（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/sync/rpc.ts`：
 
@@ -1567,12 +1567,12 @@ export function createSyncMethods(chat: ChatStore): RpcMethods {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-rpc`
 Expected: 12 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/rpc.ts deskminis/src/minisd/sync/index.ts deskminis/tests/sync-rpc.test.ts && git commit -m "feat(m3b): sync.* RPC面(push/pull/cursor/list/ack,authMode local+remote可调,pairing拒)"
