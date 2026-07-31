@@ -10,6 +10,9 @@ import EmptyState from './EmptyState.vue';
 import ModelPicker from './ModelPicker.vue';
 import PermissionPicker from './PermissionPicker.vue';
 import Icon from './Icon.vue';
+import MarkdownView from './MarkdownView.vue';
+import { MarkdownCache } from '../lib/markdown/cache';
+import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
 const input = ref('');
@@ -57,6 +60,37 @@ const hasLive = computed(() =>
   chat.running || !!chat.streamingText || chat.toolCards.length > 0 || chat.pendingPerms.length > 0 || !!chat.retryNote,
 );
 const isEmpty = computed(() => chat.messages.length === 0 && !hasLive.value && chat.eventNotes.length === 0);
+
+// ---- Markdown 渲染（MU2a Task 2）：每消息一 MarkdownCache 实例（决策 3 稳定前缀缓存）----
+// 静态历史文本零重解析（cache 对同文本幂等）；会话切换清空，防内存滞留。
+const mdCaches = new Map<string, MarkdownCache>();
+function cacheFor(key: string): MarkdownCache {
+  let c = mdCaches.get(key);
+  if (!c) { c = new MarkdownCache(); mdCaches.set(key, c); }
+  return c;
+}
+watch(() => chat.activeId, () => { mdCaches.clear(); });
+function merged(r: { stableNodes: MdNode[]; tailNodes: MdNode[] }): MdNode[] {
+  return r.tailNodes.length ? r.stableNodes.concat(r.tailNodes) : r.stableNodes;
+}
+// 历史助手正文 → AST（deps 仅 chat.messages：输入框键入等无关重渲染不重算）
+const mdByMsg = computed(() => {
+  const out = new Map<string, MdNode[]>();
+  for (const m of chat.messages) {
+    if (m.role !== 'assistant' || !Array.isArray(m.parts)) continue;
+    m.parts.forEach((p: any, i: number) => {
+      if (p && p.type === 'text' && typeof p.value === 'string' && p.value) {
+        out.set(`${m.id}:${i}`, merged(cacheFor(`${m.id}:${i}`).update(p.value)));
+      }
+    });
+  }
+  return out;
+});
+function mdOf(key: string): MdNode[] { return mdByMsg.value.get(key) ?? []; }
+// 流式正文 → AST（每次 delta 只重解析尾部）
+const streamNodes = computed(() =>
+  chat.streamingText ? merged(cacheFor('__stream__').update(chat.streamingText)) : [],
+);
 /** eventNotes 的内联条图标——严格复用 Icon.vue 已有路径，不新增。
  *  （Icon 内没有 compress/download，回落成 info：蓝 i 圈仍可读，语义不丢。） */
 function eventIcon(kind: string): 'alert' | 'info' {
@@ -133,7 +167,7 @@ function onSlashTab(e: KeyboardEvent): void {
             <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
             <div class="abody">
               <template v-for="(p, i) in (Array.isArray(m.parts) ? m.parts : [])" :key="i">
-                <div v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" class="atext">{{ p.value }}</div>
+                <MarkdownView v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" :nodes="mdOf(`${m.id}:${i}`)" />
                 <ToolPill
                   v-else-if="p && p.type === 'toolUse' && p.value"
                   :name="isRec(p.value) ? p.value.name : ''"
@@ -152,7 +186,7 @@ function onSlashTab(e: KeyboardEvent): void {
         <div v-if="hasLive" class="msg-a">
           <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
           <div class="abody">
-            <div v-if="chat.streamingText" class="atext">{{ chat.streamingText }}</div>
+            <MarkdownView v-if="chat.streamingText" :nodes="streamNodes" />
             <ToolPill
               v-for="c in chat.toolCards" :key="c.toolUseId"
               :name="c.name" :title="c.title || c.name"
@@ -228,7 +262,6 @@ function onSlashTab(e: KeyboardEvent): void {
 .aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
 .aname { font-size: 17px; font-weight: 600; }
 .abody { font-size: 16.5px; line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.atext { white-space: pre-wrap; word-break: break-word; align-self: stretch; }
 
 .retry { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--orange); }
 

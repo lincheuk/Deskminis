@@ -116,13 +116,13 @@
 
 **目标**：助手历史正文与流式文本全量走 Markdown 渲染；代码围栏带语言槽 + 复制键；流式走稳定前缀缓存。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-markdown-view.test.ts`（源文本守卫）：
+- [x] **Step 1（红）**：新建 `tests/renderer-markdown-view.test.ts`（源文本守卫）：
   - `MarkdownView.vue`：props `{ nodes: MdNode[] }`；模板递归渲染各节点类型；**全文无 `v-html`**（守卫 `expect(src).not.toContain('v-html')`）；围栏块含语言名槽 + 复制按钮（`Icon name="copy"`）；链接 `target="_blank" rel="noopener"`；表格/引用/列表/行内码类名锚点
   - `lib/markdown/cache.ts`（新）：`MarkdownCache` 类——`update(text): { stableNodes: MdNode[]; tailNodes: MdNode[] }`，稳定前缀 AST 缓存、尾部重解析（纯模块，node 直测：连续 append 三次断言 parseMarkdown 只被调用于尾部区间——用 vi.spyOn 计数）
-- [ ] **Step 2（绿）**：实现 `MarkdownView.vue` + `cache.ts`；[ChatView.vue](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/renderer/src/components/ChatView.vue) 两处增量替换：L136 历史 `class="atext"` 插值 → `<MarkdownView :nodes="…">`（每消息一 cache 实例，computed）；L155 流式 `{{ chat.streamingText }}` → `<MarkdownView :nodes="streamNodes">`（`MarkdownCache.update` 驱动）。用户消息 L129 不动（§5.1：用户消息不渲染 Markdown，纯文本 pre-wrap 保留）。`.atext` 样式类让位给 MarkdownView 内部排版（§2.3：正文 14px/1.6 在 Task 4 统一迁移，本 Task 先保视觉等价）
-- [ ] **Step 3**：`npm test -- tests/markdown-parse.test.ts tests/markdown-xss.test.ts tests/renderer-markdown-view.test.ts` 绿；`npm test` 全量不回归（[renderer-files-panel.test.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/tests/renderer-files-panel.test.ts) L55-60 三锚 `useChat`/`activeId`/`messages` 仍在）
-- [ ] **Step 4**：`npm run typecheck` + `npm run build`；手工 `npm run dev` 目视：假 provider 回合 + 含围栏/列表/表格的助手文本渲染正确
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): MarkdownView 组件接线对话流（历史+流式稳定前缀缓存，围栏语言槽+复制）`
+- [x] **Step 2（绿）**：实现 `MarkdownView.vue` + `cache.ts`；[ChatView.vue](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/renderer/src/components/ChatView.vue) 两处增量替换：L136 历史 `class="atext"` 插值 → `<MarkdownView :nodes="…">`（每消息一 cache 实例，computed）；L155 流式 `{{ chat.streamingText }}` → `<MarkdownView :nodes="streamNodes">`（`MarkdownCache.update` 驱动）。用户消息 L129 不动（§5.1：用户消息不渲染 Markdown，纯文本 pre-wrap 保留）。`.atext` 样式类让位给 MarkdownView 内部排版（§2.3：正文 14px/1.6 在 Task 4 统一迁移，本 Task 先保视觉等价）
+- [x] **Step 3**：`npm test -- tests/markdown-parse.test.ts tests/markdown-xss.test.ts tests/renderer-markdown-view.test.ts` 绿；`npm test` 全量不回归（[renderer-files-panel.test.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/tests/renderer-files-panel.test.ts) L55-60 三锚 `useChat`/`activeId`/`messages` 仍在）
+- [x] **Step 4**：`npm run typecheck` + `npm run build`；手工 `npm run dev` 目视：假 provider 回合 + 含围栏/列表/表格的助手文本渲染正确
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): MarkdownView 组件接线对话流（历史+流式稳定前缀缓存，围栏语言槽+复制）`
 
 测试估算：+8 例（守卫 5 / cache 3）。
 
