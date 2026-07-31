@@ -4,7 +4,7 @@ import { rpc } from '../rpc';
 let localSeq = 0;
 
 interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number } }
-interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string }
+interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
@@ -45,9 +45,21 @@ export const useChat = defineStore('chat', {
     async init() {
       await rpc.connect();
       rpc.on('chat.event', ({ sessionId, event }: any) => { if (sessionId === this.activeId) this.onEvent(event); });
-      rpc.on('permission.request', ({ requestId, req }: any) => this.pendingPerms.push({ requestId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle }));
-      // 询问超时（30s）或别的窗口已答复时 minisd 广播 resolved：不摘掉卡片就会永远挂在界面上
-      rpc.on('permission.resolved', ({ requestId }: any) => { this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId); });
+      // MU2a Task 10：params.meta 并入条目（超时秒数/风险分级/桥触发列表）；deadlineMs 在 push 时一次算定
+      rpc.on('permission.request', ({ requestId, req, meta }: any) => this.pendingPerms.push({
+        requestId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle,
+        timeoutMs: meta?.timeoutMs, riskClass: meta?.riskClass, bridgeTriggers: meta?.bridgeTriggers,
+        deadlineMs: typeof meta?.timeoutMs === 'number' ? Date.now() + meta.timeoutMs : undefined,
+      }));
+      // 询问超时（90s）或别的窗口已答复时 minisd 广播 resolved：不摘掉卡片就会永远挂在界面上。
+      // 决策 4b' 按 reason 分流：timeout → 摘卡 + 补「已超时拒绝」事件条（设计 §5.2-1）；answered/无 reason → 只摘卡。
+      // renderer 不做 deadline 自判（恒晚于 minisd 一个广播延迟，自判永不触发——评审命门 1）。
+      rpc.on('permission.resolved', ({ requestId, reason }: any) => {
+        this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);
+        if (reason === 'timeout') {
+          this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail: '权限请求已超时，自动拒绝', retryable: false }];
+        }
+      });
       await this.refreshSessions();
       await this.refreshProviders();
       // 技能菜单数据源：开关/删除广播 changed；导入是后台任务不广播 changed，

@@ -89,6 +89,7 @@
   --surface-1: var(--grouped-bg-secondary);   /* 卡片 */
   --surface-2: var(--grouped-bg-tertiary);    /* 卡中槽 */
   --action: var(--accent);                    /* 唯一主行动色（链接/主按钮/选中） */
+  --on-action: #FFFFFF;                       /* --action 实底上的文字色（两档 accent 蓝均可用白，模式无关只此一份） */
   --state-ok: var(--green);   --state-err: var(--red);
   --state-warn: var(--orange); --state-info: var(--link);
   /* color-mix 比例槽（组件禁写死百分比，§3.3-1） */

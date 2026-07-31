@@ -253,17 +253,17 @@
 
 **目标**：PermissionCard 重写：右上 mono 倒计时（≤10s 变橙）；danger 红盾 / gated 橙盾分级；桥七类专属标题；shell 卡识别桥命令时卡内列出「此命令将触发：xx 权限」双段告知；按钮序「允许（--action 实底）/ 本会话允许 / 拒绝（文本）」；预选 2px `--action` 边框。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-permcard.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-permcard.test.ts`：
   - 纯模块 `lib/perm/copy.ts`：`permTitle(kind): string` 七类桥映射——bridge-notify「请求发送通知」/ bridge-clipboard-read「请求读取剪贴板」/ bridge-clipboard-write「请求写入剪贴板」/ bridge-open「请求打开链接或文件」/ bridge-speak「请求语音播报」/ bridge-screenshot「请求截屏」/ bridge-device「请求读取设备信息」；shell「请求执行命令」/ file-write「请求写入文件」/ file-read「请求读取文件」（既有三类文案保留）；未知 kind → 「请求权限」（default 保留兜底）
   - `lib/perm/countdown.ts`：`remainSeconds(deadlineMs, nowMs): number`（ceil、 clamp ≥0）；`countdownTone(remain): 'normal'|'urgent'`（≤10 → urgent）
   - 守卫 PermissionCard.vue：倒计时读秒锚（`remain` + `--font-mono`）；urgent 类锚（`--state-warn`）；盾牌分色（danger `--state-err` / 其余 `--state-warn`）；七类标题经 `permTitle(`；双段告知块锚（`此命令将触发` + 触发项列表，仅在 `bridgeTriggers?.length` 时渲染）；按钮三枚且「允许」主钮 `--action` 实底锚；`.pre` 用 2px `--action` 边框
   - 守卫 chat.ts：`PendingPerm` 扩字段（`timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]`）；`permission.request` 处理器把 `params.meta` 并入 pendingPerms 条目；`deadlineMs = Date.now() + timeoutMs` 在 push 时计算
   - 守卫 PermissionCard 对超时移除的兜底：`permission.resolved` 到达即摘卡（既有行为，断言引用未删）
   - 守卫超时留条（设计 §5.2-1「超时 deny 在对话流留『已超时拒绝』事件条」）：`permission.resolved` 且 `reason === 'timeout'` → 摘卡 + `eventNotes` 追加 `{ kind: 'error', detail: '权限请求已超时，自动拒绝' }`（retryable: false）；`reason === 'answered'`（或无 reason 的旧广播）→ 只摘卡不补条。判定源是 minisd 广播 reason（决策 4b'），**renderer 不做 deadline 自判**——倒计时纯作 UI 显示，不承担判定（renderer deadline 恒晚于 minisd 一个广播延迟，自判永不触发，评审命门 1）
-- [ ] **Step 2（绿）**：实现 `copy.ts`/`countdown.ts` + PermissionCard 重写（setInterval 1s 驱动 remain；unmount 清定时器；preselect 逻辑保留——permTier 映射不变）+ chat.ts 增量（M2c/M2d 字段全保留，只扩 PendingPerm 与处理器；`permission.resolved` 处理器按 `reason` 分流——timeout → 摘卡 + 超时留条，answered/无 reason → 只摘卡）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 手工（假 provider `__tool__` 触发 file_write 卡 + 桥命令卡）：读秒跳动、≤10s 变橙、桥命令卡含触发列表、批准一次后桥不再弹卡（Task 9 合并授权端到端）
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 权限卡 v2（倒计时可视/风险分级/桥七类文案/双段授权一卡告知）`
+- [x] **Step 2（绿）**：实现 `copy.ts`/`countdown.ts` + PermissionCard 重写（setInterval 1s 驱动 remain；unmount 清定时器；preselect 逻辑保留——permTier 映射不变）+ chat.ts 增量（M2c/M2d 字段全保留，只扩 PendingPerm 与处理器；`permission.resolved` 处理器按 `reason` 分流——timeout → 摘卡 + 超时留条，answered/无 reason → 只摘卡）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 手工（假 provider `__tool__` 触发 file_write 卡 + 桥命令卡）：读秒跳动、≤10s 变橙、桥命令卡含触发列表、批准一次后桥不再弹卡（Task 9 合并授权端到端）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 权限卡 v2（倒计时可视/风险分级/桥七类文案/双段授权一卡告知）`
 
 测试估算：+12 例（copy 8 / countdown 2 / 超时留条 2——守卫并入计数）。
 
