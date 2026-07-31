@@ -2157,14 +2157,19 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3b-ac
 - [x] `npm test` 全套绿（526 基线 + 68 M3b 新增 = 594，实际以 npm test 输出为准）
 - [x] `npm run typecheck` 0 错误
 - [x] `npm run build` 三件套通过
-- [ ] `npm run e2e:m3b` 10/10 passed（由复核方运行）
-- [ ] `npm run e2e:m3a` 仍 6/6 通过（M3a 不回归，由复核方运行）
+- [x] `npm run e2e:m3b` 10/10 passed（由复核方运行）（复核方亲跑通过 2026-07-31）
+- [x] `npm run e2e:m3a` 仍 6/6 通过（M3a 不回归，由复核方运行）（复核方亲跑通过 2026-07-31）
 - [x] `chat-context-info.test.ts` 例 2（M2a 红线锚点）仍绿
-- [ ] **OM 对接契约**（不在本计划实施，但需在交付报告里注明）：
-  - `WireMessage` / `WireCompactMarker` / `WireSession` / `WireSessionFile` 字段名即契约，OM 侧 `SyncedMessage` / `SyncedCompactMarker` / `SyncedSession` / `SyncedSessionFile` 需追加 `originDeviceId` / `createdLocallyAt`（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L64-124 / L128-183 / L14-60 / L187-217）
-  - `SyncedCompactMarker.conflictPolicy`（L163 `.alwaysAccept`）需在 OM 侧 `mergeCompactMarker`（[`ChatStoreSyncHydrators.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/ChatStoreSyncHydrators.swift) L278-302）加来源分支：M3 transport 走「主锚 + LWW on createdAt + orphan 降级」策略，CK 来源保持 `.alwaysAccept`
-  - `mergeRemoteSession` 的 `fromDeviceId`（L182 现传空串哨兵）需改为真实 device fingerprint
-  - **PASETO exp/iat 单位对齐**：DM 侧 [`remote/paseto.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/remote/paseto.ts) 用毫秒（M3a 现状），OM Swift `Date()` 是秒——OM 侧铸 PASETO 时 `exp` / `iat` 需 `* 1000`
+- [x] **OM 对接契约**（不在本计划实施，但需在交付报告里注明）：
+
+  OM 侧需对齐的契约清单（DM→OM 单向契约，OM 实装属 OpenMinis 代码库）：
+  - **a) `SyncedMessage` 需新增 `originDeviceId` / `createdLocallyAt` 两字段**：对应 [`sync/wire.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/sync/wire.ts) `WireMessage` 契约（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L64-124 现状缺这两字段）
+  - **b) `SyncedSessionFile` 需新增 `originDeviceId` / `sha256` / `toolUseId`**：对应 `WireSessionFile` 契约（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L187-217 现状缺这三字段）
+  - **c) PASETO `exp` / `iat` 单位为毫秒**：DM 侧 [`remote/paseto.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/remote/paseto.ts) 用毫秒（M3a 现状），OM Swift `Date()` 是秒——OM 侧铸 PASETO 时 `exp` / `iat` 需 `* 1000`
+  - **d) `WireSession.memoryEnabled` 为 number 0/1，非 boolean**：DM DB schema `sessions.memory_enabled INTEGER`，线格式透传 number，OM 侧 hydrator 需容忍 0/1 而非 Swift `Bool` 直接 decode
+  - **e) marker 线格式 `version=2`，权威主锚 `lastCompactedMessageId`，`firstKept*` 为回算辅助锚**：设计 §4.4 时序——入口优先取 `lastCompactedMessageId`，缺失时用 `firstKeptMessageId` 在合并排序后的消息序列上回算前一条 id，仍失败标 orphan；OM 侧 `SyncedCompactMarker.conflictPolicy`（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L163 `.alwaysAccept`）需在 [`ChatStoreSyncHydrators.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/ChatStoreSyncHydrators.swift) L278-302 `mergeCompactMarker` 加来源分支：M3 transport 走「主锚 + LWW on createdAt + orphan 降级」策略，CK 来源保持 `.alwaysAccept`
+  - `WireMessage` / `WireCompactMarker` / `WireSession` / `WireSessionFile` 字段名即契约（[`SyncedTypes.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/SyncedTypes.swift) L64-124 / L128-183 / L14-60 / L187-217）
+  - `mergeRemoteSession` 的 `fromDeviceId`（[`ChatStoreSyncHydrators.swift`](file:///c:/Users/24739/Downloads/openminis1/OpenMinis/src/ios/Agent/Sync/V2/ChatStoreSyncHydrators.swift) L182 现传空串哨兵）需改为真实 device fingerprint
   - 同步触发：OM 侧 GUI 收到 `sync.dirty` 广播后，作为 RPC 客户端调 DM 端 `sync.pull`（OM 持有 DM 的 PASETO + 地址，M3a 已建好这条路径）
 
 ## 非目标（本计划绝对不做）
