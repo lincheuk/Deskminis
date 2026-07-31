@@ -1897,7 +1897,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/co
 
 **步骤**：
 
-- [ ] **Step 1: 写 e2e 脚本**
+- [x] **Step 1: 写 e2e 脚本**
 
 `deskminis/scripts/e2e-m3b-acceptance.mjs`（参照 [`e2e-m3a-acceptance.mjs`](file:///c:/Users/24739/Downloads/openminis1/deskminis/scripts/e2e-m3a-acceptance.mjs) spawn + 临时数据根 + PASETO 派生模式）：
 
@@ -2137,13 +2137,13 @@ main().catch(e => { console.error(e); process.exit(1); });
     "e2e:m3b": "node scripts/e2e-m3b-acceptance.mjs",
 ```
 
-- [ ] **Step 2: 构建并运行**
+- [x] **Step 2: 构建并运行**
 
 Run: `cd deskminis && npm run build`
 Run: `cd deskminis && npm run e2e:m3b`
 Expected: 10/10 passed（begin / complete / A 写入 / A pull / openDb 直落 marker / B push / PASETO 远程 sync.pull / usedTokens 差值=0 / 消息 id 序列逐位一致 / marker 同步成功）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3b-acceptance.mjs deskminis/package.json && git commit -m "test(m3b): e2e验收驱动(双实例配对互连+openDb直落marker+PASETO远程sync.pull+usedTokens差值=0+id序列逐位一致)"

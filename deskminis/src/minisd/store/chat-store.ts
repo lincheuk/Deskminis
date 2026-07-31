@@ -209,11 +209,14 @@ export class ChatStore {
           this.db.prepare('DELETE FROM sync_orphan_markers WHERE id=?').run(om.id);
         }
       }
-      // session 元数据 LWW on updatedAt
+      // session 元数据 LWW on updatedAt；session 不存在时 INSERT（首次同步创建）
       if (remote.session) {
         const ws = remote.session;
         const localSession = this.getSession(sessionId);
-        if (localSession && ws.updatedAt > localSession.updatedAt) {
+        if (!localSession) {
+          this.db.prepare('INSERT INTO sessions (id, title, created_at, updated_at, memory_enabled, model_binding, pinned_at) VALUES (?,?,?,?,?,?,?)')
+            .run(sessionId, ws.title, ws.createdAt, ws.updatedAt, ws.memoryEnabled ? 1 : 0, ws.modelBinding ?? null, ws.pinnedAt ?? null);
+        } else if (ws.updatedAt > localSession.updatedAt) {
           this.db.prepare('UPDATE sessions SET title=?, updated_at=?, memory_enabled=?, model_binding=?, pinned_at=? WHERE id=?')
             .run(ws.title, ws.updatedAt, ws.memoryEnabled, ws.modelBinding ?? null, ws.pinnedAt ?? null, sessionId);
         }
