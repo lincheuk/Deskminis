@@ -12,6 +12,8 @@ import type { PermissionRequest } from './tools/types';
 import { runAgentLoop, type ProviderSlot } from './agent/loop';
 import { RpcServer } from './rpc/server';
 import { ProviderError, type AgentProvider, type StreamRequest } from './providers/types';
+import { PairingStore, PairingService } from './remote/pairing';
+import { createRemoteMethods, createAdditionalVerify, guardBusinessMethod } from './remote';
 import type { AgentStreamEvent } from '../shared/types';
 import { ModelCatalog } from './providers/model-catalog';
 import { MemoryStore } from './store/memory-store';
@@ -433,7 +435,23 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   };
 
   const authToken = randomUUID().toUpperCase();
-  rpc = new RpcServer(methods, authToken);
+
+  // M3a 接线：PairingStore 持久化 + PairingService 配对生命周期 + additionalVerify 回调
+  // 沿用 M1 vault/keyring 路径（KeyringVault L26-36）；DESKMINIS_TEST=1 时 vault 已是 InMemoryVault
+  // StaticIdentity 首次生成后持久化到 vault，后续启动复用（设计 §2.1「长期身份」）
+  const pairingStore = new PairingStore(root, vault);
+  const pairingService = new PairingService(pairingStore, vault);
+  const remoteMethods = createRemoteMethods(pairingService);
+  // 业务面方法（chat.*/permission.*/skills.* 等）统一加 pairing 模式守卫（红线 4c）：
+  // pairing 模式只能调 remote.pair.complete，其他业务面全拒。
+  // remote.* 方法自带 assertAuthMode 守卫，不重复包装。
+  for (const k of Object.keys(methods)) {
+    if (!k.startsWith('remote.')) (methods as any)[k] = guardBusinessMethod((methods as any)[k], k);
+  }
+  Object.assign(methods, remoteMethods);
+  const additionalVerify = createAdditionalVerify(pairingService);
+
+  rpc = new RpcServer(methods, authToken, additionalVerify);
   const port = await rpc.listen(opts?.host ?? '127.0.0.1', opts?.port ?? 0);
   return {
     port, authToken, bridgePipe,
@@ -448,7 +466,11 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
 // 作为独立进程启动时（Electron utilityProcess / --headless）
 if (process.env.DESKMINIS_STANDALONE === '1') {
-  startMinisd()
+  // M3a：MINISD_HOST env 接线（设计 §3.1）——main/index.ts utilityProcess.fork 时 env 注入，
+  // standalone 分支读 env 传入 startMinisd({ host })，不改 startMinisd 签名。
+  // 默认 127.0.0.1（仅本机）；设 0.0.0.0 开放局域网（配 PASETO/配对码鉴权）。
+  const startOpts = process.env.MINISD_HOST ? { host: process.env.MINISD_HOST } : undefined;
+  startMinisd(startOpts)
     // 握手行同时交出 token：主进程必须把它经 ipcMain.handle('minisd:info') 交给渲染进程，
     // 否则渲染进程连不上自己的守护进程。
     .then(({ port, authToken }) => { process.stdout.write(JSON.stringify({ minisdPort: port, authToken }) + '\n'); })

@@ -63,7 +63,7 @@ deskminis/
 
 ---
 
-### Task 1: RpcServer additionalVerify + authMode 分级
+### Task 1 · RpcServer additionalVerify + authMode 分级 ✅
 
 **Files:**
 - Modify: `deskminis/src/minisd/rpc/server.ts`
@@ -81,7 +81,7 @@ deskminis/
   - `onConnection` 把 authMode 透传到 `RpcConnection`
   - `broadcast` 完全不改（L64 原样）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/rpc-server-authmode.test.ts`:
 
@@ -272,12 +272,12 @@ describe('broadcast 不回归', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- rpc-server-authmode`
 Expected: FAIL（`AuthMode` 导出不存在、`additionalVerify` 第三参数不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/rpc/server.ts`（完整文件，已对照现状 L1-72；改动点：constructor +additionalVerify、verifyClient 分级、onConnection 透传 authMode、RpcConnection 加 authMode；`broadcast`/`close` 一字不动）：
 
@@ -384,7 +384,7 @@ export class RpcServer {
 
 > **关键实现细节**：`ws` 库的 `verifyClient` 第四参（`userProps`）会被附加到 `req` 上并以 `req` 形参传给 `connection` 事件。上面用 `cb(true, 200, undefined, { authMode })` 把 authMode 塞进 userProps，`onConnection` 经 `req.__authMode` 取回。若 `ws` 版本 userProps 落点不同（`info.req` vs connection `req`），实现时以 `ws@8.21.1` 实测为准——单测会暴露任何错位。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- rpc-server-authmode`
 Expected: 12 passed（原 9 + 评审缺口新增 3：LAN IP 携老 token 401 / LAN IP+paseto 连上 / 回环 127.0.0.1 不回归；其中前 2 例在无 LAN 接口环境下 it.skipIf 跳过，跳过不算 failed）
@@ -392,7 +392,7 @@ Expected: 12 passed（原 9 + 评审缺口新增 3：LAN IP 携老 token 401 / L
 Run: `cd deskminis && npm test`
 Expected: 全套回归全绿（基线 432 + Task 1 新增约 12 = 约 444；无 LAN 接口环境下实际新增 10）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/rpc/server.ts deskminis/tests/rpc-server-authmode.test.ts && git commit -m "feat(m3a): RpcServer additionalVerify+authMode分级(local/pairing/remote,老token路径不回归)"
@@ -400,7 +400,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/rpc/ser
 
 ---
 
-### Task 2: PASETO v4.local codec
+### Task 2 · PASETO v4.local codec ✅
 
 **Files:**
 - Create: `deskminis/src/minisd/remote/paseto.ts`
@@ -414,7 +414,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/rpc/ser
   - `export class PasetoError extends Error`
   - payload 约定：`{ iat: number; exp: number; device_fingerprint: string }`（iat/exp 为 epoch 秒；Task 4 铸造时填）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/remote-paseto.test.ts`:
 
@@ -486,12 +486,12 @@ describe('过期校验（业务层）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- remote-paseto`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 3: 安装依赖 + 实现**
+- [x] **Step 3: 安装依赖 + 实现**
 
 先安装 noble 套件：
 ```bash
@@ -564,12 +564,12 @@ export function decodePasetoLocal(token: string, key: Uint8Array, expectedFooter
 
 > **实现提示**：noble `@noble/ciphers` 的 `xchacha20poly1305(key, nonce?, ad?)` API 形态以实测为准——上面是 spec 思路的伪代码骨架，实现时按 noble 实际导出调整（可能需 `xchacha20poly1305(key, { nonce, ad })` 或函数式调用）。关键不变量：① nonce 24 字节随机；② AD = PAE(['paseto.local', nonce, footer])；③ tag 校验失败必须抛 PasetoError。单测覆盖不变量，API 形态自由。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- remote-paseto`
 Expected: 9 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/paseto.ts deskminis/tests/remote-paseto.test.ts deskminis/package.json deskminis/package-lock.json && git commit -m "feat(m3a): PASETO v4.local codec(noble套件,往返/篡改/过脚校验)"
@@ -577,22 +577,25 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/
 
 ---
 
-### Task 3: PairingKey（X25519 ECDH + HKDF + vault CRUD）
+### Task 3 · PairingKey（X25519 ECDH + HKDF + vault CRUD） ✅（含追加修正）
 
 **Files:**
 - Create: `deskminis/src/minisd/remote/pairing.ts`
 - Test: `deskminis/tests/remote-pairing.test.ts`
 
 **Interfaces:**
-- Consumes: `@noble/curves`（x25519）、`@noble/hashes`（hkdf、blake2b）、M1 `SecretVault`（[`provider-store.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/store/provider-store.ts) L12-16）
-- Produces（Task 4 依赖）:
-  - `export interface PairingKey { fingerprint: string; authKey: Uint8Array(32); sessionSecret: Uint8Array(32); roomId: string; peerPubKeyB64: string; createdAt: number }`
-  - `export class PairingStore { constructor(vault: SecretVault, ourStaticPriv?: Uint8Array); beginPairing(): { code: string; ourPubKeyB64: string; fingerprint: string; expiresAt: number }; completePairing(code: string, peerPubKeyB64: string): { fingerprint: string; ourPubKeyB64: string }; list(): PairingKey[]; get(fingerprint: string): PairingKey | undefined; delete(fingerprint: string): void }`
-  - `beginPairing` 生成 8 字配对码（Crockford base32，去除易混字符）+ 取本机静态公钥；fingerprint 此时由「本机静态公钥」预派生（completePairing 后用 ECDH 共享密钥重算并覆盖）；pending 记录 5 分钟过期。
-  - `completePairing` 做 ECDH(ourStaticPriv, peerPubKey) → HKDF(sharedSecret, salt=code, info='deskminis-m3a') → authKey(32) + sessionSecret(32) + roomId(16 hex)；fingerprint = base32(blake2b(sharedSecret, {dkLen:3})) 前 6 字符；存 vault key=`pairing.<fingerprint>`（JSON：base64 各密钥）。
-  - 静态私钥存 vault key=`pairing.static-priv`（首次生成，永不导出）。
+- Consumes: `@noble/curves`（x25519，从 `@noble/curves/ed25519.js` 导入）、`@noble/hashes`（hkdf、sha256，从 `@noble/hashes/hkdf.js` + `@noble/hashes/sha2.js` 导入）、M1 `SecretVault`（[`provider-store.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/store/provider-store.ts) L12-16，仅 set/get/delete 无 list）
+- Produces（Task 4 依赖，三层分层）:
+  - `export function generatePairingCode(): string`——8 字符，去除易混淆字符 0/O/1/I/L，字符集 `ABCDEFGHJKMNPQRSTUVWXYZ23456789`
+  - `export class StaticIdentity { constructor(privateKey?: Uint8Array); readonly privateKey/publicKey/fingerprint; static loadOrCreate(vault: SecretVault): StaticIdentity }`——X25519 静态密钥对；无参构造随机生成（测试用），传 privateKey 从私钥恢复；`loadOrCreate` 首次生成后存 vault key=`pairing.static-identity`（base64 私钥），后续启动加载复用；fingerprint = `sha256(publicKey).slice(0,6)` 的 12 字符 hex（48-bit 强度）
+  - `export function derivePairingKey(myPriv, peerPub, pairingCode, peerFingerprint?, peerName?): PairingKey`——ECDH + HKDF-SHA256 派生 64 字节（前 32=authKey，后 32=sessionSecret）+ 5 字节 roomId（base32 编码 8 字符）；createdAt 为 epoch 秒（`Math.floor(Date.now()/1000)`）
+  - `export class PairingStore { constructor(dataDir, vault); save(key): void; get(fp): PairingKey | undefined; list(): PairingKeyPublicView[]; delete(fp): void }`——持久化 CRUD；vault 存密钥本体（key=`pairing.<fp>`），`pairing-index.json` 存 fingerprint 列表（SecretVault 无 list 接口，自管索引）；list() 返回脱敏视图（不含 authKey/sessionSecret）
+  - `export class PairingService { constructor(store: PairingStore, vault: SecretVault); beginPairing(): { code, ourPubKeyB64, fingerprint, expiresAt }; completePairing(code, peerPubKeyB64, peerFingerprint, peerName?): { fingerprint, ourPubKeyB64 }; hasPending(code): boolean; cleanupExpired(): void; list()/get(fp)/delete(fp) 代理 store }`——配对协议生命周期；StaticIdentity 经 `loadOrCreate` 持久化；pending 表存进程内存（5 分钟过期，complete 后一次性消费）
+  - `export interface PairingKey { authKey: Uint8Array(32); sessionSecret: Uint8Array(32); roomId: string; peerFingerprint: string; peerName: string; createdAt: number }`
+  - `export interface PairingKeyPublicView { peerFingerprint; peerName; roomId; createdAt }`——脱敏视图
+  - `export const PAIRING_CODE_TTL_S = 300`——配对码有效期 5 分钟（秒）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/remote-pairing.test.ts`:
 
@@ -689,12 +692,12 @@ describe('list / delete', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- remote-pairing`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/remote/pairing.ts`:
 
@@ -809,12 +812,12 @@ export class PairingStore {
 
 > **实现提示（关键）**：M1 的 [`SecretVault`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/store/provider-store.ts) L12-16 接口只有 `set/get/delete`，**没有 list**。`PairingStore.list()` 不能遍历 vault。落地方案：PairingStore 自管一份 `vault.set('pairing.index', JSON.stringify([fp1, fp2, ...]))` 索引，每次 completePairing/delete 同步更新。上面的 `list()` 伪代码用 `Object.entries(vault)` 是错的（InMemoryVault 内部是 Map 不暴露），实现时改为读 `pairing.index`。单测 `list 列全部` 会暴露任何错位。另外 `x25519` 在 `@noble/curves` 里的导入路径以实测为准（`@noble/curves/ed25519` 导出 `x25519`，或需 `@noble/curves` 顶层）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- remote-pairing`
 Expected: 8 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/pairing.ts deskminis/tests/remote-pairing.test.ts && git commit -m "feat(m3a): PairingKey(X25519 ECDH+HKDF+指纹+vault持久化,配对码一次性5分钟过期)"
@@ -830,24 +833,24 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/
 - Test: `deskminis/tests/remote-rpc.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1 `AuthMode`/`RpcConnection`/`AdditionalVerify`；Task 2 `encodePasetoLocal`/`decodePasetoLocal`；Task 3 `PairingStore`
+- Consumes: Task 1 `AuthMode`/`RpcConnection`/`AdditionalVerify`；Task 2 `encodePaseto`/`decodePaseto`；Task 3 `PairingService`（含 `beginPairing`/`completePairing`/`hasPending`/`list`/`get`/`delete`）
 - Produces:
-  - `export function makeRemoteMethods(pairing: PairingStore): { 'remote.pair.begin': ...; 'remote.pair.complete': ...; 'remote.status': ...; 'remote.unpair': ... }`——每个方法第一参为 `(params, conn)`，内部 `assertAuthMode(conn, ...)` 守卫：
-    - `remote.pair.begin`：仅 `local`；返回 `{ code, ourPubKeyB64, fingerprint, expiresAt }`
-    - `remote.pair.complete({ code, peerPubKeyB64 })`：仅 `pairing`；调 `pairing.completePairing`；返回 `{ fingerprint, ourPubKeyB64 }`
-    - `remote.status`：仅 `local`；返回 `{ pairings: PairingKey[](脱敏,不含密钥) }`
-    - `remote.unpair({ fingerprint, confirm })`：仅 `local`；调 `pairing.delete`
-  - `export function makeAdditionalVerify(pairing: PairingStore): AdditionalVerify`——
-    - `?paseto=<token>`：遍历 `pairing.list()`，用每个 authKey 试 `decodePasetoLocal`；成功且 `exp > now` → `{ ok:true, authMode:'remote' }`；任一失败继续下一个；全失败 → `{ ok:false }`
-    - `?pairingCode=<code>`：code 存在于 pending（未过期）→ `{ ok:true, authMode:'pairing' }`；否则 `{ ok:false }`
-    - 注意：additionalVerify 需要访问 pending 列表——PairingStore 暴露 `hasPending(code): boolean` 或 additionalVerify 直接调 pairing 的内部方法
+  - `export function createRemoteMethods(service: PairingService): RpcMethods`——每个方法第一参为 `(params, conn)`，内部 `assertAuthMode(conn, ...)` 守卫：
+    - `remote.pair.begin`：仅 `local`；调 `service.beginPairing()`；返回 `{ pairingCode, myPublicKey(Uint8Array), myPublicKeyB64, myFingerprint, expiresIn }`
+    - `remote.pair.complete({ pairingCode, peerPublicKey, peerFingerprint, peerName? })`：仅 `pairing`；调 `service.completePairing`；返回 `{ ok, peerFingerprint }`
+    - `remote.status`：仅 `local`；返回 `{ devices: PairingKeyPublicView[](脱敏,不含密钥) }`
+    - `remote.unpair({ peerFingerprint })`：仅 `local`；调 `service.delete`
+  - `export function createAdditionalVerify(service: PairingService): AdditionalVerify`——
+    - `?paseto=<token>`：遍历 `service.list()`，用每个 authKey 试 `decodePaseto`；成功则 `{ ok:true, authMode:'remote' }`；任一失败继续下一个；全失败 → `{ ok:false }`
+    - `?pairingCode=<code>`：`service.hasPending(code)` → `{ ok:true, authMode:'pairing' }`；否则 `{ ok:false }`
+  - `export function guardBusinessMethod(method, name): method`——包装业务面方法，pairing 模式拒（remote 模式全开）
   - `minisd/index.ts` 改动：
-    - 装配 `const pairing = new PairingStore(vault);`
-    - `new RpcServer(methods, authToken, makeAdditionalVerify(pairing))`（第三参）
-    - methods 合并 `makeRemoteMethods(pairing)`
-    - standalone 分支 L450-461：`startMinisd({ host: process.env.MINISD_HOST ?? '127.0.0.1' })`
+    - 装配 `const pairingStore = new PairingStore(root, vault); const pairingService = new PairingService(pairingStore, vault);`
+    - `new RpcServer(methods, authToken, createAdditionalVerify(pairingService))`（第三参）
+    - methods 合并 `createRemoteMethods(pairingService)` + 业务面方法统一用 `guardBusinessMethod` 包装
+    - standalone 分支：`startMinisd({ host: process.env.MINISD_HOST })`（不传则默认 127.0.0.1）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/remote-rpc.test.ts`:
 
@@ -994,12 +997,12 @@ describe('MINISD_HOST 接线', () => {
 
 > **注意**：`remote.status` 返回的 pairings 须含 `authKeyB64`（base64url 字符串）以便测试与 CLI 铸 PASETO；正式 UI 不显示该字段（GUI 任务在 M3b 处理，M3a RPC 返回含密钥，鉴权边界已保证只有 local 能调）。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- remote-rpc`
 Expected: FAIL（`makeRemoteMethods`/`makeAdditionalVerify` 不存在、`startMinisd` 未接 additionalVerify）
 
-- [ ] **Step 3: 实现 remote/index.ts**
+- [x] **Step 3: 实现 remote/index.ts**
 
 ```typescript
 import type { RpcConnection, AuthMode } from '../rpc/server';
@@ -1073,7 +1076,7 @@ export function makeAdditionalVerify(pairing: PairingStore) {
 }
 ```
 
-- [ ] **Step 4: 改 minisd/index.ts 装配**
+- [x] **Step 4: 改 minisd/index.ts 装配**
 
 改动点（增量，不动既有能力）：
 1. import：`import { PairingStore } from './remote/pairing'; import { makeRemoteMethods, makeAdditionalVerify } from './remote';`
@@ -1083,14 +1086,14 @@ export function makeAdditionalVerify(pairing: PairingStore) {
 5. standalone 分支 L450-461：`startMinisd()` → `startMinisd({ host: process.env.MINISD_HOST ?? '127.0.0.1' })`
 6. `close` 里加 `pairing` 无需特殊清理（vault 是 db 之外的，进程退出即落盘完成）
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- remote-rpc`
 Expected: 7 passed
 Run: `cd deskminis && npm test`
 Expected: 全套绿（441 + Task2 9 + Task3 8 + Task4 7 = 465；含 Task2/3 已先过）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/index.ts deskminis/src/minisd/index.ts deskminis/tests/remote-rpc.test.ts && git commit -m "feat(m3a): remote.* RPC面(authMode分级守卫)+additionalVerify接PASETO/配对码+MINISD_HOST接线"
@@ -1112,7 +1115,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/
   - `export async function noProxyFetch(url: string, init?: undici.RequestInit): Promise<undici.Response>`——`undici.fetch(url, { ...init, dispatcher: noProxyDispatcher })`
   - 红线文档化：模块顶部注释明示「仅 M3 传输代码（relay/对端）使用；provider 的 HTTPS 禁止 import 此模块」
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/remote-noProxyFetch.test.ts`:
 
@@ -1150,12 +1153,12 @@ describe('红线隔离：provider 路径不引入 noProxyFetch', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- remote-noProxyFetch`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 先把 undici 新增为直接依赖（现状：仅 node-gyp 传递依赖，未在 package.json 声明）：
 ```bash
@@ -1184,12 +1187,12 @@ export async function noProxyFetch(url: string, init?: RequestInit): Promise<Res
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- remote-noProxyFetch`
 Expected: 3 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/noProxyFetch.ts deskminis/tests/remote-noProxyFetch.test.ts deskminis/package.json deskminis/package-lock.json && git commit -m "feat(m3a): undici noProxy出流量隔离(M3专用,provider红线禁用)"
@@ -1215,7 +1218,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/
     - `unpair <fingerprint>` → 调 `remote.unpair` → 打印 ok
   - 输出：成功 stdout JSON 或表格；失败 stderr 错误 + 退出码（0 成功 / 1 一般错误 / 3 参数错误 / 4 连不上 minisd）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/remote-cli.test.ts`:
 
@@ -1306,12 +1309,12 @@ describe('pair / status / unpair', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- remote-cli`
 Expected: FAIL（CLI 文件不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/cli/remote-cli.mjs`（零依赖单文件，参照 bridge-cli.mjs 风格；`connect` 子命令用 `@noble/curves` 临时生成 X25519 keypair——但 CLI 是零依赖单文件，引 noble 会破坏零依赖。权衡：connect 子命令需要 X25519，要么引 noble（破坏零依赖），要么用 Node 内建 crypto 的 diffieHellman（Node 22 支持 `crypto.diffieHellman` 但曲线是 modp 系列，不是 x25519）。
 
@@ -1438,14 +1441,14 @@ async function main() {
 main();
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- remote-cli`
 Expected: 6 passed
 Run: `cd deskminis && npm test`
 Expected: 全套绿（465 + Task5 3 + Task6 6 = 474；Task7 e2e 是脚本不计入 npm test）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/cli/remote-cli.mjs deskminis/tests/remote-cli.test.ts && git commit -m "feat(m3a): remote-cli零依赖单文件(pair/connect/status/unpair,WS直连minisd)"
@@ -1461,7 +1464,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/cli/remote-cli
 
 **目标**：扮演「远程客户端」走完整链路——配对 → PASETO → WS 连接 → 调 chat.sessions.list → 收 chat.event 广播 → 断言 remote 不可调 remote.*。继承 M2 系列 e2e 临时数据根隔离。
 
-- [ ] **Step 1: 写 e2e 脚本**
+- [x] **Step 1: 写 e2e 脚本**
 
 `deskminis/scripts/e2e-m3a-acceptance.mjs`（参照 [`e2e-m2e-acceptance.mjs`](file:///c:/Users/24739/Downloads/openminis1/deskminis/scripts/e2e-m2e-acceptance.mjs) L1-70 的 spawn + 临时数据根模式）：
 
@@ -1592,13 +1595,13 @@ console.log(`\nM3a e2e: ${pass}/${results.length} passed`);
 process.exit(pass === results.length ? 0 : 1);
 ```
 
-- [ ] **Step 2: 构建并运行**
+- [x] **Step 2: 构建并运行**
 
 Run: `cd deskminis && npm run build`
 Run: `cd deskminis && npm run e2e:m3a`
 Expected: 6/6 passed（begin / complete / paseto / remote.list / broadcast / denied）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3a-acceptance.mjs deskminis/package.json && git commit -m "test(m3a): e2e验收驱动(配对→PASETO→WS→业务面→广播→权限边界)"
