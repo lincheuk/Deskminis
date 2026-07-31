@@ -46,6 +46,24 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (session_id, skill_id)
   );
   `,
+  // [3] M3b 双向同步：messages 表新增设备来源字段 + sync_orphan_markers 隔离表（设计 §1-M3b / §4.2 / 评审命门 2）
+  //  迁移一经发布不可改：已发布库 user_version=3，runner 只对 v<4 的库跑 MIGRATIONS[3]。
+  //  旧数据回填：origin_device_id='legacy'（DEFAULT 自动），created_locally_at=created_at（UPDATE 显式）。
+  //  'legacy' 仅作占位，合并靠 id 去重不影响正确性——新消息 appendMessage 永不写 'legacy'。
+  //  sessions 表 MIGRATIONS[0] 已预留 last_synced_at/remote_origin_device_id/remote_tombstoned_at（L11），本次不动。
+  //  compact_markers schema 一行不改（M2a 红线）——orphan 落 sync_orphan_markers 隔离表。
+  `
+  ALTER TABLE messages ADD COLUMN origin_device_id TEXT NOT NULL DEFAULT 'legacy';
+  ALTER TABLE messages ADD COLUMN created_locally_at REAL;
+  UPDATE messages SET created_locally_at = created_at WHERE created_locally_at IS NULL;
+  CREATE INDEX IF NOT EXISTS idx_messages_origin ON messages(session_id, origin_device_id, created_locally_at);
+  CREATE TABLE sync_orphan_markers (
+    id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+    summary TEXT NOT NULL, last_compacted_message_id TEXT NOT NULL, created_at REAL NOT NULL,
+    received_at REAL NOT NULL
+  );
+  CREATE INDEX idx_sync_orphan_markers_session ON sync_orphan_markers(session_id, created_at DESC);
+  `,
 ];
 
 export function openDb(filePath: string): Database.Database {

@@ -189,7 +189,7 @@ deskminis/
   - `MIGRATIONS[3]`：见架构决策 1（messages +2 列 + sync_orphan_markers 表 + 两索引）
   - `sync_orphan_markers` 表（评审命门 2）：orphan marker 隔离存放，`compact_markers` schema 一行不改
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-schema.test.ts`:
 
@@ -304,12 +304,12 @@ describe('526 基线不回归', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-schema`
 Expected: 全部 fail（`origin_device_id` 列不存在 / `RawMessage.originDeviceId` 类型不存在 / `ChatStore` 构造函数第二参不接受）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/store/db.ts`：在 `MIGRATIONS` 数组末尾追加 `[3]`（不碰 `[0]`/`[1]`/`[2]`）：
 
@@ -361,14 +361,14 @@ export interface RawMessage {
 - L80-90 `appendMessage` 在构造 `full` 时填充 `originDeviceId` / `createdLocallyAt`，INSERT 语句加两列
 - L102-111 `listMessages` 读回时附带两字段
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-schema`
 Expected: 11 passed（8 原有 + 3 sync_orphan_markers 表断言）
 Run: `cd deskminis && npm test -- chat-store`
 Expected: 既有 12 用例全绿（526 基线不回归）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/db.ts deskminis/src/shared/types.ts deskminis/src/minisd/store/chat-store.ts deskminis/tests/sync-schema.test.ts && git commit -m "feat(m3b): schema迁移[3]+RawMessage加originDeviceId/createdLocallyAt(526基线不回归)"

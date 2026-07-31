@@ -8,10 +8,11 @@ interface MessageRow {
   created_at: number; updated_at: number; token_usage: string | null;
   sort_order: number; reasoning_content: string | null;
   stream_interrupt_count: number; error_info: string | null;
+  origin_device_id: string; created_locally_at: number | null;
 }
 
 export class ChatStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: Database.Database, private defaultOriginDeviceId: string = 'local') {}
 
   nowEpoch(): number { return Date.now() / 1000; }
   newId(): string { return randomUUID().toUpperCase(); }
@@ -79,12 +80,17 @@ export class ChatStore {
 
   appendMessage(m: Omit<RawMessage, 'sortOrder' | 'updatedAt'>): RawMessage {
     const { mx } = this.db.prepare('SELECT COALESCE(MAX(sort_order), -1) mx FROM messages WHERE session_id=?').get(m.sessionId) as { mx: number };
-    const full: RawMessage = { ...m, sortOrder: mx + 1, updatedAt: this.nowEpoch() };
-    this.db.prepare(`INSERT INTO messages (id, session_id, role, parts_json, created_at, updated_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, error_info)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    const full: RawMessage = {
+      ...m, sortOrder: mx + 1, updatedAt: this.nowEpoch(),
+      originDeviceId: m.originDeviceId ?? this.defaultOriginDeviceId,
+      createdLocallyAt: m.createdLocallyAt ?? m.createdAt,
+    };
+    this.db.prepare(`INSERT INTO messages (id, session_id, role, parts_json, created_at, updated_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, error_info, origin_device_id, created_locally_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(full.id, full.sessionId, full.role, serializeParts(full.parts), full.createdAt, full.updatedAt,
         full.tokenUsage ? JSON.stringify(full.tokenUsage) : null, full.sortOrder,
-        full.reasoningContent ?? null, full.streamInterruptCount, full.errorInfo ?? null);
+        full.reasoningContent ?? null, full.streamInterruptCount, full.errorInfo ?? null,
+        full.originDeviceId, full.createdLocallyAt);
     this.db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(full.updatedAt, full.sessionId);
     return full;
   }
@@ -107,6 +113,7 @@ export class ChatStore {
       sortOrder: r.sort_order, tokenUsage: r.token_usage ? JSON.parse(r.token_usage) : undefined,
       reasoningContent: r.reasoning_content ?? undefined,
       streamInterruptCount: r.stream_interrupt_count, errorInfo: r.error_info ?? undefined,
+      originDeviceId: r.origin_device_id, createdLocallyAt: r.created_locally_at ?? r.created_at,
     }));
   }
 }

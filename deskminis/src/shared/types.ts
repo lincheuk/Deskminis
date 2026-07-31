@@ -22,6 +22,9 @@ export interface RawMessage {
   reasoningContent?: string;
   streamInterruptCount: number;
   errorInfo?: string;       // 设备本地列，不同步
+  // M3b 同步字段（设计 §4.2）
+  originDeviceId?: string;      // 生成端 fingerprint；缺省=本机；旧数据迁移后='legacy'
+  createdLocallyAt?: number;    // 端内单调时钟（epoch 秒）；缺省=createdAt
 }
 
 export interface SessionMeta {
