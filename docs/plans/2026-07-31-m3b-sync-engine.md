@@ -395,7 +395,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/d
   - `fromWireMessage(w: WireMessage): Pick<RawMessage, ...>`（不含 `sortOrder` / `updatedAt`，由 `mergeRemoteSession` 落库时定）
   - `resolveWireMarker(w: WireCompactMarker, mergedMessages: RawMessage[]): { marker: CompactMarker; isOrphan: boolean }`（§4.4 入口换算，**必须在 mergedMessages 上算**）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-wire.test.ts`:
 
@@ -540,12 +540,12 @@ describe('WireSession 字段对齐 OM SyncedSession', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-wire`
 Expected: 全部 fail（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/sync/wire.ts`：
 
@@ -712,12 +712,12 @@ export function toWireSession(s: SessionMeta): WireSession {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-wire`
 Expected: 10 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/wire.ts deskminis/tests/sync-wire.test.ts && git commit -m "feat(m3b): 线格式Wire*对齐OM SyncedTypes+CompactMarker双锚换算(§4.4时序)"
