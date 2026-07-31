@@ -293,22 +293,22 @@ function onSlashTab(e: KeyboardEvent): void {
 .msg-u { display: flex; justify-content: flex-end; padding: 5px 16px 5px 76px; }
 .msg-u > div {
   background: var(--fill-tertiary); border-radius: var(--r-bubble); padding: 10px 14px;
-  font-size: 16.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-width: 100%;
+  font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-width: 100%;
 }
 /* 助手消息：无气泡 */
 .msg-a { padding: 5px 16px; }
 .ahead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
-.aname { font-size: 17px; font-weight: 600; }
-.abody { font-size: 16.5px; line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.aname { font-size: var(--fs-title); font-weight: 600; }
+.abody { font-size: var(--fs-body); line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 
-.retry { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--orange); }
+.retry { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-ui); color: var(--orange); }
 
 /* #10：事件内联小条——与 .retry 同族（小字号、行内、图标+detail）；颜色按 kind 区分，走 tokens.css 变量不写死 */
 .evnote {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; margin: 3px 0;
-  border-radius: var(--r-md); font-size: 12.5px; line-height: 1.45;
+  border-radius: var(--r-md); font-size: var(--fs-mono); line-height: 1.45;
   border: .5px solid var(--separator);
   background: var(--grouped-bg-secondary);
   color: var(--label-secondary);
@@ -316,12 +316,13 @@ function onSlashTab(e: KeyboardEvent): void {
 }
 .evnote :deep(svg) { flex: 0 0 auto; margin-top: -1px; }
 .evnote > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.evnote.fallback  { color: var(--orange); background: color-mix(in srgb, var(--orange) 10%, transparent); border-color: color-mix(in srgb, var(--orange) 30%, transparent); }
-.evnote.compacted { color: var(--link, --blue); background: color-mix(in srgb, var(--link, --blue) 10%, transparent); border-color: color-mix(in srgb, var(--link, --blue) 30%, transparent); }
-.evnote.offloaded { color: var(--purple); background: color-mix(in srgb, var(--purple) 10%, transparent); border-color: color-mix(in srgb, var(--purple) 30%, transparent); }
-.evnote.fallback :deep(svg)  { stroke: var(--orange); }
-.evnote.compacted :deep(svg) { stroke: var(--link, --blue); }
-.evnote.offloaded :deep(svg) { stroke: var(--purple); }
+/* kind 配色走 §3.2 状态槽（fallback→warn；compacted/offloaded→info——状态色闭集无紫，offloaded 紫退 info） */
+.evnote.fallback  { color: var(--state-warn); background: var(--state-warn-bg); border-color: var(--state-warn-border); }
+.evnote.compacted { color: var(--state-info); background: var(--state-info-bg); border-color: var(--state-info-border); }
+.evnote.offloaded { color: var(--state-info); background: var(--state-info-bg); border-color: var(--state-info-border); }
+.evnote.fallback :deep(svg)  { stroke: var(--state-warn); }
+.evnote.compacted :deep(svg) { stroke: var(--state-info); }
+.evnote.offloaded :deep(svg) { stroke: var(--state-info); }
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
 .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--label-tertiary); animation: jump 1s infinite ease-in-out; }
 .dots i:nth-child(2) { animation-delay: .15s; }
@@ -332,7 +333,7 @@ function onSlashTab(e: KeyboardEvent): void {
 .errbar {
   display: flex; align-items: flex-start; gap: 8px; padding: 10px 16px; margin: 0 16px 8px;
   border-radius: var(--r-md); background: color-mix(in srgb, var(--red) 12%, transparent);
-  border: .5px solid color-mix(in srgb, var(--red) 30%, transparent); color: var(--red); font-size: 13px;
+  border: .5px solid color-mix(in srgb, var(--red) 30%, transparent); color: var(--red); font-size: var(--fs-ui);
 }
 .errbar :deep(svg) { stroke: var(--red); flex: 0 0 auto; margin-top: 1px; }
 .etext { flex: 1; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
@@ -355,15 +356,15 @@ function onSlashTab(e: KeyboardEvent): void {
 .slashitem {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: none; background: none;
   border-radius: var(--r-control); cursor: pointer; color: var(--label); font-family: var(--font-ui);
-  font-size: 14px; text-align: left;
+  font-size: var(--fs-body); text-align: left;
 }
 .slashitem.on { background: var(--fill-tertiary); }
 .slashitem :deep(svg) { stroke: var(--label-secondary); flex: 0 0 auto; }
 .sname { font-weight: 600; flex: 0 0 auto; }
-.sdesc { color: var(--label-tertiary); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field {
   background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);
-  padding: 10px 12px; font-size: 16.5px; color: var(--label); font-family: var(--font-ui);
+  padding: 10px 12px; font-size: var(--fs-body); color: var(--label); font-family: var(--font-ui);
   min-height: 44px; max-height: 200px; resize: none; line-height: 1.5; outline: none; width: 100%;
 }
 .field::placeholder { color: var(--label-tertiary); }
@@ -371,7 +372,7 @@ function onSlashTab(e: KeyboardEvent): void {
 .cpill {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
   border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
-  font-size: 13px; color: var(--label-secondary);
+  font-size: var(--fs-ui); color: var(--label-secondary);
 }
 .cpill.static { cursor: default; }
 .send {

@@ -144,17 +144,17 @@
 
 **目标**：尺度令牌与语义色槽落地；中栏组件（ChatView/MarkdownView/PermissionCard 暂不含——Task 10 重写时直接吃令牌/ToolPill 暂留 Task 6）尺度迁移；brand 降权。
 
-- [ ] **Step 1（红）**：新建 `tests/tokens-evolution.test.ts`（源文本守卫）：
+- [x] **Step 1（红）**：新建 `tests/tokens-evolution.test.ts`（源文本守卫）：
   - tokens.css 追加段含 §3.1 全部尺度令牌名（`--fs-body`/`--fs-ui`/`--fs-caption`/`--fs-mono`/`--fs-micro`/`--fs-title`/`--fs-display`/`--sp-1`/`--sp-8`/`--ico-s`/`--h-control`/`--h-input`）与 §3.2 语义槽（`--surface-0/1/2`、`--action`、`--state-ok/err/warn/info`、`--state-warn-bg` 类 color-mix 比例槽）
   - 语义槽浅/暗/双 data-theme 四段各有一份（守卫四段选择器内均含 `--surface-1`）
   - 既有色值不回归：`--accent: #3686EE`（浅）与 `--accent: #5490E4`（暗）等 6 组抽样断言原值仍在
   - ChatView.vue：`16.5px` 不再出现（`not.toContain('16.5px')`）；`--fs-body` 出现；`.aname` 用 `--fs-title`
   - SessionList.vue 新建按钮不再以 `--brand` 为底（改 `--action` 或 `--fill`；守卫 `newbtn` 块无 `var(--brand)`）
   - evnote 三处 `color-mix(in srgb, var(--orange) 10%` 等写死比例 → 收进 `--state-warn-bg`/`--state-warn-border` 等槽（ChatView 内不再出现写死百分比的 color-mix——Task 8 重写 EventNote 时最终清零，本 Task 先把槽位立起来并迁移 evnote）
-- [ ] **Step 2（绿）**：tokens.css 追加（决策 7：只追加不改值）；ChatView / MarkdownView / SessionList（新建按钮色权）尺度迁移；evnote color-mix 比例迁槽
-- [ ] **Step 3**：单文件 + 全量绿；renderer-files-panel / renderer-tasks-panel 守卫不回归
-- [ ] **Step 4**：typecheck + build；dev 三模式目视（跟随系统/强制浅/强制深）：密度明显下降、evnote 三色在暗色下不糊
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 令牌层尺度与语义槽落地 + 中栏密度迁移 + brand 降权`
+- [x] **Step 2（绿）**：tokens.css 追加（决策 7：只追加不改值）；ChatView / MarkdownView / SessionList（新建按钮色权）尺度迁移；evnote color-mix 比例迁槽
+- [x] **Step 3**：单文件 + 全量绿；renderer-files-panel / renderer-tasks-panel 守卫不回归
+- [x] **Step 4**：typecheck + build；dev 三模式目视（跟随系统/强制浅/强制深）：密度明显下降、evnote 三色在暗色下不糊
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 令牌层尺度与语义槽落地 + 中栏密度迁移 + brand 降权`
 
 测试估算：+8 例。
 

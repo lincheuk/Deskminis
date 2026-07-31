@@ -71,18 +71,18 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
 .md-codebar {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 4px 6px 4px 10px; border-bottom: .5px solid var(--separator);
-  color: var(--label-secondary); font-size: 11px;
+  color: var(--label-secondary); font-size: var(--fs-micro);
 }
 .md-lang { font-family: var(--font-mono); }
 .md-copy {
   display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px;
   background: none; border: none; border-radius: var(--r-control); cursor: pointer;
-  color: var(--label-secondary); font-family: var(--font-ui); font-size: 11px;
+  color: var(--label-secondary); font-family: var(--font-ui); font-size: var(--fs-micro);
 }
 .md-copy:hover { background: var(--fill-tertiary); color: var(--label); }
 .md-pre {
   margin: 0; padding: 10px 12px; overflow: auto;
-  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; white-space: pre;
+  font-family: var(--font-mono); font-size: var(--fs-mono); line-height: 1.5; white-space: pre;
 }
 .md-ul, .md-ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; }
 .md-li { min-width: 0; }
@@ -91,7 +91,7 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
   margin: 0; padding: 2px 0 2px 10px;
   border-left: 3px solid var(--separator); color: var(--label-secondary);
 }
-.md-table { border-collapse: collapse; font-size: 13.5px; max-width: 100%; }
+.md-table { border-collapse: collapse; font-size: var(--fs-ui); max-width: 100%; }
 .md-table th, .md-table td {
   border: .5px solid var(--separator); padding: 5px 10px; text-align: left; vertical-align: top;
 }

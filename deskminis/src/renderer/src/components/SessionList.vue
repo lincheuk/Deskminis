@@ -79,9 +79,10 @@ const grouped = computed(() => {
 .pane { display: flex; flex-direction: column; height: 100%; background: var(--bg); overflow: hidden; }
 .newbtn {
   display: flex; align-items: center; gap: 8px; margin: 12px; padding: 9px 12px; border-radius: var(--r-md);
-  background: var(--brand); color: var(--on-brand); font-size: 15px; font-weight: 600; cursor: pointer; flex: 0 0 auto;
+  background: var(--fill-tertiary); color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer; flex: 0 0 auto;
 }
-.newbtn :deep(svg) { stroke: var(--on-brand); }
+.newbtn:hover { background: var(--fill); }
+.newbtn :deep(svg) { stroke: var(--label); }
 .list { flex: 1; overflow: auto; padding-bottom: 8px; }
 .datehead {
   position: sticky; top: 0; z-index: 1; padding: 6px 16px; font-size: 12px; font-weight: 600;
