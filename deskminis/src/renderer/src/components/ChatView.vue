@@ -1,6 +1,6 @@
 <script setup lang="ts">
-/** 中栏 · 对话流（设计 §4.2）——不对称消息（助手无气泡、用户 12% 填充气泡）、
- *  工具胶囊、内联权限卡、错误横幅、浮动输入区（三胶囊 + 单色圆形发送/停止键）。
+/** 中栏 · 对话流（设计 v2 §2.1）——回合结构：用户消息无气泡标签行（你 · HH:MM + hover 复制），
+ *  助手回合容器（分隔线 + 间距），工具胶囊、内联权限卡、浮动输入区。
  *  渲染对 parts 全程空值兜底：parts.ts 允许 value:null 的 part，绝不解引用崩溃。 */
 import { ref, computed, nextTick, watch } from 'vue';
 import { useChat } from '../stores/chat';
@@ -15,6 +15,7 @@ import FadeText from './FadeText.vue';
 import { MarkdownCache } from '../lib/markdown/cache';
 import { stablePrefixEnd } from '../lib/markdown/prefix';
 import { shouldFollow } from '../lib/scroll/follow';
+import { fmtHHMM } from '../lib/time/hhmm';
 import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
@@ -63,6 +64,28 @@ const hasLive = computed(() =>
   chat.running || !!chat.streamingText || chat.toolCards.length > 0 || chat.pendingPerms.length > 0 || !!chat.retryNote,
 );
 const isEmpty = computed(() => chat.messages.length === 0 && !hasLive.value && chat.eventNotes.length === 0);
+
+// ---- 回合结构（MU2a Task 5，设计 v2 §2.1）----
+// 一回合 = 用户消息 + 其后助手工作区。仅承载工具结果的合成 user 消息不产生新回合。
+type UiMsg = (typeof chat.messages)[number];
+interface Turn { id: string; user: { msg: UiMsg; text: string } | null; assistants: UiMsg[] }
+const turns = computed<Turn[]>(() => {
+  const out: Turn[] = [];
+  for (const m of chat.messages) {
+    if (m.role === 'user') {
+      if (isResultCarrier(m)) continue; // 结果载体回合内隐没（结果挂到对应 toolUse 下渲染）
+      out.push({ id: m.id, user: { msg: m, text: userText(m) }, assistants: [] });
+    } else if (m.role === 'assistant') {
+      if (out.length === 0) out.push({ id: m.id, user: null, assistants: [] });
+      out[out.length - 1].assistants.push(m);
+    }
+  }
+  return out;
+});
+// 用户消息时间（乐观消息也有 createdAt；历史缺失兜底空串）
+function userTime(m: UiMsg): string { return typeof m.createdAt === 'number' ? fmtHHMM(m.createdAt) : ''; }
+// hover 复制：用户正文纯文本进剪贴板
+function copyUser(text: string): void { void navigator.clipboard.writeText(text); }
 
 // ---- Markdown 渲染（MU2a Task 2）：每消息一 MarkdownCache 实例（决策 3 稳定前缀缓存）----
 // 静态历史文本零重解析（cache 对同文本幂等）；会话切换清空，防内存滞留。
@@ -179,14 +202,18 @@ function onSlashTab(e: KeyboardEvent): void {
     <div ref="streamEl" class="stream" @scroll="onScroll">
       <EmptyState v-if="isEmpty" />
       <template v-else>
-        <template v-for="m in chat.messages" :key="m.id">
-          <!-- 用户消息（跳过仅承载工具结果的合成消息） -->
-          <div v-if="m.role === 'user' && !isResultCarrier(m)" class="msg-u">
-            <div>{{ userText(m) }}</div>
-          </div>
-          <!-- 助手消息：无气泡，图标 + 名称 + 内容块 -->
-          <div v-else-if="m.role === 'assistant'" class="msg-a">
-            <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
+        <!-- 回合流：用户消息（无气泡标签行）+ 助手工作区（无名称行，回合容器承载归属） -->
+        <section v-for="t in turns" :key="t.id" class="turn">
+          <template v-if="t.user">
+            <div class="ublock">
+              <div class="urow">
+                <span class="utag">你 · <span class="utime">{{ userTime(t.user.msg) }}</span></span>
+                <button class="uops" type="button" title="复制" @click="copyUser(t.user!.text)"><Icon name="copy" :size="13" /></button>
+              </div>
+              <div class="utext">{{ t.user.text }}</div>
+            </div>
+          </template>
+          <div v-for="m in t.assistants" :key="m.id" class="msg-a">
             <div class="abody">
               <template v-for="(p, i) in (Array.isArray(m.parts) ? m.parts : [])" :key="i">
                 <MarkdownView v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" :nodes="mdOf(`${m.id}:${i}`)" />
@@ -202,10 +229,10 @@ function onSlashTab(e: KeyboardEvent): void {
               </template>
             </div>
           </div>
-        </template>
+        </section>
 
-        <!-- 实时助手块：流式文本 + 执行中胶囊 + 权限卡 + 重试提示 -->
-        <div v-if="hasLive" class="msg-a">
+        <!-- 实时助手块：流式文本 + 执行中胶囊 + 权限卡 + 重试提示（进行中的回合，保名称行） -->
+        <section v-if="hasLive" class="turn live">
           <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
           <div class="abody">
             <MarkdownView v-if="streamStable.length" :nodes="streamStable" />
@@ -220,7 +247,7 @@ function onSlashTab(e: KeyboardEvent): void {
             <div v-if="chat.retryNote" class="retry"><Icon name="clock" :size="14" /><span>{{ chat.retryNote }}</span></div>
             <div v-if="chat.running && !chat.streamingText && !chat.toolCards.length && !chat.pendingPerms.length && !chat.retryNote" class="dots"><i></i><i></i><i></i></div>
           </div>
-        </div>
+        </section>
 
         <!-- #10：对话流内联事件条（M2b 降级 / M2a 压缩 / M2a 卸载）——store 已保证最多 10 条，直接 v-for 不截断。
              kind 配色与任务面板卡保持一致（橙/蓝/紫），颜色走 tokens.css 变量，不写死。 -->
@@ -289,15 +316,26 @@ function onSlashTab(e: KeyboardEvent): void {
 }
 .back-bottom:hover { color: var(--label); background: var(--fill-tertiary); }
 
-/* 用户消息：右对齐 12% 填充气泡，左留空槽 */
-.msg-u { display: flex; justify-content: flex-end; padding: 5px 16px 5px 76px; }
-.msg-u > div {
-  background: var(--fill-tertiary); border-radius: var(--r-bubble); padding: 10px 14px;
-  font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-width: 100%;
+/* 回合容器（设计 v2 §2.1）：回合间 1px 分隔线 + 24px 间距，回合内块间 8px */
+.turn { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.turn + .turn { border-top: .5px solid var(--separator); margin-top: var(--sp-6); padding-top: var(--sp-6); }
+
+/* 用户消息：无气泡，左对齐标签行「你 · HH:MM」+ hover 复制钮（Codex 式回合归属） */
+.ublock { display: flex; flex-direction: column; gap: 4px; }
+.urow { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+.utag { font-size: var(--fs-ui); font-weight: 600; color: var(--label-secondary); }
+.utime { font-weight: 400; font-size: var(--fs-caption); color: var(--label-tertiary); }
+.uops {
+  opacity: 0; transition: opacity .12s ease-out;
+  background: none; border: none; padding: 2px; cursor: pointer;
+  color: var(--label-tertiary); display: inline-flex; border-radius: var(--r-control);
 }
-/* 助手消息：无气泡 */
-.msg-a { padding: 5px 16px; }
-.ahead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ublock:hover .uops, .uops:focus-visible { opacity: 1; }
+.uops:hover { color: var(--label); background: var(--fill-tertiary); }
+.utext { font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+/* 助手消息：无气泡（名称行只留实时回合一处） */
+.msg-a { padding: 0; }
+.ahead { display: flex; align-items: center; gap: 8px; }
 .aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
 .aname { font-size: var(--fs-title); font-weight: 600; }
 .abody { font-size: var(--fs-body); line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }

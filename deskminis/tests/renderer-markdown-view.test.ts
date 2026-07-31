@@ -67,7 +67,8 @@ describe('MU2a Task 2 MarkdownView 源文本守卫（5 例）', () => {
     expect(chatView).toContain(':nodes="mdOf(');
     expect(chatView).toContain(':nodes="streamStable"'); // Task 3 同步修订：流式区拆为稳定区 Markdown + 尾部 FadeText
     // 用户消息不渲染 Markdown（§5.1）
-    expect(chatView).toContain('{{ userText(m) }}');
+    expect(chatView).toContain('{{ t.user.text }}'); // Task 5 同步修订：回合结构下用户正文为 turns 预计算纯文本插值
+    expect(chatView).toContain('userText(m)'); // 纯文本提取函数仍是唯一用户正文来源
     // .atext 让位 MarkdownView 内部排版
     expect(chatView).not.toContain('class="atext"');
     // renderer-files-panel.test.ts 三锚不丢

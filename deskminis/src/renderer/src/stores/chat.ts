@@ -3,7 +3,7 @@ import { rpc } from '../rpc';
 
 let localSeq = 0;
 
-interface UiMessage { id: string; role: string; parts: any[]; tokenUsage?: { inputTokens: number; outputTokens: number } }
+interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number } }
 interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
@@ -88,7 +88,7 @@ export const useChat = defineStore('chat', {
       this.lastStopReason = ''; this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
       // 乐观消息用唯一 id：一次会话内连发多条时 'local' 会造成 :key 重复
       const optimisticId = `local-${++localSeq}`;
-      this.messages.push({ id: optimisticId, role: 'user', parts: [{ type: 'text', value: text }] });
+      this.messages.push({ id: optimisticId, role: 'user', parts: [{ type: 'text', value: text }], createdAt: Date.now() / 1000 });
       this.running = true;
       // chat.prompt 会同步拒绝（未配置 provider / 空文本 / 会话运行中 / 非法 sessionId）。
       // 不 catch 的话是一次未处理拒绝：用户只看到「按了没反应」。捕获后写进 lastError 让它可见，

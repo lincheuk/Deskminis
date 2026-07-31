@@ -162,15 +162,15 @@
 
 **目标**：用户消息从右侧灰气泡改为无气泡标签行「你 · HH:MM」+ hover 复制；助手块去名称行改回合容器；回合间分隔线 + 间距。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-turn.test.ts`（守卫 + 纯模块）：
+- [x] **Step 1（红）**：新建 `tests/renderer-turn.test.ts`（守卫 + 纯模块）：
   - `lib/time/hhmm.ts`：`fmtHHMM(epochSec): string`（消息 createdAt → 「HH:MM」；epoch 秒入参，纯函数）
   - ChatView.vue：用户消息块含 `你 ·` 标签行锚 + hover 才显示的复制钮（`class="uops"`/`title="复制"` 锚）；不再含 `.msg-u` 右对齐气泡样式（守卫 `justify-content: flex-end` 从 msg-u 移除；`--r-bubble` 在用户消息上不再引用）
   - 助手块：`.ahead`（DeskMinis 名称行）从**历史**助手消息移除（保留实时块的极简态或同去——落地时按设计 §2.1 回合容器实现，守卫以最终形态为准）；回合容器 `.turn` 分隔线样式锚（`border-top` + `--sp-6` 间距）
   - 复制实现走 `navigator.clipboard.writeText`（守卫调用点）
-- [ ] **Step 2（绿）**：实现（ChatView 模板重排为用户标签行 + 助手回合容器；复制钮组件内联；`fmtHHMM` 接线）
-- [ ] **Step 3**：单文件 + 全量绿（files-panel 三锚存活）
-- [ ] **Step 4**：typecheck + build；dev 目视：用户消息左对齐无气泡、hover 出复制、复制内容正确
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 回合结构 + 用户消息标签行（无气泡/hover 复制）`
+- [x] **Step 2（绿）**：实现（ChatView 模板重排为用户标签行 + 助手回合容器；复制钮组件内联；`fmtHHMM` 接线）
+- [x] **Step 3**：单文件 + 全量绿（files-panel 三锚存活）
+- [x] **Step 4**：typecheck + build；dev 目视：用户消息左对齐无气泡、hover 出复制、复制内容正确
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 回合结构 + 用户消息标签行（无气泡/hover 复制）`
 
 测试估算：+6 例。
 
