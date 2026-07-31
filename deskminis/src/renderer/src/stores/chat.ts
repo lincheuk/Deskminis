@@ -34,7 +34,7 @@ export const useChat = defineStore('chat', {
     lastStopReason: '' as string,
     // M2d · #10 事件 UI 接线：四种目前未消费事件（fallback/compacted/offloaded/retry）的状态。
     //   retry 已有 retryNote 字段沿用；其余三种新增会话级环内联提示 + 任务面板状态字典。
-    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'; ts: number; detail?: string }[], // 对话流内联气泡（最多保留 10 条）
+    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'|'retry'|'error'; ts: number; detail?: string; retryable?: boolean }[], // 对话流内联气泡（最多保留 10 条）；MU2a Task 8 扩 retry/error 两类（error 带 retryable 供重试钮）
     fallbackState: null as null | { from: string; to: string; reason: string }, // 任务面板「降级」卡（对齐 loop.ts: fallback(from,to,reason)）
     compactedState: null as null | { markerId: string; summary: string }, // 任务面板「压缩」卡（对齐 loop.ts: compacted(markerId,summary)；无 fromCount/toCount/freedTokens）
     offloadedState: null as null | { count: number; lastRelativePath?: string }, // 任务面板「卸载」卡（对齐 loop.ts: offloaded(toolUseId,relativePath)；逐条自增计数，附最近一条路径）
@@ -126,6 +126,8 @@ export const useChat = defineStore('chat', {
         // 循环会整回合重来，已缓冲的半截文本是过期的（不清就会和重试后的正文拼在一起）
         this.streamingText = '';
         this.retryNote = `正在重试…（第 ${e.attempt} 次，${Math.round((e.delayMs ?? 0) / 1000)}s 后）`;
+        // MU2a Task 8：retryNote 同时流转为 eventNotes 一条（kind retry）——双写过渡，MU2b Task 2 收口
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'retry', ts: Date.now(), detail: `第 ${e.attempt} 次，${Math.round((e.delayMs ?? 0) / 1000)}s 后` }];
       }
       else if (e.kind === 'turnEnd') {
         this.retryNote = ''; this.running = false;
@@ -138,6 +140,8 @@ export const useChat = defineStore('chat', {
         this.lastError = String(e.message ?? '未知错误');
         this.retryNote = '';
         this.running = false;
+        // MU2a Task 8：错误进对话流内联（EventNote 短句 + 详情折叠 + 重试钮），errbar 横幅退场
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail: String(e.message ?? '未知错误'), retryable: true }];
         void this.open(this.activeId);
       }
       // M2d · #10：四种未消费事件（M2b 降级 / M2a 压缩 / M2a 卸载 / retry）——retry 分支已有，仅补其余三种并在任务面板挂状态。
@@ -170,6 +174,16 @@ export const useChat = defineStore('chat', {
       try {
         this.contextInfo = await rpc.call('chat.contextInfo', { sessionId: this.activeId });
       } catch { /* 水位 RPC 失败不影响主流程；缓存保持上一次值，任务面板显示「数据暂缺」 */ }
+    },
+    // MU2a Task 8：错误条「重试」——重发最后一条非结果载体的真实用户消息（结果载体无文本，被 text.trim() 自然跳过）；
+    // 找不到可重发消息则静默无操作（ChatView 侧以 canRetry 保证按钮不出现）
+    async retryLast() {
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const m = this.messages[i];
+        if (m.role !== 'user' || !Array.isArray(m.parts)) continue;
+        const text = m.parts.filter(p => p && p.type === 'text' && typeof p.value === 'string').map(p => p.value).join('\n');
+        if (text.trim()) { await this.send(text); return; }
+      }
     },
   },
 });

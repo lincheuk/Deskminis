@@ -212,16 +212,16 @@
 
 **目标**：retry/fallback/compacted/offloaded/error 五类一套组件 `[图标] 短句 · 详情[›]`；errbar 红色横幅退场，error 进对话流内联（短句 + 详情折叠 + 重试钮）；retry 橙字行并入 EventNote。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-eventnote.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-eventnote.test.ts`：
   - 纯模块 `lib/eventnote/copy.ts`：`eventCopy(kind, detail): { icon; short; tone }`——五类短句映射（fallback「已切换到备选模型」/ compacted「上下文已压缩」/ offloaded「大段输出已存入文件」/ retry「网络波动，正在重试」/ error 从原始 message 提炼一句人话：`humanizeError(msg)` 剥 HTTP 状态码 → 「模型服务暂时不可用（503）」类；剥不出 → 截断 80 字）；`humanizeError` 对 401/403 → 「API Key 无效或过期」、429 → 「请求过频或额度不足」、5xx → 「模型服务暂时不可用（xxx）」、`fetch failed`/ENOTFOUND → 「网络连接失败」
   - 守卫 `EventNote.vue`：props `{ kind; icon; short; detail?; retryable? }`；详情 `<details>` 或等价折叠锚；retryable 时「重试」按钮锚；色走 `--state-*-bg/border` 槽（无写死 color-mix 百分比）
   - 守卫 ChatView.vue：`.errbar` / `.eclose` 移除（`not.toContain`）；`retry` 行移除；五类统一 `<EventNote`；error 的「重试」调 `chat.send` 重发上一条用户消息（store 新增 `retryLast()`——守卫 chat.ts 含该方法）
   - 守卫 chat.ts：`lastError` 字段保留（TasksPanel 等仍引用）但对话流不再渲染 errbar；`eventNotes` kind 联合类型扩 `'retry' | 'error'`
   - 守卫 store 事件接线：retryNote 流转为 eventNotes 一条（kind retry）；error 事件（loop.ts L22 `{ kind: 'error'; message }`）入 eventNotes（kind error + retryable: true）——M2d 已有 retryNote 字段保留（TasksPanel L98 引用），双写过渡期在 MU2b Task 2 收口
-- [ ] **Step 2（绿）**：实现 `copy.ts` + `EventNote.vue` + ChatView/store 接线（`retryLast()`：取最后一条非结果载体用户消息重发；无 → 按钮不出现）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 目视：假 provider `__fail__ 429` → 内联 error 条「请求过频或额度不足 · 详情[›] [重试]」；点重试 → 重发成功
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): EventNote 五类事件统一语法 + 错误治理（短句/详情折叠/重试）`
+- [x] **Step 2（绿）**：实现 `copy.ts` + `EventNote.vue` + ChatView/store 接线（`retryLast()`：取最后一条非结果载体用户消息重发；无 → 按钮不出现）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 目视：假 provider `__fail__ 429` → 内联 error 条「请求过频或额度不足 · 详情[›] [重试]」；点重试 → 重发成功
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): EventNote 五类事件统一语法 + 错误治理（短句/详情折叠/重试）`
 
 测试估算：+10 例（copy/humanize 6 / 守卫 4）。
 

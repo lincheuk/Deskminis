@@ -9,6 +9,8 @@ const tokens = R('../src/renderer/src/styles/tokens.css');
 const chatView = R('../src/renderer/src/components/ChatView.vue');
 const sessionList = R('../src/renderer/src/components/SessionList.vue');
 const mdView = R('../src/renderer/src/components/MarkdownView.vue');
+// MU2a Task 8 同步修订：事件条样式从 ChatView 迁入 EventNote.vue，状态槽断言随之迁移
+const eventNote = R('../src/renderer/src/components/EventNote.vue');
 
 /** 按选择器切片（start 含、end 不含；无 end 或找不到切到文件尾） */
 function section(src: string, start: string, end?: string): string {
@@ -85,8 +87,9 @@ describe('MU2a Task 4 令牌层演进（8 例）', () => {
     expect(chatView).not.toContain('color-mix(in srgb, var(--orange)');
     expect(chatView).not.toContain('color-mix(in srgb, var(--purple)');
     expect(chatView).not.toContain('color-mix(in srgb, var(--link');
-    expect(chatView).toContain('var(--state-warn-bg)');
-    expect(chatView).toContain('var(--state-info-bg)');
+    // MU2a Task 8 同步修订：事件条组件化为 EventNote.vue，状态槽消费锚随之从 ChatView 迁到该组件
+    expect(eventNote).toContain('var(--state-warn-bg)');
+    expect(eventNote).toContain('var(--state-info-bg)');
     expect(mdView).not.toMatch(/font-size: [\d.]+px/);
     expect(mdView).toContain('--fs-mono');
     expect(mdView).toContain('--fs-micro');

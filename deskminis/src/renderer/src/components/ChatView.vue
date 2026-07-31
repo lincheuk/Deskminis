@@ -10,6 +10,7 @@ import EmptyState from './EmptyState.vue';
 import ModelPicker from './ModelPicker.vue';
 import PermissionPicker from './PermissionPicker.vue';
 import Icon from './Icon.vue';
+import EventNote from './EventNote.vue';
 import MarkdownView from './MarkdownView.vue';
 import FadeText from './FadeText.vue';
 import { MarkdownCache } from '../lib/markdown/cache';
@@ -17,6 +18,7 @@ import { stablePrefixEnd } from '../lib/markdown/prefix';
 import { shouldFollow } from '../lib/scroll/follow';
 import { fmtHHMM } from '../lib/time/hhmm';
 import { groupToolCards, isGroup, type ToolGroup } from '../lib/toolline/group';
+import { eventCopy } from '../lib/eventnote/copy';
 import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
@@ -143,12 +145,11 @@ const streamStable = computed<MdNode[]>(() =>
 const streamTailText = computed(() =>
   chat.streamingText ? chat.streamingText.slice(stablePrefixEnd(chat.streamingText)) : '',
 );
-/** eventNotes 的内联条图标——严格复用 Icon.vue 已有路径，不新增。
- *  （Icon 内没有 compress/download，回落成 info：蓝 i 圈仍可读，语义不丢。） */
-function eventIcon(kind: string): 'alert' | 'info' {
-  if (kind === 'fallback') return 'alert';
-  return 'info';
-}
+/** MU2a Task 8：eventNotes → EventNote 视图模型（文案/图标/语调走 lib/eventnote/copy 纯模块）。
+ *  五类统一：retry/fallback/compacted/offloaded/error。 */
+const noteViews = computed(() => chat.eventNotes.map(n => ({ note: n, copy: eventCopy(n.kind, n.detail) })));
+// 错误「重试」前提：会话里存在可重发的真实用户消息（无 → 按钮不出现，retryLast 空转兜底）
+const canRetry = computed(() => chat.messages.some(m => m.role === 'user' && userText(m).trim() !== ''));
 
 const canSend = computed(() => input.value.trim().length > 0 && !chat.running);
 
@@ -277,17 +278,18 @@ function onSlashTab(e: KeyboardEvent): void {
               />
             </template>
             <PermissionCard v-for="p in chat.pendingPerms" :key="p.requestId" :perm="p" />
-            <div v-if="chat.retryNote" class="retry"><Icon name="clock" :size="14" /><span>{{ chat.retryNote }}</span></div>
             <div v-if="chat.running && !chat.streamingText && !chat.toolCards.length && !chat.pendingPerms.length && !chat.retryNote" class="dots"><i></i><i></i><i></i></div>
           </div>
         </section>
 
-        <!-- #10：对话流内联事件条（M2b 降级 / M2a 压缩 / M2a 卸载）——store 已保证最多 10 条，直接 v-for 不截断。
-             kind 配色与任务面板卡保持一致（橙/蓝/紫），颜色走 tokens.css 变量，不写死。 -->
-        <div
-          v-for="note in chat.eventNotes" :key="note.ts + note.kind + (note.detail || '')"
-          class="evnote" :class="note.kind"
-        ><Icon :name="eventIcon(note.kind)" :size="14" /><span>{{ note.detail ?? '' }}</span></div>
+        <!-- 统一事件条（MU2a Task 8，设计 §5.3）：retry/fallback/compacted/offloaded/error 五类一套语法。
+             store 已保证最多 10 条，直接 v-for；error 条带重试钮（无可重发用户消息时钮不出现）。 -->
+        <EventNote
+          v-for="v in noteViews" :key="v.note.ts + v.note.kind + (v.note.detail || '')"
+          :kind="v.note.kind" :icon="v.copy.icon" :short="v.copy.short" :tone="v.copy.tone"
+          :detail="v.note.detail" :retryable="!!v.note.retryable && canRetry"
+          @retry="chat.retryLast()"
+        />
       </template>
     </div>
 
@@ -295,12 +297,6 @@ function onSlashTab(e: KeyboardEvent): void {
       v-if="!following" class="back-bottom" type="button"
       title="回到底部" aria-label="回到底部" @click="backToBottom"
     ><Icon name="chevron-down" :size="16" /></button>
-
-    <div v-if="chat.lastError" class="errbar">
-      <Icon name="alert" :size="16" />
-      <span class="etext">{{ chat.lastError }}</span>
-      <button class="eclose" @click="chat.lastError = ''"><Icon name="x" :size="14" /></button>
-    </div>
 
     <div class="composer">
       <div v-if="slashOpen" class="slashmenu">
@@ -373,42 +369,11 @@ function onSlashTab(e: KeyboardEvent): void {
 .aname { font-size: var(--fs-title); font-weight: 600; }
 .abody { font-size: var(--fs-body); line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 
-.retry { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-ui); color: var(--orange); }
-
-/* #10：事件内联小条——与 .retry 同族（小字号、行内、图标+detail）；颜色按 kind 区分，走 tokens.css 变量不写死 */
-.evnote {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 10px; margin: 3px 0;
-  border-radius: var(--r-md); font-size: var(--fs-mono); line-height: 1.45;
-  border: .5px solid var(--separator);
-  background: var(--grouped-bg-secondary);
-  color: var(--label-secondary);
-  max-width: 100%;
-}
-.evnote :deep(svg) { flex: 0 0 auto; margin-top: -1px; }
-.evnote > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* kind 配色走 §3.2 状态槽（fallback→warn；compacted/offloaded→info——状态色闭集无紫，offloaded 紫退 info） */
-.evnote.fallback  { color: var(--state-warn); background: var(--state-warn-bg); border-color: var(--state-warn-border); }
-.evnote.compacted { color: var(--state-info); background: var(--state-info-bg); border-color: var(--state-info-border); }
-.evnote.offloaded { color: var(--state-info); background: var(--state-info-bg); border-color: var(--state-info-border); }
-.evnote.fallback :deep(svg)  { stroke: var(--state-warn); }
-.evnote.compacted :deep(svg) { stroke: var(--state-info); }
-.evnote.offloaded :deep(svg) { stroke: var(--state-info); }
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
 .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--label-tertiary); animation: jump 1s infinite ease-in-out; }
 .dots i:nth-child(2) { animation-delay: .15s; }
 .dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes jump { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
-
-/* 错误横幅——循环报错必须看得见 */
-.errbar {
-  display: flex; align-items: flex-start; gap: 8px; padding: 10px 16px; margin: 0 16px 8px;
-  border-radius: var(--r-md); background: color-mix(in srgb, var(--red) 12%, transparent);
-  border: .5px solid color-mix(in srgb, var(--red) 30%, transparent); color: var(--red); font-size: var(--fs-ui);
-}
-.errbar :deep(svg) { stroke: var(--red); flex: 0 0 auto; margin-top: 1px; }
-.etext { flex: 1; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
-.eclose { background: none; border: none; color: var(--red); cursor: pointer; padding: 0; display: inline-flex; flex: 0 0 auto; }
 
 /* 输入区：浮动容器 + 材质 */
 .composer {
