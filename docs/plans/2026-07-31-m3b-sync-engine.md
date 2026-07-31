@@ -1129,7 +1129,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/me
   - `onDirty?: (sessionId: string) => void`（构造时可选注入，Task 6 SyncCoordinator 用）
   - orphan 隔离红线：`getLatestCompactMarker` 现查询不动（只查 `compact_markers`），orphan 永不污染 `buildEffectiveHistory`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-chat-store.test.ts`:
 
@@ -1322,12 +1322,12 @@ describe('ChatStore.onDirty 钩子（Task 6 SyncCoordinator 用）', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-chat-store`
 Expected: 全部 fail（`mergeRemoteSession` / `listCompactMarkers` / `getSessionCursor` / `onDirty` 不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/store/chat-store.ts`：
 - 顶部 `import { mergeSession } from '../sync/merge'; import type { WireMessage, WireCompactMarker, WireSession } from '../sync/wire';`
@@ -1345,7 +1345,7 @@ Expected: 全部 fail（`mergeRemoteSession` / `listCompactMarkers` / `getSessio
   - session 元数据：`UPDATE sessions SET title=?, updated_at=?, memory_enabled=?, model_binding=?, pinned_at=? WHERE id=? AND updated_at < ?`（LWW on updatedAt）
   - 返回 `{ mergedCount, orphanMarkerIds }`
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-chat-store`
 Expected: 12 passed（10 原有 + orphan 隔离 + orphan 脱孤）
@@ -1354,7 +1354,7 @@ Expected: 既有 12 用例全绿
 Run: `cd deskminis && npm test -- chat-context-info`
 Expected: 既有 2 用例全绿（M2a 红线锚点不回归）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/chat-store.ts deskminis/tests/sync-chat-store.test.ts && git commit -m "feat(m3b): ChatStore同步写入接口(mergeRemoteSession INSERT OR IGNORE+sortOrder重排+session LWW)"

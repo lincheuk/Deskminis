@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import type { CompactMarker, RawMessage, SessionMeta, TokenUsage } from '../../shared/types';
 import { serializeParts, parseParts } from '../../shared/parts';
+import { mergeSession } from '../sync/merge';
+import type { WireCompactMarker, WireMessage, WireSession } from '../sync/wire';
 
 interface MessageRow {
   id: string; session_id: string; role: string; parts_json: string;
@@ -12,6 +14,9 @@ interface MessageRow {
 }
 
 export class ChatStore {
+  /** M3b：脏数据钩子（Task 6 SyncCoordinator 注入），appendMessage/appendCompactMarker 等触发 */
+  onDirty?: (sessionId: string) => void;
+
   constructor(private db: Database.Database, private defaultOriginDeviceId: string = 'local') {}
 
   nowEpoch(): number { return Date.now() / 1000; }
@@ -38,17 +43,20 @@ export class ChatStore {
 
   updateSessionTitle(id: string, title: string): void {
     this.db.prepare('UPDATE sessions SET title=?, updated_at=? WHERE id=?').run(title, this.nowEpoch(), id);
+    this.onDirty?.(id);
   }
 
   /** 写入 sessions.model_binding；取值约定见 Global Constraints。undefined/空串 = 清除。 */
   setModelBinding(sessionId: string, binding: string | undefined): void {
     const val = (typeof binding === 'string' && binding.trim() !== '') ? binding.trim() : null;
     this.db.prepare('UPDATE sessions SET model_binding=?, updated_at=? WHERE id=?').run(val, this.nowEpoch(), sessionId);
+    this.onDirty?.(sessionId);
   }
 
   /** 写入 sessions.memory_enabled（设计 §3.4 会话级记忆开关）。 */
   setMemoryEnabled(sessionId: string, enabled: boolean): void {
     this.db.prepare('UPDATE sessions SET memory_enabled=?, updated_at=? WHERE id=?').run(enabled ? 1 : 0, this.nowEpoch(), sessionId);
+    this.onDirty?.(sessionId);
   }
 
   deleteSession(id: string): void {
@@ -65,6 +73,7 @@ export class ChatStore {
     const m: CompactMarker = { id: this.newId(), sessionId, summary, lastCompactedMessageId, createdAt: this.nowEpoch() };
     this.db.prepare('INSERT INTO compact_markers (id, session_id, summary, last_compacted_message_id, created_at) VALUES (?,?,?,?,?)')
       .run(m.id, m.sessionId, m.summary, m.lastCompactedMessageId, m.createdAt);
+    this.onDirty?.(sessionId);
     return m;
   }
 
@@ -92,6 +101,7 @@ export class ChatStore {
         full.reasoningContent ?? null, full.streamInterruptCount, full.errorInfo ?? null,
         full.originDeviceId, full.createdLocallyAt);
     this.db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(full.updatedAt, full.sessionId);
+    this.onDirty?.(full.sessionId);
     return full;
   }
 
@@ -103,6 +113,8 @@ export class ChatStore {
     if (patch.errorInfo !== undefined) { sets.push('error_info=@err'); args.err = patch.errorInfo; }
     if (patch.streamInterruptCount !== undefined) { sets.push('stream_interrupt_count=@sic'); args.sic = patch.streamInterruptCount; }
     this.db.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id=@id`).run(args);
+    const row = this.db.prepare('SELECT session_id FROM messages WHERE id=?').get(id) as { session_id: string } | undefined;
+    if (row) this.onDirty?.(row.session_id);
   }
 
   listMessages(sessionId: string): RawMessage[] {
@@ -115,5 +127,103 @@ export class ChatStore {
       streamInterruptCount: r.stream_interrupt_count, errorInfo: r.error_info ?? undefined,
       originDeviceId: r.origin_device_id, createdLocallyAt: r.created_locally_at ?? r.created_at,
     }));
+  }
+
+  // ===== M3b 同步接口 =====
+
+  /** 返回会话全部压缩 marker（按 createdAt ASC，rowid ASC 兜底）。M3b mergeSession 需要全量做 LWW。 */
+  listCompactMarkers(sessionId: string): CompactMarker[] {
+    const rows = this.db.prepare('SELECT * FROM compact_markers WHERE session_id=? ORDER BY created_at ASC, rowid ASC').all(sessionId) as
+      { id: string; session_id: string; summary: string; last_compacted_message_id: string; created_at: number }[];
+    return rows.map(r => ({ id: r.id, sessionId: r.session_id, summary: r.summary, lastCompactedMessageId: r.last_compacted_message_id, createdAt: r.created_at }));
+  }
+
+  /** 返回 sync_orphan_markers 里的 orphan marker（评审命门 2：脱孤检查用）。 */
+  listOrphanMarkers(sessionId: string): CompactMarker[] {
+    const rows = this.db.prepare('SELECT * FROM sync_orphan_markers WHERE session_id=?').all(sessionId) as
+      { id: string; session_id: string; summary: string; last_compacted_message_id: string; created_at: number; received_at: number }[];
+    return rows.map(r => ({ id: r.id, sessionId: r.session_id, summary: r.summary, lastCompactedMessageId: r.last_compacted_message_id, createdAt: r.created_at }));
+  }
+
+  /** 返回会话 cursor（供 sync.cursor）：lastMessageTs / lastMarkerTs，空会话返回 0/0。 */
+  getSessionCursor(sessionId: string): { lastMessageTs: number; lastMarkerTs: number } {
+    const msgRow = this.db.prepare('SELECT MAX(created_at) mx FROM messages WHERE session_id=?').get(sessionId) as { mx: number | null };
+    const markerRow = this.db.prepare('SELECT MAX(created_at) mx FROM compact_markers WHERE session_id=?').get(sessionId) as { mx: number | null };
+    return { lastMessageTs: msgRow.mx ?? 0, lastMarkerTs: markerRow.mx ?? 0 };
+  }
+
+  /** 返回本地全部会话 + 各自 cursor（首次连接对端 sync.list 用）。 */
+  listSyncedSessions(): Array<SessionMeta & { cursor: { lastMessageTs: number; lastMarkerTs: number } }> {
+    return this.listSessions().map(s => ({ ...s, cursor: this.getSessionCursor(s.id) }));
+  }
+
+  /**
+   * 合并远端会话数据并落库（设计 §1-M3b / 评审命门 1/2）。
+   * 红线：
+   *  - raw history 追加型永不改写：新消息 INSERT OR IGNORE，UPDATE 只碰 sort_order
+   *  - orphan marker 只进 sync_orphan_markers，绝不进 compact_markers（评审命门 2）
+   *  - 脱孤：本次 mergeSession 已 resolve 成功的 marker 若之前是 orphan → 删 sync_orphan_markers
+   */
+  mergeRemoteSession(
+    remote: { messages: WireMessage[]; markers: WireCompactMarker[]; session?: WireSession },
+    sessionId: string,
+  ): { mergedCount: number; orphanMarkerIds: string[] } {
+    const tx = this.db.transaction(() => {
+      const local = { messages: this.listMessages(sessionId), markers: this.listCompactMarkers(sessionId) };
+      const merged = mergeSession(local, remote);
+      let mergedCount = 0;
+      // 消息：INSERT OR IGNORE 新消息 + UPDATE sort_order（仅当不一致）
+      for (const m of merged.messages) {
+        const r = this.db.prepare(`INSERT OR IGNORE INTO messages (id, session_id, role, parts_json, created_at, updated_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, error_info, origin_device_id, created_locally_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .run(m.id, m.sessionId, m.role, serializeParts(m.parts), m.createdAt, m.updatedAt ?? m.createdAt,
+            m.tokenUsage ? JSON.stringify(m.tokenUsage) : null, m.sortOrder,
+            m.reasoningContent ?? null, m.streamInterruptCount, m.errorInfo ?? null,
+            m.originDeviceId ?? 'legacy', m.createdLocallyAt ?? m.createdAt);
+        if (r.changes > 0) mergedCount++;
+        this.db.prepare('UPDATE messages SET sort_order=? WHERE id=? AND sort_order != ?').run(m.sortOrder, m.id, m.sortOrder);
+      }
+      const orphanSet = new Set(merged.orphanMarkerIds);
+      const resolvedIds = new Set(merged.markers.filter(m => !orphanSet.has(m.id)).map(m => m.id));
+      // orphan marker → sync_orphan_markers（INSERT OR REPLACE，绝不进 compact_markers）
+      for (const oid of merged.orphanMarkerIds) {
+        const m = merged.markers.find(x => x.id === oid)!;
+        this.db.prepare('INSERT OR REPLACE INTO sync_orphan_markers (id, session_id, summary, last_compacted_message_id, created_at, received_at) VALUES (?,?,?,?,?,?)')
+          .run(m.id, m.sessionId, m.summary, m.lastCompactedMessageId, m.createdAt, this.nowEpoch());
+      }
+      // 非 orphan marker → compact_markers（INSERT OR IGNORE + LWW UPDATE summary/last_compacted_message_id，不改 created_at）
+      for (const m of merged.markers) {
+        if (orphanSet.has(m.id)) continue;
+        this.db.prepare('INSERT OR IGNORE INTO compact_markers (id, session_id, summary, last_compacted_message_id, created_at) VALUES (?,?,?,?,?)')
+          .run(m.id, m.sessionId, m.summary, m.lastCompactedMessageId, m.createdAt);
+        const existing = local.markers.find(x => x.id === m.id);
+        if (existing && m.createdAt > existing.createdAt) {
+          this.db.prepare('UPDATE compact_markers SET summary=?, last_compacted_message_id=? WHERE id=?')
+            .run(m.summary, m.lastCompactedMessageId, m.id);
+        }
+      }
+      // 脱孤：之前在 sync_orphan_markers、本次已 resolve 成功的 marker → 删 sync_orphan_markers
+      const existingOrphans = this.listOrphanMarkers(sessionId);
+      for (const om of existingOrphans) {
+        if (resolvedIds.has(om.id)) {
+          this.db.prepare('DELETE FROM sync_orphan_markers WHERE id=?').run(om.id);
+        }
+      }
+      // session 元数据 LWW on updatedAt
+      if (remote.session) {
+        const ws = remote.session;
+        const localSession = this.getSession(sessionId);
+        if (localSession && ws.updatedAt > localSession.updatedAt) {
+          this.db.prepare('UPDATE sessions SET title=?, updated_at=?, memory_enabled=?, model_binding=?, pinned_at=? WHERE id=?')
+            .run(ws.title, ws.updatedAt, ws.memoryEnabled, ws.modelBinding ?? null, ws.pinnedAt ?? null, sessionId);
+        }
+      } else {
+        this.db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(this.nowEpoch(), sessionId);
+      }
+      return { mergedCount, orphanMarkerIds: merged.orphanMarkerIds };
+    });
+    const result = tx();
+    this.onDirty?.(sessionId);
+    return result;
   }
 }
