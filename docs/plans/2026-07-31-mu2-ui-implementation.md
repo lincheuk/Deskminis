@@ -130,13 +130,13 @@
 
 **目标**：流式文本词粒度淡入；上翻解除跟随 + 「回到底部」浮钮。
 
-- [ ] **Step 1（红）**：新建 `tests/fade-scroll.test.ts`（纯模块）：
+- [x] **Step 1（红）**：新建 `tests/fade-scroll.test.ts`（纯模块）：
   - `lib/fade/split.ts` `diffWords(prev, next)`：prev 是 next 前缀 → added 词列 + 交错 delay（≤0.08s 递增）；prev 非前缀（流式重置）→ 整体重来；空 prev；词切分按空白 + 保留换行；CJK 连续字符按字粒度
   - `lib/scroll/follow.ts` `shouldFollow()`：距底 ≤40 → true；>40 且 prev=true → false（解除）；解除后回到底部 → true；prev=false 且仍 >40 → false（不抢回）
-- [ ] **Step 2（红）**：源文本守卫（并入 `tests/renderer-markdown-view.test.ts` 或新 `tests/renderer-chat-stream.test.ts`）：`FadeText.vue` 存在且 props `{ text: string }`；对 added 词渲染 `<span class="fade-word" :style="{ animationDelay }">`；`@media (prefers-reduced-motion: reduce)` 下无 transition（样式锚）；ChatView 含 `shouldFollow(` 调用 + 「回到底部」按钮锚 + 滚动事件绑定；L79-82 旧的无条件 `scrollTop = scrollHeight` watch 已移除（守卫 `not.toContain` 旧形态需按实现措辞调整，落地时核实）
-- [ ] **Step 3（绿）**：实现 `FadeText.vue`（watch text → diffWords → 追加 span；reduced-motion 直接整段更新）+ ChatView 滚动接线（scroll 监听更新 following ref；流式/消息 watch 仅在 following 时贴底；浮钮点击恢复）。流式区 `MarkdownView` 与 `FadeText` 的关系：淡入作用于**流式尾部纯文本段**（围栏未闭合尾巴），稳定区 Markdown 直接呈现不做淡入（块级结构淡入会闪）——与设计 §2.4「文本增量按词粒度淡入」一致（增量=textDelta，落在尾部）
-- [ ] **Step 4**：单文件 + 全量绿；typecheck + build；dev 手工：假 provider 流式中上翻 → 不被拽回；点浮钮 → 回底恢复跟随
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 流式词粒度淡入 + 滚动跟随治理（上翻解除/回到底部浮钮/reduced-motion 降级）`
+- [x] **Step 2（红）**：源文本守卫（并入 `tests/renderer-markdown-view.test.ts` 或新 `tests/renderer-chat-stream.test.ts`）：`FadeText.vue` 存在且 props `{ text: string }`；对 added 词渲染 `<span class="fade-word" :style="{ animationDelay }">`；`@media (prefers-reduced-motion: reduce)` 下无 transition（样式锚）；ChatView 含 `shouldFollow(` 调用 + 「回到底部」按钮锚 + 滚动事件绑定；L79-82 旧的无条件 `scrollTop = scrollHeight` watch 已移除（守卫 `not.toContain` 旧形态需按实现措辞调整，落地时核实）
+- [x] **Step 3（绿）**：实现 `FadeText.vue`（watch text → diffWords → 追加 span；reduced-motion 直接整段更新）+ ChatView 滚动接线（scroll 监听更新 following ref；流式/消息 watch 仅在 following 时贴底；浮钮点击恢复）。流式区 `MarkdownView` 与 `FadeText` 的关系：淡入作用于**流式尾部纯文本段**（围栏未闭合尾巴），稳定区 Markdown 直接呈现不做淡入（块级结构淡入会闪）——与设计 §2.4「文本增量按词粒度淡入」一致（增量=textDelta，落在尾部）
+- [x] **Step 4**：单文件 + 全量绿；typecheck + build；dev 手工：假 provider 流式中上翻 → 不被拽回；点浮钮 → 回底恢复跟随
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 流式词粒度淡入 + 滚动跟随治理（上翻解除/回到底部浮钮/reduced-motion 降级）`
 
 测试估算：+9 例（split 5 / follow 4 / 守卫随 Task 2 文件内 +3 计入 Task 2 估算，不重复计）。
 

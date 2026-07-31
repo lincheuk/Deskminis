@@ -65,7 +65,7 @@ describe('MU2a Task 2 MarkdownView 源文本守卫（5 例）', () => {
     // ChatView 两处增量替换：历史正文 + 流式文本
     expect(chatView).toContain("import MarkdownView from './MarkdownView.vue'");
     expect(chatView).toContain(':nodes="mdOf(');
-    expect(chatView).toContain(':nodes="streamNodes"');
+    expect(chatView).toContain(':nodes="streamStable"'); // Task 3 同步修订：流式区拆为稳定区 Markdown + 尾部 FadeText
     // 用户消息不渲染 Markdown（§5.1）
     expect(chatView).toContain('{{ userText(m) }}');
     // .atext 让位 MarkdownView 内部排版

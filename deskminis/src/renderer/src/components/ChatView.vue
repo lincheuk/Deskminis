@@ -11,7 +11,10 @@ import ModelPicker from './ModelPicker.vue';
 import PermissionPicker from './PermissionPicker.vue';
 import Icon from './Icon.vue';
 import MarkdownView from './MarkdownView.vue';
+import FadeText from './FadeText.vue';
 import { MarkdownCache } from '../lib/markdown/cache';
+import { stablePrefixEnd } from '../lib/markdown/prefix';
+import { shouldFollow } from '../lib/scroll/follow';
 import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
@@ -87,9 +90,13 @@ const mdByMsg = computed(() => {
   return out;
 });
 function mdOf(key: string): MdNode[] { return mdByMsg.value.get(key) ?? []; }
-// 流式正文 → AST（每次 delta 只重解析尾部）
-const streamNodes = computed(() =>
-  chat.streamingText ? merged(cacheFor('__stream__').update(chat.streamingText)) : [],
+// 流式区（MU2a Task 3 决策 3）：稳定区 Markdown 直接呈现（块级结构淡入会闪）；
+// 尾部（未闭合块/围栏）纯文本兜底 + 词粒度淡入，闭合后整块翻正进稳定区。
+const streamStable = computed<MdNode[]>(() =>
+  chat.streamingText ? cacheFor('__stream__').update(chat.streamingText).stableNodes : [],
+);
+const streamTailText = computed(() =>
+  chat.streamingText ? chat.streamingText.slice(stablePrefixEnd(chat.streamingText)) : '',
 );
 /** eventNotes 的内联条图标——严格复用 Icon.vue 已有路径，不新增。
  *  （Icon 内没有 compress/download，回落成 info：蓝 i 圈仍可读，语义不丢。） */
@@ -109,11 +116,26 @@ async function send(): Promise<void> {
   await chat.send(t);
 }
 
-// 新内容到达时贴底滚动
+// ---- 滚动跟随治理（MU2a Task 3，治审计 X-2）：用户上翻 >40px 解除跟随，回到底部恢复 ----
+const following = ref(true);
+function onScroll(): void {
+  const el = streamEl.value;
+  if (!el) return;
+  following.value = shouldFollow(el.scrollTop, el.scrollHeight, el.clientHeight, following.value);
+}
+// 新内容到达时贴底滚动（仅在跟随态；解除后不抢回）
 watch(
   () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.retryNote, chat.pendingPerms.length, chat.eventNotes.length] as const,
-  () => { void nextTick(() => { const el = streamEl.value; if (el) el.scrollTop = el.scrollHeight; }); },
+  () => {
+    if (!following.value) return;
+    void nextTick(() => { const el = streamEl.value; if (el) el.scrollTop = el.scrollHeight; });
+  },
 );
+function backToBottom(): void {
+  const el = streamEl.value;
+  if (el) el.scrollTop = el.scrollHeight;
+  following.value = true;
+}
 
 // ---- /名字 斜杠菜单（设计 §5.1：纯输入辅助 —— 只把 /name 填进输入框，加载仍走模型侧 file_read）----
 const slashOpen = ref(false);
@@ -154,7 +176,7 @@ function onSlashTab(e: KeyboardEvent): void {
 
 <template>
   <div class="pane-c">
-    <div ref="streamEl" class="stream">
+    <div ref="streamEl" class="stream" @scroll="onScroll">
       <EmptyState v-if="isEmpty" />
       <template v-else>
         <template v-for="m in chat.messages" :key="m.id">
@@ -186,7 +208,8 @@ function onSlashTab(e: KeyboardEvent): void {
         <div v-if="hasLive" class="msg-a">
           <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
           <div class="abody">
-            <MarkdownView v-if="chat.streamingText" :nodes="streamNodes" />
+            <MarkdownView v-if="streamStable.length" :nodes="streamStable" />
+            <FadeText v-if="streamTailText" :text="streamTailText" />
             <ToolPill
               v-for="c in chat.toolCards" :key="c.toolUseId"
               :name="c.name" :title="c.title || c.name"
@@ -207,6 +230,11 @@ function onSlashTab(e: KeyboardEvent): void {
         ><Icon :name="eventIcon(note.kind)" :size="14" /><span>{{ note.detail ?? '' }}</span></div>
       </template>
     </div>
+
+    <button
+      v-if="!following" class="back-bottom" type="button"
+      title="回到底部" aria-label="回到底部" @click="backToBottom"
+    ><Icon name="chevron-down" :size="16" /></button>
 
     <div v-if="chat.lastError" class="errbar">
       <Icon name="alert" :size="16" />
@@ -247,8 +275,19 @@ function onSlashTab(e: KeyboardEvent): void {
 </template>
 
 <style scoped>
-.pane-c { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; }
+.pane-c { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; position: relative; }
 .stream { flex: 1; overflow: auto; padding: 12px 0; }
+
+/* 解除跟随后右下浮出的「回到底部」小圆钮（设计 §2.4） */
+.back-bottom {
+  position: absolute; right: 20px; bottom: 96px; z-index: 20;
+  width: 32px; height: 32px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--material-tint); backdrop-filter: var(--material-thin);
+  border: .5px solid var(--separator); color: var(--label-secondary);
+  cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, .14);
+}
+.back-bottom:hover { color: var(--label); background: var(--fill-tertiary); }
 
 /* 用户消息：右对齐 12% 填充气泡，左留空槽 */
 .msg-u { display: flex; justify-content: flex-end; padding: 5px 16px 5px 76px; }
