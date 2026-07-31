@@ -95,20 +95,20 @@
 
 **目标**：交付 `parseMarkdown()` + `stablePrefixEnd()` 两个纯函数与全部消毒测试，不碰任何组件。
 
-- [ ] **Step 1（红）**：新建 `tests/markdown-parse.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/markdown-parse.test.ts`：
   - 块级：h2/h3（`##`/`###`，h1 降级 h2——§2.3 标题层级 ≤3）、段落、围栏（带语言名 / 无语言名 / 未闭合→纯文本兜底）、ul/ol（含 2 级嵌套缩进）、引用块（可含列表）、hr（`---`/`***`）、简单表格（表头 + 分隔行 + 数据行；缺分隔行按段落）
   - 行内：粗 `**x**`、斜 `*x*`、删 `~~x~~`、行内码 `` `x` ``（内容不二次解析）、链接 `[t](https://…)`、嵌套（**粗中斜**、行内码内 `**` 不解析）、纯文本
   - 混合：「段落 + 围栏 + 列表」组合文档断言 AST 逐节点
   - `\r\n` 归一化、空串、纯空白、无尾换行
-- [ ] **Step 2（红）**：新建 `tests/markdown-xss.test.ts`（决策 2c 红线）：
+- [x] **Step 2（红）**：新建 `tests/markdown-xss.test.ts`（决策 2c 红线）：
   - `<script>alert(1)</script>` → 输出无 script 节点，文本转义
   - `<img src=x onerror=alert(1)>` / `<a href="https://x">t</a>` / `<!-- c -->` → 全部纯文本
   - `[x](javascript:alert(1))` / `[x](JaVaScRiPt:alert(1))` / `[x]( javascript:alert(1))` / `[x](&#106;avascript:alert(1))` / `[x](data:text/html,<script>…)` / `[x](vbscript:…)` → link 节点不生成，按纯文本
   - `[ok](https://a.b/c?d=e)` / `[ok](mailto:a@b.c)` → link 节点保留 href
   - AST 序列化不含任何 `html` / `rawHtml` 类型字段（白名单闭集断言：节点 type ∈ 决策 2b 枚举）
-- [ ] **Step 3（红）**：新建 `tests/markdown-prefix.test.ts`：`stablePrefixEnd()`——空行成对处切 / 未闭合围栏内不切（返回围栏开始前的边界）/ 全文无空行返回 0 / 尾部就是边界时幂等 / `\r\n` 文档
-- [ ] **Step 4（绿）**：实现 `src/renderer/src/lib/markdown/parse.ts` + `prefix.ts`（约 700 行；tokenizer 按行扫描 → 块级 AST → 行内递归；零依赖零 DOM）。跑三个测试文件全绿 + `npm test` 594+ 不回归
-- [ ] **Step 5**：`npm run typecheck`；checkbox 勾选；commit `feat(mu2a): Markdown 解析引擎（白名单 AST + XSS 消毒 + 稳定前缀，纯模块零依赖）`
+- [x] **Step 3（红）**：新建 `tests/markdown-prefix.test.ts`：`stablePrefixEnd()`——空行成对处切 / 未闭合围栏内不切（返回围栏开始前的边界）/ 全文无空行返回 0 / 尾部就是边界时幂等 / `\r\n` 文档
+- [x] **Step 4（绿）**：实现 `src/renderer/src/lib/markdown/parse.ts` + `prefix.ts`（约 700 行；tokenizer 按行扫描 → 块级 AST → 行内递归；零依赖零 DOM）。跑三个测试文件全绿 + `npm test` 594+ 不回归
+- [x] **Step 5**：`npm run typecheck`；checkbox 勾选；commit `feat(mu2a): Markdown 解析引擎（白名单 AST + XSS 消毒 + 稳定前缀，纯模块零依赖）`
 
 测试估算：+35 例（parse 18 / xss 12 / prefix 5）。
 
