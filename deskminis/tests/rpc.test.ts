@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { startMinisd } from '../src/minisd/index';
+import { pipeRequest } from './bridge-util';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -213,11 +214,82 @@ describe('minisd JSON-RPC', () => {
     const requestId = c.notifications.find(n => n.method === 'permission.request')!.params.requestId;
     await c.call('permission.respond', { requestId, decision: 'allow-once' });
     await waitFor('permission.resolved', () => c.notifications.some(n => n.method === 'permission.resolved' && n.params.requestId === requestId));
+    // 决策 4b'：应答路径的 resolved 广播必须带 reason:'answered'（Task 10 超时留条按 reason 分流）
+    const answered = c.notifications.find(n => n.method === 'permission.resolved' && n.params.requestId === requestId)!;
+    expect(answered.params.reason).toBe('answered');
     await waitFor('工具执行完成', () => existsSync(outside));
     expect(readFileSync(outside, 'utf8')).toBe('ok');
     await new Promise(r => setTimeout(r, 200)); // 让后续回合收尾，避免关库时循环还在跑
     c.close();
   });
+
+  // ---- MU2a Task 9（决策 4a/4b/4b'/4c）：90s 默认超时、广播 meta、resolved reason、桥双段合并授权 ----
+  it('permission.request 广播 meta：默认 90s 超时 + shell riskClass=gated（非桥命令无 bridgeTriggers）', async () => {
+    const { port, authToken } = await boot(); // 不传 permTimeoutMs → 默认路径
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('shell_execute', { command: 'dir', tool_title: '列目录' }) });
+    await waitFor('permission.request', () => c.notifications.some(n => n.method === 'permission.request'));
+    const n = c.notifications.find(x => x.method === 'permission.request')!;
+    expect(n.params.meta.timeoutMs).toBe(90000);
+    expect(n.params.meta.riskClass).toBe('gated');
+    expect(n.params.meta.bridgeTriggers).toBeUndefined();
+    await c.call('permission.respond', { requestId: n.params.requestId, decision: 'deny' });
+    await waitFor('回合收尾', () => c.notifications.some(x => x.params?.event?.kind === 'turnEnd'), 5000);
+    c.close();
+  });
+
+  it('permission.request 广播 meta：桥命令带 bridgeTriggers（深等于探测结果，大小写不敏感）', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    // 命令文本含两段桥调用（引号内字样也探测——探测器是启发式，假阳性由一次性 TTL 兜底）
+    const cmd = 'Write-Output "demo"; windows-clipboard get; WINDOWS-SCREENSHOT capture';
+    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('shell_execute', { command: cmd, tool_title: '桥演示' }) });
+    await waitFor('permission.request', () => c.notifications.some(n => n.method === 'permission.request'));
+    const n = c.notifications.find(x => x.method === 'permission.request')!;
+    expect(n.params.meta.timeoutMs).toBe(90000);
+    expect(n.params.meta.riskClass).toBe('gated');
+    expect(n.params.meta.bridgeTriggers).toEqual(['bridge-clipboard-read', 'bridge-screenshot']);
+    await c.call('permission.respond', { requestId: n.params.requestId, decision: 'deny' });
+    await waitFor('回合收尾', () => c.notifications.some(x => x.params?.event?.kind === 'turnEnd'), 5000);
+    c.close();
+  });
+
+  it('permission.resolved 超时路径带 reason:timeout（独立用例；决策 4b\' 评审命门 1）', async () => {
+    const { port, authToken } = await boot({ permTimeoutMs: 150 });
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    const outside = join(mkdtempSync(join(tmpdir(), 'dm-perm-')), 'z.txt');
+    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('file_write', { path: outside, content: 'x', tool_title: '写' }) });
+    await waitFor('permission.request', () => c.notifications.some(n => n.method === 'permission.request'));
+    const requestId = c.notifications.find(n => n.method === 'permission.request')!.params.requestId;
+    await waitFor('permission.resolved', () => c.notifications.some(n => n.method === 'permission.resolved' && n.params.requestId === requestId));
+    const resolved = c.notifications.find(n => n.method === 'permission.resolved' && n.params.requestId === requestId)!;
+    expect(resolved.params.reason).toBe('timeout');
+    expect(existsSync(outside)).toBe(false); // 超时 = deny
+    c.close();
+  });
+
+  it('permission.respond allow-session 且带 bridgeTriggers：之后同桥 kind 管道请求不再广播 permission.request（合并授权端到端）', async () => {
+    const { port, authToken, bridgePipe } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    // shell 命令含桥字样（Write-Output 只回显不真调桥——快速且确定；合并授权的实证落在下方真管道请求上）
+    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('shell_execute', { command: 'Write-Output "windows-clipboard get"', tool_title: '桥演示' }) });
+    await waitFor('permission.request', () => c.notifications.some(n => n.method === 'permission.request'));
+    const req1 = c.notifications.find(n => n.method === 'permission.request')!;
+    expect(req1.params.meta.bridgeTriggers).toEqual(['bridge-clipboard-read']);
+    const n1 = c.notifications.filter(n => n.method === 'permission.request').length;
+    await c.call('permission.respond', { requestId: req1.params.requestId, decision: 'allow-session' });
+    // 同桥 kind 真管道调用：会话级合并授权命中 → 直接放行，不再广播
+    const env = await pipeRequest(bridgePipe!, { tool: 'windows-clipboard', action: 'get', args: {}, sessionId: s.id });
+    expect(env.ok).toBe(true);
+    expect(typeof (env.data as { text: string }).text).toBe('string');
+    expect(c.notifications.filter(n => n.method === 'permission.request').length).toBe(n1);
+    await waitFor('回合收尾', () => c.notifications.some(x => x.params?.event?.kind === 'turnEnd'), 5000);
+    c.close();
+  }, 30000);
 
   it('provider 编辑：改字段生效、密钥留空不动、改完仍要满足 openai-compat 必须有 baseUrl', async () => {
     const { port, authToken } = await boot();

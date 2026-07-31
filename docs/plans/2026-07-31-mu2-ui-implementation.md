@@ -229,9 +229,9 @@
 
 **目标**：决策 4 的 a/b/c 三点落地；白名单以外 minisd 零改动。**本 Task 红线重申**：只碰 index.ts L46 常量 / L126-139 prompt 闭包 / permission.respond 方法体 / import 行；permissions.ts 的 L65 默认值 + 新增两集合两方法与 check 内两查找层；新建 `bridge/detect.ts`。其余 minisd 文件（含 `bridge/handlers.ts` 本体、`tools/types.ts`、`shared/types.ts`、M3a/M3b 全部落地点）一行不动。
 
-- [ ] **Step 1（红）**：`tests/bridge-detect.test.ts`（新模块）：
+- [x] **Step 1（红）**：`tests/bridge-detect.test.ts`（新模块）：
   - `detectBridgeTriggers()`：`& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" windows-screenshot capture` → `['bridge-screenshot']`；`node "$env:MINIS_BRIDGE_CLI" windows-notify show --title x` → `['bridge-notify']`；`windows-clipboard get` → `['bridge-clipboard-read']`；`windows-clipboard set --text x` → `['bridge-clipboard-write']`；device info → `['bridge-device']`；open/speak 两例；一条命令两段桥调用（`;` 连接）→ 两 kind 都出；非桥命令（`Get-ChildItem`）→ `[]`；无 action 段 → `[]`；大小写不敏感
-- [ ] **Step 2（红）**：`tests/permissions-bridge-merge.test.ts`：
+- [x] **Step 2（红）**：`tests/permissions-bridge-merge.test.ts`：
   - `grantBridgeSession` 后同 sessionId 同桥 kind `check` → allow 且 prompt 未再被调（计数断言）；异 sessionId → 仍 prompt
   - `grantBridgeOnce` 后第一次 check → allow 且消费（第二次再 check → prompt 被调）；计数只减不增
   - 档位优先：`bridge-device`（bypass）不受合并授权影响仍直行；构造时 levels 覆盖某桥 kind 为 notAllowed → 合并授权不复活（notAllowed 判定在新查找层之前）
@@ -239,13 +239,13 @@
   - `grantBridgeOnce` TTL（决策 4c 评审命门 2）：grant 后 `now - grantedAt > 120_000` 再 check → 不消费、条目懒清理、走 prompt（测试用可注入 now 或短 TTL 构造参数——实现时二选一并在 commit 说明）
   - 同 kind 二次 allow-once 累积（count=2）后整体过期 → 一并失效不残留（grantedAt 以最后一次 grant 为准）
   - permissions.test.ts 既有 17 例全绿（构造签名与 check 主流程未变）
-- [ ] **Step 3（红）**：`tests/rpc.test.ts` 追加用例（同文件内增量，遵守该文件既有 boot/rpcClient 模式）：
+- [x] **Step 3（红）**：`tests/rpc.test.ts` 追加用例（同文件内增量，遵守该文件既有 boot/rpcClient 模式）：
   - `permission.request` 广播含 `meta.timeoutMs === 90000`（boot 不传 permTimeoutMs 的默认路径）；shell 命令请求含 `meta.riskClass === 'gated'`；桥命令请求含 `meta.bridgeTriggers` 深等于期望数组
   - `permission.resolved` 广播含 reason（决策 4b' 评审命门 1）：`permTimeoutMs: 150` 短超时路径 → 收到 `{ requestId, reason: 'timeout' }`（新增独立用例）；permission.respond 应答路径 → `{ requestId, reason: 'answered' }`（断言并入既有 respond 用例）
   - permission.respond `allow-session` + bridgeTriggers → 之后同桥 kind 的第二次请求**不再广播** permission.request（直接放行——端到端验证合并授权过 RPC 面）
   - `permTimeoutMs: 150` 覆盖路径不回归（既有 L195 用例）
-- [ ] **Step 4（绿）**：实现 `bridge/detect.ts`；permissions.ts 三点增量（L65 默认 90000 + 两集合两方法 + check 内两查找层——一次性层带 120s TTL 懒清理，决策 4c）；index.ts 五点增量（L46 → 90000；prompt 闭包广播体加 meta——`bridgeTriggers` 仅 shell kind 且探测非空时附加；L133 超时 resolved 加 `reason: 'timeout'` + L372 应答 resolved 加 `reason: 'answered'`（决策 4b'）；permission.respond 处理器在 allow-* 且带 bridgeTriggers 时逐 kind 调 grant 方法——需把 requestId → {sessionId, bridgeTriggers} 暂存进 pendingPerms 条目，resolved 后清理；import detect/classifyShellCommand）
-- [ ] **Step 5**：`npm test` 全量绿；`npm run typecheck`；`npm run e2e:m3a` 实证不回归（决策 6）；checkbox 勾选；commit `feat(mu2a): 权限侧白名单（90s 超时/广播 meta 超时与桥触发/桥双段合并授权）`
+- [x] **Step 4（绿）**：实现 `bridge/detect.ts`；permissions.ts 三点增量（L65 默认 90000 + 两集合两方法 + check 内两查找层——一次性层带 120s TTL 懒清理，决策 4c）；index.ts 五点增量（L46 → 90000；prompt 闭包广播体加 meta——`bridgeTriggers` 仅 shell kind 且探测非空时附加；L133 超时 resolved 加 `reason: 'timeout'` + L372 应答 resolved 加 `reason: 'answered'`（决策 4b'）；permission.respond 处理器在 allow-* 且带 bridgeTriggers 时逐 kind 调 grant 方法——需把 requestId → {sessionId, bridgeTriggers} 暂存进 pendingPerms 条目，resolved 后清理；import detect/classifyShellCommand）
+- [x] **Step 5**：`npm test` 全量绿；`npm run typecheck`；`npm run e2e:m3a` 实证不回归（决策 6）；checkbox 勾选；commit `feat(mu2a): 权限侧白名单（90s 超时/广播 meta 超时与桥触发/桥双段合并授权）`
 
 测试估算：+18 例（detect 6 / merge 8 / rpc 4）。
 
