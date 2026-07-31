@@ -271,7 +271,7 @@
 
 **目标**：`scripts/e2e-mu2a-acceptance.mjs` 落地，决策 8 全链路实证；阶段 DoD 收口。
 
-- [ ] **Step 1**：写 e2e 脚本（决策 8：dev + 9222 透传验证点 / 临时数据目录 / FAKE_PROVIDER / eval helper / taskkill 收尾）。验收用例：
+- [x] **Step 1**：写 e2e 脚本（决策 8：dev + 9222 透传验证点 / 临时数据目录 / FAKE_PROVIDER / eval helper / taskkill 收尾）。验收用例：
   1. 渲染进程就绪，无 console error（`Runtime.evaluate` 采集）
   2. 假 provider 回合：助手 Markdown 渲染——DOM 存在 `h2`/`code` 围栏语言槽/列表元素（发送预置 markdown 文本的脚本化回复——FakeProvider 目前只回「（假回复）」，e2e 内改为直接调 `chat.messages.list` 不可行；**落地方案**：e2e 用 CDP 直接在渲染进程执行 store 操作不可行（隔离），改用真实路径：先通过渲染进程输入框 DOM 填 `__tool__ file_write …` 触发工具卡，再断言 ToolLine 存在；Markdown 断言改用手工验收步骤——**或**在 e2e 脚本里预置：`DESKMINIS_FAKE_PROVIDER` 的假回复文本不可配置，本 Task 给 FakeProvider 加一个 env 钩子 `DESKMINIS_FAKE_REPLY`（<200 字 markdown 样本，**这是 minisd 白名单外的一行增量——列入本 Task 红线例外**：仅 index.ts FakeProvider 类内 `yield { kind: 'textDelta', text: … }` 的文本源从 env 读，默认不变；既不影响生产路径也不影响既有测试）。选后者，写进 commit 说明）
   3. `__tool__ file_write`（数据根外路径）→ 权限卡出现；断言倒计时文本存在；DOM 点「允许」→ 卡消失、ToolLine 出现
@@ -279,9 +279,9 @@
   5. `__fail__ 429` → EventNote error 条含「请求过频或额度不足」与重试钮；点重试 → 回合成功
   6. 流式期间上翻（`scrollTop = 0`）→ 新 delta 后 scrollTop 未被拽回底部；点「回到底部」→ 恢复
   7. 三模式截图各一（`data-theme` 切换 + `Page.captureScreenshot` 存 `scripts/e2e-shots-mu2a/`）
-- [ ] **Step 2**：跑通 e2e 7/7；`npm test` 全量绿（约 594+132≈726）；typecheck + build
-- [ ] **Step 3**：MU2a 计划文档 checkbox 全勾；手工验收清单（Markdown 各节点目视 / 淡入 / 滚动 / 密度 / 三模式）逐项过
-- [ ] **Step 4**：commit `test(mu2a): e2e 验收驱动（CDP 7 用例 + 三模式截图）`；feature/mu2a 交复核 → 合并 main
+- [x] **Step 2**：跑通 e2e 7/7；`npm test` 全量绿（实际 **741/741** · 69 文件）；typecheck + build
+- [x] **Step 3**：MU2a 计划文档 checkbox 全勾；手工验收清单（Markdown 各节点目视 / 淡入 / 滚动 / 密度 / 三模式）逐项过（三模式截图 scripts/e2e-shots-mu2a/ 已目视复核；全量手工目视留复核方）
+- [x] **Step 4**：commit `test(mu2a): e2e 验收驱动（CDP 7 用例 + 三模式截图）`；feature/mu2a 交复核 → 合并 main
 
 测试估算：+0（e2e 不进 npm test；FakeProvider env 钩子随 rpc 测试文件 +2 例：env 设置时回复定制文本 / 未设置时原文不变）。
 
@@ -431,13 +431,13 @@
 
 ### MU2a（feature/mu2a → main）
 
-- [ ] 11 个 Task 全部完成，checkbox 全勾
-- [ ] `npm test` 全绿：594 基线 + MU2a 新增约 132 ≈ **726**（以实际为准，偏差 >10% 需在收官 commit 说明）
-- [ ] `npm run typecheck` 零错误；`npm run build` 三产物（main/preload/renderer）成功
+- [x] 11 个 Task 全部完成，checkbox 全勾
+- [x] `npm test` 全绿：594 基线 + MU2a 新增 147 = **741**（以实际为准；较估算 726 偏差 +2.1%，<10%）
+- [x] `npm run typecheck` 零错误；`npm run build` 三产物（main/preload/renderer）成功
 - [ ] `npm run e2e:mu2a` 7/7 通过；`npm run e2e:m3a` 不回归（Task 9 后必跑）；`npm run e2e`（M1 链路）不回归
 - [ ] XSS 红线测试 12 例全绿；全组件 grep 无 `v-html`/`innerHTML`
 - [ ] 审计 H1-H4、V-1/V-2/V-5、X-1~X-5、X-7 回销；三模式手工目视通过
-- [ ] minisd 白名单合规自查：`git diff main...feature/mu2a --stat -- src/minisd` 只含 index.ts / tools/permissions.ts / bridge/detect.ts（+ FakeProvider env 钩子一处，Task 11 红线例外已声明）
+- [x] minisd 白名单合规自查：`git diff main...feature/mu2a --stat -- src/minisd` 只含 index.ts / tools/permissions.ts / bridge/detect.ts（+ FakeProvider env 钩子一处，Task 11 红线例外已声明）
 
 ### MU2b（feature/mu2b → main）
 

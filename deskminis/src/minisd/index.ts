@@ -63,7 +63,8 @@ class FakeProvider implements AgentProvider {
       yield { kind: 'done', stopReason: 'toolUse' };
       return;
     }
-    yield { kind: 'textDelta', text: '（假回复）' };
+    // MU2a Task 11（计划内红线例外）：e2e 经 DESKMINIS_FAKE_REPLY 定制回复文本（markdown DOM 断言用）；未设置时默认原文不变
+    yield { kind: 'textDelta', text: process.env.DESKMINIS_FAKE_REPLY ?? '（假回复）' };
     // 真 provider 是网络 I/O：这里也让出一个宏任务，否则整个 agent 循环在微任务里
     // 一口气跑完，"会话运行中"这个状态在外部永远观察不到（并发锁将无法测试）。
     await new Promise(r => setTimeout(r, 30));

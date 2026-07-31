@@ -482,6 +482,36 @@ describe('fallback 改写会话绑定时机', () => {
   });
 });
 
+describe('FakeProvider DESKMINIS_FAKE_REPLY 环境钩子（MU2a Task 11 计划内红线例外）', () => {
+  /** 跑一个假 provider 回合，返回助手文本拼接。 */
+  async function fakeReplyText(): Promise<string> {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    await c.call('chat.prompt', { sessionId: s.id, text: '你好', providerId: '__fake__' });
+    await waitFor('turnEnd', () => c.notifications.some(n => n.params?.event?.kind === 'turnEnd'), 5000);
+    const msgs = (await c.call('chat.messages.list', { sessionId: s.id })).result;
+    c.close();
+    return msgs
+      .filter((m: any) => m.role === 'assistant')
+      .flatMap((m: any) => (Array.isArray(m.parts) ? m.parts : []))
+      .filter((p: any) => p && p.type === 'text' && typeof p.value === 'string')
+      .map((p: any) => p.value)
+      .join('');
+  }
+
+  it('env 设置时假回复用定制文本（e2e markdown 断言的数据源）', async () => {
+    process.env.DESKMINIS_FAKE_REPLY = '## 定制标题';
+    try { expect(await fakeReplyText()).toBe('## 定制标题'); }
+    finally { delete process.env.DESKMINIS_FAKE_REPLY; }
+  });
+
+  it('env 未设置时假回复保持默认原文（既有行为不回归）', async () => {
+    delete process.env.DESKMINIS_FAKE_REPLY;
+    expect(await fakeReplyText()).toBe('（假回复）');
+  });
+});
+
 describe('chat.sessions.setMemoryEnabled', () => {
   it('设置 memoryEnabled 并在 getSession 读回', async () => {
     const { port, authToken } = await boot();
