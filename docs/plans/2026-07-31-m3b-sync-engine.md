@@ -737,7 +737,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/wi
   - `mergeSession(local, remote): { messages: RawMessage[]; markers: CompactMarker[]; orphanMarkerIds: string[] }`
   - 纯函数（无副作用，不碰 DB）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sync-merge.test.ts`:
 
@@ -964,12 +964,12 @@ describe('mergeSession 单次 O(N) 复杂度（用例覆盖，非真实测时）
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd deskminis && npm test -- sync-merge`
 Expected: 全部 fail（模块不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `deskminis/src/minisd/sync/merge.ts`：
 
@@ -1099,12 +1099,12 @@ export function mergeSession(local: MergeInput, remote: WireMergeInput): MergeRe
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd deskminis && npm test -- sync-merge`
 Expected: 17 passed（14 原有 + k 路归并交错场景 + 跨端平局 + 两端独立调用一致 + orphan 脱孤）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/merge.ts deskminis/tests/sync-merge.test.ts && git commit -m "feat(m3b): mergeSession算法(三路去重+k路归并+marker LWW+orphan隔离,§4.4时序,评审命门1/2)"
