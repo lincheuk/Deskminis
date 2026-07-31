@@ -178,16 +178,16 @@
 
 **目标**：ToolPill 36px 彩色胶囊 → 32px 单行工具行：状态符号（✓绿/✕红/⠿执行中）+ 人话标题 + 耗时 mono 右置 + 展开 chevron；类型色五色退役；连续 3+ 同类型成组折叠；展开区参数/输出 mono 内滚（file_edit 展开区留给 Task 7 换 DiffView）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-toolline.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-toolline.test.ts`：
   - 纯模块 `lib/toolline/group.ts`：`groupToolCards(cards): (ToolCard | ToolGroup)[]`——连续 ≥3 个同 name 卡片成组（`{ kind: 'group'; name; count; items }`），组边界被异名打断；不足 3 不成组；空数组
   - `lib/toolline/duration.ts`：`fmtDuration(startTs, endTs): string`（`0.3s` / `1m02s`；纯函数）
   - 守卫 `ToolLine.vue`：props `{ name; title; state: 'running'|'ok'|'fail'; duration?; input?; output? }`；单行 32px 锚（`--h-control`）；状态符号三态；chevron 展开；展开区 `max-height: 240px` 内滚；**五色类型色不出现**（`not.toContain('--tool-')`）
   - 守卫 ChatView.vue：ToolPill import 移除、ToolLine import 存在；`groupToolCards(` 调用点
   - 守卫 `ToolPill.vue` 已删除（`existsSync === false`）——其引用随本 Task 全部切走
-- [ ] **Step 2（绿）**：实现 `ToolLine.vue`（执行中 CSS 旋转圆环 14px，§2.2 shimmer 取消）+ `group.ts`/`duration.ts` + ChatView 接线（历史 ToolPill 处 → ToolLine 按 parts 渲染；实时 `chat.toolCards` → groupToolCards 分组渲染）；删除 ToolPill.vue；`Icon.vue` 追加 `chevron-down` / `chevron-right`（只追加）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 目视：假 provider `__tool__` 三连发同工具 → 成组「执行 3 个 … [›]」
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 工具行 ToolLine 替换 ToolPill（单行折叠/状态符号/类型色退役/同型成组）`
+- [x] **Step 2（绿）**：实现 `ToolLine.vue`（执行中 CSS 旋转圆环 14px，§2.2 shimmer 取消）+ `group.ts`/`duration.ts` + ChatView 接线（历史 ToolPill 处 → ToolLine 按 parts 渲染；实时 `chat.toolCards` → groupToolCards 分组渲染）；删除 ToolPill.vue；`Icon.vue` 追加 `chevron-down` / `chevron-right`（只追加）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 目视：假 provider `__tool__` 三连发同工具 → 成组「执行 3 个 … [›]」
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 工具行 ToolLine 替换 ToolPill（单行折叠/状态符号/类型色退役/同型成组）`
 
 测试估算：+10 例（group 5 / duration 2 / 守卫 3）。
 

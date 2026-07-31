@@ -4,7 +4,7 @@
  *  渲染对 parts 全程空值兜底：parts.ts 允许 value:null 的 part，绝不解引用崩溃。 */
 import { ref, computed, nextTick, watch } from 'vue';
 import { useChat } from '../stores/chat';
-import ToolPill from './ToolPill.vue';
+import ToolLine from './ToolLine.vue';
 import PermissionCard from './PermissionCard.vue';
 import EmptyState from './EmptyState.vue';
 import ModelPicker from './ModelPicker.vue';
@@ -16,6 +16,7 @@ import { MarkdownCache } from '../lib/markdown/cache';
 import { stablePrefixEnd } from '../lib/markdown/prefix';
 import { shouldFollow } from '../lib/scroll/follow';
 import { fmtHHMM } from '../lib/time/hhmm';
+import { groupToolCards, isGroup, type ToolGroup } from '../lib/toolline/group';
 import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
@@ -50,8 +51,8 @@ function isResultCarrier(m: { role: string; parts?: any[] }): boolean {
   const hasText = parts.some(p => p && p.type === 'text' && typeof p.value === 'string' && p.value.trim() !== '');
   return !hasText && parts.some(p => p && p.type === 'toolResult');
 }
-// 工具胶囊摘要：优先 input 里的 tool_title，回落 description / name
-function pillTitle(v: unknown): string {
+// 工具行标题：优先 input 里的 tool_title，回落 description / name
+function toolTitle(v: unknown): string {
   if (!isRec(v)) return '工具';
   if (typeof v.input === 'string') {
     try { const o = JSON.parse(v.input); if (o && typeof o.tool_title === 'string' && o.tool_title) return o.tool_title; } catch { /* ignore */ }
@@ -59,6 +60,27 @@ function pillTitle(v: unknown): string {
   if (typeof v.description === 'string' && v.description) return v.description;
   return typeof v.name === 'string' ? v.name : '工具';
 }
+
+// ---- 同型工具成组（MU2a Task 6，设计 §2.2）：实时卡连续 ≥3 同 name 折叠为一行 ----
+type LiveCard = (typeof chat.toolCards)[number];
+const liveItems = computed(() => groupToolCards(chat.toolCards));
+function liveState(c: LiveCard): 'running' | 'ok' | 'fail' {
+  return c.success === undefined ? 'running' : c.success ? 'ok' : 'fail';
+}
+function gkey(g: ToolGroup<LiveCard>): string { return `${g.name}:${g.items[0].toolUseId}`; }
+function groupState(g: ToolGroup<LiveCard>): 'running' | 'ok' | 'fail' {
+  if (g.items.some(c => c.success === undefined)) return 'running';
+  return g.items.every(c => c.success) ? 'ok' : 'fail';
+}
+// 组标题人话化（「读取 4 个文件」）；未映射 name 回落「name × N」
+const GROUP_PHRASE: Record<string, (n: number) => string> = {
+  file_read: n => `读取 ${n} 个文件`,
+  file_write: n => `写入 ${n} 个文件`,
+  file_edit: n => `编辑 ${n} 个文件`,
+  shell_execute: n => `执行 ${n} 条命令`,
+  memory: n => `${n} 次记忆操作`,
+};
+function groupTitle(name: string, n: number): string { return GROUP_PHRASE[name]?.(n) ?? `${name} × ${n}`; }
 
 const hasLive = computed(() =>
   chat.running || !!chat.streamingText || chat.toolCards.length > 0 || chat.pendingPerms.length > 0 || !!chat.retryNote,
@@ -217,14 +239,13 @@ function onSlashTab(e: KeyboardEvent): void {
             <div class="abody">
               <template v-for="(p, i) in (Array.isArray(m.parts) ? m.parts : [])" :key="i">
                 <MarkdownView v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" :nodes="mdOf(`${m.id}:${i}`)" />
-                <ToolPill
+                <ToolLine
                   v-else-if="p && p.type === 'toolUse' && p.value"
                   :name="isRec(p.value) ? p.value.name : ''"
-                  :title="pillTitle(p.value)"
+                  :title="toolTitle(p.value)"
+                  :state="resultOf(isRec(p.value) ? p.value.toolUseId : undefined)?.success === false ? 'fail' : 'ok'"
                   :input="isRec(p.value) && typeof p.value.input === 'string' ? p.value.input : null"
                   :output="resultOf(isRec(p.value) ? p.value.toolUseId : undefined)?.output ?? null"
-                  :success="resultOf(isRec(p.value) ? p.value.toolUseId : undefined)?.success"
-                  :status="resultOf(isRec(p.value) ? p.value.toolUseId : undefined)?.status"
                 />
               </template>
             </div>
@@ -237,12 +258,24 @@ function onSlashTab(e: KeyboardEvent): void {
           <div class="abody">
             <MarkdownView v-if="streamStable.length" :nodes="streamStable" />
             <FadeText v-if="streamTailText" :text="streamTailText" />
-            <ToolPill
-              v-for="c in chat.toolCards" :key="c.toolUseId"
-              :name="c.name" :title="c.title || c.name"
-              :output="c.output ?? null" :success="c.success"
-              :running="c.success === undefined"
-            />
+            <!-- 实时工具行：连续 ≥3 同型成组（组头展开嵌子行， ToolLine 默认插槽覆写） -->
+            <template v-for="item in liveItems" :key="isGroup(item) ? gkey(item) : item.toolUseId">
+              <ToolLine
+                v-if="isGroup(item)"
+                :name="item.name" :title="groupTitle(item.name, item.count)" :state="groupState(item)"
+              >
+                <ToolLine
+                  v-for="card in item.items" :key="card.toolUseId"
+                  :name="card.name" :title="card.title || card.name" :state="liveState(card)"
+                  :output="card.output ?? null"
+                />
+              </ToolLine>
+              <ToolLine
+                v-else
+                :name="item.name" :title="item.title || item.name" :state="liveState(item)"
+                :output="item.output ?? null"
+              />
+            </template>
             <PermissionCard v-for="p in chat.pendingPerms" :key="p.requestId" :perm="p" />
             <div v-if="chat.retryNote" class="retry"><Icon name="clock" :size="14" /><span>{{ chat.retryNote }}</span></div>
             <div v-if="chat.running && !chat.streamingText && !chat.toolCards.length && !chat.pendingPerms.length && !chat.retryNote" class="dots"><i></i><i></i><i></i></div>
