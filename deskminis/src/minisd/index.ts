@@ -14,7 +14,7 @@ import { RpcServer } from './rpc/server';
 import { ProviderError, type AgentProvider, type StreamRequest } from './providers/types';
 import { PairingStore, PairingService } from './remote/pairing';
 import { createRemoteMethods, createAdditionalVerify, guardBusinessMethod } from './remote';
-import { SyncCoordinator, createSyncMethods } from './sync';
+import { SyncCoordinator, createSyncMethods, OutboundClient } from './sync';
 import type { AgentStreamEvent } from '../shared/types';
 import { ModelCatalog } from './providers/model-catalog';
 import { MemoryStore } from './store/memory-store';
@@ -511,6 +511,9 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // 沿用 M1 vault/keyring 路径（KeyringVault L26-36）；DESKMINIS_TEST=1 时 vault 已是 InMemoryVault
   // StaticIdentity 首次生成后持久化到 vault，后续启动复用（设计 §2.1「长期身份」）
   // M3c Task 4：createRemoteMethods 第二参注入 onPairComplete——begin 侧从 conn.remoteAddress + p.listenPort 捕获对端地址（必改 4）
+  // M3c Task 6：getOutbound/getRpcServer lazy getter（命门 2 出站 ∪ 入站合并 online）——
+  //   outboundClient 在端口持久化后才实例化，用 let 前置声明 + lazy getter 闭包引用
+  let outboundClient: OutboundClient | undefined;
   const remoteMethods = createRemoteMethods(pairingService, {
     onPairComplete: (fp, remoteAddr, listenPort) => {
       if (listenPort && listenPort > 0) {
@@ -518,6 +521,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         pairingStore.setAddress(fp, `${host}:${listenPort}`);
       }
     },
+    getOutbound: () => outboundClient,
+    getRpcServer: () => rpc,
   });
   // 业务面方法（chat.*/permission.*/skills.* 等）统一加 pairing 模式守卫（红线 4c）：
   // pairing 模式只能调 remote.pair.complete，其他业务面全拒。
@@ -533,7 +538,18 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // 最小修正为原地包装 syncMethods 后再 assign（Produces 接口不变：sync.* 仍经 guardBusinessMethod 拒 pairing）。
   // M3c Task 4：createSyncMethods 第二参注入 pairingService/listenPort（sync.hello 用，端口漂移自愈必改 4）
   //   syncOpts 用可变对象：listen 前占位 0，listen 后更新为实际端口——sync.hello 闭包引用 opts.listenPort 能拿到新值。
-  const syncOpts: { pairingService: PairingService; listenPort: number } = { pairingService, listenPort: 0 };
+  // M3c Task 6：onMergedRemote 注入——sync.push handler 合并有变化时广播 chat.event synced（监听方路径，小项 7e）
+  const syncOpts: {
+    pairingService: PairingService;
+    listenPort: number;
+    onMergedRemote?: (peerFingerprint: string | undefined, sessionId: string, result: { mergedCount: number; orphanMarkerIds: string[]; hasChange: boolean }) => void;
+  } = {
+    pairingService,
+    listenPort: 0,
+    onMergedRemote: (peerFp, sid, result) => {
+      rpc.broadcast('chat.event', { kind: 'synced', sessionId: sid, mergedCount: result.mergedCount, fromDevice: peerFp });
+    },
+  };
   const syncMethods = createSyncMethods(chat, syncOpts);
   for (const k of Object.keys(syncMethods)) {
     (syncMethods as any)[k] = guardBusinessMethod((syncMethods as any)[k], k);
@@ -546,10 +562,15 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p));
   syncOpts.listenPort = port; // sync.hello 响应带实际监听端口（对端刷新地址簿，端口漂移自愈）
 
-  // M3b 接线：SyncCoordinator（服务端被动，评审命门 4）——chat.onDirty 去抖广播 sync.dirty
-  const syncCoordinator = new SyncCoordinator(chat, rpc);
+  // M3c Task 6：OutboundClient 装配（决策 8）——出站 WS 客户端，拨已配对对端（主从裁决 myFp < peerFp 者主拨）
+  // 在端口持久化后实例化：start() 用 pairingStore 里的地址（pairing 时习得），与端口无直接依赖，
+  // 但与 SyncCoordinator 绑定（start/stop 联动），此处实例化顺序最稳。
+  outboundClient = new OutboundClient(pairingService, pairingService.myFingerprint);
+
+  // M3b 接线 + M3c Task 6 扩展：SyncCoordinator 注入 OutboundClient（决策 4 拨号方双职责 push+pull）
+  const syncCoordinator = new SyncCoordinator(chat, rpc, { outbound: outboundClient });
   chat.onDirty = sid => syncCoordinator.onDirty(sid);
-  syncCoordinator.start(); // 空实现（评审命门 4），保留调用供 M3c 扩展
+  syncCoordinator.start(); // 触发 outboundClient.start() + 挂 onRemoteDirty
 
   return {
     port, listenPort: port, authToken, bridgePipe,

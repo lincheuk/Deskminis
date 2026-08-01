@@ -34,8 +34,9 @@ function assertAuthMode(conn: RpcConnection, allowed: AuthMode[], what: string):
 export interface RemoteMethodsOpts {
   /** remote.pair.complete 成功后回调：begin 侧从 conn.remoteAddress + p.listenPort 捕获对端地址（必改 4） */
   onPairComplete?: (peerFingerprint: string, remoteAddress: string | undefined, listenPort: number | undefined) => void;
-  /** M3c Task 5：出站客户端 lazy getter（避免循环依赖，remote.status 合并出站源 online）。 */
-  getOutbound?: () => { isOnline(fp: string): boolean } | undefined;
+  /** M3c Task 5：出站客户端 lazy getter（避免循环依赖，remote.status 合并出站源 online）。
+   *  Task 6：增 dialNow 供 remote.pair.join 成功后立即拨号（计划 L463）。 */
+  getOutbound?: () => { isOnline(fp: string): boolean; dialNow?(peerFp: string): void } | undefined;
   /** M3c Task 5：RPC 服务端 lazy getter（remote.status 合并入站源 online，命门 2 出站 ∪ 入站）。 */
   getRpcServer?: () => { isInboundOnline(fp: string): boolean } | undefined;
 }
@@ -171,6 +172,10 @@ export function createRemoteMethods(service: PairingService, opts?: RemoteMethod
         p.pairingCode,
         `${p.host}:${p.port}`,
       );
+
+      // M3c Task 6（计划 L463）：join 成功后立即拨号，不等下次 start()
+      // join 侧单方拨号即可建立同步通道；begin 侧 start() 已在 startMinisd 时跑过（当时无配对，不会重拨）
+      opts?.getOutbound?.()?.dialNow?.(recomputedFp);
 
       return { ok: true, peerFingerprint: recomputedFp };
     },

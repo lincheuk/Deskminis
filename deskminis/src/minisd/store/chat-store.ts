@@ -4,6 +4,7 @@ import type { CompactMarker, RawMessage, SessionMeta, TokenUsage } from '../../s
 import { serializeParts, parseParts } from '../../shared/parts';
 import { mergeSession } from '../sync/merge';
 import type { WireCompactMarker, WireMessage, WireSession } from '../sync/wire';
+import { toWireMessage, toWireMarker, toWireSession } from '../sync/wire';
 
 interface MessageRow {
   id: string; session_id: string; role: string; parts_json: string;
@@ -155,6 +156,64 @@ export class ChatStore {
   /** 返回本地全部会话 + 各自 cursor（首次连接对端 sync.list 用）。 */
   listSyncedSessions(): Array<SessionMeta & { cursor: { lastMessageTs: number; lastMarkerTs: number } }> {
     return this.listSessions().map(s => ({ ...s, cursor: this.getSessionCursor(s.id) }));
+  }
+
+  /**
+   * M3c Task 6 决策 4：构建分批 push 载荷（消除 >1MB 死区，必改 1）。
+   *
+   * 按 createdLocallyAt/createdAt 升序切批，每批序列化 ≤ maxBytes；markers + session 放最后一批。
+   * 单条消息自身超 maxBytes 跳过留 warn（极端情况，避免死循环）。
+   * @param sessionId 会话 ID
+   * @param maxBytes 单批序列化上限，默认 512KB
+   * @returns 分批载荷数组（每批 { messages, markers, session? }）
+   */
+  buildPushBatches(
+    sessionId: string,
+    maxBytes: number = 512 * 1024,
+  ): Array<{ messages: WireMessage[]; markers: WireCompactMarker[]; session?: WireSession }> {
+    const session = this.getSession(sessionId);
+    if (!session) return []; // 会话不存在，空批
+    const allMsgs = this.listMessages(sessionId);
+    const allMarkers = this.listCompactMarkers(sessionId);
+    // 按 createdLocallyAt/createdAt 升序（与落库顺序一致，对端 merge 顺序稳定）
+    const sortedMsgs = [...allMsgs].sort((a, b) => (a.createdLocallyAt ?? a.createdAt) - (b.createdLocallyAt ?? b.createdAt));
+    const wireMsgs = sortedMsgs.map(toWireMessage);
+    const wireMarkers = allMarkers.map(m => toWireMarker(m, allMsgs));
+    const wireSession = toWireSession(session);
+
+    const batches: Array<{ messages: WireMessage[]; markers: WireCompactMarker[]; session?: WireSession }> = [];
+    let cur: { messages: WireMessage[]; markers: WireCompactMarker[]; session?: WireSession } = { messages: [], markers: [] };
+    let curSize = 2; // "[]"
+
+    for (const msg of wireMsgs) {
+      const msgSize = JSON.stringify(msg).length;
+      // 单条超限跳过（极端情况，留 warn）
+      if (msgSize > maxBytes) {
+        console.warn(`buildPushBatches: 消息 ${msg.id} 序列化 ${msgSize} 字节超 maxBytes ${maxBytes}，跳过`);
+        continue;
+      }
+      // 加入后超限 → 开新批（当前批非空才推）
+      if (cur.messages.length > 0 && curSize + msgSize > maxBytes) {
+        batches.push(cur);
+        cur = { messages: [], markers: [] };
+        curSize = 2;
+      }
+      cur.messages.push(msg);
+      curSize += msgSize + 1; // +1 逗号
+    }
+
+    // markers + session 放最后一批（最后一批超限则单独一批）
+    const markersSize = JSON.stringify(wireMarkers).length;
+    const sessionSize = JSON.stringify(wireSession).length;
+    if (curSize + markersSize + sessionSize > maxBytes && cur.messages.length > 0) {
+      batches.push(cur);
+      cur = { messages: [], markers: [] };
+    }
+    cur.markers = wireMarkers;
+    cur.session = wireSession;
+    batches.push(cur);
+
+    return batches;
   }
 
   /**
