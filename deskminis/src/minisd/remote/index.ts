@@ -34,6 +34,10 @@ function assertAuthMode(conn: RpcConnection, allowed: AuthMode[], what: string):
 export interface RemoteMethodsOpts {
   /** remote.pair.complete 成功后回调：begin 侧从 conn.remoteAddress + p.listenPort 捕获对端地址（必改 4） */
   onPairComplete?: (peerFingerprint: string, remoteAddress: string | undefined, listenPort: number | undefined) => void;
+  /** M3c Task 5：出站客户端 lazy getter（避免循环依赖，remote.status 合并出站源 online）。 */
+  getOutbound?: () => { isOnline(fp: string): boolean } | undefined;
+  /** M3c Task 5：RPC 服务端 lazy getter（remote.status 合并入站源 online，命门 2 出站 ∪ 入站）。 */
+  getRpcServer?: () => { isInboundOnline(fp: string): boolean } | undefined;
 }
 
 /**
@@ -79,7 +83,19 @@ export function createRemoteMethods(service: PairingService, opts?: RemoteMethod
       assertAuthMode(conn, ['local'], 'remote.status');
       // 红线 4e：remote.status 返回脱敏列表（不含 authKey/sessionSecret）
       // CLI/测试铸 PASETO 改走直接读 vault（deskminis-cli 是本机进程，有 vault 访问权）
-      return { devices: service.list() };
+      // M3c Task 5：online = 出站存活 ∪ 入站存活（命门 2）；lastSeenAt 来自地址簿
+      const outbound = opts?.getOutbound?.();
+      const rpcServer = opts?.getRpcServer?.();
+      const devices = service.listWithAddress().map(d => ({
+        peerFingerprint: d.peerFingerprint,
+        peerName: d.peerName,
+        roomId: d.roomId,
+        createdAt: d.createdAt,
+        address: d.address,
+        lastSeenAt: d.lastSeenAt ?? 0,
+        online: (outbound?.isOnline(d.peerFingerprint) ?? false) || (rpcServer?.isInboundOnline(d.peerFingerprint) ?? false),
+      }));
+      return { devices };
     },
 
     'remote.unpair': async (p: { peerFingerprint: string }, conn) => {
