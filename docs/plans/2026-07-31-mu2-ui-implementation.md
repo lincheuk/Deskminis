@@ -327,15 +327,15 @@
 
 **目标**：本会话写/编过的文件汇总卡：类型图标 + 相对路径 + `+N/−M` 增删徽标 + 点击切文件 tab 并定位预览；空态「本轮还没有产物」。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-artifacts.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-artifacts.test.ts`：
   - 纯模块 `lib/artifacts/collect.ts`：`collectArtifacts(messages, toolCards): Artifact[]`（`{ path: string; kind: 'write'|'edit'; add?: number; del?: number }`）——历史 messages parts 扫 `toolUse` name ∈ {file_write, file_edit} 提取 path（相对化：剥数据根/workspace 前缀）+ 实时 toolCards 补充；同路径去重（edit 优先，增删数用 Task 7 `extractEditPair`+`countAddDel` 算）；空输入 → `[]`
   - 守卫 `ArtifactsPanel.vue`：卡列表锚（图标 + 路径 mono + 徽标 `+N/−M` 绿红）+ 空态文案锚 + 点击行为（`chat.pendingFilePreview = path` + `showTab('files')` 等价调用）
   - 守卫 chat.ts 新增 `pendingFilePreview: string | null`；FilesPanel watch 该字段 → 触发既有 preview 流程并清空（FilesPanel 增量守卫）
   - App.vue：`rightTab === 'artifacts'` 挂 ArtifactsPanel（v-show + visited 模式沿用）
-- [ ] **Step 2（绿）**：实现 collect.ts + ArtifactsPanel.vue + chat.ts/FilesPanel/App.vue 接线
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 手工：假 provider file_write+file_edit 各一 → 产物 tab 两卡、增删数正确；点击 → 文件 tab 展开并预览该文件
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 产物 tab（写编文件汇总卡/增删徽标/点击定位文件预览）`
+- [x] **Step 2（绿）**：实现 collect.ts + ArtifactsPanel.vue + chat.ts/FilesPanel/App.vue 接线
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 手工：假 provider file_write+file_edit 各一 → 产物 tab 两卡、增删数正确；点击 → 文件 tab 展开并预览该文件（由 Task 8 e2e:mu2b 产物用例覆盖）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 产物 tab（写编文件汇总卡/增删徽标/点击定位文件预览）`
 
 测试估算：+9 例（collect 5 / 守卫 4）。
 

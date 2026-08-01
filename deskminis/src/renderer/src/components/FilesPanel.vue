@@ -64,6 +64,12 @@ watch(() => chat.activeId, () => {
 });
 // 回合落盘结束 → 工作区可能已被 agent 改动：自动刷新（免手动）
 watch(() => chat.running, (now, prev) => { if (prev && !now) refreshAll(); });
+// MU2b Task 3：产物卡点击 → chat.pendingFilePreview 写入相对路径，此处走既有 preview 流程并清空
+watch(() => chat.pendingFilePreview, (p) => {
+  if (!p) return;
+  chat.pendingFilePreview = null;
+  void showPreview(p);
+});
 onMounted(() => { void loadRoot(); });
 </script>
 

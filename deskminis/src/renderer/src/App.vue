@@ -10,6 +10,7 @@ import ProviderSettings from './components/ProviderSettings.vue';
 import TerminalPanel from './components/TerminalPanel.vue';
 import FilesPanel from './components/FilesPanel.vue';
 import ProgressPanel from './components/ProgressPanel.vue';
+import ArtifactsPanel from './components/ArtifactsPanel.vue';
 import Icon from './components/Icon.vue';
 
 const chat = useChat();
@@ -63,6 +64,8 @@ const activeTitle = computed(() => chat.sessions.find(s => s.id === chat.activeI
 
 // ModelPicker 的「管理模型…」经此进入设置面板（无需逐层 emit）
 provide('openSettings', () => { settingsOpen.value = true; rightOpen.value = true; });
+// MU2b Task 3：产物卡点击 → 切右栏 tab（等价 tab 点击，供深层组件调用）
+provide('switchRightTab', (tab: 'progress' | 'artifacts' | 'files' | 'terminal') => { rightOpen.value = true; showTab(tab); });
 
 onMounted(() => {
   const saved = Number(localStorage.getItem('deskminis.rightW'));
@@ -94,7 +97,7 @@ onMounted(() => {
         <div v-if="settingsOpen" class="rbody"><ProviderSettings /></div>
         <template v-else>
           <div v-show="rightTab === 'progress'" class="rfill"><ProgressPanel v-if="visited.progress" /></div>
-          <div v-show="rightTab === 'artifacts'" class="rfill"><div v-if="visited.artifacts" class="rempty">产物面板（MU2b Task 3 填实）</div></div>
+          <div v-show="rightTab === 'artifacts'" class="rfill"><ArtifactsPanel v-if="visited.artifacts" /></div>
           <div v-show="rightTab === 'files'" class="rfill"><FilesPanel v-if="visited.files" /></div>
           <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
         </template>
