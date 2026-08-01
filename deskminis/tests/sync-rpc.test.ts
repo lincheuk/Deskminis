@@ -66,6 +66,11 @@ describe('sync.pull（增量拉取）', () => {
   it('pairing 模式 → 拒', async () => {
     await expect(methods['sync.pull']!({}, makeConn('pairing'))).rejects.toThrow(/local|remote|authMode/i);
   });
+
+  it('sync.pull 对不存在的 session 返回清晰错误（M3b 记账项①）', async () => {
+    await expect(methods['sync.pull']!({ sessionId: 'NOT-EXIST' }, makeConn('local')))
+      .rejects.toThrow(/会话不存在/);
+  });
 });
 
 describe('sync.cursor', () => {

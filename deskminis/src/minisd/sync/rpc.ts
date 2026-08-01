@@ -23,13 +23,14 @@ export function createSyncMethods(chat: ChatStore): RpcMethods {
 
     'sync.pull': async (p: { sessionId: string; afterTs?: number }, conn) => {
       assertAuthMode(conn, ['local', 'remote'], 'sync.pull');
+      const session = chat.getSession(p.sessionId);
+      if (!session) throw new Error(`sync.pull 会话不存在: ${p.sessionId}`);
       const afterTs = p.afterTs ?? 0;
       const allMsgs = chat.listMessages(p.sessionId);
       const messages = allMsgs.filter(m => m.createdAt > afterTs).map(toWireMessage);
       const allMarkers = chat.listCompactMarkers(p.sessionId);
       const markers = allMarkers.filter(m => m.createdAt > afterTs).map(m => toWireMarker(m, allMsgs));
-      const session = toWireSession(chat.getSession(p.sessionId)!);
-      return { messages, markers, session };
+      return { messages, markers, session: toWireSession(session) };
     },
 
     'sync.cursor': async (p: { sessionIds?: string[] }, conn) => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb } from '../src/minisd/store/db';
 import { ChatStore } from '../src/minisd/store/chat-store';
-import { toWireMessage, type WireMessage, type WireCompactMarker } from '../src/minisd/sync/wire';
+import { toWireMessage, toWireMarker, type WireMessage, type WireCompactMarker } from '../src/minisd/sync/wire';
 import type Database from 'better-sqlite3';
 
 let db: Database.Database; let store: ChatStore;
@@ -134,6 +134,62 @@ describe('ChatStore.mergeRemoteSession', () => {
     // sync_orphan_markers 已删
     const orphanCount = db.prepare('SELECT COUNT(*) c FROM sync_orphan_markers WHERE session_id=?').get(s.id) as any;
     expect(orphanCount.c).toBe(0);
+  });
+
+  // ===== M3c Task 1: dirty 门控值比较精化（M3b 记账项② + 必改 6）=====
+
+  it('mergeRemoteSession 零变化时不触发 onDirty（M3b 记账项②，防 ping-pong）', () => {
+    const sid = store.createSession('S').id;
+    store.appendMessage(mkMsg('M1', sid, 'me', 1000, 0) as any);
+    let dirtyCalls = 0;
+    store.onDirty = () => { dirtyCalls++; };
+    // 对端回灌：消息 id 全重合，mergedCount=0，无 marker，无 remote.session
+    const wireMsgs = store.listMessages(sid).map(toWireMessage);
+    const result = store.mergeRemoteSession({ messages: wireMsgs, markers: [], session: undefined }, sid);
+    expect(result.mergedCount).toBe(0);
+    expect(result.hasChange).toBe(false);
+    expect(dirtyCalls).toBe(0);  // 零变化不广播
+  });
+
+  it('mergeRemoteSession 有新消息时触发 onDirty 并返回 hasChange=true', () => {
+    const sid = store.createSession('S').id;
+    let dirtyCalls = 0;
+    store.onDirty = () => { dirtyCalls++; };
+    const remoteMsg = toWireMessage(mkMsg('M2', sid, 'phone', 1000, 0) as any);
+    const result = store.mergeRemoteSession({ messages: [remoteMsg], markers: [], session: undefined }, sid);
+    expect(result.mergedCount).toBe(1);
+    expect(result.hasChange).toBe(true);
+    expect(dirtyCalls).toBe(1);
+  });
+
+  it('同 marker 重复合并第二次 hasChange=false（值比较精化，必改 6）', () => {
+    const sid = store.createSession('S').id;
+    store.appendMessage(mkMsg('M1', sid, 'me', 1000, 0) as any);
+    const msgs = store.listMessages(sid);
+    // 第一次合并：新 marker（hasChange=true）
+    const marker = { id: 'MK1', sessionId: sid, summary: 'S1', lastCompactedMessageId: 'M1', createdAt: 2000 };
+    store.mergeRemoteSession({ messages: [], markers: [toWireMarker(marker as any, msgs)], session: undefined }, sid);
+    let dirtyCalls = 0;
+    store.onDirty = () => { dirtyCalls++; };
+    // 第二次合并：同 marker（id 相同，summary/lastCompactedMessageId 值相同）→ hasChange=false
+    const result = store.mergeRemoteSession({ messages: [], markers: [toWireMarker(marker as any, msgs)], session: undefined }, sid);
+    expect(result.hasChange).toBe(false);
+    expect(dirtyCalls).toBe(0);
+  });
+
+  it('含 LWW marker 的会话重复回灌不触发 onDirty（值相同不 UPDATE，必改 6）', () => {
+    const sid = store.createSession('S').id;
+    store.appendMessage(mkMsg('M1', sid, 'me', 1000, 0) as any);
+    // 本地已有 marker MK1（summary='S1', lastCompactedMessageId='M1'）
+    store.appendCompactMarker(sid, 'S1', 'M1');
+    let dirtyCalls = 0;
+    store.onDirty = () => { dirtyCalls++; };
+    // 远程回灌同 marker（createdAt 相同，summary 相同）→ 值无差异 → hasChange=false
+    const localMarker = store.listCompactMarkers(sid)[0];
+    const msgs = store.listMessages(sid);
+    const result = store.mergeRemoteSession({ messages: msgs.map(toWireMessage), markers: [toWireMarker(localMarker, msgs)], session: undefined }, sid);
+    expect(result.hasChange).toBe(false);
+    expect(dirtyCalls).toBe(0);
   });
 });
 

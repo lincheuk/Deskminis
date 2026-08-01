@@ -167,11 +167,12 @@ export class ChatStore {
   mergeRemoteSession(
     remote: { messages: WireMessage[]; markers: WireCompactMarker[]; session?: WireSession },
     sessionId: string,
-  ): { mergedCount: number; orphanMarkerIds: string[] } {
+  ): { mergedCount: number; orphanMarkerIds: string[]; hasChange: boolean } {
     const tx = this.db.transaction(() => {
       const local = { messages: this.listMessages(sessionId), markers: this.listCompactMarkers(sessionId) };
       const merged = mergeSession(local, remote);
       let mergedCount = 0;
+      let hasChange = false;
       // 消息：INSERT OR IGNORE 新消息 + UPDATE sort_order（仅当不一致）
       for (const m of merged.messages) {
         const r = this.db.prepare(`INSERT OR IGNORE INTO messages (id, session_id, role, parts_json, created_at, updated_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, error_info, origin_device_id, created_locally_at)
@@ -180,26 +181,33 @@ export class ChatStore {
             m.tokenUsage ? JSON.stringify(m.tokenUsage) : null, m.sortOrder,
             m.reasoningContent ?? null, m.streamInterruptCount, m.errorInfo ?? null,
             m.originDeviceId ?? 'legacy', m.createdLocallyAt ?? m.createdAt);
-        if (r.changes > 0) mergedCount++;
+        if (r.changes > 0) { mergedCount++; hasChange = true; }
         this.db.prepare('UPDATE messages SET sort_order=? WHERE id=? AND sort_order != ?').run(m.sortOrder, m.id, m.sortOrder);
       }
       const orphanSet = new Set(merged.orphanMarkerIds);
       const resolvedIds = new Set(merged.markers.filter(m => !orphanSet.has(m.id)).map(m => m.id));
       // orphan marker → sync_orphan_markers（INSERT OR REPLACE，绝不进 compact_markers）
+      // M3c Task 1 必改 6：仅新出现或内容变化才计 hasChange
+      const existingOrphanIds = new Set(this.listOrphanMarkers(sessionId).map(o => o.id));
       for (const oid of merged.orphanMarkerIds) {
         const m = merged.markers.find(x => x.id === oid)!;
+        const wasExisting = existingOrphanIds.has(oid);
         this.db.prepare('INSERT OR REPLACE INTO sync_orphan_markers (id, session_id, summary, last_compacted_message_id, created_at, received_at) VALUES (?,?,?,?,?,?)')
           .run(m.id, m.sessionId, m.summary, m.lastCompactedMessageId, m.createdAt, this.nowEpoch());
+        if (!wasExisting) hasChange = true;
       }
       // 非 orphan marker → compact_markers（INSERT OR IGNORE + LWW UPDATE summary/last_compacted_message_id，不改 created_at）
+      // M3c Task 1 必改 6：LWW 改为值比较精化——仅 summary/lastCompactedMessageId 实际不同才 UPDATE + hasChange
       for (const m of merged.markers) {
         if (orphanSet.has(m.id)) continue;
-        this.db.prepare('INSERT OR IGNORE INTO compact_markers (id, session_id, summary, last_compacted_message_id, created_at) VALUES (?,?,?,?,?)')
+        const insertResult = this.db.prepare('INSERT OR IGNORE INTO compact_markers (id, session_id, summary, last_compacted_message_id, created_at) VALUES (?,?,?,?,?)')
           .run(m.id, m.sessionId, m.summary, m.lastCompactedMessageId, m.createdAt);
+        if (insertResult.changes > 0) { hasChange = true; continue; }
         const existing = local.markers.find(x => x.id === m.id);
-        if (existing && m.createdAt > existing.createdAt) {
+        if (existing && (m.summary !== existing.summary || m.lastCompactedMessageId !== existing.lastCompactedMessageId)) {
           this.db.prepare('UPDATE compact_markers SET summary=?, last_compacted_message_id=? WHERE id=?')
             .run(m.summary, m.lastCompactedMessageId, m.id);
+          hasChange = true;
         }
       }
       // 脱孤：之前在 sync_orphan_markers、本次已 resolve 成功的 marker → 删 sync_orphan_markers
@@ -207,26 +215,35 @@ export class ChatStore {
       for (const om of existingOrphans) {
         if (resolvedIds.has(om.id)) {
           this.db.prepare('DELETE FROM sync_orphan_markers WHERE id=?').run(om.id);
+          hasChange = true; // 脱孤是状态变化
         }
       }
       // session 元数据 LWW on updatedAt；session 不存在时 INSERT（首次同步创建）
+      // M3c Task 1 必改 6：仅值有差异才 UPDATE + hasChange；无 remote.session 时 updated_at 兜底不计入 hasChange
       if (remote.session) {
         const ws = remote.session;
         const localSession = this.getSession(sessionId);
         if (!localSession) {
           this.db.prepare('INSERT INTO sessions (id, title, created_at, updated_at, memory_enabled, model_binding, pinned_at) VALUES (?,?,?,?,?,?,?)')
             .run(sessionId, ws.title, ws.createdAt, ws.updatedAt, ws.memoryEnabled ? 1 : 0, ws.modelBinding ?? null, ws.pinnedAt ?? null);
+          hasChange = true;
         } else if (ws.updatedAt > localSession.updatedAt) {
-          this.db.prepare('UPDATE sessions SET title=?, updated_at=?, memory_enabled=?, model_binding=?, pinned_at=? WHERE id=?')
-            .run(ws.title, ws.updatedAt, ws.memoryEnabled, ws.modelBinding ?? null, ws.pinnedAt ?? null, sessionId);
+          // 值比较精化：仅 title/memoryEnabled/modelBinding/pinnedAt 有差异才 UPDATE
+          if (ws.title !== localSession.title || !!ws.memoryEnabled !== !!localSession.memoryEnabled ||
+              (ws.modelBinding ?? null) !== (localSession.modelBinding ?? null) ||
+              (ws.pinnedAt ?? null) !== (localSession.pinnedAt ?? null)) {
+            this.db.prepare('UPDATE sessions SET title=?, updated_at=?, memory_enabled=?, model_binding=?, pinned_at=? WHERE id=?')
+              .run(ws.title, ws.updatedAt, ws.memoryEnabled, ws.modelBinding ?? null, ws.pinnedAt ?? null, sessionId);
+            hasChange = true;
+          }
         }
       } else {
         this.db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(this.nowEpoch(), sessionId);
       }
-      return { mergedCount, orphanMarkerIds: merged.orphanMarkerIds };
+      return { mergedCount, orphanMarkerIds: merged.orphanMarkerIds, hasChange };
     });
     const result = tx();
-    this.onDirty?.(sessionId);
+    if (result.hasChange) this.onDirty?.(sessionId);
     return result;
   }
 }
