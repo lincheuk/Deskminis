@@ -2,7 +2,7 @@
 /** 左栏 · 会话列表（MU2b Task 4，设计 §1.1-1 变体 A 定稿）——任务卡式：
  *  标题 + 相对时间 + 状态徽标（●进行中绿 / ⏸等待批准橙 / ✕失败红 / ✓完成灰）+ 产物计数角标。
  *  粘性日期分组头（置顶/今天/昨天/本周/本月/更早）沿用 M1 既有；底部固定「设置/设备」入口
- * （设置 → inject('openSettings') 路由既有右栏 gear 行为，Task 5 切模态；设备一期 disabled，Task 7 填实）。
+ * （设置 → inject('openSettings') 开独立模态（Task 5 已切）；设备一期 disabled，Task 7 填实）。
  *  数据源诚实说明：sessions.list RPC 无 running/messages 字段，徽标与角标仅活动会话可得（lib/session/status）。 */
 import { computed, inject, onUnmounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
@@ -11,7 +11,7 @@ import { fmtRelative } from '../lib/time/relative';
 import Icon from './Icon.vue';
 
 const chat = useChat();
-// App.vue provide：打开设置（Task 5 切独立模态，此处先路由既有右栏行为）
+// App.vue provide：打开设置独立模态（Task 5 起）
 const openSettings = inject<() => void>('openSettings', () => {});
 
 interface S { id: string; title: string; updatedAt?: number; pinnedAt?: number }
@@ -130,7 +130,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .sbadge.fail { color: var(--state-err); }
 .sbadge.done { color: var(--label-tertiary); }
 .scount { flex: 0 0 auto; margin-left: auto; color: var(--label-secondary); font-variant-numeric: tabular-nums; }
-/* 底部固定入口：设置（Task 5 切模态）/ 设备（Task 7 填实，一期 disabled） */
+/* 底部固定入口：设置（独立模态）/ 设备（Task 7 填实，一期 disabled） */
 .lfoot {
   flex: 0 0 auto; display: flex; gap: 2px; padding: 8px 10px;
   border-top: .5px solid var(--separator);

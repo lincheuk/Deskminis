@@ -1,22 +1,25 @@
 <script setup lang="ts">
-/** 应用外壳（设计 §4）——自绘标题栏（顶，全宽）+ 三栏 260 | 1fr | 360（右栏 320-480 可拖、可收起）。 */
-import { onMounted, ref, computed, provide, reactive } from 'vue';
+/** 应用外壳（设计 §4）——自绘标题栏（顶，全宽）+ 三栏 232 | 1fr | 360（右栏 320-480 可拖、可收起）。
+ *  MU2b Task 5：设置独立模态（SettingsModal），右栏 gear 退场；托盘 menu:open-settings/menu:toggle-right
+ *  死通道经 preload 两订阅接通；主题偏好 localStorage 持久化（lib/settings/theme）。 */
+import { onMounted, onBeforeUnmount, ref, computed, provide, reactive } from 'vue';
 import { useChat } from './stores/chat';
 import { clampPaneWidth, nextWidth } from './lib/pane/drag';
+import { loadTheme, saveTheme, type ThemeMode } from './lib/settings/theme';
 import TitleBar from './components/TitleBar.vue';
 import SessionList from './components/SessionList.vue';
 import ChatView from './components/ChatView.vue';
-import ProviderSettings from './components/ProviderSettings.vue';
 import TerminalPanel from './components/TerminalPanel.vue';
 import FilesPanel from './components/FilesPanel.vue';
 import ProgressPanel from './components/ProgressPanel.vue';
 import ArtifactsPanel from './components/ArtifactsPanel.vue';
-import Icon from './components/Icon.vue';
+import SettingsModal from './components/SettingsModal.vue';
 
 const chat = useChat();
 
 const sidebarOpen = ref(true);
 const rightOpen = ref(true);
+/** MU2b Task 5：settingsOpen 语义改为设置模态开关（原右栏 settings 分支退场） */
 const settingsOpen = ref(false);
 const rightTab = ref<'progress' | 'artifacts' | 'files' | 'terminal'>('progress');
 /** 懒挂载 + v-show 保活（首次切到才创建组件，之后切换只隐藏不销毁） */
@@ -25,10 +28,6 @@ function showTab(tab: 'progress' | 'artifacts' | 'files' | 'terminal'): void {
   settingsOpen.value = false;
   rightTab.value = tab;
   visited[tab] = true;
-}
-function toggleSettings(): void {
-  settingsOpen.value = !settingsOpen.value;
-  if (!settingsOpen.value) visited[rightTab.value] = true;
 }
 
 /** 右栏宽度：360 默认、320–480 分隔条拖拽（lib/pane/drag 纯逻辑），localStorage 持久化。 */
@@ -46,32 +45,50 @@ function startRDrag(e: MouseEvent): void {
   window.addEventListener('mouseup', onUp);
 }
 
-// 明暗：appearanceMode 0 跟随系统 / 1 强制浅 / 2 强制深——循环切换并落到 <html data-theme>
-type Theme = 'system' | 'light' | 'dark';
-const theme = ref<Theme>('system');
+// 明暗：system 跟随系统 / light 强制浅 / dark 强制深——落到 <html data-theme>；localStorage 持久化（Task 5 前为内存态，重启丢失）
+const theme = ref<ThemeMode>(loadTheme());
 function applyTheme(): void {
   const el = document.documentElement;
   if (theme.value === 'system') el.removeAttribute('data-theme');
   else el.dataset.theme = theme.value;
 }
-function cycleTheme(): void {
-  theme.value = theme.value === 'system' ? 'light' : theme.value === 'light' ? 'dark' : 'system';
+function setTheme(t: ThemeMode): void {
+  theme.value = t;
+  saveTheme(t);
   applyTheme();
+}
+function cycleTheme(): void {
+  setTheme(theme.value === 'system' ? 'light' : theme.value === 'light' ? 'dark' : 'system');
 }
 
 // 当前会话标题（无选中时留空）——首帧 activeId 为空、sessions 为空也不解引用 undefined
 const activeTitle = computed(() => chat.sessions.find(s => s.id === chat.activeId)?.title ?? '');
 
-// ModelPicker 的「管理模型…」经此进入设置面板（无需逐层 emit）
-provide('openSettings', () => { settingsOpen.value = true; rightOpen.value = true; });
+// ModelPicker「管理模型…」与左栏「设置」入口经此开设置模态（无需逐层 emit）
+provide('openSettings', () => { settingsOpen.value = true; });
 // MU2b Task 3：产物卡点击 → 切右栏 tab（等价 tab 点击，供深层组件调用）
 provide('switchRightTab', (tab: 'progress' | 'artifacts' | 'files' | 'terminal') => { rightOpen.value = true; showTab(tab); });
+
+// Ctrl+, 开/关设置模态（设计 §1.1-2；不拦截输入区文本键入）
+function onGlobalKey(e: KeyboardEvent): void {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === ',') {
+    e.preventDefault();
+    settingsOpen.value = !settingsOpen.value;
+  }
+}
 
 onMounted(() => {
   const saved = Number(localStorage.getItem('deskminis.rightW'));
   if (saved) rightW.value = clampPaneWidth(saved);
+  applyTheme(); // 启动即应用 loadTheme 读回的偏好
+  // MU2b Task 5：托盘菜单死通道接通（preload 白名单两订阅；main 侧零改动）
+  const bridge = (window as { deskminis?: { onMenuOpenSettings?: (cb: () => void) => void; onMenuToggleRight?: (cb: () => void) => void } }).deskminis;
+  bridge?.onMenuOpenSettings?.(() => { settingsOpen.value = true; });
+  bridge?.onMenuToggleRight?.(() => { rightOpen.value = !rightOpen.value; });
+  window.addEventListener('keydown', onGlobalKey);
   void chat.init();
 });
+onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKey); });
 </script>
 
 <template>
@@ -92,17 +109,14 @@ onMounted(() => {
           <div class="tab" :class="{ on: !settingsOpen && rightTab === 'artifacts' }" @click="showTab('artifacts')">产物</div>
           <div class="tab" :class="{ on: !settingsOpen && rightTab === 'files' }" @click="showTab('files')">文件</div>
           <div class="tab" :class="{ on: !settingsOpen && rightTab === 'terminal' }" @click="showTab('terminal')">终端</div>
-          <div class="tab gear" :class="{ on: settingsOpen }" title="模型设置" @click="toggleSettings"><Icon name="gear" :size="15" /></div>
         </div>
-        <div v-if="settingsOpen" class="rbody"><ProviderSettings /></div>
-        <template v-else>
-          <div v-show="rightTab === 'progress'" class="rfill"><ProgressPanel v-if="visited.progress" /></div>
-          <div v-show="rightTab === 'artifacts'" class="rfill"><ArtifactsPanel v-if="visited.artifacts" /></div>
-          <div v-show="rightTab === 'files'" class="rfill"><FilesPanel v-if="visited.files" /></div>
-          <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
-        </template>
+        <div v-show="rightTab === 'progress'" class="rfill"><ProgressPanel v-if="visited.progress" /></div>
+        <div v-show="rightTab === 'artifacts'" class="rfill"><ArtifactsPanel v-if="visited.artifacts" /></div>
+        <div v-show="rightTab === 'files'" class="rfill"><FilesPanel v-if="visited.files" /></div>
+        <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
       </aside>
     </div>
+    <SettingsModal v-if="settingsOpen" :theme="theme" @set-theme="setTheme" @close="settingsOpen = false" />
   </div>
 </template>
 
@@ -127,7 +141,6 @@ onMounted(() => {
   flex: 1; text-align: center; padding: 6px; font-size: 13px; font-weight: 500; color: var(--label-secondary);
   border-radius: var(--r-control); cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
-.tab.gear { flex: 0 0 32px; }
 .tab.on { background: var(--fill-quaternary); color: var(--label); }
 /* 进度 tab 等待批准橙点（审计 H4：pendingPerms>0 显著化） */
 .tab.dot-warn { position: relative; }
@@ -135,10 +148,5 @@ onMounted(() => {
   content: ''; position: absolute; top: 4px; right: 8px; width: 6px; height: 6px; border-radius: 50%;
   background: var(--state-warn);
 }
-.rbody { flex: 1; overflow: auto; padding: 12px 14px; }
 .rfill { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.rempty {
-  flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
-  font-size: 13px; color: var(--label-tertiary); padding: 24px; line-height: 1.6;
-}
 </style>

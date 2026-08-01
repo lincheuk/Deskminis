@@ -44,13 +44,11 @@ describe('MU2b Task 1 右栏骨架：App.vue 源文本守卫（3 例）', () => 
     expect(app).toContain('visited = reactive({ progress: true, artifacts: false, files: false, terminal: false })');
   });
 
-  it('tab 行四文本 tab（进度/产物/文件/终端）+ gear 暂存锚（Task 5 移除）+ 分隔条 class="rdrag" + mousedown 绑定', () => {
+  it('tab 行四文本 tab（进度/产物/文件/终端）+ 分隔条 class="rdrag" + mousedown 绑定', () => {
     expect(app).toContain('@click="showTab(\'progress\')">进度');
     expect(app).toContain('@click="showTab(\'artifacts\')">产物');
     expect(app).toContain('@click="showTab(\'files\')">文件');
     expect(app).toContain('@click="showTab(\'terminal\')">终端');
-    // gear 暂存（T1 保留，T5 移除时同步删本锚）
-    expect(app).toContain('class="tab gear"');
     // 6px 热区分隔条 + 拖拽接线
     expect(app).toContain('class="rdrag"');
     expect(app).toContain('@mousedown="startRDrag"');

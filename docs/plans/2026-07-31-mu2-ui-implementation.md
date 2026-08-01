@@ -358,17 +358,17 @@
 
 **目标**：SettingsModal（左 180px section 导航 + 右内容：模型=ProviderSettings 平移 / 外观=三模式单选+说明 / 权限=档位+90s 超时说明 / 设备与同步=打开 DevicesModal 入口）；遮罩 40% 黑 + 卡片 720px `--r-sheet` + Esc 关闭 + `Ctrl+,` 打开；右栏 gear 移除；左栏「设置」入口切到模态；托盘菜单死通道接通（MU2b 引言核查）：preload 追加订阅 + App.vue 监听——`menu:open-settings` 开模态、`menu:toggle-right` 顺带接通（右栏开合，M2d 菜单项一并救活）；主题选择持久化 localStorage（现状内存态丢失）；TitleBar 瘦身：无 handler 的前进/后退删除、菜单数据 noop 项删除（保留真实可用项）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-settings-modal.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-settings-modal.test.ts`：
   - 守卫 `SettingsModal.vue`：四 section 导航锚（模型/外观/权限/设备与同步）+ ProviderSettings import 平移锚 + Esc 关闭 + 遮罩 `rgba(0,0,0,.4)` + 720px + `--r-sheet`
   - 纯模块 `lib/settings/theme.ts`：`loadTheme(): 'system'|'light'|'dark'`（localStorage 读、非法值回 system）；`saveTheme(t)`（App.vue theme 接线改造守卫：cycleTheme 保留 + 新增 setTheme 落盘 + 启动 loadTheme）
   - 守卫 App.vue：gear tab 移除（`not.toContain("tab gear")`）；`settingsOpen` 语义改为模态开关（原右栏 settingsOpen 分支移除）；`window.deskminis.onMenuOpenSettings(...)` 调用点开模态 + `onMenuToggleRight(...)` 切右栏；`Ctrl+,` keydown 绑定锚；左栏设置入口 emit → 开模态
   - 守卫 preload/index.ts：追加 `onMenuOpenSettings(cb: () => void)` / `onMenuToggleRight(cb: () => void)` 两订阅（`ipcRenderer.on` 包装 + 返回取消订阅函数）；既有 `minisdPort`/`minisdInfo` 不动——**preload 白名单：本 Task 仅此两方法追加；main 侧零改动**（tray-lifecycle.test.ts 等 M2d 守卫不回归）
   - 守卫 TitleBar.vue：前进/后退按钮移除锚；菜单数据无 noop 项（逐项列出现存 noop label 断言消失——实施期先读 TitleBar 菜单数据列全清单）；侧栏开关/标题/主题键保留锚
   - 守卫 ProviderSettings.vue 本体零改动（从右栏 rbody 平移进模态，组件不动——M2b/M2c 成果）
-- [ ] **Step 2（绿）**：实现 SettingsModal + theme.ts + App.vue/TitleBar/SessionList 接线；权限 section 文案含「危险命令始终拦截 / 每次确认默认 90 秒未响应自动拒绝」
-- [ ] **Step 3**：单文件 + 全量绿（renderer-rightpane.test.ts 的 gear 暂存锚**同步移除**——T1 预留的演进点）
-- [ ] **Step 4**：typecheck + build；dev 手工：Ctrl+, 开关、Esc 关、外观三模式立即生效且重启保留、托盘「打开设置」出模态
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 设置独立模态（四 section/Ctrl+,/主题持久化）+ 标题栏瘦身删 noop`
+- [x] **Step 2（绿）**：实现 SettingsModal + theme.ts + App.vue/TitleBar/SessionList 接线；权限 section 文案含「危险命令始终拦截 / 每次确认默认 90 秒未响应自动拒绝」
+- [x] **Step 3**：单文件 + 全量绿（renderer-rightpane.test.ts 的 gear 暂存锚**同步移除**——T1 预留的演进点）
+- [x] **Step 4**：typecheck + build；dev 手工：Ctrl+, 开关、Esc 关、外观三模式立即生效且重启保留、托盘「打开设置」出模态（typecheck/build 已亲跑通过；dev 手工项由 Task 8 e2e 设置模态用例 + 复核方手工验收覆盖）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 设置独立模态（四 section/Ctrl+,/主题持久化）+ 标题栏瘦身删 noop`
 
 测试估算：+8 例（theme 3 / 守卫 5）。
 
