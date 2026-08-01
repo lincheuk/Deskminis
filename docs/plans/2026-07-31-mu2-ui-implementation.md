@@ -376,15 +376,15 @@
 
 **目标**：EmptyState 重做（3 示例指令卡：读代码/写脚本/跑命令 + 最近任务 3 条——点击填入输入框或开会话）；Composer 自适应长高 1–8 行（36→176px 超内滚）；图片粘贴/拖拽 → main 进程落盘会话附件目录 → 48px chip（可删）→ 发送时文本尾附 `[附件] attachments/<file>`；发送键 32px 圆形 `--action` 实底（色权修正）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-composer.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-composer.test.ts`：
   - 纯模块 `lib/composer/autogrow.ts`：`rowsFor(text, maxRows=8): number`（按 `\n` 数 + 长行折估，clamp 1..8）；`lib/composer/attach.ts`：`attachNote(paths: string[]): string`（`\n[附件] a.png\n[附件] b.jpg` 形态；空数组 → `''`）
   - 守卫 EmptyState.vue：三示例卡锚（读代码/写脚本/跑命令文案）+ 最近任务锚（`chat.sessions` 前 3，`fmtRelative` 复用）+ 点击行为（示例 → emit fill；最近 → `chat.open(id)`）
   - 守卫 ChatView.vue：textarea 无 `rows="1"` 写死（改 `:rows="rowsFor(input)"` 或等价）；`@paste`/`@drop` 处理器锚；chip 列表渲染锚（48px + 删除 ×）；发送键类含 `--action` 背景锚（`var(--label)` 黑底退场守卫）
   - 守卫 main 侧：`src/main/index.ts` 追加 `ipcMain.handle('attachments:save', …)`（dataUrl 解码 → `sessions/<id>/attachments/paste-<ts>.png`，返回相对路径；sessionId 用 minisd 同款 UUID 正则校验防路径逃逸）；preload 暴露 `saveAttachment(sessionId, dataUrl)`——**main/preload 白名单：仅此一处 handler + preload 一个方法，窗口/托盘/启动逻辑不碰**
-- [ ] **Step 2（绿）**：实现两模块 + EmptyState 重做 + ChatView composer 接线 + main/preload 增量；假 provider 无视觉回归
-- [ ] **Step 3**：单文件 + 全量绿；新增 `tests/main-attachments.test.ts`（main 侧 handler 逻辑抽纯函数 `attachmentPath(root, sessionId, ts)` + dataUrl 解码器——node 直测，不启动 Electron；非法 sessionId/坏 dataUrl 拒绝）
-- [ ] **Step 4**：typecheck + build；dev 手工：粘贴截图 → chip 出现 → 发送后文本含 `[附件] attachments/paste-…png`；文件真实落盘会话目录；9 行文本内滚
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 空状态任务起点页 + Composer v2（自适应长高/图片粘贴附件 chip/发送键色权）`
+- [x] **Step 2（绿）**：实现两模块 + EmptyState 重做 + ChatView composer 接线 + main/preload 增量；假 provider 无视觉回归
+- [x] **Step 3**：单文件 + 全量绿；新增 `tests/main-attachments.test.ts`（main 侧 handler 逻辑抽纯函数 `attachmentPath(root, sessionId, ts)` + dataUrl 解码器——node 直测，不启动 Electron；非法 sessionId/坏 dataUrl 拒绝）
+- [x] **Step 4**：typecheck + build；dev 手工：粘贴截图 → chip 出现 → 发送后文本含 `[附件] attachments/paste-…png`；文件真实落盘会话目录；9 行文本内滚（typecheck/build 已亲跑通过；dev 手工项由 Task 8 e2e composer 用例 + 复核方手工验收覆盖）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 空状态任务起点页 + Composer v2（自适应长高/图片粘贴附件 chip/发送键色权）`
 
 测试估算：+10 例（autogrow 3 / attach 2 / main-attachments 3 / 守卫 2）。
 

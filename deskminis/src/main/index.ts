@@ -1,5 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityProcess, type UtilityProcess } from 'electron';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dataRoot } from '../minisd/paths';
+import { attachmentPath, decodeImageDataUrl } from './attachments';
 
 let minisd: UtilityProcess | undefined;
 let minisdPort = 0;
@@ -100,6 +103,18 @@ ipcMain.handle('minisd:port', () => minisdPort);
 // 新通道：端口 + per-run token。preload 的 minisdInfo() invoke 的就是这个通道——
 // 少了它，渲染层调用命中一个未注册的通道、静默失败、每个 WS 连接被 401，应用连不上 minisd。
 ipcMain.handle('minisd:info', () => ({ port: minisdPort, token: minisdToken }));
+
+// MU2b Task 6：渲染端图片粘贴/拖拽 → 落盘会话附件目录（main/preload 白名单：本 Task 仅此一处 handler）。
+// sessionId 经 attachmentPath 内 UUID 正则校验防路径逃逸；dataUrl 非图片/坏 base64 拒绝。
+// 返回会话相对路径 attachments/paste-<ts>.png，渲染端发送时以 [附件] 尾注带给模型。
+ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) => {
+  if (typeof sessionId !== 'string' || typeof dataUrl !== 'string') throw new Error('非法参数');
+  const ts = Date.now();
+  const abs = attachmentPath(dataRoot(), sessionId, ts);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, decodeImageDataUrl(dataUrl));
+  return `attachments/paste-${ts}.png`;
+});
 
 app.whenReady().then(async () => {
   // 不 catch 的话：minisd 起不来 → 这里抛出 → createWindow 永远不执行 →

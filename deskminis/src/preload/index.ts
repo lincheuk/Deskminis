@@ -19,4 +19,7 @@ contextBridge.exposeInMainWorld('deskminis', {
     ipcRenderer.on('menu:toggle-right', listener);
     return () => { ipcRenderer.removeListener('menu:toggle-right', listener); };
   },
+  // MU2b Task 6：图片粘贴/拖拽附件落盘（main 白名单一处 handler 的渲染端入口；返回会话相对路径）。
+  saveAttachment: (sessionId: string, dataUrl: string): Promise<string> =>
+    ipcRenderer.invoke('attachments:save', sessionId, dataUrl),
 });

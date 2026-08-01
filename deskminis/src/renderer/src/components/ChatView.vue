@@ -19,11 +19,20 @@ import { shouldFollow } from '../lib/scroll/follow';
 import { fmtHHMM } from '../lib/time/hhmm';
 import { groupToolCards, isGroup, type ToolGroup } from '../lib/toolline/group';
 import { eventCopy } from '../lib/eventnote/copy';
+import { rowsFor } from '../lib/composer/autogrow';
+import { attachNote } from '../lib/composer/attach';
 import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
 const input = ref('');
 const streamEl = ref<HTMLElement | null>(null);
+const fieldEl = ref<HTMLTextAreaElement | null>(null);
+
+// MU2b Task 6：空状态示例卡点击 → 填入输入框并聚焦
+function fillInput(t: string): void {
+  input.value = t;
+  void nextTick(() => fieldEl.value?.focus());
+}
 
 function isRec(v: unknown): v is Record<string, any> { return typeof v === 'object' && v !== null; }
 
@@ -153,13 +162,57 @@ const canRetry = computed(() => chat.messages.some(m => m.role === 'user' && use
 
 const canSend = computed(() => input.value.trim().length > 0 && !chat.running);
 
+// ---- MU2b Task 6：图片粘贴/拖拽附件（main 落盘会话附件目录 → 48px chip → 发送尾注）----
+interface PendingAttachment { path: string; dataUrl: string }
+const pendingAttachments = ref<PendingAttachment[]>([]);
+
+function fileToDataUrl(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error('读取文件失败'));
+    r.readAsDataURL(f);
+  });
+}
+function pickImages(list: FileList | null): File[] {
+  return Array.from(list ?? []).filter(f => f.type.startsWith('image/'));
+}
+async function saveImages(files: File[]): Promise<void> {
+  if (!files.length) return;
+  if (!chat.activeId) await chat.newSession(); // 附件挂在会话目录下：先确保有会话
+  const id = chat.activeId;
+  const bridge = (window as { deskminis?: { saveAttachment?: (s: string, d: string) => Promise<string> } }).deskminis;
+  if (!id || !bridge?.saveAttachment) return;
+  for (const f of files) {
+    const dataUrl = await fileToDataUrl(f);
+    const path = await bridge.saveAttachment(id, dataUrl); // 返回会话相对路径 attachments/paste-<ts>.png
+    pendingAttachments.value.push({ path, dataUrl });
+  }
+}
+function onPaste(e: ClipboardEvent): void {
+  const files = pickImages(e.clipboardData?.files ?? null);
+  if (!files.length) return; // 无图片：走默认文本粘贴
+  e.preventDefault();
+  void saveImages(files);
+}
+function onDrop(e: DragEvent): void {
+  const files = pickImages(e.dataTransfer?.files ?? null);
+  if (!files.length) return;
+  e.preventDefault();
+  void saveImages(files);
+}
+function removeAttachment(i: number): void { pendingAttachments.value.splice(i, 1); }
+
 async function send(): Promise<void> {
   const t = input.value.trim();
   if (!t || chat.running) return;
   // 没有选中会话就先建一个再发（避免「按了没反应」）
   if (!chat.activeId) await chat.newSession();
   input.value = '';
-  await chat.send(t);
+  // 附件 chip → 文本尾注（[附件] attachments/paste-…png），发送后清空
+  const note = attachNote(pendingAttachments.value.map(a => a.path));
+  pendingAttachments.value = [];
+  await chat.send(t + note);
 }
 
 // ---- 滚动跟随治理（MU2a Task 3，治审计 X-2）：用户上翻 >40px 解除跟随，回到底部恢复 ----
@@ -233,7 +286,7 @@ function onSlashTab(e: KeyboardEvent): void {
 <template>
   <div class="pane-c">
     <div ref="streamEl" class="stream" @scroll="onScroll">
-      <EmptyState v-if="isEmpty" />
+      <EmptyState v-if="isEmpty" @fill="fillInput" />
       <template v-else>
         <!-- 回合流：用户消息（无气泡标签行）+ 助手工作区（无名称行，回合容器承载归属） -->
         <section v-for="t in turns" :key="t.id" class="turn">
@@ -320,14 +373,24 @@ function onSlashTab(e: KeyboardEvent): void {
           <span class="sdesc">{{ s.description }}</span>
         </button>
       </div>
+      <div v-if="pendingAttachments.length" class="achips">
+        <div v-for="(a, i) in pendingAttachments" :key="a.path" class="achip">
+          <img :src="a.dataUrl" :alt="a.path" />
+          <button class="adel" type="button" title="移除附件" @click="removeAttachment(i)">×</button>
+        </div>
+      </div>
       <textarea
-        v-model="input" class="field" rows="1"
+        ref="fieldEl"
+        v-model="input" class="field" :rows="rowsFor(input)"
         placeholder="让 DeskMinis 做点什么…"
         @keydown.enter.exact.prevent="onEnterKey"
         @keydown.up="onSlashNav(-1, $event)"
         @keydown.down="onSlashNav(1, $event)"
         @keydown.tab="onSlashTab"
         @keydown.esc="slashOpen = false"
+        @paste="onPaste"
+        @drop="onDrop"
+        @dragover.prevent
       ></textarea>
       <div class="ctools">
         <div class="cpill static"><Icon name="folder" :size="14" /><span>工作区</span></div>
@@ -410,10 +473,23 @@ function onSlashTab(e: KeyboardEvent): void {
 .sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field {
   background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);
-  padding: 10px 12px; font-size: var(--fs-body); color: var(--label); font-family: var(--font-ui);
-  min-height: 44px; max-height: 200px; resize: none; line-height: 1.5; outline: none; width: 100%;
+  padding: 8px 12px; font-size: var(--fs-body); color: var(--label); font-family: var(--font-ui);
+  min-height: 36px; max-height: 176px; resize: none; line-height: 20px; outline: none; width: 100%;
+  overflow-y: auto; /* 超 8 行（176px）内滚 */
 }
 .field::placeholder { color: var(--label-tertiary); }
+/* 附件 chip（设计 §5.5：48px 圆角 --r-control，对齐 OpenMinis AttachmentChip 语义） */
+.achips { display: flex; gap: 8px; flex-wrap: wrap; }
+.achip {
+  position: relative; width: 48px; height: 48px; border-radius: var(--r-control);
+  overflow: hidden; border: .5px solid var(--separator); flex: 0 0 auto;
+}
+.achip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.adel {
+  position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%;
+  border: none; background: var(--material-tint); color: var(--label); font-size: 11px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+}
 .ctools { display: flex; align-items: center; gap: 8px; }
 .cpill {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
@@ -421,11 +497,12 @@ function onSlashTab(e: KeyboardEvent): void {
   font-size: var(--fs-ui); color: var(--label-secondary);
 }
 .cpill.static { cursor: default; }
+/* 发送键（MU2b Task 6 色权修正）：32px 圆形 --action 实底——唯一主行动色，黑底（var(--label)）退场 */
 .send {
-  margin-left: auto; width: 34px; height: 34px; border-radius: 50%; background: var(--label);
+  margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: var(--action);
   display: flex; align-items: center; justify-content: center; flex: 0 0 auto; border: none; cursor: pointer; padding: 0;
 }
-.send :deep(svg) { stroke: var(--bg); }
+.send :deep(svg) { stroke: var(--on-action); }
 .send:disabled { background: var(--label-quaternary); cursor: default; }
-.send.stop :deep(svg) { stroke: var(--bg); fill: var(--bg); }
+.send.stop :deep(svg) { stroke: var(--on-action); fill: var(--on-action); }
 </style>
