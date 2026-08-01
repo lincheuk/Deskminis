@@ -14,7 +14,13 @@
  */
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
 
-/** PASETO v4.local 的 payload 契约（设计 §2.1）。 */
+/** PASETO v4.local 的 payload 契约（设计 §2.1）。
+ *
+ * M3c 出站路径（OutboundClient）增 `jti`/`aud` 可选字段：
+ *   - `jti`：随机 UUID v4，防重放（服务端 60s 窗口内已见拒）
+ *   - `aud`：对端指纹，防投递到错对端（服务端校验 === myFingerprint）
+ *   - 用 `payload.jti === undefined` 判别会话路径（M3a，无 jti/aud）vs 出站路径（M3c，有 jti/aud）
+ *   - 会话路径的 token 无 jti/aud 仍正常解码（兼容双路径，红线 4b） */
 export interface PasetoPayload {
   /** 过期时间（ms since epoch） */
   exp: number;
@@ -22,6 +28,10 @@ export interface PasetoPayload {
   iat: number;
   /** 设备指纹（PairingKey 的 sha256 前 N 位十六进制，配对时两端比对） */
   device_fingerprint: string;
+  /** M3c 出站专用：随机 UUID v4，防重放。undefined = 会话路径（M3a 兼容） */
+  jti?: string;
+  /** M3c 出站专用：对端指纹，防投递错对端。undefined = 会话路径（M3a 兼容） */
+  aud?: string;
 }
 
 const HEADER = 'v4.local';

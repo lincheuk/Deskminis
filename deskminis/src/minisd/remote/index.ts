@@ -78,12 +78,29 @@ export function createRemoteMethods(service: PairingService): RpcMethods {
   };
 }
 
+/** M3c 出站 PASETO 短 TTL（60s，决策 1 层 1）——与会话 TTL 10min 并列，互不影响。 */
+export const OUTBOUND_PASETO_TTL_MS = 60 * 1000;
+
 /**
  * 创建 additionalVerify 回调（供 RpcServer 构造函数第三参使用）。
  * 路由：?pairingCode → pairing；?paseto → remote；否则拒。
- * @param service PairingService 实例（提供 hasPending/list/get）
+ *
+ * M3c 出站路径增补（决策 1 层 1）：
+ *   - PASETO payload 含 jti（出站路径标识）→ 校验 aud === myFingerprint + jti 重放缓存
+ *   - 无 jti（会话路径，M3a 兼容）→ 不查缓存，原样通过（红线 4b 双路径兼容）
+ *   - 命中 key 时返回 peerFingerprint（命门 2，供 sync.hello 找 authKey + presence）
+ *
+ * @param service PairingService 实例（提供 hasPending/list/get/myFingerprint）
  */
 export function createAdditionalVerify(service: PairingService): AdditionalVerify {
+  // jti 重放缓存：jti → 过期时间戳（ms）。60s 窗口内已见拒重放（决策 1 层 1）。
+  const seenJtis = new Map<string, number>();
+  const jtiCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [jti, exp] of seenJtis) { if (exp <= now) seenJtis.delete(jti); }
+  }, 60_000);
+  jtiCleanupTimer.unref?.();
+
   return ({ url }: { req: IncomingMessage; url: URL }): AdditionalVerifyResult | Promise<AdditionalVerifyResult> => {
     // 优先判 pairingCode（一次性，pairing 模式只能调 pair.complete）
     const pairingCode = url.searchParams.get('pairingCode');
@@ -99,8 +116,17 @@ export function createAdditionalVerify(service: PairingService): AdditionalVerif
         const key = service.get(dev.peerFingerprint);
         if (!key) continue;
         try {
-          decodePaseto(paseto, key.authKey);
-          return { ok: true, authMode: 'remote' };
+          const payload = decodePaseto(paseto, key.authKey);
+          // M3c 出站路径：payload.jti 存在 → 校验 aud + jti 重放
+          if (payload.jti !== undefined) {
+            // aud 校验：防投递到错对端
+            if (payload.aud !== service.myFingerprint) return { ok: false };
+            // jti 重放检查：60s 窗口内已见 → 拒
+            if (seenJtis.has(payload.jti)) return { ok: false };
+            seenJtis.set(payload.jti, Date.now() + OUTBOUND_PASETO_TTL_MS);
+          }
+          // 会话路径（无 jti）不查缓存（红线 4b 兼容双路径）
+          return { ok: true, authMode: 'remote', peerFingerprint: dev.peerFingerprint };
         } catch {
           // 此 PairingKey 不匹配，继续试下一个
         }

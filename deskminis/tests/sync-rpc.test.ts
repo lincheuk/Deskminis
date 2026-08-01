@@ -112,8 +112,8 @@ describe('sync.ack（更新 last_synced_at）', () => {
   });
 });
 
-describe('方法面只含 sync.* 五个', () => {
+describe('方法面含 sync.* 六个（M3c 增 sync.hello）', () => {
   it('createSyncMethods 返回的方法集 keys', () => {
-    expect(Object.keys(methods).sort()).toEqual(['sync.ack', 'sync.cursor', 'sync.list', 'sync.pull', 'sync.push']);
+    expect(Object.keys(methods).sort()).toEqual(['sync.ack', 'sync.cursor', 'sync.hello', 'sync.list', 'sync.pull', 'sync.push']);
   });
 });

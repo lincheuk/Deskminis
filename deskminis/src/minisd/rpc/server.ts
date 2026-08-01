@@ -4,10 +4,10 @@ import type { AddressInfo } from 'node:net';
 
 export type AuthMode = 'local' | 'pairing' | 'remote';
 
-export interface RpcConnection { notify(method: string, params: unknown): void; authMode: AuthMode }
+export interface RpcConnection { notify(method: string, params: unknown): void; authMode: AuthMode; peerFingerprint?: string }
 export interface RpcMethods { [method: string]: (params: any, conn: RpcConnection) => Promise<unknown> | unknown }
 
-export type AdditionalVerifyResult = { ok: true; authMode: AuthMode } | { ok: false };
+export type AdditionalVerifyResult = { ok: true; authMode: AuthMode; peerFingerprint?: string } | { ok: false };
 export type AdditionalVerify = (info: { req: IncomingMessage; url: URL }) => Promise<AdditionalVerifyResult> | AdditionalVerifyResult;
 
 export class RpcServer {
@@ -52,6 +52,8 @@ export class RpcServer {
               // Origin 白名单对远程关闭：WS 本来就不关同源，Origin 防线本来只针对
               // 「浏览器任意网页能偷连本机 token」——远程客户端本来就不是浏览器页（设计 §3.2 原文）
               (info.req as any).__authMode = res.authMode;
+              // M3c：remote 模式携带 peerFingerprint（sync.hello 找 authKey + presence 用）
+              if (res.peerFingerprint) (info.req as any).__peerFingerprint = res.peerFingerprint;
               cb(true, 200);
             };
             if (r instanceof Promise) r.then(settle).catch(() => cb(false, 401, 'Unauthorized'));
@@ -73,8 +75,9 @@ export class RpcServer {
   private onConnection(ws: WebSocket, req?: IncomingMessage): void {
     // verifyClient 第四参（WebSocketServer 透传的 userProps）承载 authMode；老路径/无 additionalVerify 默认 local
     const authMode: AuthMode = (req as any)?.__authMode ?? 'local';
+    const peerFingerprint: string | undefined = (req as any)?.__peerFingerprint;
     this.clients.add(ws);
-    const conn: RpcConnection = { authMode, notify: (method, params) => ws.send(JSON.stringify({ jsonrpc: '2.0', method, params })) };
+    const conn: RpcConnection = { authMode, peerFingerprint, notify: (method, params) => ws.send(JSON.stringify({ jsonrpc: '2.0', method, params })) };
     ws.on('close', () => this.clients.delete(ws));
     // ws 会把 receiver/协议层错误重新抛在 WebSocket 实例上：没有监听器则变成未捕获异常并杀死整个守护进程
     ws.on('error', () => { this.clients.delete(ws); try { ws.terminate(); } catch { /* 已关闭 */ } });
