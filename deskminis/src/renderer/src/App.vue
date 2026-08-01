@@ -14,6 +14,7 @@ import FilesPanel from './components/FilesPanel.vue';
 import ProgressPanel from './components/ProgressPanel.vue';
 import ArtifactsPanel from './components/ArtifactsPanel.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import DevicesModal from './components/DevicesModal.vue';
 
 const chat = useChat();
 
@@ -21,6 +22,8 @@ const sidebarOpen = ref(true);
 const rightOpen = ref(true);
 /** MU2b Task 5：settingsOpen 语义改为设置模态开关（原右栏 settings 分支退场） */
 const settingsOpen = ref(false);
+/** MU2b Task 7：配对管理面模态开关（左栏「设备」/ 设置模态「设备与同步」两入口） */
+const devicesOpen = ref(false);
 const rightTab = ref<'progress' | 'artifacts' | 'files' | 'terminal'>('progress');
 /** 懒挂载 + v-show 保活（首次切到才创建组件，之后切换只隐藏不销毁） */
 const visited = reactive({ progress: true, artifacts: false, files: false, terminal: false });
@@ -66,6 +69,8 @@ const activeTitle = computed(() => chat.sessions.find(s => s.id === chat.activeI
 
 // ModelPicker「管理模型…」与左栏「设置」入口经此开设置模态（无需逐层 emit）
 provide('openSettings', () => { settingsOpen.value = true; });
+// MU2b Task 7：左栏「设备」与设置模态「设备与同步」入口经此开配对管理面；开设备面时收起设置模态避免叠层
+provide('openDevices', () => { settingsOpen.value = false; devicesOpen.value = true; });
 // MU2b Task 3：产物卡点击 → 切右栏 tab（等价 tab 点击，供深层组件调用）
 provide('switchRightTab', (tab: 'progress' | 'artifacts' | 'files' | 'terminal') => { rightOpen.value = true; showTab(tab); });
 
@@ -117,6 +122,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKey); });
       </aside>
     </div>
     <SettingsModal v-if="settingsOpen" :theme="theme" @set-theme="setTheme" @close="settingsOpen = false" />
+    <DevicesModal v-if="devicesOpen" @close="devicesOpen = false" />
   </div>
 </template>
 

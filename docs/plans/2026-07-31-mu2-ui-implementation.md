@@ -392,16 +392,16 @@
 
 **目标**：左栏「设备」入口填实 → DevicesModal：① 已配对设备列表（`remote.status` → devices：设备名/指纹前 12 hex/last seen 相对时间/移除钮）；② 发起配对（`remote.pair.begin` → 8 字配对码 32px mono 字距 8px 展示 + `expiresIn` 倒计时 + 「等待对端输入…」状态句）；③ 加入配对（输入 8 位码）——**一期置灰带说明「需 M3c 出站通道」**（M3b 命门 4：出站客户端/地址簿属 M3c，桌面端一期只有被动侧；`remote.pair.complete` 是 pairing authMode 专属，UI 不可经本地连接调用——[remote/index.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/remote/index.ts) L57 assertAuthMode 已实证）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-devices.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-devices.test.ts`：
   - 纯模块 `lib/devices/fmt.ts`：`fmtFingerprint(fp): string`（前 12 hex 大写分组 `XX XX XX XX XX XX`）；`fmtPairingCode(code): string`（8 字 `XXXX-XXXX`）；`codeInputNormalize(raw): string`（大写化、剥非字母数字、限 8 位）
   - 守卫 chat.ts 新增 actions：`refreshDevices()`（`remote.status` → state.devices）、`beginPairing()`（`remote.pair.begin` → state.pairingSession `{ code, myFingerprint, expiresIn, startedAt }`）、`cancelPairing()`（清 state）、`unpair(fingerprint)`（`remote.unpair` + 刷新）——M3a 红线：`remote.*` 仅 local authMode，渲染端老 token 连接天然满足
   - 守卫 `DevicesModal.vue`：三区块锚（设备列表卡 / 发起配对区：码大字 mono + 倒计时读秒复用 `lib/perm/countdown` / 加入配对区置灰 + M3c 说明文案）；移除钮二次确认锚；指纹 mono 展示锚
   - 守卫左栏「设备」按钮从 disabled 改为开 DevicesModal（SessionList/App 接线锚）
   - 守卫设置模态「设备与同步」section 内入口同开 DevicesModal
-- [ ] **Step 2（绿）**：实现 fmt.ts + chat.ts 四 actions + DevicesModal.vue + 接线；配对完成感知：`remote.pair.complete` 由对端触发，本机感知靠轮询 `remote.status`（发起配对状态下 2s 轮询，设备出现 → 滑入列表 + 清 pairingSession；超时 expiresIn → 状态句「配对码已过期，请重新发起」）
-- [ ] **Step 3**：单文件 + 全量绿；RPC 行为层由 M3a 既有测试背书（[remote-rpc.test.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/tests/remote-rpc.test.ts) 26 例 + rpc-server-authmode / paseto-v4-local / pairing-store 等 M3a 文件），本 Task 不重测 RPC 语义
-- [ ] **Step 4**：typecheck + build；手工（或 e2e-mu2a 同款 CDP）：发起配对 → 出码+倒计时；CLI 侧完成配对（`deskminis-cli` M3a 成果）→ 设备滑入；移除 → 列表清空
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 配对管理面（设备列表/发起配对出码倒计时/移除，接 remote.* 真 RPC）`
+- [x] **Step 2（绿）**：实现 fmt.ts + chat.ts 四 actions + DevicesModal.vue + 接线；配对完成感知：`remote.pair.complete` 由对端触发，本机感知靠轮询 `remote.status`（发起配对状态下 2s 轮询，设备出现 → 滑入列表 + 清 pairingSession；超时 expiresIn → 状态句「配对码已过期，请重新发起」）
+- [x] **Step 3**：单文件 + 全量绿；RPC 行为层由 M3a 既有测试背书（[remote-rpc.test.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/tests/remote-rpc.test.ts) 26 例 + rpc-server-authmode / paseto-v4-local / pairing-store 等 M3a 文件），本 Task 不重测 RPC 语义
+- [x] **Step 4**：typecheck + build；手工（或 e2e-mu2a 同款 CDP）：发起配对 → 出码+倒计时；CLI 侧完成配对（`deskminis-cli` M3a 成果）→ 设备滑入；移除 → 列表清空
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 配对管理面（设备列表/发起配对出码倒计时/移除，接 remote.* 真 RPC）`
 
 测试估算：+9 例（fmt 4 / 守卫 5）。
 

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /** 设置独立模态（MU2b Task 5，设计 §1.1-2 决断 2）——左 180px section 导航 + 右内容。
  *  四 section：模型（ProviderSettings 平移，组件本体零改动）/ 外观（三模式单选 + 说明）
- *  / 权限（档位单选 + 90s 超时说明）/ 设备与同步（DevicesModal 入口，Task 7 填实一期占位）。
+ *  / 权限（档位单选 + 90s 超时说明）/ 设备与同步（DevicesModal 入口，Task 7 已填实）。
  *  遮罩 rgba(0,0,0,.4) + 卡片 720px var(--r-sheet) + Esc 关闭；Ctrl+, 打开在 App.vue。 */
-import { onMounted, onBeforeUnmount, ref } from 'vue';
+import { inject, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import ProviderSettings from './ProviderSettings.vue';
 import Icon from './Icon.vue';
@@ -16,6 +16,8 @@ const emit = defineEmits<{
 }>();
 
 const chat = useChat();
+// App.vue provide：开配对管理面（App 侧会同时收起本设置模态，避免两模态叠层）
+const openDevices = inject<() => void>('openDevices', () => {});
 
 type Section = 'model' | 'appearance' | 'permission' | 'devices';
 const section = ref<Section>('model');
@@ -88,7 +90,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 
         <template v-else>
           <div class="snote">查看已配对设备、发起新配对。</div>
-          <button class="devbtn" type="button" disabled title="MU2b Task 7 填实">管理设备…（Task 7 填实）</button>
+          <button class="devbtn" type="button" @click="openDevices()">管理设备…</button>
         </template>
       </div>
     </div>
@@ -133,7 +135,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 .snote { font-size: var(--fs-caption); color: var(--label-tertiary); line-height: 1.6; padding: 8px 2px; }
 .devbtn {
   margin-top: 8px; padding: 8px 14px; border: .5px solid var(--separator); border-radius: var(--r-control);
-  background: var(--surface-1); color: var(--label-secondary); font-size: var(--fs-ui); cursor: default;
+  background: var(--surface-1); color: var(--label); font-size: var(--fs-ui); cursor: pointer;
 }
-.devbtn:disabled { opacity: .5; }
+.devbtn:hover { background: var(--fill-quaternary); }
 </style>

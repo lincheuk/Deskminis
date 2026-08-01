@@ -44,6 +44,11 @@ export const useChat = defineStore('chat', {
     offloadedState: null as null | { count: number; lastRelativePath?: string }, // 任务面板「卸载」卡（对齐 loop.ts: offloaded(toolUseId,relativePath)；逐条自增计数，附最近一条路径）
     // M2d · #7：chat.contextInfo 轮询缓存（任务面板水位条显示窗口 + 当次用量）
     contextInfo: null as null | { windowTokens: number; usedTokens: number; remaining: number },
+    // MU2b Task 7：配对管理面（DevicesModal）——已配对设备脱敏列表（remote.status；
+    // 指纹/名称/roomId/配对时间，无密钥材料）。last seen 一期不可得（RPC 无此字段），展示配对时间。
+    devices: [] as { peerFingerprint: string; peerName: string; roomId: string; createdAt: number }[],
+    // 发起配对中的会话（remote.pair.begin 返回）；null = 未在发起。expiresIn 秒、startedAt ms。
+    pairingSession: null as null | { code: string; myFingerprint: string; expiresIn: number; startedAt: number },
   }),
   actions: {
     async init() {
@@ -190,6 +195,24 @@ export const useChat = defineStore('chat', {
       try {
         this.contextInfo = await rpc.call('chat.contextInfo', { sessionId: this.activeId });
       } catch { /* 水位 RPC 失败不影响主流程；缓存保持上一次值，任务面板显示「数据暂缺」 */ }
+    },
+    // MU2b Task 7：配对管理面四 actions——只消费既有 remote.status/pair.begin/unpair 三 RPC
+    // （红线：不新增 RPC；remote.* 仅 local authMode 可调，渲染端 per-run token 连接天然满足）。
+    async refreshDevices() {
+      const r = await rpc.call('remote.status');
+      this.devices = Array.isArray(r?.devices) ? r.devices : [];
+    },
+    async beginPairing() {
+      const r = await rpc.call('remote.pair.begin');
+      this.pairingSession = {
+        code: String(r.pairingCode), myFingerprint: String(r.myFingerprint),
+        expiresIn: Number(r.expiresIn), startedAt: Date.now(),
+      };
+    },
+    cancelPairing() { this.pairingSession = null; },
+    async unpair(fingerprint: string) {
+      await rpc.call('remote.unpair', { peerFingerprint: fingerprint });
+      await this.refreshDevices();
     },
     // MU2a Task 8：错误条「重试」——重发最后一条非结果载体的真实用户消息（结果载体无文本，被 text.trim() 自然跳过）；
     // 找不到可重发消息则静默无操作（ChatView 侧以 canRetry 保证按钮不出现）

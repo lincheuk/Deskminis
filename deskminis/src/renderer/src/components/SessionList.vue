@@ -2,7 +2,8 @@
 /** 左栏 · 会话列表（MU2b Task 4，设计 §1.1-1 变体 A 定稿）——任务卡式：
  *  标题 + 相对时间 + 状态徽标（●进行中绿 / ⏸等待批准橙 / ✕失败红 / ✓完成灰）+ 产物计数角标。
  *  粘性日期分组头（置顶/今天/昨天/本周/本月/更早）沿用 M1 既有；底部固定「设置/设备」入口
- * （设置 → inject('openSettings') 开独立模态（Task 5 已切）；设备一期 disabled，Task 7 填实）。
+ * （设置 → inject('openSettings') 开独立模态（Task 5 已切）；设备 → inject('openDevices') 开
+ *  DevicesModal 配对管理面（Task 7 已填实））。
  *  数据源诚实说明：sessions.list RPC 无 running/messages 字段，徽标与角标仅活动会话可得（lib/session/status）。 */
 import { computed, inject, onUnmounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
@@ -13,6 +14,8 @@ import Icon from './Icon.vue';
 const chat = useChat();
 // App.vue provide：打开设置独立模态（Task 5 起）
 const openSettings = inject<() => void>('openSettings', () => {});
+// App.vue provide：打开配对管理面 DevicesModal（MU2b Task 7）
+const openDevices = inject<() => void>('openDevices', () => {});
 
 interface S { id: string; title: string; updatedAt?: number; pinnedAt?: number }
 
@@ -95,7 +98,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
     </div>
     <div class="lfoot">
       <button class="lfbtn" type="button" @click="openSettings()"><Icon name="gear" :size="14" /><span>设置</span></button>
-      <button class="lfbtn" type="button" disabled title="设备与同步（MU2b Task 7 填实）"><span>设备</span></button>
+      <button class="lfbtn" type="button" title="设备与同步" @click="openDevices()"><span>设备</span></button>
     </div>
   </div>
 </template>
@@ -130,7 +133,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .sbadge.fail { color: var(--state-err); }
 .sbadge.done { color: var(--label-tertiary); }
 .scount { flex: 0 0 auto; margin-left: auto; color: var(--label-secondary); font-variant-numeric: tabular-nums; }
-/* 底部固定入口：设置（独立模态）/ 设备（Task 7 填实，一期 disabled） */
+/* 底部固定入口：设置（独立模态）/ 设备（DevicesModal，Task 7 已填实） */
 .lfoot {
   flex: 0 0 auto; display: flex; gap: 2px; padding: 8px 10px;
   border-top: .5px solid var(--separator);
@@ -140,6 +143,5 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   padding: 7px 10px; border: none; border-radius: var(--r-control); background: none;
   font-size: var(--fs-ui); font-weight: 500; color: var(--label-secondary); cursor: pointer;
 }
-.lfbtn:hover:not(:disabled) { background: var(--fill-quaternary); color: var(--label); }
-.lfbtn:disabled { opacity: .45; cursor: default; }
+.lfbtn:hover { background: var(--fill-quaternary); color: var(--label); }
 </style>
