@@ -441,11 +441,11 @@
 
 ### MU2b（feature/mu2b → main）
 
-- [ ] 8 个 Task 全部完成，checkbox 全勾
-- [ ] `npm test` 全绿：MU2a 基线 + MU2b 新增约 62 ≈ **788**（以实际为准）
-- [ ] `npm run typecheck` / `npm run build` 通过；`npm run e2e:mu2b` 8/8 通过；既有 e2e 全部不回归
-- [ ] 三模式全量截图 15 张入库（`scripts/e2e-shots-mu2b/`）；写死颜色/写死 color-mix 比例巡检清零
-- [ ] 审计 22 条全部回销（核对表落地）；`git diff --stat -- src/minisd` 为空（MU2b 零 minisd 改动）
+- [x] 8 个 Task 全部完成，checkbox 全勾
+- [x] `npm test` 全绿：MU2a 基线 + MU2b 新增约 62 ≈ **788**（以实际为准）（实际 793/793 · 76 文件，执行方与复核方各亲跑一致）
+- [x] `npm run typecheck` / `npm run build` 通过；`npm run e2e:mu2b` 8/8 通过；既有 e2e 全部不回归（复核方亲跑 mu2b 8/8 + mu2a 7/7 + m3a 6/6；M1 链路仍环境性阻塞——中继余额耗尽，留充值换模后重跑）
+- [x] 三模式全量截图 15 张入库（`scripts/e2e-shots-mu2b/`）；写死颜色/写死 color-mix 比例巡检清零（遮罩 rgba(0,0,0,.4) 三处经评审裁决豁免——设计 §5.6 明文规格；截图经执行方与复核方双目视）
+- [x] 审计 22 条全部回销（核对表落地）；`git diff --stat -- src/minisd` 为空（MU2b 零 minisd 改动）（核对表见 89a48c4 commit body；minisd 零改动经复核方实证）
 
 ## 非目标（MU2 两阶段均不做）
 
