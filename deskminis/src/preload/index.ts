@@ -7,4 +7,19 @@ contextBridge.exposeInMainWorld('deskminis', {
   minisdPort: (): Promise<number> => ipcRenderer.invoke('minisd:port'),
   // 新接口：端口 + per-run token。主进程需提供 ipcMain.handle('minisd:info', ...)
   minisdInfo: (): Promise<MinisdInfo> => ipcRenderer.invoke('minisd:info'),
+  // MU2b Task 5：托盘菜单死通道接通（main 已在 menu:open-settings / menu:toggle-right 上 send，本 Task 仅追加订阅）。
+  // 返回取消订阅函数（removeListener 对称移除同一 listener 引用）。
+  onMenuOpenSettings: (cb: () => void): (() => void) => {
+    const listener = (): void => { cb(); };
+    ipcRenderer.on('menu:open-settings', listener);
+    return () => { ipcRenderer.removeListener('menu:open-settings', listener); };
+  },
+  onMenuToggleRight: (cb: () => void): (() => void) => {
+    const listener = (): void => { cb(); };
+    ipcRenderer.on('menu:toggle-right', listener);
+    return () => { ipcRenderer.removeListener('menu:toggle-right', listener); };
+  },
+  // MU2b Task 6：图片粘贴/拖拽附件落盘（main 白名单一处 handler 的渲染端入口；返回会话相对路径）。
+  saveAttachment: (sessionId: string, dataUrl: string): Promise<string> =>
+    ipcRenderer.invoke('attachments:save', sessionId, dataUrl),
 });

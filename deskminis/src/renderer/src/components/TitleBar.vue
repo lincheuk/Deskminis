@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /** 自绘标题栏（设计 §4.0）——frameless 顶栏，整条可拖拽、可点元素 no-drag。
- *  左：侧栏开关 + 前进/后退 + 菜单栏；中：当前会话名；
- *  右：留空给 Electron titleBarOverlay 绘制的原生 min/max/close（DOM 不自绘）。 */
+ *  左：侧栏开关 + 菜单栏（仅真实可用项）；中：当前会话名；
+ *  右：留空给 Electron titleBarOverlay 绘制的原生 min/max/close（DOM 不自绘）。
+ *  MU2b Task 5 瘦身：无 handler 的前进/后退删除；菜单 noop 项全删（帮助组随之整组移除）。 */
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useChat } from '../stores/chat';
 import Icon from './Icon.vue';
@@ -21,8 +22,6 @@ interface Menu { id: string; label: string; items: MenuItem[] }
 const menus: Menu[] = [
   { id: 'file', label: '文件', items: [
     { label: '新建会话', kbd: 'Ctrl+N', act: 'new' },
-    { label: '新建工作区', act: 'noop' },
-    { label: '导入技能…', act: 'noop' },
     { sep: true },
     { label: '退出', kbd: 'Ctrl+Q', act: 'quit' },
   ] },
@@ -41,14 +40,6 @@ const menus: Menu[] = [
     { label: '明暗模式', act: 'theme' },
     { sep: true },
     { label: '重新加载', kbd: 'Ctrl+R', act: 'reload' },
-  ] },
-  { id: 'help', label: '帮助', items: [
-    { label: '文档', act: 'noop' },
-    { label: '键盘快捷键', kbd: 'Ctrl+/', act: 'noop' },
-    { label: '更新日志', act: 'noop' },
-    { sep: true },
-    { label: '诊断信息', act: 'noop' },
-    { label: '关于 DeskMinis', act: 'noop' },
   ] },
 ];
 
@@ -69,7 +60,6 @@ function run(item: MenuItem): void {
     case 'undo': case 'redo': case 'cut': case 'copy': case 'paste':
       try { document.execCommand(item.act); } catch { /* best-effort */ }
       break;
-    default: break; // noop / 占位项
   }
 }
 
@@ -88,10 +78,6 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 <template>
   <div class="titlebar">
     <div class="tb-ico" title="切换侧栏" @click="emit('toggle-sidebar')"><Icon name="sidebar" :size="17" /></div>
-    <div class="tb-nav">
-      <div class="tb-ico" title="后退"><Icon name="back" :size="16" /></div>
-      <div class="tb-ico" title="前进"><Icon name="forward" :size="16" /></div>
-    </div>
     <div class="menubar" @click.stop>
       <div
         v-for="mn in menus" :key="mn.id"
@@ -123,14 +109,12 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
   border-bottom: .5px solid var(--separator);
   -webkit-app-region: drag; user-select: none; flex: 0 0 40px;
 }
-.tb-ico, .tb-nav, .menubar, .mi { -webkit-app-region: no-drag; }
+.tb-ico, .menubar, .mi { -webkit-app-region: no-drag; }
 .tb-ico {
   width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-control); color: var(--label-secondary); cursor: pointer;
 }
 .tb-ico:hover { background: var(--fill-quaternary); }
-.tb-nav { display: flex; gap: 0; margin-right: 6px; }
-.tb-nav .tb-ico { color: var(--label-tertiary); }
 .menubar { display: flex; gap: 1px; }
 .mi {
   position: relative; font-size: 13px; padding: 5px 10px; border-radius: var(--r-control);
@@ -146,7 +130,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
   display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px;
   font-size: 13px; cursor: pointer; white-space: nowrap; color: var(--label);
 }
-.it:hover { background: var(--accent); color: #fff; }
+.it:hover { background: var(--accent); color: var(--on-action); }
 .it.danger { color: var(--red); }
 .it .kbd { margin-left: auto; font-size: 12px; color: var(--label-tertiary); font-family: var(--font-mono); }
 .it:hover .kbd { color: rgba(255, 255, 255, .7); }

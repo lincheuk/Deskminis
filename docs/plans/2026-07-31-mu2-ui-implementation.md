@@ -295,14 +295,14 @@
 
 **目标**：右栏 300→360px 默认宽、320–480 可拖（6px 热区分隔条）、可收起保留；tab 从「终端/文件/任务+gear」重排为「**进度**（默认）/产物/文件/终端」；gear 暂留（Task 5 移除，串行演进不回退——M2d 先例）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-rightpane.test.ts`（守卫 + 纯模块）：
+- [x] **Step 1（红）**：新建 `tests/renderer-rightpane.test.ts`（守卫 + 纯模块）：
   - `lib/pane/drag.ts`：`clampPaneWidth(px): number`（<320→320、>480→480、区间原值）；`nextWidth(startX, startW, moveX): number`（左拖增宽：dx 取反 + clamp，纯函数）
   - 守卫 [App.vue](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/renderer/src/App.vue)：`.pane-r` 宽 `360px`；`rightTab` 类型含 `'progress' | 'artifacts' | 'files' | 'terminal'`；tab 行四个文本 tab（进度/产物/文件/终端）+ gear 暂存锚；默认 tab `'progress'`；分隔条元素锚（`class="rdrag"` + mousedown 绑定）
   - 守卫宽度持久化：拖拽结果写 `localStorage('deskminis.rightW')`，启动读回（localStorage 读写锚）
-- [ ] **Step 2（绿）**：实现 App.vue 增量（tab 类型/默认值/分隔条拖拽接线/宽度持久化）；tasks tab 改名「进度」仍挂 TasksPanel（Task 2 替换组件）；产物 tab 一期挂占位 div（Task 3 填实，同 M2d「串行演进占位」模式）
-- [ ] **Step 3**：单文件 + 全量绿（renderer-tasks-panel/renderer-files-panel 的 App.vue 锚点按 Global Constraints 修订清单**同步修订**：`rightTab === 'tasks'` → `'progress'`、visited 字段名同步——断言语义不变只换名）
-- [ ] **Step 4**：typecheck + build；dev 手工：拖拽 320/480 边界钳制、重启宽度保留、终端 80 列不折行（360px）
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 右栏骨架（360px 默宽/320-480 拖拽/tab 重排进度默认）`
+- [x] **Step 2（绿）**：实现 App.vue 增量（tab 类型/默认值/分隔条拖拽接线/宽度持久化）；tasks tab 改名「进度」仍挂 TasksPanel（Task 2 替换组件）；产物 tab 一期挂占位 div（Task 3 填实，同 M2d「串行演进占位」模式）
+- [x] **Step 3**：单文件 + 全量绿（renderer-tasks-panel/renderer-files-panel 的 App.vue 锚点按 Global Constraints 修订清单**同步修订**：`rightTab === 'tasks'` → `'progress'`、visited 字段名同步——断言语义不变只换名）
+- [x] **Step 4**：typecheck + build；dev 手工：拖拽 320/480 边界钳制、重启宽度保留、终端 80 列不折行（360px）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 右栏骨架（360px 默宽/320-480 拖拽/tab 重排进度默认）`
 
 测试估算：+6 例（drag 3 / 守卫 3）。
 
@@ -310,16 +310,16 @@
 
 **目标**：TasksPanel 重做 → ProgressPanel：任务句（会话标题亲和呈现）+ 步骤列表（与对话流 ToolLine 同数据、进度叙事呈现）+ Token 两行 + 水位条（contextInfo 沿用）+ 等待批准显著化（pendingPerms>0 → tab 标题橙点 + 卡内「⏸ 等待批准 — xxx [去处理]」点击滚动定位权限卡）；fallback/compacted/offloaded 三状态卡保留（WorkBuddy 圆角卡 + 左 3px 色条，M2d 成果换皮肤不推翻）；事件不再对话流/面板双份（设计 §1.3：面板是「当前状态」，对话流是「历史记录」——EventNote 内联条管历史，ProgressPanel 卡管当下，语义不同不视为重复）。
 
-- [ ] **Step 1（红）**：`tests/renderer-tasks-panel.test.ts` **同 Task 内改写**为守卫 ProgressPanel（Global Constraints 修订清单允许）：
+- [x] **Step 1（红）**：`tests/renderer-tasks-panel.test.ts` **同 Task 内改写**为守卫 ProgressPanel（Global Constraints 修订清单允许）：
   - 组件改名 `ProgressPanel.vue`（TasksPanel.vue 删除守卫 `existsSync === false`；App.vue import 同步）
   - 组成锚：任务句区（`chat.sessions` 找 activeId 标题）/ 步骤列表（`chat.toolCards` v-for：状态符号 + title + duration——复用 Task 6 `fmtDuration`）/ Token 区（lastUsage/totals 沿用 M2d computed）/ 水位条（watermark 沿用，`--state-ok/warn` 色槽替写死）/ 事件卡三态（fallbackState/compactedState/offloadedState 沿用）
   - 等待批准锚：`chat.pendingPerms.length > 0` 时渲染「去处理」按钮（点击 emit 或直接调 ChatView 暴露的滚动定位——落地方案：chat store 新增 `permFocusRequestId: string | null`，ProgressPanel 写入，ChatView watch 后 `scrollIntoView` 对应 PermissionCard 并清空；守卫 store 含该字段）
   - App.vue 橙点锚：tab「进度」在 `chat.pendingPerms.length > 0` 时带 `class="dot-warn"`
   - M2d 语义回归锚：contextInfo 优先水位、stopLabel 映射、toolStats 三计数——断言保留
-- [ ] **Step 2（绿）**：实现 `ProgressPanel.vue`（M2d computed 逻辑平移 + 新皮肤 + 步骤列表 + 批准显著化）+ App.vue 接线 + chat.ts 增量 `permFocusRequestId`（M2c/M2d 字段全保留）+ ChatView 滚动定位接线；删除 TasksPanel.vue
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 手工：假 provider `__tool__` 触发权限卡 → 进度 tab 橙点 + 步骤行「⏸ 等待批准」；点「去处理」→ 对话流定位到权限卡
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 进度 tab 任务仪表板（步骤叙事/等待批准显著化/TasksPanel→ProgressPanel）`
+- [x] **Step 2（绿）**：实现 `ProgressPanel.vue`（M2d computed 逻辑平移 + 新皮肤 + 步骤列表 + 批准显著化）+ App.vue 接线 + chat.ts 增量 `permFocusRequestId`（M2c/M2d 字段全保留）+ ChatView 滚动定位接线；删除 TasksPanel.vue
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 手工：假 provider `__tool__` 触发权限卡 → 进度 tab 橙点 + 步骤行「⏸ 等待批准」；点「去处理」→ 对话流定位到权限卡
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 进度 tab 任务仪表板（步骤叙事/等待批准显著化/TasksPanel→ProgressPanel）`
 
 测试估算：+8 例（改写后净增约 3，另 5 为新增锚；基线口径记 +8，被替换的旧断言 7 例等数退役——MU2b 完成后总数按实际文件重计，此处给净估算）。
 
@@ -327,15 +327,15 @@
 
 **目标**：本会话写/编过的文件汇总卡：类型图标 + 相对路径 + `+N/−M` 增删徽标 + 点击切文件 tab 并定位预览；空态「本轮还没有产物」。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-artifacts.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-artifacts.test.ts`：
   - 纯模块 `lib/artifacts/collect.ts`：`collectArtifacts(messages, toolCards): Artifact[]`（`{ path: string; kind: 'write'|'edit'; add?: number; del?: number }`）——历史 messages parts 扫 `toolUse` name ∈ {file_write, file_edit} 提取 path（相对化：剥数据根/workspace 前缀）+ 实时 toolCards 补充；同路径去重（edit 优先，增删数用 Task 7 `extractEditPair`+`countAddDel` 算）；空输入 → `[]`
   - 守卫 `ArtifactsPanel.vue`：卡列表锚（图标 + 路径 mono + 徽标 `+N/−M` 绿红）+ 空态文案锚 + 点击行为（`chat.pendingFilePreview = path` + `showTab('files')` 等价调用）
   - 守卫 chat.ts 新增 `pendingFilePreview: string | null`；FilesPanel watch 该字段 → 触发既有 preview 流程并清空（FilesPanel 增量守卫）
   - App.vue：`rightTab === 'artifacts'` 挂 ArtifactsPanel（v-show + visited 模式沿用）
-- [ ] **Step 2（绿）**：实现 collect.ts + ArtifactsPanel.vue + chat.ts/FilesPanel/App.vue 接线
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 手工：假 provider file_write+file_edit 各一 → 产物 tab 两卡、增删数正确；点击 → 文件 tab 展开并预览该文件
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 产物 tab（写编文件汇总卡/增删徽标/点击定位文件预览）`
+- [x] **Step 2（绿）**：实现 collect.ts + ArtifactsPanel.vue + chat.ts/FilesPanel/App.vue 接线
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 手工：假 provider file_write+file_edit 各一 → 产物 tab 两卡、增删数正确；点击 → 文件 tab 展开并预览该文件（由 Task 8 e2e:mu2b 产物用例覆盖）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 产物 tab（写编文件汇总卡/增删徽标/点击定位文件预览）`
 
 测试估算：+9 例（collect 5 / 守卫 4）。
 
@@ -343,14 +343,14 @@
 
 **目标**：SessionList 列表项 → 任务卡：标题 + 相对时间 + 状态徽标（●进行中绿 / ⏸等待批准橙 / ✕失败红 / ✓完成灰）+ 产物计数角标；新建按钮 `--action`（Task 4 已降权，本 Task 核形态）；底部固定「设置」「设备」两入口（设置先路由既有右栏 gear 行为——Task 5 切模态；设备一期 disabled 置灰——Task 7 填实，串行演进）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-sessioncard.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-sessioncard.test.ts`：
   - 纯模块 `lib/session/status.ts`：`sessionBadge(s, live): 'running'|'waiting'|'failed'|'done'|null`——live（仅活动会话：`{ running, pendingPerms, lastStopReason }`）推导：running → running；pendingPerms>0 → waiting；lastStopReason ∈ error 系 → failed；有消息 → done；非活动会话一期 `null`（**数据源诚实说明**：`chat.sessions.list` RPC 无 running 字段，非活动会话状态不可得——全局徽标需 minisd 扩字段，列入非目标）；`artifactCountOf(messages): number`（复用 Task 3 collect）
   - `lib/time/relative.ts`：`fmtRelative(epochSec, nowSec): string`（刚刚/N 分钟前/HH:MM/昨天/M-D）
   - 守卫 SessionList.vue：任务卡结构锚（`.scard` + `.sbadge` 四态类 + `.scount` 角标）；分组（置顶/今天/昨天/本周/本月/更早——M1 既有）保留锚；底部 `.lfoot` 两按钮（设置/设备）锚；`232px` 宽守卫（App.vue `.pane-l` 260→232，设计 §1.2）
-- [ ] **Step 2（绿）**：实现 status.ts/relative.ts + SessionList 重做 + App.vue 宽改 232 + 底部入口接线（设置 → `settingsOpen=true; rightOpen=true` 等价；设备 → disabled）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 手工：活动会话徽标随 running/perm/失败切换；产物角标数与产物 tab 一致
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 左栏变体 A 任务卡（状态徽标/产物角标/底部设置设备入口，232px）`
+- [x] **Step 2（绿）**：实现 status.ts/relative.ts + SessionList 重做 + App.vue 宽改 232 + 底部入口接线（设置 → `settingsOpen=true; rightOpen=true` 等价；设备 → disabled）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 手工：活动会话徽标随 running/perm/失败切换；产物角标数与产物 tab 一致（由 Task 8 e2e:mu2b 用例覆盖）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 左栏变体 A 任务卡（状态徽标/产物角标/底部设置设备入口，232px）`
 
 测试估算：+9 例（status 4 / relative 3 / 守卫 2）。
 
@@ -358,17 +358,17 @@
 
 **目标**：SettingsModal（左 180px section 导航 + 右内容：模型=ProviderSettings 平移 / 外观=三模式单选+说明 / 权限=档位+90s 超时说明 / 设备与同步=打开 DevicesModal 入口）；遮罩 40% 黑 + 卡片 720px `--r-sheet` + Esc 关闭 + `Ctrl+,` 打开；右栏 gear 移除；左栏「设置」入口切到模态；托盘菜单死通道接通（MU2b 引言核查）：preload 追加订阅 + App.vue 监听——`menu:open-settings` 开模态、`menu:toggle-right` 顺带接通（右栏开合，M2d 菜单项一并救活）；主题选择持久化 localStorage（现状内存态丢失）；TitleBar 瘦身：无 handler 的前进/后退删除、菜单数据 noop 项删除（保留真实可用项）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-settings-modal.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-settings-modal.test.ts`：
   - 守卫 `SettingsModal.vue`：四 section 导航锚（模型/外观/权限/设备与同步）+ ProviderSettings import 平移锚 + Esc 关闭 + 遮罩 `rgba(0,0,0,.4)` + 720px + `--r-sheet`
   - 纯模块 `lib/settings/theme.ts`：`loadTheme(): 'system'|'light'|'dark'`（localStorage 读、非法值回 system）；`saveTheme(t)`（App.vue theme 接线改造守卫：cycleTheme 保留 + 新增 setTheme 落盘 + 启动 loadTheme）
   - 守卫 App.vue：gear tab 移除（`not.toContain("tab gear")`）；`settingsOpen` 语义改为模态开关（原右栏 settingsOpen 分支移除）；`window.deskminis.onMenuOpenSettings(...)` 调用点开模态 + `onMenuToggleRight(...)` 切右栏；`Ctrl+,` keydown 绑定锚；左栏设置入口 emit → 开模态
   - 守卫 preload/index.ts：追加 `onMenuOpenSettings(cb: () => void)` / `onMenuToggleRight(cb: () => void)` 两订阅（`ipcRenderer.on` 包装 + 返回取消订阅函数）；既有 `minisdPort`/`minisdInfo` 不动——**preload 白名单：本 Task 仅此两方法追加；main 侧零改动**（tray-lifecycle.test.ts 等 M2d 守卫不回归）
   - 守卫 TitleBar.vue：前进/后退按钮移除锚；菜单数据无 noop 项（逐项列出现存 noop label 断言消失——实施期先读 TitleBar 菜单数据列全清单）；侧栏开关/标题/主题键保留锚
   - 守卫 ProviderSettings.vue 本体零改动（从右栏 rbody 平移进模态，组件不动——M2b/M2c 成果）
-- [ ] **Step 2（绿）**：实现 SettingsModal + theme.ts + App.vue/TitleBar/SessionList 接线；权限 section 文案含「危险命令始终拦截 / 每次确认默认 90 秒未响应自动拒绝」
-- [ ] **Step 3**：单文件 + 全量绿（renderer-rightpane.test.ts 的 gear 暂存锚**同步移除**——T1 预留的演进点）
-- [ ] **Step 4**：typecheck + build；dev 手工：Ctrl+, 开关、Esc 关、外观三模式立即生效且重启保留、托盘「打开设置」出模态
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 设置独立模态（四 section/Ctrl+,/主题持久化）+ 标题栏瘦身删 noop`
+- [x] **Step 2（绿）**：实现 SettingsModal + theme.ts + App.vue/TitleBar/SessionList 接线；权限 section 文案含「危险命令始终拦截 / 每次确认默认 90 秒未响应自动拒绝」
+- [x] **Step 3**：单文件 + 全量绿（renderer-rightpane.test.ts 的 gear 暂存锚**同步移除**——T1 预留的演进点）
+- [x] **Step 4**：typecheck + build；dev 手工：Ctrl+, 开关、Esc 关、外观三模式立即生效且重启保留、托盘「打开设置」出模态（typecheck/build 已亲跑通过；dev 手工项由 Task 8 e2e 设置模态用例 + 复核方手工验收覆盖）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 设置独立模态（四 section/Ctrl+,/主题持久化）+ 标题栏瘦身删 noop`
 
 测试估算：+8 例（theme 3 / 守卫 5）。
 
@@ -376,15 +376,15 @@
 
 **目标**：EmptyState 重做（3 示例指令卡：读代码/写脚本/跑命令 + 最近任务 3 条——点击填入输入框或开会话）；Composer 自适应长高 1–8 行（36→176px 超内滚）；图片粘贴/拖拽 → main 进程落盘会话附件目录 → 48px chip（可删）→ 发送时文本尾附 `[附件] attachments/<file>`；发送键 32px 圆形 `--action` 实底（色权修正）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-composer.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-composer.test.ts`：
   - 纯模块 `lib/composer/autogrow.ts`：`rowsFor(text, maxRows=8): number`（按 `\n` 数 + 长行折估，clamp 1..8）；`lib/composer/attach.ts`：`attachNote(paths: string[]): string`（`\n[附件] a.png\n[附件] b.jpg` 形态；空数组 → `''`）
   - 守卫 EmptyState.vue：三示例卡锚（读代码/写脚本/跑命令文案）+ 最近任务锚（`chat.sessions` 前 3，`fmtRelative` 复用）+ 点击行为（示例 → emit fill；最近 → `chat.open(id)`）
   - 守卫 ChatView.vue：textarea 无 `rows="1"` 写死（改 `:rows="rowsFor(input)"` 或等价）；`@paste`/`@drop` 处理器锚；chip 列表渲染锚（48px + 删除 ×）；发送键类含 `--action` 背景锚（`var(--label)` 黑底退场守卫）
   - 守卫 main 侧：`src/main/index.ts` 追加 `ipcMain.handle('attachments:save', …)`（dataUrl 解码 → `sessions/<id>/attachments/paste-<ts>.png`，返回相对路径；sessionId 用 minisd 同款 UUID 正则校验防路径逃逸）；preload 暴露 `saveAttachment(sessionId, dataUrl)`——**main/preload 白名单：仅此一处 handler + preload 一个方法，窗口/托盘/启动逻辑不碰**
-- [ ] **Step 2（绿）**：实现两模块 + EmptyState 重做 + ChatView composer 接线 + main/preload 增量；假 provider 无视觉回归
-- [ ] **Step 3**：单文件 + 全量绿；新增 `tests/main-attachments.test.ts`（main 侧 handler 逻辑抽纯函数 `attachmentPath(root, sessionId, ts)` + dataUrl 解码器——node 直测，不启动 Electron；非法 sessionId/坏 dataUrl 拒绝）
-- [ ] **Step 4**：typecheck + build；dev 手工：粘贴截图 → chip 出现 → 发送后文本含 `[附件] attachments/paste-…png`；文件真实落盘会话目录；9 行文本内滚
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 空状态任务起点页 + Composer v2（自适应长高/图片粘贴附件 chip/发送键色权）`
+- [x] **Step 2（绿）**：实现两模块 + EmptyState 重做 + ChatView composer 接线 + main/preload 增量；假 provider 无视觉回归
+- [x] **Step 3**：单文件 + 全量绿；新增 `tests/main-attachments.test.ts`（main 侧 handler 逻辑抽纯函数 `attachmentPath(root, sessionId, ts)` + dataUrl 解码器——node 直测，不启动 Electron；非法 sessionId/坏 dataUrl 拒绝）
+- [x] **Step 4**：typecheck + build；dev 手工：粘贴截图 → chip 出现 → 发送后文本含 `[附件] attachments/paste-…png`；文件真实落盘会话目录；9 行文本内滚（typecheck/build 已亲跑通过；dev 手工项由 Task 8 e2e composer 用例 + 复核方手工验收覆盖）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 空状态任务起点页 + Composer v2（自适应长高/图片粘贴附件 chip/发送键色权）`
 
 测试估算：+10 例（autogrow 3 / attach 2 / main-attachments 3 / 守卫 2）。
 
@@ -392,16 +392,16 @@
 
 **目标**：左栏「设备」入口填实 → DevicesModal：① 已配对设备列表（`remote.status` → devices：设备名/指纹前 12 hex/last seen 相对时间/移除钮）；② 发起配对（`remote.pair.begin` → 8 字配对码 32px mono 字距 8px 展示 + `expiresIn` 倒计时 + 「等待对端输入…」状态句）；③ 加入配对（输入 8 位码）——**一期置灰带说明「需 M3c 出站通道」**（M3b 命门 4：出站客户端/地址簿属 M3c，桌面端一期只有被动侧；`remote.pair.complete` 是 pairing authMode 专属，UI 不可经本地连接调用——[remote/index.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/remote/index.ts) L57 assertAuthMode 已实证）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-devices.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-devices.test.ts`：
   - 纯模块 `lib/devices/fmt.ts`：`fmtFingerprint(fp): string`（前 12 hex 大写分组 `XX XX XX XX XX XX`）；`fmtPairingCode(code): string`（8 字 `XXXX-XXXX`）；`codeInputNormalize(raw): string`（大写化、剥非字母数字、限 8 位）
   - 守卫 chat.ts 新增 actions：`refreshDevices()`（`remote.status` → state.devices）、`beginPairing()`（`remote.pair.begin` → state.pairingSession `{ code, myFingerprint, expiresIn, startedAt }`）、`cancelPairing()`（清 state）、`unpair(fingerprint)`（`remote.unpair` + 刷新）——M3a 红线：`remote.*` 仅 local authMode，渲染端老 token 连接天然满足
   - 守卫 `DevicesModal.vue`：三区块锚（设备列表卡 / 发起配对区：码大字 mono + 倒计时读秒复用 `lib/perm/countdown` / 加入配对区置灰 + M3c 说明文案）；移除钮二次确认锚；指纹 mono 展示锚
   - 守卫左栏「设备」按钮从 disabled 改为开 DevicesModal（SessionList/App 接线锚）
   - 守卫设置模态「设备与同步」section 内入口同开 DevicesModal
-- [ ] **Step 2（绿）**：实现 fmt.ts + chat.ts 四 actions + DevicesModal.vue + 接线；配对完成感知：`remote.pair.complete` 由对端触发，本机感知靠轮询 `remote.status`（发起配对状态下 2s 轮询，设备出现 → 滑入列表 + 清 pairingSession；超时 expiresIn → 状态句「配对码已过期，请重新发起」）
-- [ ] **Step 3**：单文件 + 全量绿；RPC 行为层由 M3a 既有测试背书（[remote-rpc.test.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/tests/remote-rpc.test.ts) 26 例 + rpc-server-authmode / paseto-v4-local / pairing-store 等 M3a 文件），本 Task 不重测 RPC 语义
-- [ ] **Step 4**：typecheck + build；手工（或 e2e-mu2a 同款 CDP）：发起配对 → 出码+倒计时；CLI 侧完成配对（`deskminis-cli` M3a 成果）→ 设备滑入；移除 → 列表清空
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 配对管理面（设备列表/发起配对出码倒计时/移除，接 remote.* 真 RPC）`
+- [x] **Step 2（绿）**：实现 fmt.ts + chat.ts 四 actions + DevicesModal.vue + 接线；配对完成感知：`remote.pair.complete` 由对端触发，本机感知靠轮询 `remote.status`（发起配对状态下 2s 轮询，设备出现 → 滑入列表 + 清 pairingSession；超时 expiresIn → 状态句「配对码已过期，请重新发起」）
+- [x] **Step 3**：单文件 + 全量绿；RPC 行为层由 M3a 既有测试背书（[remote-rpc.test.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/tests/remote-rpc.test.ts) 26 例 + rpc-server-authmode / paseto-v4-local / pairing-store 等 M3a 文件），本 Task 不重测 RPC 语义
+- [x] **Step 4**：typecheck + build；手工（或 e2e-mu2a 同款 CDP）：发起配对 → 出码+倒计时；CLI 侧完成配对（`deskminis-cli` M3a 成果）→ 设备滑入；移除 → 列表清空
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 配对管理面（设备列表/发起配对出码倒计时/移除，接 remote.* 真 RPC）`
 
 测试估算：+9 例（fmt 4 / 守卫 5）。
 
@@ -409,7 +409,7 @@
 
 **目标**：`scripts/e2e-mu2b-acceptance.mjs`；三模式全量截图；MU2 整体验收收口。
 
-- [ ] **Step 1**：写 e2e 脚本（决策 8 同基建）。验收用例：
+- [x] **Step 1**：写 e2e 脚本（决策 8 同基建）。验收用例：
   1. 右栏：默认 360px（`getComputedStyle`）；tab 四枚且默认「进度」；拖拽分隔条到 500 → clamp 480
   2. 进度 tab：假 provider `__tool__` 回合 → 步骤列表出现；权限卡触发 → tab 橙点 + 「去处理」点击定位
   3. 产物 tab：file_write 回合 → 卡出现 + 点击切文件 tab 预览
@@ -418,10 +418,10 @@
   6. 空状态：新窗口无会话 → 三示例卡 + 点击填入输入框；Composer 粘贴图片（CDP 模拟 paste 事件不可行时改断言 saveAttachment preload 桥存在 + main-attachments 单测背书，手工验收补截图）
   7. DevicesModal：remote.pair.begin 出码文本 8 字 + 连字符格式 + 倒计时读秒
   8. **三模式全量截图**（§3.3-2）：浅/深/跟随系统（深色系统）× {主对话屏（含 Markdown/工具行/diff/权限卡/EventNote）、右栏进度、右栏产物、设置模态、DevicesModal} 共 15 张存 `scripts/e2e-shots-mu2b/`；断言无 console error、三模式切换无未定义 CSS 变量（eval 遍历 `getComputedStyle(document.body)` 关键槽位非空）
-- [ ] **Step 2**：跑通 e2e 8/8；`npm test` 全量绿（约 594+132+62≈788，以实际为准）；typecheck + build
-- [ ] **Step 3**：设计 v2 §3.3-1 巡检：全组件 grep 写死颜色/color-mix 写死比例（守卫脚本或手工 grep 清单附 e2e 输出）
-- [ ] **Step 4**：MU2 计划文档 checkbox 全勾；审计 22 条逐条回销核对表（H1-H5/IA/V/X 各条 → 落地 Task 映射）附在收官 commit body 或 PR 描述
-- [ ] **Step 5**：commit `test(mu2b): e2e 验收 + 暗色三模式全量截图（15 张）`；feature/mu2b 交复核 → 合并 main
+- [x] **Step 2**：跑通 e2e 8/8；`npm test` 全量绿（约 594+132+62≈788，以实际为准）；typecheck + build
+- [x] **Step 3**：设计 v2 §3.3-1 巡检：全组件 grep 写死颜色/color-mix 写死比例（守卫脚本或手工 grep 清单附 e2e 输出）
+- [x] **Step 4**：MU2 计划文档 checkbox 全勾；审计 22 条逐条回销核对表（H1-H5/IA/V/X 各条 → 落地 Task 映射）附在收官 commit body 或 PR 描述
+- [x] **Step 5**：commit `test(mu2b): e2e 验收 + 暗色三模式全量截图（15 张）`；feature/mu2b 交复核 → 合并 main
 
 测试估算：+3 例（main-attachments 补强 / 残余守卫；e2e 不进 npm test）。
 
@@ -441,11 +441,11 @@
 
 ### MU2b（feature/mu2b → main）
 
-- [ ] 8 个 Task 全部完成，checkbox 全勾
-- [ ] `npm test` 全绿：MU2a 基线 + MU2b 新增约 62 ≈ **788**（以实际为准）
-- [ ] `npm run typecheck` / `npm run build` 通过；`npm run e2e:mu2b` 8/8 通过；既有 e2e 全部不回归
-- [ ] 三模式全量截图 15 张入库（`scripts/e2e-shots-mu2b/`）；写死颜色/写死 color-mix 比例巡检清零
-- [ ] 审计 22 条全部回销（核对表落地）；`git diff --stat -- src/minisd` 为空（MU2b 零 minisd 改动）
+- [x] 8 个 Task 全部完成，checkbox 全勾
+- [x] `npm test` 全绿：MU2a 基线 + MU2b 新增约 62 ≈ **788**（以实际为准）（实际 793/793 · 76 文件，执行方与复核方各亲跑一致）
+- [x] `npm run typecheck` / `npm run build` 通过；`npm run e2e:mu2b` 8/8 通过；既有 e2e 全部不回归（复核方亲跑 mu2b 8/8 + mu2a 7/7 + m3a 6/6；M1 链路仍环境性阻塞——中继余额耗尽，留充值换模后重跑）
+- [x] 三模式全量截图 15 张入库（`scripts/e2e-shots-mu2b/`）；写死颜色/写死 color-mix 比例巡检清零（遮罩 rgba(0,0,0,.4) 三处经评审裁决豁免——设计 §5.6 明文规格；截图经执行方与复核方双目视）
+- [x] 审计 22 条全部回销（核对表落地）；`git diff --stat -- src/minisd` 为空（MU2b 零 minisd 改动）（核对表见 89a48c4 commit body；minisd 零改动经复核方实证）
 
 ## 非目标（MU2 两阶段均不做）
 

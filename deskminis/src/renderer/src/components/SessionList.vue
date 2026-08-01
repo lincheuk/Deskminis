@@ -1,16 +1,25 @@
 <script setup lang="ts">
-/** 左栏 · 会话列表（设计 §4.1）——plain 列表、圆形头像、选中 brand 30% 内缩块、
- *  粘性日期分组头（置顶/今天/昨天/本周/本月/更早）。 */
-import { computed } from 'vue';
+/** 左栏 · 会话列表（MU2b Task 4，设计 §1.1-1 变体 A 定稿）——任务卡式：
+ *  标题 + 相对时间 + 状态徽标（●进行中绿 / ⏸等待批准橙 / ✕失败红 / ✓完成灰）+ 产物计数角标。
+ *  粘性日期分组头（置顶/今天/昨天/本周/本月/更早）沿用 M1 既有；底部固定「设置/设备」入口
+ * （设置 → inject('openSettings') 开独立模态（Task 5 已切）；设备 → inject('openDevices') 开
+ *  DevicesModal 配对管理面（Task 7 已填实））。
+ *  数据源诚实说明：sessions.list RPC 无 running/messages 字段，徽标与角标仅活动会话可得（lib/session/status）。 */
+import { computed, inject, onUnmounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
+import { sessionBadge, artifactCountOf, type SessionBadge } from '../lib/session/status';
+import { fmtRelative } from '../lib/time/relative';
 import Icon from './Icon.vue';
 
 const chat = useChat();
+// App.vue provide：打开设置独立模态（Task 5 起）
+const openSettings = inject<() => void>('openSettings', () => {});
+// App.vue provide：打开配对管理面 DevicesModal（MU2b Task 7）
+const openDevices = inject<() => void>('openDevices', () => {});
 
 interface S { id: string; title: string; updatedAt?: number; pinnedAt?: number }
 
 const GROUP_ORDER = ['置顶', '今天', '昨天', '本周', '本月', '更早'];
-const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
 function startOfDay(d: Date): number { return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
 
@@ -28,18 +37,6 @@ function groupOf(s: S): string {
   return '更早';
 }
 
-function fmtDate(s: S): string {
-  const t = s.updatedAt ? s.updatedAt * 1000 : 0;
-  if (!t) return '';
-  const d = new Date(t);
-  const now = new Date();
-  const today = startOfDay(now);
-  if (t >= today) return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  if (t >= today - 6 * 86400_000) return WEEK[d.getDay()];
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`;
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
-}
-
 const grouped = computed(() => {
   const buckets = new Map<string, S[]>();
   for (const s of chat.sessions as S[]) {
@@ -49,6 +46,30 @@ const grouped = computed(() => {
   }
   return GROUP_ORDER.filter(g => buckets.has(g)).map(g => ({ group: g, items: buckets.get(g)! }));
 });
+
+// ---- 任务卡：相对时间（30s tick 刷新「N 分钟前」）+ 状态徽标 + 产物角标 ----
+const nowSec = ref(Date.now() / 1000);
+const tick = setInterval(() => { nowSec.value = Date.now() / 1000; }, 30_000);
+onUnmounted(() => clearInterval(tick));
+
+function relTime(s: S): string {
+  return s.updatedAt ? fmtRelative(s.updatedAt, nowSec.value) : '';
+}
+
+/** 活动会话实时态（chat store 直取）；非活动会话 live=null → 徽标 null（数据源不可得，一期）。 */
+const liveNow = computed(() => ({ running: chat.running, pendingPerms: chat.pendingPerms, lastStopReason: chat.lastStopReason }));
+function badgeOf(s: S): SessionBadge {
+  return sessionBadge(s, s.id === chat.activeId ? liveNow.value : null);
+}
+const BADGE_VIEW: Record<Exclude<SessionBadge, null>, { cls: string; text: string }> = {
+  running: { cls: 'run', text: '● 进行中' },
+  waiting: { cls: 'wait', text: '⏸ 等待批准' },
+  failed: { cls: 'fail', text: '✕ 失败' },
+  done: { cls: 'done', text: '✓ 完成' },
+};
+
+/** 产物角标：仅活动会话可得（messages 在 chat store）；0 不显示。 */
+const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 </script>
 
 <template>
@@ -63,14 +84,21 @@ const grouped = computed(() => {
         </div>
         <div
           v-for="s in grp.items" :key="s.id"
-          class="srow" :class="{ on: s.id === chat.activeId }"
+          class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id"
           @click="chat.open(s.id)"
         >
-          <div class="ava"><Icon name="terminal" :size="20" /></div>
-          <div class="smid"><div class="stitle">{{ s.title || '新会话' }}</div></div>
-          <div class="sdate">{{ fmtDate(s) }}</div>
+          <div class="stitle">{{ s.title || '新会话' }}</div>
+          <div class="smeta">
+            <span class="stime">{{ relTime(s) }}</span>
+            <span v-if="badgeOf(s)" class="sbadge" :class="BADGE_VIEW[badgeOf(s)!].cls">{{ BADGE_VIEW[badgeOf(s)!].text }}</span>
+            <span v-if="s.id === chat.activeId && activeArtifactCount > 0" class="scount">◈ {{ activeArtifactCount }}</span>
+          </div>
         </div>
       </template>
+    </div>
+    <div class="lfoot">
+      <button class="lfbtn" type="button" @click="openSettings()"><Icon name="gear" :size="14" /><span>设置</span></button>
+      <button class="lfbtn" type="button" title="设备与同步" @click="openDevices()"><span>设备</span></button>
     </div>
   </div>
 </template>
@@ -83,19 +111,37 @@ const grouped = computed(() => {
 }
 .newbtn:hover { background: var(--fill); }
 .newbtn :deep(svg) { stroke: var(--label); }
-.list { flex: 1; overflow: auto; padding-bottom: 8px; }
+.list { flex: 1; min-height: 0; overflow: auto; padding: 0 6px 8px; }
 .datehead {
-  position: sticky; top: 0; z-index: 1; padding: 6px 16px; font-size: 12px; font-weight: 600;
+  position: sticky; top: 0; z-index: 1; padding: 6px 10px; font-size: 12px; font-weight: 600;
   color: var(--label-secondary); background: var(--bg); display: flex; align-items: center; gap: 4px;
 }
-.srow { display: flex; gap: 8px; padding: 12px 16px; cursor: pointer; align-items: center; }
-.srow.on { background: color-mix(in srgb, var(--brand) 30%, transparent); border-radius: var(--r-md); margin: 0 6px; padding: 12px 10px; }
-.ava {
-  width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  background: color-mix(in srgb, var(--brand) 18%, transparent); color: var(--label-secondary);
+/* 任务卡（变体 A）：标题行 + meta 行（相对时间/状态徽标/产物角标） */
+.scard { padding: 9px 10px; border-radius: var(--r-md); margin-bottom: 2px; cursor: pointer; }
+.scard:hover { background: var(--fill-quaternary); }
+.scard.on { background: var(--fill-tertiary); }
+.stitle {
+  font-size: var(--fs-ui); font-weight: 600; color: var(--label);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.srow.on .ava { background: color-mix(in srgb, var(--brand) 35%, transparent); color: var(--label); }
-.smid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.stitle { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sdate { font-size: 13px; color: var(--label-tertiary); flex: 0 0 auto; padding-top: 2px; }
+.scard.on .stitle { color: var(--action); }
+.smeta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: var(--fs-micro); color: var(--label-tertiary); }
+.stime { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.sbadge { flex: 0 0 auto; }
+.sbadge.run { color: var(--state-ok); }
+.sbadge.wait { color: var(--state-warn); }
+.sbadge.fail { color: var(--state-err); }
+.sbadge.done { color: var(--label-tertiary); }
+.scount { flex: 0 0 auto; margin-left: auto; color: var(--label-secondary); font-variant-numeric: tabular-nums; }
+/* 底部固定入口：设置（独立模态）/ 设备（DevicesModal，Task 7 已填实） */
+.lfoot {
+  flex: 0 0 auto; display: flex; gap: 2px; padding: 8px 10px;
+  border-top: .5px solid var(--separator);
+}
+.lfbtn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 7px 10px; border: none; border-radius: var(--r-control); background: none;
+  font-size: var(--fs-ui); font-weight: 500; color: var(--label-secondary); cursor: pointer;
+}
+.lfbtn:hover { background: var(--fill-quaternary); color: var(--label); }
 </style>
