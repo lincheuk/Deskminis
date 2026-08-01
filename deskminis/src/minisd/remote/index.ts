@@ -11,6 +11,8 @@
 //   - ?pairingCode=<8chars> → PairingService.hasPending 查验 + 时效校验 → 成功则 pairing 模式
 //   - 都没有 → {ok:false}
 import type { IncomingMessage } from 'node:http';
+import { WebSocket } from 'ws';
+import { sha256 } from '@noble/hashes/sha2.js';
 import type { AdditionalVerify, AdditionalVerifyResult, AuthMode, RpcConnection, RpcMethods } from '../rpc/server';
 import { PAIRING_CODE_TTL_S, type PairingService } from './pairing';
 import { decodePaseto } from './paseto';
@@ -28,11 +30,18 @@ function assertAuthMode(conn: RpcConnection, allowed: AuthMode[], what: string):
   }
 }
 
+/** M3c createRemoteMethods 可选第二参（Task 4 注入 onPairComplete 供 begin 侧地址捕获）。 */
+export interface RemoteMethodsOpts {
+  /** remote.pair.complete 成功后回调：begin 侧从 conn.remoteAddress + p.listenPort 捕获对端地址（必改 4） */
+  onPairComplete?: (peerFingerprint: string, remoteAddress: string | undefined, listenPort: number | undefined) => void;
+}
+
 /**
  * 创建 remote.* RPC 方法集。
  * @param service PairingService 实例（提供 beginPairing/completePairing/list/get/delete/hasPending）
+ * @param opts M3c Task 4 注入 onPairComplete 回调
  */
-export function createRemoteMethods(service: PairingService): RpcMethods {
+export function createRemoteMethods(service: PairingService, opts?: RemoteMethodsOpts): RpcMethods {
   return {
     'remote.pair.begin': async (_p, conn) => {
       assertAuthMode(conn, ['local'], 'remote.pair.begin');
@@ -53,6 +62,7 @@ export function createRemoteMethods(service: PairingService): RpcMethods {
       peerPublicKey: Uint8Array | string;
       peerFingerprint: string;
       peerName?: string;
+      listenPort?: number;
     }, conn) => {
       assertAuthMode(conn, ['pairing'], 'remote.pair.complete');
       // peerPublicKey 兼容 Uint8Array 与 base64 字符串两种形态（CLI 走 base64，e2e 走 Uint8Array）
@@ -60,7 +70,9 @@ export function createRemoteMethods(service: PairingService): RpcMethods {
         ? p.peerPublicKey
         : Buffer.from(p.peerPublicKey).toString('base64');
       const r = service.completePairing(p.pairingCode, peerPubKeyB64, p.peerFingerprint, p.peerName);
-      return { ok: true, peerFingerprint: r.fingerprint };
+      // M3c Task 4：begin 侧地址捕获（必改 4）——从 conn.remoteAddress + p.listenPort 组合
+      opts?.onPairComplete?.(r.fingerprint, conn.remoteAddress, p.listenPort);
+      return { ok: true, peerFingerprint: r.fingerprint, myPublicKeyB64: r.ourPubKeyB64 };
     },
 
     'remote.status': async (_p, conn) => {
@@ -74,6 +86,77 @@ export function createRemoteMethods(service: PairingService): RpcMethods {
       assertAuthMode(conn, ['local'], 'remote.unpair');
       service.delete(p.peerFingerprint);
       return { ok: true };
+    },
+
+    // M3c Task 4：remote.pair.join——免手抄公钥（决策 3），authMode=local
+    // join 侧（本端）调此方法，内部连对端 pairing 模式调 complete，拿到对端公钥后本地重算指纹 + 派生 PairingKey
+    'remote.pair.join': async (p: {
+      host: string;
+      port: number;
+      pairingCode: string;
+      peerName?: string;
+      listenPort?: number;
+    }, conn) => {
+      assertAuthMode(conn, ['local'], 'remote.pair.join');
+      if (!p.host || !p.port) throw new Error('remote.pair.join 需要 host 和 port');
+      if (!p.pairingCode) throw new Error('remote.pair.join 需要 pairingCode');
+
+      // 连对端（pairing 模式，用 pairingCode 鉴权）
+      const joinUrl = `ws://${p.host}:${p.port}/?pairingCode=${encodeURIComponent(p.pairingCode)}`;
+      const peerWs = new WebSocket(joinUrl);
+
+      const resp = await new Promise<{ ok: boolean; peerFingerprint: string; myPublicKeyB64: string }>((resolve, reject) => {
+        const timer = setTimeout(() => { peerWs.terminate(); reject(new Error('remote.pair.join 连接超时')); }, 10_000);
+        timer.unref?.();
+        let settled = false;
+        const fail = (e: Error) => { if (settled) return; settled = true; clearTimeout(timer); reject(e); };
+        let idc = 0;
+        const pending = new Map<number, (m: any) => void>();
+        peerWs.on('message', data => {
+          const msg = JSON.parse(String(data));
+          if (msg.id !== undefined && pending.has(msg.id)) { pending.get(msg.id)!(msg); pending.delete(msg.id); }
+        });
+        peerWs.on('open', () => {
+          const id = ++idc;
+          pending.set(id, m => {
+            if (settled) return; settled = true; clearTimeout(timer);
+            if (m.error) { peerWs.close(); reject(new Error(`remote.pair.complete: ${m.error.message ?? JSON.stringify(m.error)}`)); return; }
+            resolve(m.result as any);
+          });
+          peerWs.send(JSON.stringify({
+            jsonrpc: '2.0', id, method: 'remote.pair.complete',
+            params: {
+              pairingCode: p.pairingCode,
+              peerPublicKey: Buffer.from(service.myPublicKey).toString('base64'),
+              peerFingerprint: service.myFingerprint,
+              peerName: p.peerName,
+              listenPort: p.listenPort,
+            },
+          }));
+        });
+        // 配对码错误/过期 → 对端 pairing 鉴权 401 拒绝：转友好信息（计划契约：测试期望 /配对码|code|失效|过期/i）
+        peerWs.on('unexpected-response', (_req, res) => {
+          fail(new Error(res.statusCode === 401 ? '配对码无效或已过期' : `remote.pair.join 连接被拒: ${res.statusCode}`));
+        });
+        peerWs.on('error', e => { fail(e instanceof Error ? e : new Error(String(e))); });
+      });
+
+      try { peerWs.close(); } catch { /* */ }
+
+      // 本地重算对端指纹（防伪报，决策 3）：sha256(pubKey).slice(0,6) hex
+      const peerPubKey = new Uint8Array(Buffer.from(resp.myPublicKeyB64, 'base64'));
+      const recomputedFp = Buffer.from(sha256(peerPubKey).slice(0, 6)).toString('hex');
+
+      // 派生 PairingKey + 持久化 + 记地址簿
+      service.joinPairing(
+        resp.myPublicKeyB64,
+        recomputedFp,
+        p.peerName ?? '未命名设备',
+        p.pairingCode,
+        `${p.host}:${p.port}`,
+      );
+
+      return { ok: true, peerFingerprint: recomputedFp };
     },
   };
 }

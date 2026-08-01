@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 
 export type AuthMode = 'local' | 'pairing' | 'remote';
 
-export interface RpcConnection { notify(method: string, params: unknown): void; authMode: AuthMode; peerFingerprint?: string }
+export interface RpcConnection { notify(method: string, params: unknown): void; authMode: AuthMode; peerFingerprint?: string; remoteAddress?: string }
 export interface RpcMethods { [method: string]: (params: any, conn: RpcConnection) => Promise<unknown> | unknown }
 
 export type AdditionalVerifyResult = { ok: true; authMode: AuthMode; peerFingerprint?: string } | { ok: false };
@@ -13,6 +13,8 @@ export type AdditionalVerify = (info: { req: IncomingMessage; url: URL }) => Pro
 export class RpcServer {
   private wss: WebSocketServer | undefined;
   private clients = new Set<WebSocket>();
+  /** M3c 命门 2 入站注册表：peerFingerprint → 活跃连接计数（open++/close--） */
+  private inboundRemote = new Map<string, number>();
 
   /** authToken：每次启动新生成，只经 IPC 交给自己的渲染进程。浏览器页面拿不到它。
    *  additionalVerify（可选）：远程客户端鉴权回调；返回 {ok:true,authMode} 放行并标记连接模式，{ok:false} 拒绝。 */
@@ -76,9 +78,22 @@ export class RpcServer {
     // verifyClient 第四参（WebSocketServer 透传的 userProps）承载 authMode；老路径/无 additionalVerify 默认 local
     const authMode: AuthMode = (req as any)?.__authMode ?? 'local';
     const peerFingerprint: string | undefined = (req as any)?.__peerFingerprint;
+    const remoteAddress: string | undefined = req?.socket.remoteAddress;
     this.clients.add(ws);
-    const conn: RpcConnection = { authMode, peerFingerprint, notify: (method, params) => ws.send(JSON.stringify({ jsonrpc: '2.0', method, params })) };
-    ws.on('close', () => this.clients.delete(ws));
+    // M3c 命门 2：入站注册表 open++（remote 模式有 peerFingerprint 才记）
+    if (peerFingerprint) {
+      this.inboundRemote.set(peerFingerprint, (this.inboundRemote.get(peerFingerprint) ?? 0) + 1);
+    }
+    const conn: RpcConnection = { authMode, peerFingerprint, remoteAddress, notify: (method, params) => ws.send(JSON.stringify({ jsonrpc: '2.0', method, params })) };
+    ws.on('close', () => {
+      this.clients.delete(ws);
+      // M3c 命门 2：入站注册表 close--
+      if (peerFingerprint) {
+        const count = (this.inboundRemote.get(peerFingerprint) ?? 0) - 1;
+        if (count <= 0) this.inboundRemote.delete(peerFingerprint);
+        else this.inboundRemote.set(peerFingerprint, count);
+      }
+    });
     // ws 会把 receiver/协议层错误重新抛在 WebSocket 实例上：没有监听器则变成未捕获异常并杀死整个守护进程
     ws.on('error', () => { this.clients.delete(ws); try { ws.terminate(); } catch { /* 已关闭 */ } });
     ws.on('message', async raw => {
@@ -97,6 +112,11 @@ export class RpcServer {
         if (msg.id !== undefined) ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: String(e instanceof Error ? e.message : e) } }));
       }
     });
+  }
+
+  /** M3c 命门 2：对端指纹是否有活跃入站连接（出站 ∪ 入站合并两源的入站源）。 */
+  isInboundOnline(peerFingerprint: string): boolean {
+    return (this.inboundRemote.get(peerFingerprint) ?? 0) > 0;
   }
 
   broadcast(method: string, params: unknown): void {

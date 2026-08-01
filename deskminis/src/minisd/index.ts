@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
@@ -45,6 +45,52 @@ function assertSessionId(id: unknown): string {
 
 /** 权限询问未响应的兜底时限：与 PermissionGatewayImpl 的 askTimeoutMs 保持一致。 */
 const PERM_TIMEOUT_MS = 90000;
+
+/** M3c Task 4：端口持久化文件名（必改 4b）。 */
+const PORT_FILE = 'minisd-port.json';
+
+/**
+ * M3c Task 4：端口持久化（必改 4b）——读 minisd-port.json → 复用 → 占用回退随机 → 写文件。
+ * @param dataDir 数据根目录
+ * @param host 监听地址
+ * @param requestedPort 调用方请求的端口（0 = 不指定，读文件复用）
+ * @param listen 实际监听函数（host, port）→ 实际端口
+ * @returns 实际监听端口
+ */
+export async function resolveAndPersistPort(
+  dataDir: string,
+  host: string,
+  requestedPort: number,
+  listen: (host: string, port: number) => Promise<number>,
+): Promise<number> {
+  const portFile = join(dataDir, PORT_FILE);
+  // 读持久化端口
+  let preferred = requestedPort;
+  if (preferred === 0 && existsSync(portFile)) {
+    try {
+      const obj = JSON.parse(readFileSync(portFile, 'utf8').replace(/\r\n/g, '\n'));
+      if (typeof obj.port === 'number' && obj.port > 0) preferred = obj.port;
+    } catch { /* 文件损坏，忽略 */ }
+  }
+  // 尝试 preferred port
+  if (preferred > 0) {
+    try {
+      const port = await listen(host, preferred);
+      writePersistedPort(portFile, port);
+      return port;
+    } catch { /* 端口被占用，回退随机 */ }
+  }
+  // 随机分配
+  const port = await listen(host, 0);
+  writePersistedPort(portFile, port);
+  return port;
+}
+
+function writePersistedPort(portFile: string, port: number): void {
+  const tmp = portFile + '.tmp';
+  writeFileSync(tmp, JSON.stringify({ port }), 'utf8');
+  renameSync(tmp, portFile);
+}
 
 /** 假 provider（仅测试用，DESKMINIS_FAKE_PROVIDER=1 时对 providerId '__fake__' 生效） */
 class FakeProvider implements AgentProvider {
@@ -100,7 +146,7 @@ class FakeProvider implements AgentProvider {
   }
 }
 
-export async function startMinisd(opts?: { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number }): Promise<{ port: number; authToken: string; bridgePipe?: string; close(): Promise<void> }> {
+export async function startMinisd(opts?: { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number }): Promise<{ port: number; listenPort: number; authToken: string; bridgePipe?: string; close(): Promise<void> }> {
   const root = opts?.dataDir ?? dataRoot();
   mkdirSync(root, { recursive: true });
   const paths = new MinisPaths(root);
@@ -464,7 +510,15 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // M3a 接线：PairingService 已前移至 ChatStore 之前（评审命门 3），此处仅接线 remote.* 方法面 + additionalVerify。
   // 沿用 M1 vault/keyring 路径（KeyringVault L26-36）；DESKMINIS_TEST=1 时 vault 已是 InMemoryVault
   // StaticIdentity 首次生成后持久化到 vault，后续启动复用（设计 §2.1「长期身份」）
-  const remoteMethods = createRemoteMethods(pairingService);
+  // M3c Task 4：createRemoteMethods 第二参注入 onPairComplete——begin 侧从 conn.remoteAddress + p.listenPort 捕获对端地址（必改 4）
+  const remoteMethods = createRemoteMethods(pairingService, {
+    onPairComplete: (fp, remoteAddr, listenPort) => {
+      if (listenPort && listenPort > 0) {
+        const host = remoteAddr?.replace(/^::ffff:/, '') ?? '127.0.0.1';
+        pairingStore.setAddress(fp, `${host}:${listenPort}`);
+      }
+    },
+  });
   // 业务面方法（chat.*/permission.*/skills.* 等）统一加 pairing 模式守卫（红线 4c）：
   // pairing 模式只能调 remote.pair.complete，其他业务面全拒。
   // remote.* 方法自带 assertAuthMode 守卫，不重复包装。
@@ -477,14 +531,20 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // M3b 接线：sync.* 方法面（经 guardBusinessMethod 包装拒 pairing，红线 4e——sync.* 唯一接触点）
   // 注：计划伪代码先写 methods[k]=guard(syncMethods[k]) 再 Object.assign(methods, syncMethods) 会用未包装版本覆盖——
   // 最小修正为原地包装 syncMethods 后再 assign（Produces 接口不变：sync.* 仍经 guardBusinessMethod 拒 pairing）。
-  const syncMethods = createSyncMethods(chat);
+  // M3c Task 4：createSyncMethods 第二参注入 pairingService/listenPort（sync.hello 用，端口漂移自愈必改 4）
+  //   syncOpts 用可变对象：listen 前占位 0，listen 后更新为实际端口——sync.hello 闭包引用 opts.listenPort 能拿到新值。
+  const syncOpts: { pairingService: PairingService; listenPort: number } = { pairingService, listenPort: 0 };
+  const syncMethods = createSyncMethods(chat, syncOpts);
   for (const k of Object.keys(syncMethods)) {
     (syncMethods as any)[k] = guardBusinessMethod((syncMethods as any)[k], k);
   }
   Object.assign(methods, syncMethods);
 
   rpc = new RpcServer(methods, authToken, additionalVerify);
-  const port = await rpc.listen(opts?.host ?? '127.0.0.1', opts?.port ?? 0);
+  // M3c Task 4：端口持久化（必改 4b）——读 minisd-port.json 复用 → 占用回退随机 → 写文件
+  const listenHost = opts?.host ?? '127.0.0.1';
+  const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p));
+  syncOpts.listenPort = port; // sync.hello 响应带实际监听端口（对端刷新地址簿，端口漂移自愈）
 
   // M3b 接线：SyncCoordinator（服务端被动，评审命门 4）——chat.onDirty 去抖广播 sync.dirty
   const syncCoordinator = new SyncCoordinator(chat, rpc);
@@ -492,7 +552,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   syncCoordinator.start(); // 空实现（评审命门 4），保留调用供 M3c 扩展
 
   return {
-    port, authToken, bridgePipe,
+    port, listenPort: port, authToken, bridgePipe,
     close: async () => {
       syncCoordinator.stop();
       for (const c of controllers.values()) c.abort();

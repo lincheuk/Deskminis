@@ -215,9 +215,9 @@ describe('createAdditionalVerify', () => {
 });
 
 describe('业务面拒 pairing（红线 4c）', () => {
-  it('createRemoteMethods 返回的方法集只含 remote.* 四个', () => {
+  it('createRemoteMethods 返回的方法集只含 remote.* 五个（M3c Task 4 增 remote.pair.join）', () => {
     expect(Object.keys(methods).filter(k => k.startsWith('remote.'))).toEqual([
-      'remote.pair.begin', 'remote.pair.complete', 'remote.status', 'remote.unpair',
+      'remote.pair.begin', 'remote.pair.complete', 'remote.status', 'remote.unpair', 'remote.pair.join',
     ]);
   });
 });
