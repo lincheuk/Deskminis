@@ -84,7 +84,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
         </div>
         <div
           v-for="s in grp.items" :key="s.id"
-          class="scard" :class="{ on: s.id === chat.activeId }"
+          class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id"
           @click="chat.open(s.id)"
         >
           <div class="stitle">{{ s.title || '新会话' }}</div>

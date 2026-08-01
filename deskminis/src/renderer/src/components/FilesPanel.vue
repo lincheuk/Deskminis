@@ -70,7 +70,15 @@ watch(() => chat.pendingFilePreview, (p) => {
   chat.pendingFilePreview = null;
   void showPreview(p);
 });
-onMounted(() => { void loadRoot(); });
+onMounted(() => {
+  void loadRoot();
+  // 产物卡点击时本面板可能尚未挂载（App.vue v-show + visited 懒挂载）：watch 不触发，挂载即消费待预览
+  if (chat.pendingFilePreview) {
+    const p = chat.pendingFilePreview;
+    chat.pendingFilePreview = null;
+    void showPreview(p);
+  }
+});
 </script>
 
 <template>

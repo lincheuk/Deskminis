@@ -409,7 +409,7 @@
 
 **目标**：`scripts/e2e-mu2b-acceptance.mjs`；三模式全量截图；MU2 整体验收收口。
 
-- [ ] **Step 1**：写 e2e 脚本（决策 8 同基建）。验收用例：
+- [x] **Step 1**：写 e2e 脚本（决策 8 同基建）。验收用例：
   1. 右栏：默认 360px（`getComputedStyle`）；tab 四枚且默认「进度」；拖拽分隔条到 500 → clamp 480
   2. 进度 tab：假 provider `__tool__` 回合 → 步骤列表出现；权限卡触发 → tab 橙点 + 「去处理」点击定位
   3. 产物 tab：file_write 回合 → 卡出现 + 点击切文件 tab 预览
@@ -418,10 +418,10 @@
   6. 空状态：新窗口无会话 → 三示例卡 + 点击填入输入框；Composer 粘贴图片（CDP 模拟 paste 事件不可行时改断言 saveAttachment preload 桥存在 + main-attachments 单测背书，手工验收补截图）
   7. DevicesModal：remote.pair.begin 出码文本 8 字 + 连字符格式 + 倒计时读秒
   8. **三模式全量截图**（§3.3-2）：浅/深/跟随系统（深色系统）× {主对话屏（含 Markdown/工具行/diff/权限卡/EventNote）、右栏进度、右栏产物、设置模态、DevicesModal} 共 15 张存 `scripts/e2e-shots-mu2b/`；断言无 console error、三模式切换无未定义 CSS 变量（eval 遍历 `getComputedStyle(document.body)` 关键槽位非空）
-- [ ] **Step 2**：跑通 e2e 8/8；`npm test` 全量绿（约 594+132+62≈788，以实际为准）；typecheck + build
-- [ ] **Step 3**：设计 v2 §3.3-1 巡检：全组件 grep 写死颜色/color-mix 写死比例（守卫脚本或手工 grep 清单附 e2e 输出）
-- [ ] **Step 4**：MU2 计划文档 checkbox 全勾；审计 22 条逐条回销核对表（H1-H5/IA/V/X 各条 → 落地 Task 映射）附在收官 commit body 或 PR 描述
-- [ ] **Step 5**：commit `test(mu2b): e2e 验收 + 暗色三模式全量截图（15 张）`；feature/mu2b 交复核 → 合并 main
+- [x] **Step 2**：跑通 e2e 8/8；`npm test` 全量绿（约 594+132+62≈788，以实际为准）；typecheck + build
+- [x] **Step 3**：设计 v2 §3.3-1 巡检：全组件 grep 写死颜色/color-mix 写死比例（守卫脚本或手工 grep 清单附 e2e 输出）
+- [x] **Step 4**：MU2 计划文档 checkbox 全勾；审计 22 条逐条回销核对表（H1-H5/IA/V/X 各条 → 落地 Task 映射）附在收官 commit body 或 PR 描述
+- [x] **Step 5**：commit `test(mu2b): e2e 验收 + 暗色三模式全量截图（15 张）`；feature/mu2b 交复核 → 合并 main
 
 测试估算：+3 例（main-attachments 补强 / 残余守卫；e2e 不进 npm test）。
 

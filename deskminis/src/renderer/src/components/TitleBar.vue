@@ -130,7 +130,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
   display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px;
   font-size: 13px; cursor: pointer; white-space: nowrap; color: var(--label);
 }
-.it:hover { background: var(--accent); color: #fff; }
+.it:hover { background: var(--accent); color: var(--on-action); }
 .it.danger { color: var(--red); }
 .it .kbd { margin-left: auto; font-size: 12px; color: var(--label-tertiary); font-family: var(--font-mono); }
 .it:hover .kbd { color: rgba(255, 255, 255, .7); }
