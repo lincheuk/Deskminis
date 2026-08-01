@@ -15,8 +15,10 @@ export const useChat = defineStore('chat', {
     activeId: '' as string,
     messages: [] as UiMessage[],
     streamingText: '' as string,
-    toolCards: [] as { toolUseId: string; name: string; title: string; output?: string; success?: boolean }[],
+    toolCards: [] as { toolUseId: string; name: string; title: string; output?: string; success?: boolean; startedAt?: number; endedAt?: number }[],
     pendingPerms: [] as PendingPerm[],
+    // MU2b Task 2：进度面板「去处理」点击写入目标权限卡 requestId，ChatView watch 后滚动定位并清空
+    permFocusRequestId: null as string | null,
     providers: [] as UiProvider[],
     skills: [] as UiSkill[],
     // 循环报错（API Key 错误、provider 故障…）必须看得见，否则界面就是「按了没反应」
@@ -132,8 +134,8 @@ export const useChat = defineStore('chat', {
     },
     onEvent(e: any) {
       if (e.kind === 'textDelta') { this.retryNote = ''; this.streamingText += e.text; }
-      else if (e.kind === 'toolStart') this.toolCards.push({ toolUseId: e.toolUseId, name: e.name, title: e.title });
-      else if (e.kind === 'toolEnd') { const c = this.toolCards.find(x => x.toolUseId === e.toolUseId); if (c) { c.output = e.output; c.success = e.success; } }
+      else if (e.kind === 'toolStart') this.toolCards.push({ toolUseId: e.toolUseId, name: e.name, title: e.title, startedAt: Date.now() });
+      else if (e.kind === 'toolEnd') { const c = this.toolCards.find(x => x.toolUseId === e.toolUseId); if (c) { c.output = e.output; c.success = e.success; c.endedAt = Date.now(); } }
       else if (e.kind === 'retry') {
         // 循环会整回合重来，已缓冲的半截文本是过期的（不清就会和重试后的正文拼在一起）
         this.streamingText = '';

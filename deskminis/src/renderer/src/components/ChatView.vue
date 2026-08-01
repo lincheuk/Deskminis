@@ -183,6 +183,16 @@ function backToBottom(): void {
   following.value = true;
 }
 
+// MU2b Task 2：进度面板「去处理」→ chat.permFocusRequestId 写入目标权限卡 requestId，
+// 此处 watch 后滚动定位（PermissionCard 根元素带 data-req），定位完清空等待下一次。
+watch(() => chat.permFocusRequestId, (rid) => {
+  if (!rid) return;
+  void nextTick(() => {
+    document.querySelector(`.perm[data-req="${rid}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    chat.permFocusRequestId = null;
+  });
+});
+
 // ---- /名字 斜杠菜单（设计 §5.1：纯输入辅助 —— 只把 /name 填进输入框，加载仍走模型侧 file_read）----
 const slashOpen = ref(false);
 const slashIndex = ref(0);
@@ -277,7 +287,7 @@ function onSlashTab(e: KeyboardEvent): void {
                 :output="item.output ?? null"
               />
             </template>
-            <PermissionCard v-for="p in chat.pendingPerms" :key="p.requestId" :perm="p" />
+            <PermissionCard v-for="p in chat.pendingPerms" :key="p.requestId" :perm="p" :data-req="p.requestId" />
             <div v-if="chat.running && !chat.streamingText && !chat.toolCards.length && !chat.pendingPerms.length && !chat.retryNote" class="dots"><i></i><i></i><i></i></div>
           </div>
         </section>

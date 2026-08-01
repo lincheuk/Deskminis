@@ -310,16 +310,16 @@
 
 **目标**：TasksPanel 重做 → ProgressPanel：任务句（会话标题亲和呈现）+ 步骤列表（与对话流 ToolLine 同数据、进度叙事呈现）+ Token 两行 + 水位条（contextInfo 沿用）+ 等待批准显著化（pendingPerms>0 → tab 标题橙点 + 卡内「⏸ 等待批准 — xxx [去处理]」点击滚动定位权限卡）；fallback/compacted/offloaded 三状态卡保留（WorkBuddy 圆角卡 + 左 3px 色条，M2d 成果换皮肤不推翻）；事件不再对话流/面板双份（设计 §1.3：面板是「当前状态」，对话流是「历史记录」——EventNote 内联条管历史，ProgressPanel 卡管当下，语义不同不视为重复）。
 
-- [ ] **Step 1（红）**：`tests/renderer-tasks-panel.test.ts` **同 Task 内改写**为守卫 ProgressPanel（Global Constraints 修订清单允许）：
+- [x] **Step 1（红）**：`tests/renderer-tasks-panel.test.ts` **同 Task 内改写**为守卫 ProgressPanel（Global Constraints 修订清单允许）：
   - 组件改名 `ProgressPanel.vue`（TasksPanel.vue 删除守卫 `existsSync === false`；App.vue import 同步）
   - 组成锚：任务句区（`chat.sessions` 找 activeId 标题）/ 步骤列表（`chat.toolCards` v-for：状态符号 + title + duration——复用 Task 6 `fmtDuration`）/ Token 区（lastUsage/totals 沿用 M2d computed）/ 水位条（watermark 沿用，`--state-ok/warn` 色槽替写死）/ 事件卡三态（fallbackState/compactedState/offloadedState 沿用）
   - 等待批准锚：`chat.pendingPerms.length > 0` 时渲染「去处理」按钮（点击 emit 或直接调 ChatView 暴露的滚动定位——落地方案：chat store 新增 `permFocusRequestId: string | null`，ProgressPanel 写入，ChatView watch 后 `scrollIntoView` 对应 PermissionCard 并清空；守卫 store 含该字段）
   - App.vue 橙点锚：tab「进度」在 `chat.pendingPerms.length > 0` 时带 `class="dot-warn"`
   - M2d 语义回归锚：contextInfo 优先水位、stopLabel 映射、toolStats 三计数——断言保留
-- [ ] **Step 2（绿）**：实现 `ProgressPanel.vue`（M2d computed 逻辑平移 + 新皮肤 + 步骤列表 + 批准显著化）+ App.vue 接线 + chat.ts 增量 `permFocusRequestId`（M2c/M2d 字段全保留）+ ChatView 滚动定位接线；删除 TasksPanel.vue
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 手工：假 provider `__tool__` 触发权限卡 → 进度 tab 橙点 + 步骤行「⏸ 等待批准」；点「去处理」→ 对话流定位到权限卡
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 进度 tab 任务仪表板（步骤叙事/等待批准显著化/TasksPanel→ProgressPanel）`
+- [x] **Step 2（绿）**：实现 `ProgressPanel.vue`（M2d computed 逻辑平移 + 新皮肤 + 步骤列表 + 批准显著化）+ App.vue 接线 + chat.ts 增量 `permFocusRequestId`（M2c/M2d 字段全保留）+ ChatView 滚动定位接线；删除 TasksPanel.vue
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 手工：假 provider `__tool__` 触发权限卡 → 进度 tab 橙点 + 步骤行「⏸ 等待批准」；点「去处理」→ 对话流定位到权限卡
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 进度 tab 任务仪表板（步骤叙事/等待批准显著化/TasksPanel→ProgressPanel）`
 
 测试估算：+8 例（改写后净增约 3，另 5 为新增锚；基线口径记 +8，被替换的旧断言 7 例等数退役——MU2b 完成后总数按实际文件重计，此处给净估算）。
 

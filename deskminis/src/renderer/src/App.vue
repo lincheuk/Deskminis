@@ -9,7 +9,7 @@ import ChatView from './components/ChatView.vue';
 import ProviderSettings from './components/ProviderSettings.vue';
 import TerminalPanel from './components/TerminalPanel.vue';
 import FilesPanel from './components/FilesPanel.vue';
-import TasksPanel from './components/TasksPanel.vue';
+import ProgressPanel from './components/ProgressPanel.vue';
 import Icon from './components/Icon.vue';
 
 const chat = useChat();
@@ -85,7 +85,7 @@ onMounted(() => {
       <aside v-show="rightOpen" class="pane-r" :style="{ width: rightW + 'px', flex: '0 0 ' + rightW + 'px' }">
         <div class="rdrag" @mousedown="startRDrag"></div>
         <div class="tabs">
-          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'progress' }" @click="showTab('progress')">进度</div>
+          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'progress', 'dot-warn': chat.pendingPerms.length > 0 }" @click="showTab('progress')">进度</div>
           <div class="tab" :class="{ on: !settingsOpen && rightTab === 'artifacts' }" @click="showTab('artifacts')">产物</div>
           <div class="tab" :class="{ on: !settingsOpen && rightTab === 'files' }" @click="showTab('files')">文件</div>
           <div class="tab" :class="{ on: !settingsOpen && rightTab === 'terminal' }" @click="showTab('terminal')">终端</div>
@@ -93,7 +93,7 @@ onMounted(() => {
         </div>
         <div v-if="settingsOpen" class="rbody"><ProviderSettings /></div>
         <template v-else>
-          <div v-show="rightTab === 'progress'" class="rfill"><TasksPanel v-if="visited.progress" /></div>
+          <div v-show="rightTab === 'progress'" class="rfill"><ProgressPanel v-if="visited.progress" /></div>
           <div v-show="rightTab === 'artifacts'" class="rfill"><div v-if="visited.artifacts" class="rempty">产物面板（MU2b Task 3 填实）</div></div>
           <div v-show="rightTab === 'files'" class="rfill"><FilesPanel v-if="visited.files" /></div>
           <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
@@ -126,6 +126,12 @@ onMounted(() => {
 }
 .tab.gear { flex: 0 0 32px; }
 .tab.on { background: var(--fill-quaternary); color: var(--label); }
+/* 进度 tab 等待批准橙点（审计 H4：pendingPerms>0 显著化） */
+.tab.dot-warn { position: relative; }
+.tab.dot-warn::after {
+  content: ''; position: absolute; top: 4px; right: 8px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--state-warn);
+}
 .rbody { flex: 1; overflow: auto; padding: 12px 14px; }
 .rfill { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .rempty {
