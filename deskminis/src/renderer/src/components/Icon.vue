@@ -21,6 +21,7 @@ const PATHS: Record<string, string> = {
   x: '<path d="M18 6L6 18M6 6l12 12"/>',
   'chevron-down': '<path d="M6 9l6 6 6-6"/>',
   'chevron-up': '<path d="M18 15l-6-6-6 6"/>',
+  'chevron-right': '<path d="M9 18l6-6-6-6"/>',
   send: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -34,6 +35,7 @@ const PATHS: Record<string, string> = {
   moon: '<path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>',
   trash: '<path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>',
   refresh: '<path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>',
 };
 
 const inner = computed(() => PATHS[props.name] ?? PATHS.info);

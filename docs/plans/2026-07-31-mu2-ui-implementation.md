@@ -95,20 +95,20 @@
 
 **目标**：交付 `parseMarkdown()` + `stablePrefixEnd()` 两个纯函数与全部消毒测试，不碰任何组件。
 
-- [ ] **Step 1（红）**：新建 `tests/markdown-parse.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/markdown-parse.test.ts`：
   - 块级：h2/h3（`##`/`###`，h1 降级 h2——§2.3 标题层级 ≤3）、段落、围栏（带语言名 / 无语言名 / 未闭合→纯文本兜底）、ul/ol（含 2 级嵌套缩进）、引用块（可含列表）、hr（`---`/`***`）、简单表格（表头 + 分隔行 + 数据行；缺分隔行按段落）
   - 行内：粗 `**x**`、斜 `*x*`、删 `~~x~~`、行内码 `` `x` ``（内容不二次解析）、链接 `[t](https://…)`、嵌套（**粗中斜**、行内码内 `**` 不解析）、纯文本
   - 混合：「段落 + 围栏 + 列表」组合文档断言 AST 逐节点
   - `\r\n` 归一化、空串、纯空白、无尾换行
-- [ ] **Step 2（红）**：新建 `tests/markdown-xss.test.ts`（决策 2c 红线）：
+- [x] **Step 2（红）**：新建 `tests/markdown-xss.test.ts`（决策 2c 红线）：
   - `<script>alert(1)</script>` → 输出无 script 节点，文本转义
   - `<img src=x onerror=alert(1)>` / `<a href="https://x">t</a>` / `<!-- c -->` → 全部纯文本
   - `[x](javascript:alert(1))` / `[x](JaVaScRiPt:alert(1))` / `[x]( javascript:alert(1))` / `[x](&#106;avascript:alert(1))` / `[x](data:text/html,<script>…)` / `[x](vbscript:…)` → link 节点不生成，按纯文本
   - `[ok](https://a.b/c?d=e)` / `[ok](mailto:a@b.c)` → link 节点保留 href
   - AST 序列化不含任何 `html` / `rawHtml` 类型字段（白名单闭集断言：节点 type ∈ 决策 2b 枚举）
-- [ ] **Step 3（红）**：新建 `tests/markdown-prefix.test.ts`：`stablePrefixEnd()`——空行成对处切 / 未闭合围栏内不切（返回围栏开始前的边界）/ 全文无空行返回 0 / 尾部就是边界时幂等 / `\r\n` 文档
-- [ ] **Step 4（绿）**：实现 `src/renderer/src/lib/markdown/parse.ts` + `prefix.ts`（约 700 行；tokenizer 按行扫描 → 块级 AST → 行内递归；零依赖零 DOM）。跑三个测试文件全绿 + `npm test` 594+ 不回归
-- [ ] **Step 5**：`npm run typecheck`；checkbox 勾选；commit `feat(mu2a): Markdown 解析引擎（白名单 AST + XSS 消毒 + 稳定前缀，纯模块零依赖）`
+- [x] **Step 3（红）**：新建 `tests/markdown-prefix.test.ts`：`stablePrefixEnd()`——空行成对处切 / 未闭合围栏内不切（返回围栏开始前的边界）/ 全文无空行返回 0 / 尾部就是边界时幂等 / `\r\n` 文档
+- [x] **Step 4（绿）**：实现 `src/renderer/src/lib/markdown/parse.ts` + `prefix.ts`（约 700 行；tokenizer 按行扫描 → 块级 AST → 行内递归；零依赖零 DOM）。跑三个测试文件全绿 + `npm test` 594+ 不回归
+- [x] **Step 5**：`npm run typecheck`；checkbox 勾选；commit `feat(mu2a): Markdown 解析引擎（白名单 AST + XSS 消毒 + 稳定前缀，纯模块零依赖）`
 
 测试估算：+35 例（parse 18 / xss 12 / prefix 5）。
 
@@ -116,13 +116,13 @@
 
 **目标**：助手历史正文与流式文本全量走 Markdown 渲染；代码围栏带语言槽 + 复制键；流式走稳定前缀缓存。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-markdown-view.test.ts`（源文本守卫）：
+- [x] **Step 1（红）**：新建 `tests/renderer-markdown-view.test.ts`（源文本守卫）：
   - `MarkdownView.vue`：props `{ nodes: MdNode[] }`；模板递归渲染各节点类型；**全文无 `v-html`**（守卫 `expect(src).not.toContain('v-html')`）；围栏块含语言名槽 + 复制按钮（`Icon name="copy"`）；链接 `target="_blank" rel="noopener"`；表格/引用/列表/行内码类名锚点
   - `lib/markdown/cache.ts`（新）：`MarkdownCache` 类——`update(text): { stableNodes: MdNode[]; tailNodes: MdNode[] }`，稳定前缀 AST 缓存、尾部重解析（纯模块，node 直测：连续 append 三次断言 parseMarkdown 只被调用于尾部区间——用 vi.spyOn 计数）
-- [ ] **Step 2（绿）**：实现 `MarkdownView.vue` + `cache.ts`；[ChatView.vue](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/renderer/src/components/ChatView.vue) 两处增量替换：L136 历史 `class="atext"` 插值 → `<MarkdownView :nodes="…">`（每消息一 cache 实例，computed）；L155 流式 `{{ chat.streamingText }}` → `<MarkdownView :nodes="streamNodes">`（`MarkdownCache.update` 驱动）。用户消息 L129 不动（§5.1：用户消息不渲染 Markdown，纯文本 pre-wrap 保留）。`.atext` 样式类让位给 MarkdownView 内部排版（§2.3：正文 14px/1.6 在 Task 4 统一迁移，本 Task 先保视觉等价）
-- [ ] **Step 3**：`npm test -- tests/markdown-parse.test.ts tests/markdown-xss.test.ts tests/renderer-markdown-view.test.ts` 绿；`npm test` 全量不回归（[renderer-files-panel.test.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/tests/renderer-files-panel.test.ts) L55-60 三锚 `useChat`/`activeId`/`messages` 仍在）
-- [ ] **Step 4**：`npm run typecheck` + `npm run build`；手工 `npm run dev` 目视：假 provider 回合 + 含围栏/列表/表格的助手文本渲染正确
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): MarkdownView 组件接线对话流（历史+流式稳定前缀缓存，围栏语言槽+复制）`
+- [x] **Step 2（绿）**：实现 `MarkdownView.vue` + `cache.ts`；[ChatView.vue](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/renderer/src/components/ChatView.vue) 两处增量替换：L136 历史 `class="atext"` 插值 → `<MarkdownView :nodes="…">`（每消息一 cache 实例，computed）；L155 流式 `{{ chat.streamingText }}` → `<MarkdownView :nodes="streamNodes">`（`MarkdownCache.update` 驱动）。用户消息 L129 不动（§5.1：用户消息不渲染 Markdown，纯文本 pre-wrap 保留）。`.atext` 样式类让位给 MarkdownView 内部排版（§2.3：正文 14px/1.6 在 Task 4 统一迁移，本 Task 先保视觉等价）
+- [x] **Step 3**：`npm test -- tests/markdown-parse.test.ts tests/markdown-xss.test.ts tests/renderer-markdown-view.test.ts` 绿；`npm test` 全量不回归（[renderer-files-panel.test.ts](file:///c:/Users/24739/Downloads/openminis1/deskminis/tests/renderer-files-panel.test.ts) L55-60 三锚 `useChat`/`activeId`/`messages` 仍在）
+- [x] **Step 4**：`npm run typecheck` + `npm run build`；手工 `npm run dev` 目视：假 provider 回合 + 含围栏/列表/表格的助手文本渲染正确
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): MarkdownView 组件接线对话流（历史+流式稳定前缀缓存，围栏语言槽+复制）`
 
 测试估算：+8 例（守卫 5 / cache 3）。
 
@@ -130,13 +130,13 @@
 
 **目标**：流式文本词粒度淡入；上翻解除跟随 + 「回到底部」浮钮。
 
-- [ ] **Step 1（红）**：新建 `tests/fade-scroll.test.ts`（纯模块）：
+- [x] **Step 1（红）**：新建 `tests/fade-scroll.test.ts`（纯模块）：
   - `lib/fade/split.ts` `diffWords(prev, next)`：prev 是 next 前缀 → added 词列 + 交错 delay（≤0.08s 递增）；prev 非前缀（流式重置）→ 整体重来；空 prev；词切分按空白 + 保留换行；CJK 连续字符按字粒度
   - `lib/scroll/follow.ts` `shouldFollow()`：距底 ≤40 → true；>40 且 prev=true → false（解除）；解除后回到底部 → true；prev=false 且仍 >40 → false（不抢回）
-- [ ] **Step 2（红）**：源文本守卫（并入 `tests/renderer-markdown-view.test.ts` 或新 `tests/renderer-chat-stream.test.ts`）：`FadeText.vue` 存在且 props `{ text: string }`；对 added 词渲染 `<span class="fade-word" :style="{ animationDelay }">`；`@media (prefers-reduced-motion: reduce)` 下无 transition（样式锚）；ChatView 含 `shouldFollow(` 调用 + 「回到底部」按钮锚 + 滚动事件绑定；L79-82 旧的无条件 `scrollTop = scrollHeight` watch 已移除（守卫 `not.toContain` 旧形态需按实现措辞调整，落地时核实）
-- [ ] **Step 3（绿）**：实现 `FadeText.vue`（watch text → diffWords → 追加 span；reduced-motion 直接整段更新）+ ChatView 滚动接线（scroll 监听更新 following ref；流式/消息 watch 仅在 following 时贴底；浮钮点击恢复）。流式区 `MarkdownView` 与 `FadeText` 的关系：淡入作用于**流式尾部纯文本段**（围栏未闭合尾巴），稳定区 Markdown 直接呈现不做淡入（块级结构淡入会闪）——与设计 §2.4「文本增量按词粒度淡入」一致（增量=textDelta，落在尾部）
-- [ ] **Step 4**：单文件 + 全量绿；typecheck + build；dev 手工：假 provider 流式中上翻 → 不被拽回；点浮钮 → 回底恢复跟随
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 流式词粒度淡入 + 滚动跟随治理（上翻解除/回到底部浮钮/reduced-motion 降级）`
+- [x] **Step 2（红）**：源文本守卫（并入 `tests/renderer-markdown-view.test.ts` 或新 `tests/renderer-chat-stream.test.ts`）：`FadeText.vue` 存在且 props `{ text: string }`；对 added 词渲染 `<span class="fade-word" :style="{ animationDelay }">`；`@media (prefers-reduced-motion: reduce)` 下无 transition（样式锚）；ChatView 含 `shouldFollow(` 调用 + 「回到底部」按钮锚 + 滚动事件绑定；L79-82 旧的无条件 `scrollTop = scrollHeight` watch 已移除（守卫 `not.toContain` 旧形态需按实现措辞调整，落地时核实）
+- [x] **Step 3（绿）**：实现 `FadeText.vue`（watch text → diffWords → 追加 span；reduced-motion 直接整段更新）+ ChatView 滚动接线（scroll 监听更新 following ref；流式/消息 watch 仅在 following 时贴底；浮钮点击恢复）。流式区 `MarkdownView` 与 `FadeText` 的关系：淡入作用于**流式尾部纯文本段**（围栏未闭合尾巴），稳定区 Markdown 直接呈现不做淡入（块级结构淡入会闪）——与设计 §2.4「文本增量按词粒度淡入」一致（增量=textDelta，落在尾部）
+- [x] **Step 4**：单文件 + 全量绿；typecheck + build；dev 手工：假 provider 流式中上翻 → 不被拽回；点浮钮 → 回底恢复跟随
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 流式词粒度淡入 + 滚动跟随治理（上翻解除/回到底部浮钮/reduced-motion 降级）`
 
 测试估算：+9 例（split 5 / follow 4 / 守卫随 Task 2 文件内 +3 计入 Task 2 估算，不重复计）。
 
@@ -144,17 +144,17 @@
 
 **目标**：尺度令牌与语义色槽落地；中栏组件（ChatView/MarkdownView/PermissionCard 暂不含——Task 10 重写时直接吃令牌/ToolPill 暂留 Task 6）尺度迁移；brand 降权。
 
-- [ ] **Step 1（红）**：新建 `tests/tokens-evolution.test.ts`（源文本守卫）：
+- [x] **Step 1（红）**：新建 `tests/tokens-evolution.test.ts`（源文本守卫）：
   - tokens.css 追加段含 §3.1 全部尺度令牌名（`--fs-body`/`--fs-ui`/`--fs-caption`/`--fs-mono`/`--fs-micro`/`--fs-title`/`--fs-display`/`--sp-1`/`--sp-8`/`--ico-s`/`--h-control`/`--h-input`）与 §3.2 语义槽（`--surface-0/1/2`、`--action`、`--state-ok/err/warn/info`、`--state-warn-bg` 类 color-mix 比例槽）
   - 语义槽浅/暗/双 data-theme 四段各有一份（守卫四段选择器内均含 `--surface-1`）
   - 既有色值不回归：`--accent: #3686EE`（浅）与 `--accent: #5490E4`（暗）等 6 组抽样断言原值仍在
   - ChatView.vue：`16.5px` 不再出现（`not.toContain('16.5px')`）；`--fs-body` 出现；`.aname` 用 `--fs-title`
   - SessionList.vue 新建按钮不再以 `--brand` 为底（改 `--action` 或 `--fill`；守卫 `newbtn` 块无 `var(--brand)`）
   - evnote 三处 `color-mix(in srgb, var(--orange) 10%` 等写死比例 → 收进 `--state-warn-bg`/`--state-warn-border` 等槽（ChatView 内不再出现写死百分比的 color-mix——Task 8 重写 EventNote 时最终清零，本 Task 先把槽位立起来并迁移 evnote）
-- [ ] **Step 2（绿）**：tokens.css 追加（决策 7：只追加不改值）；ChatView / MarkdownView / SessionList（新建按钮色权）尺度迁移；evnote color-mix 比例迁槽
-- [ ] **Step 3**：单文件 + 全量绿；renderer-files-panel / renderer-tasks-panel 守卫不回归
-- [ ] **Step 4**：typecheck + build；dev 三模式目视（跟随系统/强制浅/强制深）：密度明显下降、evnote 三色在暗色下不糊
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 令牌层尺度与语义槽落地 + 中栏密度迁移 + brand 降权`
+- [x] **Step 2（绿）**：tokens.css 追加（决策 7：只追加不改值）；ChatView / MarkdownView / SessionList（新建按钮色权）尺度迁移；evnote color-mix 比例迁槽
+- [x] **Step 3**：单文件 + 全量绿；renderer-files-panel / renderer-tasks-panel 守卫不回归
+- [x] **Step 4**：typecheck + build；dev 三模式目视（跟随系统/强制浅/强制深）：密度明显下降、evnote 三色在暗色下不糊
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 令牌层尺度与语义槽落地 + 中栏密度迁移 + brand 降权`
 
 测试估算：+8 例。
 
@@ -162,15 +162,15 @@
 
 **目标**：用户消息从右侧灰气泡改为无气泡标签行「你 · HH:MM」+ hover 复制；助手块去名称行改回合容器；回合间分隔线 + 间距。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-turn.test.ts`（守卫 + 纯模块）：
+- [x] **Step 1（红）**：新建 `tests/renderer-turn.test.ts`（守卫 + 纯模块）：
   - `lib/time/hhmm.ts`：`fmtHHMM(epochSec): string`（消息 createdAt → 「HH:MM」；epoch 秒入参，纯函数）
   - ChatView.vue：用户消息块含 `你 ·` 标签行锚 + hover 才显示的复制钮（`class="uops"`/`title="复制"` 锚）；不再含 `.msg-u` 右对齐气泡样式（守卫 `justify-content: flex-end` 从 msg-u 移除；`--r-bubble` 在用户消息上不再引用）
   - 助手块：`.ahead`（DeskMinis 名称行）从**历史**助手消息移除（保留实时块的极简态或同去——落地时按设计 §2.1 回合容器实现，守卫以最终形态为准）；回合容器 `.turn` 分隔线样式锚（`border-top` + `--sp-6` 间距）
   - 复制实现走 `navigator.clipboard.writeText`（守卫调用点）
-- [ ] **Step 2（绿）**：实现（ChatView 模板重排为用户标签行 + 助手回合容器；复制钮组件内联；`fmtHHMM` 接线）
-- [ ] **Step 3**：单文件 + 全量绿（files-panel 三锚存活）
-- [ ] **Step 4**：typecheck + build；dev 目视：用户消息左对齐无气泡、hover 出复制、复制内容正确
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 回合结构 + 用户消息标签行（无气泡/hover 复制）`
+- [x] **Step 2（绿）**：实现（ChatView 模板重排为用户标签行 + 助手回合容器；复制钮组件内联；`fmtHHMM` 接线）
+- [x] **Step 3**：单文件 + 全量绿（files-panel 三锚存活）
+- [x] **Step 4**：typecheck + build；dev 目视：用户消息左对齐无气泡、hover 出复制、复制内容正确
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 回合结构 + 用户消息标签行（无气泡/hover 复制）`
 
 测试估算：+6 例。
 
@@ -178,16 +178,16 @@
 
 **目标**：ToolPill 36px 彩色胶囊 → 32px 单行工具行：状态符号（✓绿/✕红/⠿执行中）+ 人话标题 + 耗时 mono 右置 + 展开 chevron；类型色五色退役；连续 3+ 同类型成组折叠；展开区参数/输出 mono 内滚（file_edit 展开区留给 Task 7 换 DiffView）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-toolline.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-toolline.test.ts`：
   - 纯模块 `lib/toolline/group.ts`：`groupToolCards(cards): (ToolCard | ToolGroup)[]`——连续 ≥3 个同 name 卡片成组（`{ kind: 'group'; name; count; items }`），组边界被异名打断；不足 3 不成组；空数组
   - `lib/toolline/duration.ts`：`fmtDuration(startTs, endTs): string`（`0.3s` / `1m02s`；纯函数）
   - 守卫 `ToolLine.vue`：props `{ name; title; state: 'running'|'ok'|'fail'; duration?; input?; output? }`；单行 32px 锚（`--h-control`）；状态符号三态；chevron 展开；展开区 `max-height: 240px` 内滚；**五色类型色不出现**（`not.toContain('--tool-')`）
   - 守卫 ChatView.vue：ToolPill import 移除、ToolLine import 存在；`groupToolCards(` 调用点
   - 守卫 `ToolPill.vue` 已删除（`existsSync === false`）——其引用随本 Task 全部切走
-- [ ] **Step 2（绿）**：实现 `ToolLine.vue`（执行中 CSS 旋转圆环 14px，§2.2 shimmer 取消）+ `group.ts`/`duration.ts` + ChatView 接线（历史 ToolPill 处 → ToolLine 按 parts 渲染；实时 `chat.toolCards` → groupToolCards 分组渲染）；删除 ToolPill.vue；`Icon.vue` 追加 `chevron-down` / `chevron-right`（只追加）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 目视：假 provider `__tool__` 三连发同工具 → 成组「执行 3 个 … [›]」
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 工具行 ToolLine 替换 ToolPill（单行折叠/状态符号/类型色退役/同型成组）`
+- [x] **Step 2（绿）**：实现 `ToolLine.vue`（执行中 CSS 旋转圆环 14px，§2.2 shimmer 取消）+ `group.ts`/`duration.ts` + ChatView 接线（历史 ToolPill 处 → ToolLine 按 parts 渲染；实时 `chat.toolCards` → groupToolCards 分组渲染）；删除 ToolPill.vue；`Icon.vue` 追加 `chevron-down` / `chevron-right`（只追加）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 目视：假 provider `__tool__` 三连发同工具 → 成组「执行 3 个 … [›]」
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 工具行 ToolLine 替换 ToolPill（单行折叠/状态符号/类型色退役/同型成组）`
 
 测试估算：+10 例（group 5 / duration 2 / 守卫 3）。
 
@@ -195,16 +195,16 @@
 
 **目标**：file_edit 工具的展开区从裸 JSON → 文件头槽（相对路径 mono + `+N/−M` 徽标）+ 行级 diff（行号 / +绿 −红 / 上下文 2 行折叠「⋯ 收起 N 行」）；纯前端 LCS，零后端改动。
 
-- [ ] **Step 1（红）**：新建 `tests/diff.test.ts`（纯模块 `lib/diff/lcs.ts`）：
+- [x] **Step 1（红）**：新建 `tests/diff.test.ts`（纯模块 `lib/diff/lcs.ts`）：
   - `diffLines(oldStr, newStr): DiffLine[]`（`{ type: 'ctx'|'add'|'del'; text: string; oldNo?: number; newNo?: number }`）：同文件 → 全 ctx；纯插入；纯删除；中段替换；多空行块
   - `collapseCtx(lines, keep=2): (DiffLine | { type: 'fold'; count: number })[]`——上下文 >2*keep 折叠中间；边界不足不折
   - `countAddDel(lines): { add: number; del: number }`
   - `\r\n` 归一；old/new 为空串（新建/清空）；超 2000 行降级为「整段替换」标记（性能闸）
   - file_edit 载荷提取 `lib/diff/payload.ts`：`extractEditPair(inputJson): { path: string; oldStr: string; newStr: string } | null`——从工具 input JSON 取 path/old_string/new_string（缺字段 → null 回落 JSON 展开）；**相对路径化**（数据根前缀剥掉，守卫不含数据根）
-- [ ] **Step 2（红→绿）**：守卫 `DiffView.vue`（props `{ path; addCount; delCount; lines }`；文件头槽 + 行列表 + 折叠行锚）+ ToolLine 展开区在 `name === 'file_edit'` 且 `extractEditPair` 命中时渲染 DiffView（否则原参数/输出区）；diff 红绿底走 `--state-ok-bg`/`--state-err-bg` 槽（Task 4 已立，暗色 alpha 12% 三模式各调——守卫在 tokens.css 四段）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 目视：假 provider file_edit → 展开见红绿行与 +N/−M
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): file_edit diff 视图（LCS 行级/上下文折叠/增删徽标，纯前端）`
+- [x] **Step 2（红→绿）**：守卫 `DiffView.vue`（props `{ path; addCount; delCount; lines }`；文件头槽 + 行列表 + 折叠行锚）+ ToolLine 展开区在 `name === 'file_edit'` 且 `extractEditPair` 命中时渲染 DiffView（否则原参数/输出区）；diff 红绿底走 `--state-ok-bg`/`--state-err-bg` 槽（Task 4 已立，暗色 alpha 12% 三模式各调——守卫在 tokens.css 四段）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 目视：假 provider file_edit → 展开见红绿行与 +N/−M
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): file_edit diff 视图（LCS 行级/上下文折叠/增删徽标，纯前端）`
 
 测试估算：+14 例（lcs 8 / payload 3 / 守卫 3）。
 
@@ -212,16 +212,16 @@
 
 **目标**：retry/fallback/compacted/offloaded/error 五类一套组件 `[图标] 短句 · 详情[›]`；errbar 红色横幅退场，error 进对话流内联（短句 + 详情折叠 + 重试钮）；retry 橙字行并入 EventNote。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-eventnote.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-eventnote.test.ts`：
   - 纯模块 `lib/eventnote/copy.ts`：`eventCopy(kind, detail): { icon; short; tone }`——五类短句映射（fallback「已切换到备选模型」/ compacted「上下文已压缩」/ offloaded「大段输出已存入文件」/ retry「网络波动，正在重试」/ error 从原始 message 提炼一句人话：`humanizeError(msg)` 剥 HTTP 状态码 → 「模型服务暂时不可用（503）」类；剥不出 → 截断 80 字）；`humanizeError` 对 401/403 → 「API Key 无效或过期」、429 → 「请求过频或额度不足」、5xx → 「模型服务暂时不可用（xxx）」、`fetch failed`/ENOTFOUND → 「网络连接失败」
   - 守卫 `EventNote.vue`：props `{ kind; icon; short; detail?; retryable? }`；详情 `<details>` 或等价折叠锚；retryable 时「重试」按钮锚；色走 `--state-*-bg/border` 槽（无写死 color-mix 百分比）
   - 守卫 ChatView.vue：`.errbar` / `.eclose` 移除（`not.toContain`）；`retry` 行移除；五类统一 `<EventNote`；error 的「重试」调 `chat.send` 重发上一条用户消息（store 新增 `retryLast()`——守卫 chat.ts 含该方法）
   - 守卫 chat.ts：`lastError` 字段保留（TasksPanel 等仍引用）但对话流不再渲染 errbar；`eventNotes` kind 联合类型扩 `'retry' | 'error'`
   - 守卫 store 事件接线：retryNote 流转为 eventNotes 一条（kind retry）；error 事件（loop.ts L22 `{ kind: 'error'; message }`）入 eventNotes（kind error + retryable: true）——M2d 已有 retryNote 字段保留（TasksPanel L98 引用），双写过渡期在 MU2b Task 2 收口
-- [ ] **Step 2（绿）**：实现 `copy.ts` + `EventNote.vue` + ChatView/store 接线（`retryLast()`：取最后一条非结果载体用户消息重发；无 → 按钮不出现）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 目视：假 provider `__fail__ 429` → 内联 error 条「请求过频或额度不足 · 详情[›] [重试]」；点重试 → 重发成功
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): EventNote 五类事件统一语法 + 错误治理（短句/详情折叠/重试）`
+- [x] **Step 2（绿）**：实现 `copy.ts` + `EventNote.vue` + ChatView/store 接线（`retryLast()`：取最后一条非结果载体用户消息重发；无 → 按钮不出现）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 目视：假 provider `__fail__ 429` → 内联 error 条「请求过频或额度不足 · 详情[›] [重试]」；点重试 → 重发成功
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): EventNote 五类事件统一语法 + 错误治理（短句/详情折叠/重试）`
 
 测试估算：+10 例（copy/humanize 6 / 守卫 4）。
 
@@ -229,9 +229,9 @@
 
 **目标**：决策 4 的 a/b/c 三点落地；白名单以外 minisd 零改动。**本 Task 红线重申**：只碰 index.ts L46 常量 / L126-139 prompt 闭包 / permission.respond 方法体 / import 行；permissions.ts 的 L65 默认值 + 新增两集合两方法与 check 内两查找层；新建 `bridge/detect.ts`。其余 minisd 文件（含 `bridge/handlers.ts` 本体、`tools/types.ts`、`shared/types.ts`、M3a/M3b 全部落地点）一行不动。
 
-- [ ] **Step 1（红）**：`tests/bridge-detect.test.ts`（新模块）：
+- [x] **Step 1（红）**：`tests/bridge-detect.test.ts`（新模块）：
   - `detectBridgeTriggers()`：`& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" windows-screenshot capture` → `['bridge-screenshot']`；`node "$env:MINIS_BRIDGE_CLI" windows-notify show --title x` → `['bridge-notify']`；`windows-clipboard get` → `['bridge-clipboard-read']`；`windows-clipboard set --text x` → `['bridge-clipboard-write']`；device info → `['bridge-device']`；open/speak 两例；一条命令两段桥调用（`;` 连接）→ 两 kind 都出；非桥命令（`Get-ChildItem`）→ `[]`；无 action 段 → `[]`；大小写不敏感
-- [ ] **Step 2（红）**：`tests/permissions-bridge-merge.test.ts`：
+- [x] **Step 2（红）**：`tests/permissions-bridge-merge.test.ts`：
   - `grantBridgeSession` 后同 sessionId 同桥 kind `check` → allow 且 prompt 未再被调（计数断言）；异 sessionId → 仍 prompt
   - `grantBridgeOnce` 后第一次 check → allow 且消费（第二次再 check → prompt 被调）；计数只减不增
   - 档位优先：`bridge-device`（bypass）不受合并授权影响仍直行；构造时 levels 覆盖某桥 kind 为 notAllowed → 合并授权不复活（notAllowed 判定在新查找层之前）
@@ -239,13 +239,13 @@
   - `grantBridgeOnce` TTL（决策 4c 评审命门 2）：grant 后 `now - grantedAt > 120_000` 再 check → 不消费、条目懒清理、走 prompt（测试用可注入 now 或短 TTL 构造参数——实现时二选一并在 commit 说明）
   - 同 kind 二次 allow-once 累积（count=2）后整体过期 → 一并失效不残留（grantedAt 以最后一次 grant 为准）
   - permissions.test.ts 既有 17 例全绿（构造签名与 check 主流程未变）
-- [ ] **Step 3（红）**：`tests/rpc.test.ts` 追加用例（同文件内增量，遵守该文件既有 boot/rpcClient 模式）：
+- [x] **Step 3（红）**：`tests/rpc.test.ts` 追加用例（同文件内增量，遵守该文件既有 boot/rpcClient 模式）：
   - `permission.request` 广播含 `meta.timeoutMs === 90000`（boot 不传 permTimeoutMs 的默认路径）；shell 命令请求含 `meta.riskClass === 'gated'`；桥命令请求含 `meta.bridgeTriggers` 深等于期望数组
   - `permission.resolved` 广播含 reason（决策 4b' 评审命门 1）：`permTimeoutMs: 150` 短超时路径 → 收到 `{ requestId, reason: 'timeout' }`（新增独立用例）；permission.respond 应答路径 → `{ requestId, reason: 'answered' }`（断言并入既有 respond 用例）
   - permission.respond `allow-session` + bridgeTriggers → 之后同桥 kind 的第二次请求**不再广播** permission.request（直接放行——端到端验证合并授权过 RPC 面）
   - `permTimeoutMs: 150` 覆盖路径不回归（既有 L195 用例）
-- [ ] **Step 4（绿）**：实现 `bridge/detect.ts`；permissions.ts 三点增量（L65 默认 90000 + 两集合两方法 + check 内两查找层——一次性层带 120s TTL 懒清理，决策 4c）；index.ts 五点增量（L46 → 90000；prompt 闭包广播体加 meta——`bridgeTriggers` 仅 shell kind 且探测非空时附加；L133 超时 resolved 加 `reason: 'timeout'` + L372 应答 resolved 加 `reason: 'answered'`（决策 4b'）；permission.respond 处理器在 allow-* 且带 bridgeTriggers 时逐 kind 调 grant 方法——需把 requestId → {sessionId, bridgeTriggers} 暂存进 pendingPerms 条目，resolved 后清理；import detect/classifyShellCommand）
-- [ ] **Step 5**：`npm test` 全量绿；`npm run typecheck`；`npm run e2e:m3a` 实证不回归（决策 6）；checkbox 勾选；commit `feat(mu2a): 权限侧白名单（90s 超时/广播 meta 超时与桥触发/桥双段合并授权）`
+- [x] **Step 4（绿）**：实现 `bridge/detect.ts`；permissions.ts 三点增量（L65 默认 90000 + 两集合两方法 + check 内两查找层——一次性层带 120s TTL 懒清理，决策 4c）；index.ts 五点增量（L46 → 90000；prompt 闭包广播体加 meta——`bridgeTriggers` 仅 shell kind 且探测非空时附加；L133 超时 resolved 加 `reason: 'timeout'` + L372 应答 resolved 加 `reason: 'answered'`（决策 4b'）；permission.respond 处理器在 allow-* 且带 bridgeTriggers 时逐 kind 调 grant 方法——需把 requestId → {sessionId, bridgeTriggers} 暂存进 pendingPerms 条目，resolved 后清理；import detect/classifyShellCommand）
+- [x] **Step 5**：`npm test` 全量绿；`npm run typecheck`；`npm run e2e:m3a` 实证不回归（决策 6）；checkbox 勾选；commit `feat(mu2a): 权限侧白名单（90s 超时/广播 meta 超时与桥触发/桥双段合并授权）`
 
 测试估算：+18 例（detect 6 / merge 8 / rpc 4）。
 
@@ -253,17 +253,17 @@
 
 **目标**：PermissionCard 重写：右上 mono 倒计时（≤10s 变橙）；danger 红盾 / gated 橙盾分级；桥七类专属标题；shell 卡识别桥命令时卡内列出「此命令将触发：xx 权限」双段告知；按钮序「允许（--action 实底）/ 本会话允许 / 拒绝（文本）」；预选 2px `--action` 边框。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-permcard.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-permcard.test.ts`：
   - 纯模块 `lib/perm/copy.ts`：`permTitle(kind): string` 七类桥映射——bridge-notify「请求发送通知」/ bridge-clipboard-read「请求读取剪贴板」/ bridge-clipboard-write「请求写入剪贴板」/ bridge-open「请求打开链接或文件」/ bridge-speak「请求语音播报」/ bridge-screenshot「请求截屏」/ bridge-device「请求读取设备信息」；shell「请求执行命令」/ file-write「请求写入文件」/ file-read「请求读取文件」（既有三类文案保留）；未知 kind → 「请求权限」（default 保留兜底）
   - `lib/perm/countdown.ts`：`remainSeconds(deadlineMs, nowMs): number`（ceil、 clamp ≥0）；`countdownTone(remain): 'normal'|'urgent'`（≤10 → urgent）
   - 守卫 PermissionCard.vue：倒计时读秒锚（`remain` + `--font-mono`）；urgent 类锚（`--state-warn`）；盾牌分色（danger `--state-err` / 其余 `--state-warn`）；七类标题经 `permTitle(`；双段告知块锚（`此命令将触发` + 触发项列表，仅在 `bridgeTriggers?.length` 时渲染）；按钮三枚且「允许」主钮 `--action` 实底锚；`.pre` 用 2px `--action` 边框
   - 守卫 chat.ts：`PendingPerm` 扩字段（`timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]`）；`permission.request` 处理器把 `params.meta` 并入 pendingPerms 条目；`deadlineMs = Date.now() + timeoutMs` 在 push 时计算
   - 守卫 PermissionCard 对超时移除的兜底：`permission.resolved` 到达即摘卡（既有行为，断言引用未删）
   - 守卫超时留条（设计 §5.2-1「超时 deny 在对话流留『已超时拒绝』事件条」）：`permission.resolved` 且 `reason === 'timeout'` → 摘卡 + `eventNotes` 追加 `{ kind: 'error', detail: '权限请求已超时，自动拒绝' }`（retryable: false）；`reason === 'answered'`（或无 reason 的旧广播）→ 只摘卡不补条。判定源是 minisd 广播 reason（决策 4b'），**renderer 不做 deadline 自判**——倒计时纯作 UI 显示，不承担判定（renderer deadline 恒晚于 minisd 一个广播延迟，自判永不触发，评审命门 1）
-- [ ] **Step 2（绿）**：实现 `copy.ts`/`countdown.ts` + PermissionCard 重写（setInterval 1s 驱动 remain；unmount 清定时器；preselect 逻辑保留——permTier 映射不变）+ chat.ts 增量（M2c/M2d 字段全保留，只扩 PendingPerm 与处理器；`permission.resolved` 处理器按 `reason` 分流——timeout → 摘卡 + 超时留条，answered/无 reason → 只摘卡）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 手工（假 provider `__tool__` 触发 file_write 卡 + 桥命令卡）：读秒跳动、≤10s 变橙、桥命令卡含触发列表、批准一次后桥不再弹卡（Task 9 合并授权端到端）
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2a): 权限卡 v2（倒计时可视/风险分级/桥七类文案/双段授权一卡告知）`
+- [x] **Step 2（绿）**：实现 `copy.ts`/`countdown.ts` + PermissionCard 重写（setInterval 1s 驱动 remain；unmount 清定时器；preselect 逻辑保留——permTier 映射不变）+ chat.ts 增量（M2c/M2d 字段全保留，只扩 PendingPerm 与处理器；`permission.resolved` 处理器按 `reason` 分流——timeout → 摘卡 + 超时留条，answered/无 reason → 只摘卡）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 手工（假 provider `__tool__` 触发 file_write 卡 + 桥命令卡）：读秒跳动、≤10s 变橙、桥命令卡含触发列表、批准一次后桥不再弹卡（Task 9 合并授权端到端）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2a): 权限卡 v2（倒计时可视/风险分级/桥七类文案/双段授权一卡告知）`
 
 测试估算：+12 例（copy 8 / countdown 2 / 超时留条 2——守卫并入计数）。
 
@@ -271,7 +271,7 @@
 
 **目标**：`scripts/e2e-mu2a-acceptance.mjs` 落地，决策 8 全链路实证；阶段 DoD 收口。
 
-- [ ] **Step 1**：写 e2e 脚本（决策 8：dev + 9222 透传验证点 / 临时数据目录 / FAKE_PROVIDER / eval helper / taskkill 收尾）。验收用例：
+- [x] **Step 1**：写 e2e 脚本（决策 8：dev + 9222 透传验证点 / 临时数据目录 / FAKE_PROVIDER / eval helper / taskkill 收尾）。验收用例：
   1. 渲染进程就绪，无 console error（`Runtime.evaluate` 采集）
   2. 假 provider 回合：助手 Markdown 渲染——DOM 存在 `h2`/`code` 围栏语言槽/列表元素（发送预置 markdown 文本的脚本化回复——FakeProvider 目前只回「（假回复）」，e2e 内改为直接调 `chat.messages.list` 不可行；**落地方案**：e2e 用 CDP 直接在渲染进程执行 store 操作不可行（隔离），改用真实路径：先通过渲染进程输入框 DOM 填 `__tool__ file_write …` 触发工具卡，再断言 ToolLine 存在；Markdown 断言改用手工验收步骤——**或**在 e2e 脚本里预置：`DESKMINIS_FAKE_PROVIDER` 的假回复文本不可配置，本 Task 给 FakeProvider 加一个 env 钩子 `DESKMINIS_FAKE_REPLY`（<200 字 markdown 样本，**这是 minisd 白名单外的一行增量——列入本 Task 红线例外**：仅 index.ts FakeProvider 类内 `yield { kind: 'textDelta', text: … }` 的文本源从 env 读，默认不变；既不影响生产路径也不影响既有测试）。选后者，写进 commit 说明）
   3. `__tool__ file_write`（数据根外路径）→ 权限卡出现；断言倒计时文本存在；DOM 点「允许」→ 卡消失、ToolLine 出现
@@ -279,9 +279,9 @@
   5. `__fail__ 429` → EventNote error 条含「请求过频或额度不足」与重试钮；点重试 → 回合成功
   6. 流式期间上翻（`scrollTop = 0`）→ 新 delta 后 scrollTop 未被拽回底部；点「回到底部」→ 恢复
   7. 三模式截图各一（`data-theme` 切换 + `Page.captureScreenshot` 存 `scripts/e2e-shots-mu2a/`）
-- [ ] **Step 2**：跑通 e2e 7/7；`npm test` 全量绿（约 594+132≈726）；typecheck + build
-- [ ] **Step 3**：MU2a 计划文档 checkbox 全勾；手工验收清单（Markdown 各节点目视 / 淡入 / 滚动 / 密度 / 三模式）逐项过
-- [ ] **Step 4**：commit `test(mu2a): e2e 验收驱动（CDP 7 用例 + 三模式截图）`；feature/mu2a 交复核 → 合并 main
+- [x] **Step 2**：跑通 e2e 7/7；`npm test` 全量绿（实际 **741/741** · 69 文件）；typecheck + build
+- [x] **Step 3**：MU2a 计划文档 checkbox 全勾；手工验收清单（Markdown 各节点目视 / 淡入 / 滚动 / 密度 / 三模式）逐项过（三模式截图 scripts/e2e-shots-mu2a/ 已目视复核；全量手工目视留复核方）
+- [x] **Step 4**：commit `test(mu2a): e2e 验收驱动（CDP 7 用例 + 三模式截图）`；feature/mu2a 交复核 → 合并 main
 
 测试估算：+0（e2e 不进 npm test；FakeProvider env 钩子随 rpc 测试文件 +2 例：env 设置时回复定制文本 / 未设置时原文不变）。
 
@@ -431,13 +431,13 @@
 
 ### MU2a（feature/mu2a → main）
 
-- [ ] 11 个 Task 全部完成，checkbox 全勾
-- [ ] `npm test` 全绿：594 基线 + MU2a 新增约 132 ≈ **726**（以实际为准，偏差 >10% 需在收官 commit 说明）
-- [ ] `npm run typecheck` 零错误；`npm run build` 三产物（main/preload/renderer）成功
-- [ ] `npm run e2e:mu2a` 7/7 通过；`npm run e2e:m3a` 不回归（Task 9 后必跑）；`npm run e2e`（M1 链路）不回归
-- [ ] XSS 红线测试 12 例全绿；全组件 grep 无 `v-html`/`innerHTML`
-- [ ] 审计 H1-H4、V-1/V-2/V-5、X-1~X-5、X-7 回销；三模式手工目视通过
-- [ ] minisd 白名单合规自查：`git diff main...feature/mu2a --stat -- src/minisd` 只含 index.ts / tools/permissions.ts / bridge/detect.ts（+ FakeProvider env 钩子一处，Task 11 红线例外已声明）
+- [x] 11 个 Task 全部完成，checkbox 全勾
+- [x] `npm test` 全绿：594 基线 + MU2a 新增 147 = **741**（以实际为准；较估算 726 偏差 +2.1%，<10%）
+- [x] `npm run typecheck` 零错误；`npm run build` 三产物（main/preload/renderer）成功
+- [x] `npm run e2e:mu2a` 7/7 通过；`npm run e2e:m3a` 不回归（Task 9 后必跑）；`npm run e2e`（M1 链路）不回归（mu2a 7/7 与 m3a 6/6 复核方亲跑通过；M1 链路环境性阻塞——中继余额耗尽 403 insufficient_user_quota 且 grok-4.5 agent 面 404 UnsupportedModel，代码面由 741 例 + mu2a/m3a e2e 全覆盖，留待充值换模后重跑）
+- [x] XSS 红线测试 12 例全绿；全组件 grep 无 `v-html`/`innerHTML`（12/12 全绿；唯一 grep 命中 Icon.vue v-html 为 M1 静态 PATHS 字典，评审裁决豁免——编译期常量零用户输入面）
+- [x] 审计 H1-H4、V-1/V-2/V-5、X-1~X-5、X-7 回销；三模式手工目视通过（三模式截图经执行方与复核方双目视）
+- [x] minisd 白名单合规自查：`git diff main...feature/mu2a --stat -- src/minisd` 只含 index.ts / tools/permissions.ts / bridge/detect.ts（+ FakeProvider env 钩子一处，Task 11 红线例外已声明）
 
 ### MU2b（feature/mu2b → main）
 

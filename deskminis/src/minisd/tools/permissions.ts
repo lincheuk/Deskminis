@@ -54,17 +54,37 @@ const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
   'bridge-screenshot': 'askOnce',
 };
 
+/** 桥一次性合并授权的 TTL（决策 4c 评审命门 2）：超时未消费的授权懒清理，防探测假阳性留悬挂授权。 */
+const BRIDGE_ONCE_TTL_MS = 120_000;
+
 export class PermissionGatewayImpl implements PermissionGateway {
   private levels: Record<PermissionClass, PermissionLevel>;
   /** 会话批准：按 (sessionId, kind, 精确命令/路径/能力串) 记忆——同一条命令原样重复才静默。 */
   private sessionGrants = new Set<string>();
+  /** 桥会话合并授权（决策 4c）：按 (sessionId, 桥 kind) 记忆——shell 卡批准一次，该桥本会话不再弹卡。 */
+  private sessionBridgeGrants = new Set<string>();
+  /** 桥一次性合并授权：计数 + 最后授予时刻（120s TTL，check 时懒清理）。 */
+  private bridgeOnce = new Map<string, { count: number; grantedAt: number }>();
 
   constructor(
     private prompt: PermissionPrompt,
     levels?: Partial<Record<PermissionClass, PermissionLevel>>,
-    private askTimeoutMs = 30000,
+    private askTimeoutMs = 90000,
+    private now: () => number = Date.now, // 可注入时钟（TTL 测试用）；生产默认 Date.now
   ) {
     this.levels = { ...DEFAULT_LEVELS, ...levels };
+  }
+
+  /** 决策 4c：shell 卡「本会话允许」时对该命令探测到的每个桥 kind 做会话级授权。 */
+  grantBridgeSession(sessionId: string, kind: BridgePermissionKind): void {
+    this.sessionBridgeGrants.add(`${sessionId} ${kind}`);
+  }
+
+  /** 决策 4c：shell 卡「允许一次」时计数 +1；同 kind 多次 grant 的 grantedAt 以最后一次为准。 */
+  grantBridgeOnce(sessionId: string, kind: BridgePermissionKind): void {
+    const key = `${sessionId} ${kind}`;
+    const cur = this.bridgeOnce.get(key);
+    this.bridgeOnce.set(key, { count: (cur?.count ?? 0) + 1, grantedAt: this.now() });
   }
 
   async check(req: PermissionRequest): Promise<PermissionDecision> {
@@ -75,6 +95,20 @@ export class PermissionGatewayImpl implements PermissionGateway {
     if (this.levels[cls] === 'notAllowed') return 'deny';
     const grantKey = `${req.sessionId}\u0000${req.kind}\u0000${req.detail}`;
     if (this.sessionGrants.has(grantKey)) return 'allow';
+
+    // 桥双段合并授权（决策 4c）：精确 key 之后、prompt 之前；先会话级按 kind，再一次性计数消费。
+    if (req.kind.startsWith('bridge-')) {
+      const bKey = `${req.sessionId} ${req.kind}`;
+      if (this.sessionBridgeGrants.has(bKey)) return 'allow';
+      const once = this.bridgeOnce.get(bKey);
+      if (once) {
+        if (this.now() - once.grantedAt <= BRIDGE_ONCE_TTL_MS) {
+          if (once.count > 1) once.count -= 1; else this.bridgeOnce.delete(bKey);
+          return 'allow';
+        }
+        this.bridgeOnce.delete(bKey); // 过期懒清理：不消费，走 prompt
+      }
+    }
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<'deny'>(res => { timer = setTimeout(() => res('deny'), this.askTimeoutMs); });

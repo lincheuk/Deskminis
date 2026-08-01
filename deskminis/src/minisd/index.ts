@@ -7,8 +7,8 @@ import { ProviderStore, KeyringVault, InMemoryVault, type SecretVault } from './
 import { ToolRegistry } from './tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
 import { ShellManager, makeShellTool } from './tools/shell';
-import { PermissionGatewayImpl, type PermissionPrompt } from './tools/permissions';
-import type { PermissionRequest } from './tools/types';
+import { PermissionGatewayImpl, classifyShellCommand, type PermissionPrompt } from './tools/permissions';
+import type { BridgePermissionKind, PermissionRequest } from './tools/types';
 import { runAgentLoop, type ProviderSlot } from './agent/loop';
 import { RpcServer } from './rpc/server';
 import { ProviderError, type AgentProvider, type StreamRequest } from './providers/types';
@@ -28,6 +28,7 @@ import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
 import { SkillImporter, type ImportKind } from './skills/importer';
 import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath, resolveBridgeNode } from './bridge/server';
+import { detectBridgeTriggers } from './bridge/detect';
 import { makeBridgeDispatcher } from './bridge/handlers';
 import { TerminalManager } from './terminal';
 import { FilesService } from './files';
@@ -43,7 +44,7 @@ function assertSessionId(id: unknown): string {
 }
 
 /** 权限询问未响应的兜底时限：与 PermissionGatewayImpl 的 askTimeoutMs 保持一致。 */
-const PERM_TIMEOUT_MS = 30000;
+const PERM_TIMEOUT_MS = 90000;
 
 /** 假 provider（仅测试用，DESKMINIS_FAKE_PROVIDER=1 时对 providerId '__fake__' 生效） */
 class FakeProvider implements AgentProvider {
@@ -62,7 +63,8 @@ class FakeProvider implements AgentProvider {
       yield { kind: 'done', stopReason: 'toolUse' };
       return;
     }
-    yield { kind: 'textDelta', text: '（假回复）' };
+    // MU2a Task 11（计划内红线例外）：e2e 经 DESKMINIS_FAKE_REPLY 定制回复文本（markdown DOM 断言用）；未设置时默认原文不变
+    yield { kind: 'textDelta', text: process.env.DESKMINIS_FAKE_REPLY ?? '（假回复）' };
     // 真 provider 是网络 I/O：这里也让出一个宏任务，否则整个 agent 循环在微任务里
     // 一口气跑完，"会话运行中"这个状态在外部永远观察不到（并发锁将无法测试）。
     await new Promise(r => setTimeout(r, 30));
@@ -118,24 +120,38 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
   // 权限：把询问经 RPC 广播给 UI，UI 用 permission.respond 回决议。
   // 广播给所有连接是安全的——RpcServer 现在要求 per-run token，能连上的只可能是本应用自己的窗口。
-  interface PendingPerm { resolve: (d: 'allow-once' | 'allow-session' | 'deny') => void; timer: ReturnType<typeof setTimeout> }
+  interface PendingPerm {
+    resolve: (d: 'allow-once' | 'allow-session' | 'deny') => void;
+    timer: ReturnType<typeof setTimeout>;
+    /** 原请求（决策 4c：respond 时取 sessionId 做桥合并授权）。 */
+    req: PermissionRequest;
+    /** shell 命令探测到的桥触发（决策 4b/4c；非桥命令恒为空数组）。 */
+    bridgeTriggers: BridgePermissionKind[];
+  }
   const pendingPerms = new Map<string, PendingPerm>();
   // 网关的兜底时限与这里的清理时限必须是同一个值，否则总有一侧留下悬挂状态
   const permTimeoutMs = opts?.permTimeoutMs ?? PERM_TIMEOUT_MS;
   let rpc: RpcServer;
   const prompt: PermissionPrompt = (req: PermissionRequest) => new Promise(resolve => {
     const requestId = randomUUID().toUpperCase();
+    // 决策 4b：广播附 meta（超时秒数/风险分级/桥触发探测——bridgeTriggers 仅 shell kind 且探测非空时附加）
+    const bridgeTriggers = req.kind === 'shell' ? detectBridgeTriggers(req.detail) : [];
+    const meta: { timeoutMs: number; riskClass?: string; bridgeTriggers?: BridgePermissionKind[] } = { timeoutMs: permTimeoutMs };
+    if (req.kind === 'shell') {
+      meta.riskClass = classifyShellCommand(req.detail);
+      if (bridgeTriggers.length > 0) meta.bridgeTriggers = bridgeTriggers;
+    }
     // 超时不通知 UI 的话，卡片会永远留在界面上（而网关那边早已按 deny 继续），
     // 同时 pendingPerms 只增不减。到点主动清理 + 广播 resolved。
     const timer = setTimeout(() => {
       if (!pendingPerms.has(requestId)) return;
       pendingPerms.delete(requestId);
-      rpc.broadcast('permission.resolved', { requestId });
+      rpc.broadcast('permission.resolved', { requestId, reason: 'timeout' }); // 决策 4b'：Task 10 超时留条的判定源
       resolve('deny');
     }, permTimeoutMs);
     timer.unref?.();
-    pendingPerms.set(requestId, { resolve, timer });
-    rpc.broadcast('permission.request', { requestId, req });
+    pendingPerms.set(requestId, { resolve, timer, req, bridgeTriggers });
+    rpc.broadcast('permission.request', { requestId, req, meta });
   });
   const gateway = new PermissionGatewayImpl(prompt, undefined, permTimeoutMs);
 
@@ -367,9 +383,12 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       if (entry) {
         clearTimeout(entry.timer);
         pendingPerms.delete(p.requestId);
+        // 决策 4c 桥双段授权合并：shell 卡批准时，对探测到的每个桥 kind 同步授权（会话级/一次性计数）
+        if (p.decision === 'allow-session') for (const k of entry.bridgeTriggers) gateway.grantBridgeSession(entry.req.sessionId, k);
+        else if (p.decision === 'allow-once') for (const k of entry.bridgeTriggers) gateway.grantBridgeOnce(entry.req.sessionId, k);
         entry.resolve(p.decision);
         // 同一个请求可能在多个窗口里显示：告诉所有客户端这张卡片已了结
-        rpc.broadcast('permission.resolved', { requestId: p.requestId });
+        rpc.broadcast('permission.resolved', { requestId: p.requestId, reason: 'answered' }); // 决策 4b'
       }
       return { ok: true };
     },

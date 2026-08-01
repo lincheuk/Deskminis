@@ -67,6 +67,41 @@
   /* 助手图标暖色渐变 */
   --assistant-gradient: linear-gradient(135deg, #B8B097, #99998C);
 
+  /* ===== MU2a 追加：§3.1 尺度令牌（主题无关，只写一次） ===== */
+  /* 字号尺度（桌面密度基线 14） */
+  --fs-display: 17px;   /* 设置页标题 */
+  --fs-title:   15px;   /* 面板头、卡片标题 */
+  --fs-body:    14px;   /* 正文 */
+  --fs-ui:      13px;   /* UI 控件、列表项 */
+  --fs-caption: 12px;   /* 辅助说明 */
+  --fs-mono:    12.5px; /* 代码/读数 */
+  --fs-micro:   11px;   /* 角标、耗时 */
+  /* 间距尺度（4 的倍数） */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+  /* 图标尺寸 */
+  --ico-s: 14px; --ico-m: 16px; --ico-l: 20px;
+  /* 控件高 */
+  --h-control: 32px; --h-input: 36px;
+
+  /* ===== MU2a 追加：§3.2 语义色槽（浅；四段各一份，比例三模式各调） ===== */
+  --surface-0: var(--bg);                     /* 应用底 */
+  --surface-1: var(--grouped-bg-secondary);   /* 卡片 */
+  --surface-2: var(--grouped-bg-tertiary);    /* 卡中槽 */
+  --action: var(--accent);                    /* 唯一主行动色（链接/主按钮/选中） */
+  --on-action: #FFFFFF;                       /* --action 实底上的文字色（两档 accent 蓝均可用白，模式无关只此一份） */
+  --state-ok: var(--green);   --state-err: var(--red);
+  --state-warn: var(--orange); --state-info: var(--link);
+  /* color-mix 比例槽（组件禁写死百分比，§3.3-1） */
+  --state-ok-bg: color-mix(in srgb, var(--green) 10%, transparent);
+  --state-ok-border: color-mix(in srgb, var(--green) 30%, transparent);
+  --state-err-bg: color-mix(in srgb, var(--red) 10%, transparent);
+  --state-err-border: color-mix(in srgb, var(--red) 30%, transparent);
+  --state-warn-bg: color-mix(in srgb, var(--orange) 10%, transparent);
+  --state-warn-border: color-mix(in srgb, var(--orange) 30%, transparent);
+  --state-info-bg: color-mix(in srgb, var(--link) 10%, transparent);
+  --state-info-border: color-mix(in srgb, var(--link) 30%, transparent);
+
   color-scheme: light;
 }
 
@@ -106,6 +141,22 @@
     --cyan: #64D2FF;
 
     --material-tint: rgba(30, 30, 30, .6);
+
+    /* ===== MU2a 追加：§3.2 语义色槽（暗；bg 比例 10%→12%） ===== */
+    --surface-0: var(--bg);
+    --surface-1: var(--grouped-bg-secondary);
+    --surface-2: var(--grouped-bg-tertiary);
+    --action: var(--accent);
+    --state-ok: var(--green);   --state-err: var(--red);
+    --state-warn: var(--orange); --state-info: var(--link);
+    --state-ok-bg: color-mix(in srgb, var(--green) 12%, transparent);
+    --state-ok-border: color-mix(in srgb, var(--green) 30%, transparent);
+    --state-err-bg: color-mix(in srgb, var(--red) 12%, transparent);
+    --state-err-border: color-mix(in srgb, var(--red) 30%, transparent);
+    --state-warn-bg: color-mix(in srgb, var(--orange) 12%, transparent);
+    --state-warn-border: color-mix(in srgb, var(--orange) 30%, transparent);
+    --state-info-bg: color-mix(in srgb, var(--link) 12%, transparent);
+    --state-info-border: color-mix(in srgb, var(--link) 30%, transparent);
 
     color-scheme: dark;
   }
@@ -147,6 +198,22 @@
 
   --material-tint: rgba(30, 30, 30, .6);
 
+  /* ===== MU2a 追加：§3.2 语义色槽（强制暗，同媒体暗段） ===== */
+  --surface-0: var(--bg);
+  --surface-1: var(--grouped-bg-secondary);
+  --surface-2: var(--grouped-bg-tertiary);
+  --action: var(--accent);
+  --state-ok: var(--green);   --state-err: var(--red);
+  --state-warn: var(--orange); --state-info: var(--link);
+  --state-ok-bg: color-mix(in srgb, var(--green) 12%, transparent);
+  --state-ok-border: color-mix(in srgb, var(--green) 30%, transparent);
+  --state-err-bg: color-mix(in srgb, var(--red) 12%, transparent);
+  --state-err-border: color-mix(in srgb, var(--red) 30%, transparent);
+  --state-warn-bg: color-mix(in srgb, var(--orange) 12%, transparent);
+  --state-warn-border: color-mix(in srgb, var(--orange) 30%, transparent);
+  --state-info-bg: color-mix(in srgb, var(--link) 12%, transparent);
+  --state-info-border: color-mix(in srgb, var(--link) 30%, transparent);
+
   color-scheme: dark;
 }
 
@@ -185,6 +252,22 @@
   --cyan: #32ADE6;
 
   --material-tint: rgba(255, 255, 255, .6);
+
+  /* ===== MU2a 追加：§3.2 语义色槽（强制浅，同 :root 段） ===== */
+  --surface-0: var(--bg);
+  --surface-1: var(--grouped-bg-secondary);
+  --surface-2: var(--grouped-bg-tertiary);
+  --action: var(--accent);
+  --state-ok: var(--green);   --state-err: var(--red);
+  --state-warn: var(--orange); --state-info: var(--link);
+  --state-ok-bg: color-mix(in srgb, var(--green) 10%, transparent);
+  --state-ok-border: color-mix(in srgb, var(--green) 30%, transparent);
+  --state-err-bg: color-mix(in srgb, var(--red) 10%, transparent);
+  --state-err-border: color-mix(in srgb, var(--red) 30%, transparent);
+  --state-warn-bg: color-mix(in srgb, var(--orange) 10%, transparent);
+  --state-warn-border: color-mix(in srgb, var(--orange) 30%, transparent);
+  --state-info-bg: color-mix(in srgb, var(--link) 10%, transparent);
+  --state-info-border: color-mix(in srgb, var(--link) 30%, transparent);
 
   color-scheme: light;
 }
