@@ -2,8 +2,10 @@ import { defineStore } from 'pinia';
 import { rpc } from '../rpc';
 
 let localSeq = 0;
+// M3c Task 7：sync.dirty → syncing → 2s 回 idle 的回退定时器（模块级非响应式，单 store 实例）
+let _syncDirtyTimer: ReturnType<typeof setTimeout> | undefined;
 
-interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number } }
+interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number }; originDeviceId?: string }
 interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
@@ -38,22 +40,43 @@ export const useChat = defineStore('chat', {
     lastStopReason: '' as string,
     // M2d · #10 事件 UI 接线：四种目前未消费事件（fallback/compacted/offloaded/retry）的状态。
     //   retry 已有 retryNote 字段沿用；其余三种新增会话级环内联提示 + 任务面板状态字典。
-    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'|'retry'|'error'; ts: number; detail?: string; retryable?: boolean }[], // 对话流内联气泡（最多保留 10 条）；MU2a Task 8 扩 retry/error 两类（error 带 retryable 供重试钮）
+    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'|'retry'|'error'|'synced'; ts: number; detail?: string; retryable?: boolean }[], // 对话流内联气泡（最多保留 10 条）；MU2a Task 8 扩 retry/error 两类（error 带 retryable 供重试钮）；M3c Task 7 扩 synced（同步完成）
     fallbackState: null as null | { from: string; to: string; reason: string }, // 任务面板「降级」卡（对齐 loop.ts: fallback(from,to,reason)）
     compactedState: null as null | { markerId: string; summary: string }, // 任务面板「压缩」卡（对齐 loop.ts: compacted(markerId,summary)；无 fromCount/toCount/freedTokens）
     offloadedState: null as null | { count: number; lastRelativePath?: string }, // 任务面板「卸载」卡（对齐 loop.ts: offloaded(toolUseId,relativePath)；逐条自增计数，附最近一条路径）
     // M2d · #7：chat.contextInfo 轮询缓存（任务面板水位条显示窗口 + 当次用量）
     contextInfo: null as null | { windowTokens: number; usedTokens: number; remaining: number },
     // MU2b Task 7：配对管理面（DevicesModal）——已配对设备脱敏列表（remote.status；
-    // 指纹/名称/roomId/配对时间，无密钥材料）。last seen 一期不可得（RPC 无此字段），展示配对时间。
-    devices: [] as { peerFingerprint: string; peerName: string; roomId: string; createdAt: number }[],
+    // 指纹/名称/roomId/配对时间，无密钥材料）。M3c Task 5 增 online/lastSeenAt（命门 2 出站∪入站合并）。
+    devices: [] as { peerFingerprint: string; peerName: string; roomId: string; createdAt: number; online: boolean; lastSeenAt: number }[],
     // 发起配对中的会话（remote.pair.begin 返回）；null = 未在发起。expiresIn 秒、startedAt ms。
     pairingSession: null as null | { code: string; myFingerprint: string; expiresIn: number; startedAt: number },
+    // M3c Task 7：全局同步状态点三态（TitleBar）——offline 无设备/idle 空闲/syncing 同步中。
+    // sync.dirty notify → syncing → 2s 后回 idle（一期简化，无 sync.settled 事件）。
+    syncState: 'offline' as 'offline' | 'idle' | 'syncing',
   }),
   actions: {
     async init() {
       await rpc.connect();
-      rpc.on('chat.event', ({ sessionId, event }: any) => { if (sessionId === this.activeId) this.onEvent(event); });
+      // M3c Task 7：chat.event 兼容两种 payload——
+      //   ① 既有 LoopEvent：{ sessionId, event: { kind, ... } } → onEvent(event)
+      //   ② M3c synced：{ kind:'synced', sessionId, mergedCount, fromDevice } → 推入 eventNotes
+      rpc.on('chat.event', (payload: any) => {
+        const { sessionId, event } = payload;
+        if (payload.kind === 'synced') {
+          if (sessionId === this.activeId) {
+            this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'synced' as const, ts: Date.now(), detail: `已同步 ${Number(payload.mergedCount ?? 0)} 条来自 ${String(payload.fromDevice ?? '').slice(0, 6)}` }];
+          }
+          return;
+        }
+        if (sessionId === this.activeId) this.onEvent(event);
+      });
+      // M3c Task 7：sync.dirty notify → syncState='syncing' → 2s 后回 'idle'
+      rpc.on('sync.dirty', () => {
+        this.syncState = 'syncing';
+        if (_syncDirtyTimer) clearTimeout(_syncDirtyTimer);
+        _syncDirtyTimer = setTimeout(() => { this.syncState = 'idle'; _syncDirtyTimer = undefined; }, 2000);
+      });
       // MU2a Task 10：params.meta 并入条目（超时秒数/风险分级/桥触发列表）；deadlineMs 在 push 时一次算定
       rpc.on('permission.request', ({ requestId, req, meta }: any) => this.pendingPerms.push({
         requestId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle,
@@ -213,6 +236,13 @@ export const useChat = defineStore('chat', {
     async unpair(fingerprint: string) {
       await rpc.call('remote.unpair', { peerFingerprint: fingerprint });
       await this.refreshDevices();
+    },
+    // M3c Task 7：加入配对（免手抄公钥，决策 3）——调 remote.pair.join 真出站完成配对，
+    // 成功后刷新设备列表 + 返回 peerFingerprint 供 UI 人工比对。RPC 由 Task 4 实装。
+    async joinPairing(p: { host: string; port: number; pairingCode: string; peerName?: string }): Promise<string> {
+      const r = await rpc.call('remote.pair.join', p);
+      await this.refreshDevices();
+      return String(r.peerFingerprint);
     },
     // MU2a Task 8：错误条「重试」——重发最后一条非结果载体的真实用户消息（结果载体无文本，被 text.trim() 自然跳过）；
     // 找不到可重发消息则静默无操作（ChatView 侧以 canRetry 保证按钮不出现）

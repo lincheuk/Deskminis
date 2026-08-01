@@ -120,6 +120,19 @@ function userTime(m: UiMsg): string { return typeof m.createdAt === 'number' ? f
 // hover 复制：用户正文纯文本进剪贴板
 function copyUser(text: string): void { void navigator.clipboard.writeText(text); }
 
+// M3c Task 7：回合区消息设备标（决策 7c）——originDeviceId 映射色 + 6 字短名（数据源 M3b 已有）
+function deviceHue(fp: string): number {
+  let h = 0;
+  for (let i = 0; i < fp.length; i++) h = (h * 31 + fp.charCodeAt(i)) % 360;
+  return h;
+}
+function deviceColor(fp: string | undefined): string {
+  return fp ? `hsl(${deviceHue(fp)}, 65%, 50%)` : 'var(--label-tertiary)';
+}
+function deviceShortName(fp: string | undefined): string {
+  return fp ? fp.slice(0, 6) : '';
+}
+
 // ---- Markdown 渲染（MU2a Task 2）：每消息一 MarkdownCache 实例（决策 3 稳定前缀缓存）----
 // 静态历史文本零重解析（cache 对同文本幂等）；会话切换清空，防内存滞留。
 const mdCaches = new Map<string, MarkdownCache>();
@@ -294,6 +307,7 @@ function onSlashTab(e: KeyboardEvent): void {
             <div class="ublock">
               <div class="urow">
                 <span class="utag">你 · <span class="utime">{{ userTime(t.user.msg) }}</span></span>
+                <span v-if="t.user.msg.originDeviceId" class="devmark" :style="{ color: deviceColor(t.user.msg.originDeviceId) }" :title="`来自 ${t.user.msg.originDeviceId}`">● {{ deviceShortName(t.user.msg.originDeviceId) }}</span>
                 <button class="uops" type="button" title="复制" @click="copyUser(t.user!.text)"><Icon name="copy" :size="13" /></button>
               </div>
               <div class="utext">{{ t.user.text }}</div>
@@ -301,6 +315,7 @@ function onSlashTab(e: KeyboardEvent): void {
           </template>
           <div v-for="m in t.assistants" :key="m.id" class="msg-a">
             <div class="abody">
+              <div v-if="m.originDeviceId" class="devmark-line"><span class="devdot" :style="{ background: deviceColor(m.originDeviceId) }"></span><span class="devname" :style="{ color: deviceColor(m.originDeviceId) }">{{ deviceShortName(m.originDeviceId) }}</span></div>
               <template v-for="(p, i) in (Array.isArray(m.parts) ? m.parts : [])" :key="i">
                 <MarkdownView v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" :nodes="mdOf(`${m.id}:${i}`)" />
                 <ToolLine
@@ -505,4 +520,9 @@ function onSlashTab(e: KeyboardEvent): void {
 .send :deep(svg) { stroke: var(--on-action); }
 .send:disabled { background: var(--label-quaternary); cursor: default; }
 .send.stop :deep(svg) { stroke: var(--on-action); fill: var(--on-action); }
+/* M3c Task 7：回合区消息设备标（决策 7c）——originDeviceId 映射色点 + 6 字短名 */
+.devmark { font-size: var(--fs-micro); font-family: var(--font-mono); opacity: .8; }
+.devmark-line { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; }
+.devdot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.devname { font-size: var(--fs-micro); font-family: var(--font-mono); opacity: .8; }
 </style>

@@ -40,7 +40,7 @@ describe('MU2b Task 7 配对管理面：lib/devices/fmt 纯模块（4 例）', (
 
 describe('MU2b Task 7 配对管理面：store 与组件守卫（5 例）', () => {
   it('chat.ts 纯增量：devices/pairingSession state + refreshDevices/beginPairing/cancelPairing/unpair 四 actions 接 remote.* 三 RPC', () => {
-    expect(chatStore).toContain('devices: [] as { peerFingerprint: string; peerName: string; roomId: string; createdAt: number }[]');
+    expect(chatStore).toContain('devices: [] as { peerFingerprint: string; peerName: string; roomId: string; createdAt: number; online: boolean; lastSeenAt: number }[]');
     expect(chatStore).toContain('pairingSession: null as null | { code: string; myFingerprint: string; expiresIn: number; startedAt: number }');
     expect(chatStore).toContain('async refreshDevices()');
     expect(chatStore).toContain("rpc.call('remote.status')");

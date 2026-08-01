@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /** 配对管理面（MU2b Task 7，设计 §7.1）——三区块：
- *  ① 已配对设备列表（remote.status 脱敏视图：设备名/指纹 mono/配对时间/移除钮二次确认）；
+ *  ① 已配对设备列表（remote.status 脱敏视图：设备名/指纹 mono/配对时间/在线点/移除钮二次确认）；
  *  ② 发起配对（remote.pair.begin → 8 字码 32px mono 字距 8px + expiresIn 倒计时复用 lib/perm/countdown
  *     + 「等待对端输入…」状态句；发起中 2s 轮询 remote.status，设备出现即清 pairingSession 滑入列表；
  *     超时 → 「配对码已过期，请重新发起」）；
- *  ③ 加入配对一期置灰：remote.pair.complete 是 pairing authMode 专属（remote/index.ts assertAuthMode 实证），
- *     桌面端一期只有被动侧，出站通道属 M3c。
- *  红线：只消费既有 remote.status / remote.pair.begin / remote.unpair，不新增任何 RPC。 */
+ *  ③ 加入配对（M3c Task 7 启用）：host:port + 配对码两输入，免手抄公钥（决策 3）——
+ *     调 chat.joinPairing → remote.pair.join 真出站完成配对，返回 peerFingerprint 供人工比对。
+ *  红线：只消费既有 remote.status / remote.pair.begin / remote.unpair / remote.pair.join，不新增任何 RPC。 */
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
 import { remainSeconds, countdownTone } from '../lib/perm/countdown';
@@ -64,10 +64,41 @@ watch(() => chat.pairingSession, (p) => {
   }, 2000);
 });
 
-// ---- ③ 加入配对（一期置灰）：归一化接线保留，M3c 启用 ----
+// ---- ③ 加入配对（M3c Task 7 启用）：host:port + 配对码两输入，免手抄公钥 ----
+const joinAddr = ref('');
 const joinCode = ref('');
+const joinError = ref('');
+const joinResultFp = ref('');
+const joinBusy = ref(false);
 function onJoinInput(e: Event): void {
   joinCode.value = codeInputNormalize((e.target as HTMLInputElement).value);
+}
+// host:port 解析（支持 IPv4 + 端口；IPv6 暂不支持，局域网场景够用）
+function parseHostPort(s: string): { host: string; port: number } | null {
+  const m = /^([^:]+):(\d+)$/.exec(s.trim());
+  if (!m) return null;
+  const port = Number(m[2]);
+  if (!port || port < 1 || port > 65535) return null;
+  return { host: m[1], port };
+}
+async function onJoin(): Promise<void> {
+  joinError.value = '';
+  joinResultFp.value = '';
+  const hp = parseHostPort(joinAddr.value);
+  if (!hp) { joinError.value = '请输入 host:port（如 192.168.1.5:7820）'; return; }
+  const code = joinCode.value.trim();
+  if (!code) { joinError.value = '请输入配对码'; return; }
+  joinBusy.value = true;
+  try {
+    const fp = await chat.joinPairing({ host: hp.host, port: hp.port, pairingCode: code });
+    joinResultFp.value = fp;
+    joinAddr.value = '';
+    joinCode.value = '';
+  } catch (e) {
+    joinError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    joinBusy.value = false;
+  }
 }
 
 function relTime(epochSec: number): string {
@@ -100,6 +131,7 @@ onBeforeUnmount(() => {
         <div class="sectitle">已配对设备</div>
         <div v-if="!chat.devices.length" class="empty">暂无已配对设备</div>
         <div v-for="d in chat.devices" :key="d.peerFingerprint" class="devcard">
+          <span class="dot" :class="d.online ? 'on' : 'off'" :title="d.online ? '在线' : '离线'"></span>
           <div class="dtxt">
             <div class="dname">{{ d.peerName || '未命名设备' }}</div>
             <div class="dmeta">
@@ -137,18 +169,24 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <!-- ③ 加入配对（一期置灰） -->
+      <!-- ③ 加入配对（M3c 启用）：host:port + 配对码两输入，免手抄公钥 -->
       <div class="sect">
         <div class="sectitle">加入配对</div>
         <div class="joinrow">
           <input
+            class="codeinput joinaddr" type="text" v-model="joinAddr" placeholder="host:port"
+            title="输入对端 IP:端口"
+          />
+          <input
             class="codeinput" type="text" :value="joinCode" placeholder="XXXX-XXXX"
-            disabled title="需 M3c 出站通道"
+            title="输入配对码"
             @input="onJoinInput"
           />
-          <button class="pbtn" type="button" disabled title="需 M3c 出站通道">加入</button>
+          <button class="pbtn" type="button" :disabled="joinBusy" @click="onJoin">{{ joinBusy ? '配对中…' : '加入' }}</button>
         </div>
-        <div class="snote">桌面端一期仅作被动侧（等待对端输入配对码）；主动加入他端需 M3c 出站通道，暂不可用。</div>
+        <div v-if="joinError" class="snote err">{{ joinError }}</div>
+        <div v-else-if="joinResultFp" class="snote ok">已配对：{{ joinResultFp }}</div>
+        <div v-else class="snote">输入对端显示的 host:port 和配对码，建立加密连接（无需手抄公钥）。</div>
       </div>
     </div>
   </div>
@@ -183,6 +221,9 @@ onBeforeUnmount(() => {
 .dmeta { display: flex; align-items: center; gap: 10px; margin-top: 3px; }
 .dfp { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--label-secondary); }
 .dtime { font-size: var(--fs-micro); color: var(--label-tertiary); }
+.dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--label-tertiary); }
+.dot.on { background: var(--state-ok); }
+.dot.off { background: var(--label-tertiary); opacity: .5; }
 .codewrap {
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px;
   border: .5px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
@@ -210,5 +251,8 @@ onBeforeUnmount(() => {
   letter-spacing: 2px; outline: none;
 }
 .codeinput:disabled { opacity: .45; }
+.codeinput.joinaddr { letter-spacing: 0; font-family: var(--font-mono); }
 .snote { font-size: var(--fs-caption); color: var(--label-tertiary); line-height: 1.6; padding: 8px 2px; }
+.snote.err { color: var(--state-err); }
+.snote.ok { color: var(--state-ok); }
 </style>

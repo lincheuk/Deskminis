@@ -3,7 +3,7 @@
  *  左：侧栏开关 + 菜单栏（仅真实可用项）；中：当前会话名；
  *  右：留空给 Electron titleBarOverlay 绘制的原生 min/max/close（DOM 不自绘）。
  *  MU2b Task 5 瘦身：无 handler 的前进/后退删除；菜单 noop 项全删（帮助组随之整组移除）。 */
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useChat } from '../stores/chat';
 import Icon from './Icon.vue';
 
@@ -15,6 +15,18 @@ const emit = defineEmits<{
 }>();
 
 const chat = useChat();
+
+// M3c Task 7：全局同步状态点三态（决策 7b）——offline 无在线设备（灰）/idle 已同步（绿）/syncing 同步中（橙脉冲）。
+// 红砍掉（M3c LWW+orphan 自动裁决不产生人判冲突，无数据源）。数据源 chat.syncState + chat.devices.online。
+const syncDisplay = computed<'offline' | 'idle' | 'syncing'>(() => {
+  if (chat.syncState === 'syncing') return 'syncing';
+  return chat.devices.some(d => d.online) ? 'idle' : 'offline';
+});
+const syncTitle = computed(() => {
+  if (syncDisplay.value === 'syncing') return '同步中…';
+  if (syncDisplay.value === 'idle') return `已同步（${chat.devices.filter(d => d.online).length} 台在线）`;
+  return '无在线设备';
+});
 
 interface MenuItem { label?: string; kbd?: string; act?: string; sep?: boolean; danger?: boolean }
 interface Menu { id: string; label: string; items: MenuItem[] }
@@ -98,6 +110,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
       </div>
     </div>
     <div class="tb-title">{{ title }}</div>
+    <div class="syncdot" :class="syncDisplay" :title="syncTitle"></div>
     <div class="tb-spacer"></div>
   </div>
 </template>
@@ -141,4 +154,10 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 }
 /* 右上角留给系统原生窗口控制（titleBarOverlay），此占位保证自绘内容不被遮挡 */
 .tb-spacer { flex: 0 0 140px; }
+/* M3c Task 7：同步状态点三态（决策 7b）——灰无设备/绿已同步/橙脉冲同步中 */
+.syncdot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; -webkit-app-region: no-drag; }
+.syncdot.offline { background: var(--label-tertiary); opacity: .5; }
+.syncdot.idle { background: var(--state-ok); }
+.syncdot.syncing { background: var(--state-warn); animation: m3c-pulse 1.2s ease-in-out infinite; }
+@keyframes m3c-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 </style>
