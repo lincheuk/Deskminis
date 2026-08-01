@@ -43,12 +43,12 @@ describe('M2d Task 4 文件面板（组件源文本守卫，5 例）', () => {
     expect(filesPanel).toContain("refreshKey.value++");
   });
 
-  it('Step 3 App.vue 3 处增量：import FilesPanel；rightTab===files 时 v-show + v-if visited.files；tasks 页签占位（或已被 Task 5 填实 TasksPanel，演进关系 #3 串行不回退）', () => {
+  it('Step 3 App.vue 3 处增量：import FilesPanel；rightTab===files 时 v-show + v-if visited.files；progress 页签占位（或已被填实面板，演进关系 #3 串行不回退；MU2b Task 1 修订：tasks → progress 换名）', () => {
     expect(app).toContain("import FilesPanel from './components/FilesPanel.vue'");
     expect(app).toContain("v-show=\"rightTab === 'files'\"");
     expect(app).toContain("FilesPanel v-if=\"visited.files\"");
-    // 兼容：Task 4 单步时是 v-if rempty；Task 5 合入后变成 v-show TasksPanel（都代表“tasks 页已被 UI 处理”）
-    const hasRemptyOrPanel = app.includes('rightTab === \'tasks\'');
+    // 兼容：单步时是 v-if rempty；面板合入后变成 v-show 面板组件（都代表“progress 页已被 UI 处理”）
+    const hasRemptyOrPanel = app.includes('rightTab === \'progress\'');
     expect(hasRemptyOrPanel).toBe(true);
   });
 

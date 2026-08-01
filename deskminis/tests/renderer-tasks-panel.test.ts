@@ -77,10 +77,10 @@ describe('M2d Task 5 任务面板（store 增量 + 视图 + App 接线，7 例�
     expect(tasksPanel).toContain("大工具输出已卸载"); // 与 loop.ts 的 offloaded(toolUseId,relativePath) 语义对齐：非「历史消息」而是大工具输出逐条约盘
   });
 
-  it('Step 3. App.vue 2 处增量（Task 4 → Task 5 串行演进）：import TasksPanel；rightTab===tasks 时 v-show v-if visited.tasks；terminal/files 页签 v-show 保留；import TerminalPanel/FilesPanel 不变', () => {
+  it('Step 3. App.vue 2 处增量（Task 4 → Task 5 串行演进；MU2b Task 1 修订：tasks 页签名改 progress，断言语义不变只换名）：import TasksPanel；rightTab===progress 时 v-show v-if visited.progress；terminal/files 页签 v-show 保留；import TerminalPanel/FilesPanel 不变', () => {
     expect(app).toContain("import TasksPanel from './components/TasksPanel.vue'");
-    expect(app).toContain("v-show=\"rightTab === 'tasks'\"");
-    expect(app).toContain("TasksPanel v-if=\"visited.tasks\"");
+    expect(app).toContain("v-show=\"rightTab === 'progress'\"");
+    expect(app).toContain("TasksPanel v-if=\"visited.progress\"");
     // 另外两页签 v-show 仍然是懒挂载保活（演进 #3 串行：Task 3 + Task 4 保留）
     expect(app).toContain("v-show=\"rightTab === 'terminal'\"");
     expect(app).toContain("v-show=\"rightTab === 'files'\"");

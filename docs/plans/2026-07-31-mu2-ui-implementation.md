@@ -295,14 +295,14 @@
 
 **目标**：右栏 300→360px 默认宽、320–480 可拖（6px 热区分隔条）、可收起保留；tab 从「终端/文件/任务+gear」重排为「**进度**（默认）/产物/文件/终端」；gear 暂留（Task 5 移除，串行演进不回退——M2d 先例）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-rightpane.test.ts`（守卫 + 纯模块）：
+- [x] **Step 1（红）**：新建 `tests/renderer-rightpane.test.ts`（守卫 + 纯模块）：
   - `lib/pane/drag.ts`：`clampPaneWidth(px): number`（<320→320、>480→480、区间原值）；`nextWidth(startX, startW, moveX): number`（左拖增宽：dx 取反 + clamp，纯函数）
   - 守卫 [App.vue](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/renderer/src/App.vue)：`.pane-r` 宽 `360px`；`rightTab` 类型含 `'progress' | 'artifacts' | 'files' | 'terminal'`；tab 行四个文本 tab（进度/产物/文件/终端）+ gear 暂存锚；默认 tab `'progress'`；分隔条元素锚（`class="rdrag"` + mousedown 绑定）
   - 守卫宽度持久化：拖拽结果写 `localStorage('deskminis.rightW')`，启动读回（localStorage 读写锚）
-- [ ] **Step 2（绿）**：实现 App.vue 增量（tab 类型/默认值/分隔条拖拽接线/宽度持久化）；tasks tab 改名「进度」仍挂 TasksPanel（Task 2 替换组件）；产物 tab 一期挂占位 div（Task 3 填实，同 M2d「串行演进占位」模式）
-- [ ] **Step 3**：单文件 + 全量绿（renderer-tasks-panel/renderer-files-panel 的 App.vue 锚点按 Global Constraints 修订清单**同步修订**：`rightTab === 'tasks'` → `'progress'`、visited 字段名同步——断言语义不变只换名）
-- [ ] **Step 4**：typecheck + build；dev 手工：拖拽 320/480 边界钳制、重启宽度保留、终端 80 列不折行（360px）
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 右栏骨架（360px 默宽/320-480 拖拽/tab 重排进度默认）`
+- [x] **Step 2（绿）**：实现 App.vue 增量（tab 类型/默认值/分隔条拖拽接线/宽度持久化）；tasks tab 改名「进度」仍挂 TasksPanel（Task 2 替换组件）；产物 tab 一期挂占位 div（Task 3 填实，同 M2d「串行演进占位」模式）
+- [x] **Step 3**：单文件 + 全量绿（renderer-tasks-panel/renderer-files-panel 的 App.vue 锚点按 Global Constraints 修订清单**同步修订**：`rightTab === 'tasks'` → `'progress'`、visited 字段名同步——断言语义不变只换名）
+- [x] **Step 4**：typecheck + build；dev 手工：拖拽 320/480 边界钳制、重启宽度保留、终端 80 列不折行（360px）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 右栏骨架（360px 默宽/320-480 拖拽/tab 重排进度默认）`
 
 测试估算：+6 例（drag 3 / 守卫 3）。
 
