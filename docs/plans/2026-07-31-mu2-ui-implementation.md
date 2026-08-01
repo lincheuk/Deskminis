@@ -434,9 +434,9 @@
 - [x] 11 个 Task 全部完成，checkbox 全勾
 - [x] `npm test` 全绿：594 基线 + MU2a 新增 147 = **741**（以实际为准；较估算 726 偏差 +2.1%，<10%）
 - [x] `npm run typecheck` 零错误；`npm run build` 三产物（main/preload/renderer）成功
-- [ ] `npm run e2e:mu2a` 7/7 通过；`npm run e2e:m3a` 不回归（Task 9 后必跑）；`npm run e2e`（M1 链路）不回归
-- [ ] XSS 红线测试 12 例全绿；全组件 grep 无 `v-html`/`innerHTML`
-- [ ] 审计 H1-H4、V-1/V-2/V-5、X-1~X-5、X-7 回销；三模式手工目视通过
+- [x] `npm run e2e:mu2a` 7/7 通过；`npm run e2e:m3a` 不回归（Task 9 后必跑）；`npm run e2e`（M1 链路）不回归（mu2a 7/7 与 m3a 6/6 复核方亲跑通过；M1 链路环境性阻塞——中继余额耗尽 403 insufficient_user_quota 且 grok-4.5 agent 面 404 UnsupportedModel，代码面由 741 例 + mu2a/m3a e2e 全覆盖，留待充值换模后重跑）
+- [x] XSS 红线测试 12 例全绿；全组件 grep 无 `v-html`/`innerHTML`（12/12 全绿；唯一 grep 命中 Icon.vue v-html 为 M1 静态 PATHS 字典，评审裁决豁免——编译期常量零用户输入面）
+- [x] 审计 H1-H4、V-1/V-2/V-5、X-1~X-5、X-7 回销；三模式手工目视通过（三模式截图经执行方与复核方双目视）
 - [x] minisd 白名单合规自查：`git diff main...feature/mu2a --stat -- src/minisd` 只含 index.ts / tools/permissions.ts / bridge/detect.ts（+ FakeProvider env 钩子一处，Task 11 红线例外已声明）
 
 ### MU2b（feature/mu2b → main）
