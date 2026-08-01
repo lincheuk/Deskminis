@@ -111,7 +111,7 @@ onMounted(() => {
 .win { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 
 .pane-l {
-  width: 260px; flex: 0 0 260px; background: var(--bg); border-right: .5px solid var(--separator);
+  width: 232px; flex: 0 0 232px; background: var(--bg); border-right: .5px solid var(--separator);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .pane-c { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }

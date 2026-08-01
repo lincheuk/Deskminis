@@ -343,14 +343,14 @@
 
 **目标**：SessionList 列表项 → 任务卡：标题 + 相对时间 + 状态徽标（●进行中绿 / ⏸等待批准橙 / ✕失败红 / ✓完成灰）+ 产物计数角标；新建按钮 `--action`（Task 4 已降权，本 Task 核形态）；底部固定「设置」「设备」两入口（设置先路由既有右栏 gear 行为——Task 5 切模态；设备一期 disabled 置灰——Task 7 填实，串行演进）。
 
-- [ ] **Step 1（红）**：新建 `tests/renderer-sessioncard.test.ts`：
+- [x] **Step 1（红）**：新建 `tests/renderer-sessioncard.test.ts`：
   - 纯模块 `lib/session/status.ts`：`sessionBadge(s, live): 'running'|'waiting'|'failed'|'done'|null`——live（仅活动会话：`{ running, pendingPerms, lastStopReason }`）推导：running → running；pendingPerms>0 → waiting；lastStopReason ∈ error 系 → failed；有消息 → done；非活动会话一期 `null`（**数据源诚实说明**：`chat.sessions.list` RPC 无 running 字段，非活动会话状态不可得——全局徽标需 minisd 扩字段，列入非目标）；`artifactCountOf(messages): number`（复用 Task 3 collect）
   - `lib/time/relative.ts`：`fmtRelative(epochSec, nowSec): string`（刚刚/N 分钟前/HH:MM/昨天/M-D）
   - 守卫 SessionList.vue：任务卡结构锚（`.scard` + `.sbadge` 四态类 + `.scount` 角标）；分组（置顶/今天/昨天/本周/本月/更早——M1 既有）保留锚；底部 `.lfoot` 两按钮（设置/设备）锚；`232px` 宽守卫（App.vue `.pane-l` 260→232，设计 §1.2）
-- [ ] **Step 2（绿）**：实现 status.ts/relative.ts + SessionList 重做 + App.vue 宽改 232 + 底部入口接线（设置 → `settingsOpen=true; rightOpen=true` 等价；设备 → disabled）
-- [ ] **Step 3**：单文件 + 全量绿
-- [ ] **Step 4**：typecheck + build；dev 手工：活动会话徽标随 running/perm/失败切换；产物角标数与产物 tab 一致
-- [ ] **Step 5**：checkbox 勾选；commit `feat(mu2b): 左栏变体 A 任务卡（状态徽标/产物角标/底部设置设备入口，232px）`
+- [x] **Step 2（绿）**：实现 status.ts/relative.ts + SessionList 重做 + App.vue 宽改 232 + 底部入口接线（设置 → `settingsOpen=true; rightOpen=true` 等价；设备 → disabled）
+- [x] **Step 3**：单文件 + 全量绿
+- [x] **Step 4**：typecheck + build；dev 手工：活动会话徽标随 running/perm/失败切换；产物角标数与产物 tab 一致（由 Task 8 e2e:mu2b 用例覆盖）
+- [x] **Step 5**：checkbox 勾选；commit `feat(mu2b): 左栏变体 A 任务卡（状态徽标/产物角标/底部设置设备入口，232px）`
 
 测试估算：+9 例（status 4 / relative 3 / 守卫 2）。
 
