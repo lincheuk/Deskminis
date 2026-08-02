@@ -1,6 +1,7 @@
 import type { AgentMessage, CompactMarker, RawMessage } from '../../shared/types';
 import type { AgentProvider } from '../providers/types';
 import type { ChatStore } from '../store/chat-store';
+import { sanitizeMultiline } from './sanitize';
 
 const RECENT_USER_TURNS = 3;
 
@@ -54,9 +55,21 @@ export class CompactEngine {
     const anchorMsg = anchorIdx >= 0 ? history[anchorIdx] : history[0];
     const toSummarize = anchorIdx >= 0 ? history.slice(0, anchorIdx + 1) : [];
 
-    // 调 provider 生成摘要
+    // 调 provider 生成摘要（出口侧消毒：toSummarize 的 parts 过 sanitizeMultiline——送给压缩 provider 的出口侧）
     const summaryPrompt = '请用不超过 500 字总结以下对话的关键信息（用户意图、已做决策、关键文件路径、待办事项）。只输出摘要正文，不要额外格式：\n\n';
-    const messages: AgentMessage[] = toSummarize.map(m => ({ role: m.role, parts: m.parts }));
+    const messages: AgentMessage[] = toSummarize.map(m => ({
+      role: m.role,
+      parts: m.parts.map(p => {
+        if (p.type === 'toolResult') {
+          const v = p.value as { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' };
+          return { type: 'toolResult' as const, value: { ...v, output: sanitizeMultiline(v.output) } };
+        }
+        if (p.type === 'text') {
+          return { type: 'text' as const, value: sanitizeMultiline(p.value as string) };
+        }
+        return p;
+      }),
+    }));
     messages.unshift({ role: 'user', parts: [{ type: 'text', value: summaryPrompt }] });
 
     let summary = '';
@@ -76,28 +89,36 @@ export class CompactEngine {
    * raw history 只读，永不改写。
    */
   buildEffectiveHistory(history: RawMessage[], marker: CompactMarker | undefined): AgentMessage[] {
-    if (!marker) return history.map(m => ({ role: m.role, parts: m.parts }));
+    // 出口侧消毒：raw history 的 toolResult.output 过 sanitizeMultiline（存储不动）
+    const sanitizeParts = (parts: RawMessage['parts']): AgentMessage['parts'] => parts.map(p => {
+      if (p.type === 'toolResult') {
+        const v = p.value as { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' };
+        return { type: 'toolResult' as const, value: { ...v, output: sanitizeMultiline(v.output) } };
+      }
+      return p;
+    });
+    if (!marker) return history.map(m => ({ role: m.role, parts: sanitizeParts(m.parts) }));
 
     const summaryMsg: AgentMessage = {
       role: 'user',
-      parts: [{ type: 'text', value: `[对话摘要] ${marker.summary}` }],
+      parts: [{ type: 'text', value: `[对话摘要] ${sanitizeMultiline(marker.summary)}` }],
     };
 
     // 锚点 id 存在 → 取其后所有消息
     const idx = history.findIndex(m => m.id === marker.lastCompactedMessageId);
     if (idx >= 0) {
-      const after = history.slice(idx + 1).map(m => ({ role: m.role, parts: m.parts }));
+      const after = history.slice(idx + 1).map(m => ({ role: m.role, parts: sanitizeParts(m.parts) }));
       return [summaryMsg, ...after];
     }
 
     // 锚点丢失：按 createdAt 自愈（设计原文）
     const selfHealIdx = history.findIndex(m => m.createdAt >= marker.createdAt);
     if (selfHealIdx >= 0) {
-      const after = history.slice(selfHealIdx).map(m => ({ role: m.role, parts: m.parts }));
+      const after = history.slice(selfHealIdx).map(m => ({ role: m.role, parts: sanitizeParts(m.parts) }));
       return [summaryMsg, ...after];
     }
 
     // 全早于 marker.createdAt：保守返回摘要 + 全部历史（不丢内容）
-    return [summaryMsg, ...history.map(m => ({ role: m.role, parts: m.parts }))];
+    return [summaryMsg, ...history.map(m => ({ role: m.role, parts: sanitizeParts(m.parts) }))];
   }
 }

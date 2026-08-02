@@ -7,6 +7,7 @@ import type { ToolContext } from '../tools/types';
 import type { ContextPolicy } from './context-policy';
 import type { OffloadEngine } from './offload';
 import type { CompactEngine } from './compact';
+import { sanitizeMultiline } from './sanitize';
 
 export type LoopEvent =
   | { kind: 'textDelta'; text: string }
@@ -37,9 +38,18 @@ export interface RunOptions {
 const DEFAULT_RETRY = [3000, 5000, 10000, 15000, 30000];
 const CONCURRENCY = 10;
 
-/** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}。 */
-function toAgentMessages(history: RawMessage[]): AgentMessage[] {
-  return history.map(m => ({ role: m.role, parts: m.parts }));
+/** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}。出口侧消毒：toolResult.output 过 sanitizeMultiline（存储不动）。 */
+export function toAgentMessages(history: RawMessage[]): AgentMessage[] {
+  return history.map(m => ({
+    role: m.role,
+    parts: m.parts.map(p => {
+      if (p.type === 'toolResult') {
+        const v = p.value as { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' };
+        return { type: 'toolResult' as const, value: { ...v, output: sanitizeMultiline(v.output) } };
+      }
+      return p;
+    }),
+  }));
 }
 
 /**

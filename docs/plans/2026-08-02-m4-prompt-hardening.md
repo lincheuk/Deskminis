@@ -225,7 +225,7 @@ Unicode 属性转义 `\p{Cc}`/`\p{Cf}` 在 Node 22 / V8 原生支持（`new RegE
 
 **步骤**:
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sanitize.test.ts`：
 
@@ -349,7 +349,7 @@ it('buildSkillsBlock 对 description 先 sanitizeLiteral（零宽剥离）再 es
 });
 ```
 
-- [ ] **Step 2: 实现 sanitize.ts**
+- [x] **Step 2: 实现 sanitize.ts**
 
 ```typescript
 // agent/sanitize.ts
@@ -383,7 +383,7 @@ export function wrapUntrustedDataBlock(s: unknown, opts?: { maxLen?: number }): 
 }
 ```
 
-- [ ] **Step 3: 出口侧消毒接入**
+- [x] **Step 3: 出口侧消毒接入**
 
 `loop.ts` `toAgentMessages` L41：对 `toolResult.output` 过 `sanitizeMultiline`（多行块文本，保换行/制表符；不改 parts 结构，只改 output 字符串）。
 `compact.ts` `CompactEngine.buildEffectiveHistory` L78-102：对 `marker.summary` 过 `sanitizeMultiline`（L83 模板字符串处）。
@@ -391,7 +391,7 @@ export function wrapUntrustedDataBlock(s: unknown, opts?: { maxLen?: number }): 
 `memory-injector.ts` L15-52：SOUL.md 过 `sanitizeMultiline`（多行 Markdown 人设文件，保留换行结构，不包裹——人设是指令非数据）；GLOBAL.md/日志内容过 `wrapUntrustedDataBlock`（b 包裹，内部走 `sanitizeMultiline`——多行数据，前缀显式数据块声明）。
 `skills/prompt.ts` `esc` L19 前增 `sanitizeLiteral` 调用（单行值，先消毒再转义——`sanitizeLiteral` 剥控制字符，`esc` 转 XML 实体，两者不叠加：`sanitizeLiteral` 不碰 `&`/`<`/`>`，`esc` 不碰控制字符）。
 
-- [ ] **Step 4: 单文件验证 + 全量 + commit**
+- [x] **Step 4: 单文件验证 + 全量 + commit**
 
 ```bash
 cd deskminis && npm test -- tests/sanitize.test.ts
