@@ -164,13 +164,23 @@ export function derivePairingKey(
 }
 
 const INDEX_FILE = 'pairing-index.json';
+const ADDRESS_FILE = 'peer-addresses.json';
+
+/** 地址簿条目（对端监听地址，配对时习得，sync.hello 交换刷新）。 */
+interface AddressEntry {
+  address: string;
+  learnedAt: number;
+  lastSeenAt?: number;
+}
 
 /** PairingKey 持久化存储（vault 存密钥本体，index 文件存 fingerprint 列表以支持 list）。 */
 export class PairingStore {
   private indexFile: string;
+  private addressFile: string;
 
   constructor(private dataDir: string, private vault: SecretVault) {
     this.indexFile = join(dataDir, INDEX_FILE);
+    this.addressFile = join(dataDir, ADDRESS_FILE);
   }
 
   private vaultKey(fp: string): string { return `pairing.${fp}`; }
@@ -188,6 +198,21 @@ export class PairingStore {
     const tmp = this.indexFile + '.tmp';
     writeFileSync(tmp, JSON.stringify(fps, null, 2), 'utf8');
     renameSync(tmp, this.indexFile);
+  }
+
+  private readAddressIndex(): Record<string, AddressEntry> {
+    if (!existsSync(this.addressFile)) return {};
+    try {
+      const raw = readFileSync(this.addressFile, 'utf8').replace(/\r\n/g, '\n');
+      const obj = JSON.parse(raw);
+      return (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) ? obj : {};
+    } catch { return {}; }
+  }
+
+  private writeAddressIndex(index: Record<string, AddressEntry>): void {
+    const tmp = this.addressFile + '.tmp';
+    writeFileSync(tmp, JSON.stringify(index, null, 2), 'utf8');
+    renameSync(tmp, this.addressFile);
   }
 
   /** 保存（重复 save 同一 fingerprint 覆盖）。 */
@@ -234,11 +259,47 @@ export class PairingStore {
     }).filter((x): x is PairingKeyPublicView => x !== null);
   }
 
-  /** 删除（vault + index 双清，密钥彻底清除）。 */
+  /** 列出所有已配对设备 + 地址簿信息（脱敏视图）。 */
+  listWithAddress(): Array<PairingKeyPublicView & { address?: string; lastSeenAt?: number }> {
+    const addrIndex = this.readAddressIndex();
+    return this.list().map(v => ({
+      ...v,
+      address: addrIndex[v.peerFingerprint]?.address,
+      lastSeenAt: addrIndex[v.peerFingerprint]?.lastSeenAt,
+    }));
+  }
+
+  /** 设置对端监听地址（配对时习得 / sync.hello 交换刷新）。 */
+  setAddress(fp: string, addr: string): void {
+    const index = this.readAddressIndex();
+    const existing = index[fp];
+    index[fp] = { address: addr, learnedAt: Math.floor(Date.now() / 1000), lastSeenAt: existing?.lastSeenAt };
+    this.writeAddressIndex(index);
+  }
+
+  /** 取对端监听地址。 */
+  getAddress(fp: string): string | undefined {
+    return this.readAddressIndex()[fp]?.address;
+  }
+
+  /** 更新对端最后在线时间。 */
+  setLastSeen(fp: string, ts: number): void {
+    const index = this.readAddressIndex();
+    if (!index[fp]) return; // 未设地址的不记
+    index[fp].lastSeenAt = ts;
+    this.writeAddressIndex(index);
+  }
+
+  /** 删除（vault + index + 地址簿三清，密钥彻底清除）。 */
   delete(fp: string): void {
     this.vault.delete(this.vaultKey(fp));
     const fps = this.readIndex().filter(x => x !== fp);
     this.writeIndex(fps);
+    const addrIndex = this.readAddressIndex();
+    if (addrIndex[fp]) {
+      delete addrIndex[fp];
+      this.writeAddressIndex(addrIndex);
+    }
   }
 }
 
@@ -350,4 +411,26 @@ export class PairingService {
   list(): PairingKeyPublicView[] { return this.store.list(); }
   get(fingerprint: string): PairingKey | undefined { return this.store.get(fingerprint); }
   delete(fingerprint: string): void { this.store.delete(fingerprint); }
+
+  /**
+   * 加入配对（决策 3：join 侧封装，私钥不离开 service）。
+   * 本端作为 join 方，用对端公钥 + 配对码派生 PairingKey 并持久化 + 记地址簿。
+   * @param peerPubKeyB64 对端公钥（base64，来自 complete 响应的 myPublicKeyB64）
+   * @param peerFingerprint 对端指纹（join 侧从公钥本地重算，防伪报）
+   * @param peerName 对端设备名
+   * @param code 配对码
+   * @param addr 对端监听地址（host:port）
+   */
+  joinPairing(peerPubKeyB64: string, peerFingerprint: string, peerName: string, code: string, addr: string): void {
+    const peerPub = new Uint8Array(Buffer.from(peerPubKeyB64, 'base64'));
+    const key = derivePairingKey(this.identity.privateKey, peerPub, code, peerFingerprint, peerName);
+    this.store.save(key);
+    this.store.setAddress(peerFingerprint, addr);
+  }
+
+  /** 代理地址簿方法（供 OutboundClient / remote.status 使用）。 */
+  setAddress(fp: string, addr: string): void { this.store.setAddress(fp, addr); }
+  getAddress(fp: string): string | undefined { return this.store.getAddress(fp); }
+  listWithAddress(): Array<PairingKeyPublicView & { address?: string; lastSeenAt?: number }> { return this.store.listWithAddress(); }
+  setLastSeen(fp: string, ts: number): void { this.store.setLastSeen(fp, ts); }
 }

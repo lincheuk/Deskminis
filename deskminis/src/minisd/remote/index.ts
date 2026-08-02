@@ -11,6 +11,8 @@
 //   - ?pairingCode=<8chars> → PairingService.hasPending 查验 + 时效校验 → 成功则 pairing 模式
 //   - 都没有 → {ok:false}
 import type { IncomingMessage } from 'node:http';
+import { WebSocket } from 'ws';
+import { sha256 } from '@noble/hashes/sha2.js';
 import type { AdditionalVerify, AdditionalVerifyResult, AuthMode, RpcConnection, RpcMethods } from '../rpc/server';
 import { PAIRING_CODE_TTL_S, type PairingService } from './pairing';
 import { decodePaseto } from './paseto';
@@ -28,11 +30,23 @@ function assertAuthMode(conn: RpcConnection, allowed: AuthMode[], what: string):
   }
 }
 
+/** M3c createRemoteMethods 可选第二参（Task 4 注入 onPairComplete 供 begin 侧地址捕获）。 */
+export interface RemoteMethodsOpts {
+  /** remote.pair.complete 成功后回调：begin 侧从 conn.remoteAddress + p.listenPort 捕获对端地址（必改 4） */
+  onPairComplete?: (peerFingerprint: string, remoteAddress: string | undefined, listenPort: number | undefined) => void;
+  /** M3c Task 5：出站客户端 lazy getter（避免循环依赖，remote.status 合并出站源 online）。
+   *  Task 6：增 dialNow 供 remote.pair.join 成功后立即拨号（计划 L463）。 */
+  getOutbound?: () => { isOnline(fp: string): boolean; dialNow?(peerFp: string): void } | undefined;
+  /** M3c Task 5：RPC 服务端 lazy getter（remote.status 合并入站源 online，命门 2 出站 ∪ 入站）。 */
+  getRpcServer?: () => { isInboundOnline(fp: string): boolean } | undefined;
+}
+
 /**
  * 创建 remote.* RPC 方法集。
  * @param service PairingService 实例（提供 beginPairing/completePairing/list/get/delete/hasPending）
+ * @param opts M3c Task 4 注入 onPairComplete 回调
  */
-export function createRemoteMethods(service: PairingService): RpcMethods {
+export function createRemoteMethods(service: PairingService, opts?: RemoteMethodsOpts): RpcMethods {
   return {
     'remote.pair.begin': async (_p, conn) => {
       assertAuthMode(conn, ['local'], 'remote.pair.begin');
@@ -53,6 +67,7 @@ export function createRemoteMethods(service: PairingService): RpcMethods {
       peerPublicKey: Uint8Array | string;
       peerFingerprint: string;
       peerName?: string;
+      listenPort?: number;
     }, conn) => {
       assertAuthMode(conn, ['pairing'], 'remote.pair.complete');
       // peerPublicKey 兼容 Uint8Array 与 base64 字符串两种形态（CLI 走 base64，e2e 走 Uint8Array）
@@ -60,14 +75,28 @@ export function createRemoteMethods(service: PairingService): RpcMethods {
         ? p.peerPublicKey
         : Buffer.from(p.peerPublicKey).toString('base64');
       const r = service.completePairing(p.pairingCode, peerPubKeyB64, p.peerFingerprint, p.peerName);
-      return { ok: true, peerFingerprint: r.fingerprint };
+      // M3c Task 4：begin 侧地址捕获（必改 4）——从 conn.remoteAddress + p.listenPort 组合
+      opts?.onPairComplete?.(r.fingerprint, conn.remoteAddress, p.listenPort);
+      return { ok: true, peerFingerprint: r.fingerprint, myPublicKeyB64: r.ourPubKeyB64 };
     },
 
     'remote.status': async (_p, conn) => {
       assertAuthMode(conn, ['local'], 'remote.status');
       // 红线 4e：remote.status 返回脱敏列表（不含 authKey/sessionSecret）
       // CLI/测试铸 PASETO 改走直接读 vault（deskminis-cli 是本机进程，有 vault 访问权）
-      return { devices: service.list() };
+      // M3c Task 5：online = 出站存活 ∪ 入站存活（命门 2）；lastSeenAt 来自地址簿
+      const outbound = opts?.getOutbound?.();
+      const rpcServer = opts?.getRpcServer?.();
+      const devices = service.listWithAddress().map(d => ({
+        peerFingerprint: d.peerFingerprint,
+        peerName: d.peerName,
+        roomId: d.roomId,
+        createdAt: d.createdAt,
+        address: d.address,
+        lastSeenAt: d.lastSeenAt ?? 0,
+        online: (outbound?.isOnline(d.peerFingerprint) ?? false) || (rpcServer?.isInboundOnline(d.peerFingerprint) ?? false),
+      }));
+      return { devices };
     },
 
     'remote.unpair': async (p: { peerFingerprint: string }, conn) => {
@@ -75,15 +104,107 @@ export function createRemoteMethods(service: PairingService): RpcMethods {
       service.delete(p.peerFingerprint);
       return { ok: true };
     },
+
+    // M3c Task 4：remote.pair.join——免手抄公钥（决策 3），authMode=local
+    // join 侧（本端）调此方法，内部连对端 pairing 模式调 complete，拿到对端公钥后本地重算指纹 + 派生 PairingKey
+    'remote.pair.join': async (p: {
+      host: string;
+      port: number;
+      pairingCode: string;
+      peerName?: string;
+      listenPort?: number;
+    }, conn) => {
+      assertAuthMode(conn, ['local'], 'remote.pair.join');
+      if (!p.host || !p.port) throw new Error('remote.pair.join 需要 host 和 port');
+      if (!p.pairingCode) throw new Error('remote.pair.join 需要 pairingCode');
+
+      // 连对端（pairing 模式，用 pairingCode 鉴权）
+      const joinUrl = `ws://${p.host}:${p.port}/?pairingCode=${encodeURIComponent(p.pairingCode)}`;
+      const peerWs = new WebSocket(joinUrl);
+
+      const resp = await new Promise<{ ok: boolean; peerFingerprint: string; myPublicKeyB64: string }>((resolve, reject) => {
+        const timer = setTimeout(() => { peerWs.terminate(); reject(new Error('remote.pair.join 连接超时')); }, 10_000);
+        timer.unref?.();
+        let settled = false;
+        const fail = (e: Error) => { if (settled) return; settled = true; clearTimeout(timer); reject(e); };
+        let idc = 0;
+        const pending = new Map<number, (m: any) => void>();
+        peerWs.on('message', data => {
+          const msg = JSON.parse(String(data));
+          if (msg.id !== undefined && pending.has(msg.id)) { pending.get(msg.id)!(msg); pending.delete(msg.id); }
+        });
+        peerWs.on('open', () => {
+          const id = ++idc;
+          pending.set(id, m => {
+            if (settled) return; settled = true; clearTimeout(timer);
+            if (m.error) { peerWs.close(); reject(new Error(`remote.pair.complete: ${m.error.message ?? JSON.stringify(m.error)}`)); return; }
+            resolve(m.result as any);
+          });
+          peerWs.send(JSON.stringify({
+            jsonrpc: '2.0', id, method: 'remote.pair.complete',
+            params: {
+              pairingCode: p.pairingCode,
+              peerPublicKey: Buffer.from(service.myPublicKey).toString('base64'),
+              peerFingerprint: service.myFingerprint,
+              peerName: p.peerName,
+              listenPort: p.listenPort,
+            },
+          }));
+        });
+        // 配对码错误/过期 → 对端 pairing 鉴权 401 拒绝：转友好信息（计划契约：测试期望 /配对码|code|失效|过期/i）
+        peerWs.on('unexpected-response', (_req, res) => {
+          fail(new Error(res.statusCode === 401 ? '配对码无效或已过期' : `remote.pair.join 连接被拒: ${res.statusCode}`));
+        });
+        peerWs.on('error', e => { fail(e instanceof Error ? e : new Error(String(e))); });
+      });
+
+      try { peerWs.close(); } catch { /* */ }
+
+      // 本地重算对端指纹（防伪报，决策 3）：sha256(pubKey).slice(0,6) hex
+      const peerPubKey = new Uint8Array(Buffer.from(resp.myPublicKeyB64, 'base64'));
+      const recomputedFp = Buffer.from(sha256(peerPubKey).slice(0, 6)).toString('hex');
+
+      // 派生 PairingKey + 持久化 + 记地址簿
+      service.joinPairing(
+        resp.myPublicKeyB64,
+        recomputedFp,
+        p.peerName ?? '未命名设备',
+        p.pairingCode,
+        `${p.host}:${p.port}`,
+      );
+
+      // M3c Task 6（计划 L463）：join 成功后立即拨号，不等下次 start()
+      // join 侧单方拨号即可建立同步通道；begin 侧 start() 已在 startMinisd 时跑过（当时无配对，不会重拨）
+      opts?.getOutbound?.()?.dialNow?.(recomputedFp);
+
+      return { ok: true, peerFingerprint: recomputedFp };
+    },
   };
 }
+
+/** M3c 出站 PASETO 短 TTL（60s，决策 1 层 1）——与会话 TTL 10min 并列，互不影响。 */
+export const OUTBOUND_PASETO_TTL_MS = 60 * 1000;
 
 /**
  * 创建 additionalVerify 回调（供 RpcServer 构造函数第三参使用）。
  * 路由：?pairingCode → pairing；?paseto → remote；否则拒。
- * @param service PairingService 实例（提供 hasPending/list/get）
+ *
+ * M3c 出站路径增补（决策 1 层 1）：
+ *   - PASETO payload 含 jti（出站路径标识）→ 校验 aud === myFingerprint + jti 重放缓存
+ *   - 无 jti（会话路径，M3a 兼容）→ 不查缓存，原样通过（红线 4b 双路径兼容）
+ *   - 命中 key 时返回 peerFingerprint（命门 2，供 sync.hello 找 authKey + presence）
+ *
+ * @param service PairingService 实例（提供 hasPending/list/get/myFingerprint）
  */
 export function createAdditionalVerify(service: PairingService): AdditionalVerify {
+  // jti 重放缓存：jti → 过期时间戳（ms）。60s 窗口内已见拒重放（决策 1 层 1）。
+  const seenJtis = new Map<string, number>();
+  const jtiCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [jti, exp] of seenJtis) { if (exp <= now) seenJtis.delete(jti); }
+  }, 60_000);
+  jtiCleanupTimer.unref?.();
+
   return ({ url }: { req: IncomingMessage; url: URL }): AdditionalVerifyResult | Promise<AdditionalVerifyResult> => {
     // 优先判 pairingCode（一次性，pairing 模式只能调 pair.complete）
     const pairingCode = url.searchParams.get('pairingCode');
@@ -99,8 +220,17 @@ export function createAdditionalVerify(service: PairingService): AdditionalVerif
         const key = service.get(dev.peerFingerprint);
         if (!key) continue;
         try {
-          decodePaseto(paseto, key.authKey);
-          return { ok: true, authMode: 'remote' };
+          const payload = decodePaseto(paseto, key.authKey);
+          // M3c 出站路径：payload.jti 存在 → 校验 aud + jti 重放
+          if (payload.jti !== undefined) {
+            // aud 校验：防投递到错对端
+            if (payload.aud !== service.myFingerprint) return { ok: false };
+            // jti 重放检查：60s 窗口内已见 → 拒
+            if (seenJtis.has(payload.jti)) return { ok: false };
+            seenJtis.set(payload.jti, Date.now() + OUTBOUND_PASETO_TTL_MS);
+          }
+          // 会话路径（无 jti）不查缓存（红线 4b 兼容双路径）
+          return { ok: true, authMode: 'remote', peerFingerprint: dev.peerFingerprint };
         } catch {
           // 此 PairingKey 不匹配，继续试下一个
         }

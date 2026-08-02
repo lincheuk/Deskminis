@@ -20,6 +20,17 @@ export class InMemoryVault implements SecretVault {
   set(k: string, v: string): void { this.m.set(k, v); }
   get(k: string): string | undefined { return this.m.get(k); }
   delete(k: string): void { this.m.delete(k); }
+
+  /**
+   * M3c 修复：按数据根复用的模块级单例（补 Task 6 断线重连测试基础设施）。
+   *   同进程内同 dataRoot 的 startMinisd 调用复用同一 vault → StaticIdentity 持久化 → 配对身份不丢。
+   *   不同 dataRoot 隔离（测试间不串扰）。生产路径用 KeyringVault 不受影响。
+   */
+  private static instances = new Map<string, InMemoryVault>();
+  static forDataRoot(root: string): InMemoryVault {
+    if (!this.instances.has(root)) this.instances.set(root, new InMemoryVault());
+    return this.instances.get(root)!;
+  }
 }
 
 /** Windows 凭据库。原生模块动态加载，单测不触碰真实凭据库（用 InMemoryVault）。 */
@@ -33,6 +44,40 @@ export class KeyringVault implements SecretVault {
     try { return this.entry(k).getPassword() ?? undefined; } catch { return undefined; }
   }
   delete(k: string): void { try { this.entry(k).deletePassword(); } catch { /* 不存在则忽略 */ } }
+}
+
+/**
+ * M3c 修复：文件 vault（e2e 跨进程持久化用）。
+ *   standalone 进程重启后 InMemoryVault 丢失身份，KeyringVault 污染真实凭据库；
+ *   FileVault 明文存 dataRoot/vault.json，仅 DESKMINIS_E2E=1 模式启用，隔离于临时数据根。
+ *   非安全存储——仅 e2e 测试基础设施，生产路径用 KeyringVault。
+ */
+export class FileVault implements SecretVault {
+  private file: string;
+  private cache: Map<string, string> | undefined;
+  constructor(root: string) {
+    this.file = join(root, 'vault.json');
+  }
+  private load(): Map<string, string> {
+    if (this.cache) return this.cache;
+    this.cache = new Map();
+    try {
+      if (existsSync(this.file)) {
+        const obj = JSON.parse(readFileSync(this.file, 'utf8').replace(/\r\n/g, '\n'));
+        if (obj && typeof obj === 'object') for (const [k, v] of Object.entries(obj)) if (typeof v === 'string') this.cache.set(k, v);
+      }
+    } catch { /* 文件损坏，空 vault 起步 */ }
+    return this.cache;
+  }
+  private flush(): void {
+    if (!this.cache) return;
+    const tmp = this.file + '.tmp';
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.cache)), 'utf8');
+    renameSync(tmp, this.file);
+  }
+  set(k: string, v: string): void { this.load().set(k, v); this.flush(); }
+  get(k: string): string | undefined { return this.load().get(k); }
+  delete(k: string): void { this.load().delete(k); this.flush(); }
 }
 
 export interface ProviderInstance {

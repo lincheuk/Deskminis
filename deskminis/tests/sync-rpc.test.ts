@@ -66,6 +66,11 @@ describe('sync.pull（增量拉取）', () => {
   it('pairing 模式 → 拒', async () => {
     await expect(methods['sync.pull']!({}, makeConn('pairing'))).rejects.toThrow(/local|remote|authMode/i);
   });
+
+  it('sync.pull 对不存在的 session 返回清晰错误（M3b 记账项①）', async () => {
+    await expect(methods['sync.pull']!({ sessionId: 'NOT-EXIST' }, makeConn('local')))
+      .rejects.toThrow(/会话不存在/);
+  });
 });
 
 describe('sync.cursor', () => {
@@ -107,8 +112,8 @@ describe('sync.ack（更新 last_synced_at）', () => {
   });
 });
 
-describe('方法面只含 sync.* 五个', () => {
+describe('方法面含 sync.* 六个（M3c 增 sync.hello）', () => {
   it('createSyncMethods 返回的方法集 keys', () => {
-    expect(Object.keys(methods).sort()).toEqual(['sync.ack', 'sync.cursor', 'sync.list', 'sync.pull', 'sync.push']);
+    expect(Object.keys(methods).sort()).toEqual(['sync.ack', 'sync.cursor', 'sync.hello', 'sync.list', 'sync.pull', 'sync.push']);
   });
 });

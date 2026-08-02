@@ -407,3 +407,66 @@ describe('PairingService（配对生命周期）', () => {
     expect(svc.list()).toHaveLength(0);
   });
 });
+
+// ===== M3c Task 2: 地址簿存储（peer-addresses.json + PairingStore 扩展）=====
+
+function makeKey(fp: string): PairingKey {
+  return {
+    authKey: new Uint8Array(32).fill(1),
+    sessionSecret: new Uint8Array(32).fill(2),
+    roomId: 'ROOM1234',
+    peerFingerprint: fp,
+    peerName: `dev-${fp}`,
+    createdAt: Math.floor(Date.now() / 1000),
+  };
+}
+
+describe('PairingStore 地址簿（peer-addresses.json）', () => {
+  it('setAddress/getAddress/listWithAddress 读写', () => {
+    store.save(makeKey('FP1'));
+    store.setAddress('FP1', '192.168.1.10:53182');
+    expect(store.getAddress('FP1')).toBe('192.168.1.10:53182');
+    const list = store.listWithAddress();
+    expect(list[0]).toMatchObject({ peerFingerprint: 'FP1', address: '192.168.1.10:53182' });
+  });
+
+  it('delete 同步清地址', () => {
+    store.save(makeKey('FP1'));
+    store.setAddress('FP1', '1.2.3.4:5');
+    store.delete('FP1');
+    expect(store.getAddress('FP1')).toBeUndefined();
+    expect(store.listWithAddress()).toHaveLength(0);
+  });
+
+  it('setLastSeen 更新 lastSeenAt', () => {
+    store.save(makeKey('FP1'));
+    store.setAddress('FP1', '1.2.3.4:5');
+    store.setLastSeen('FP1', 9999);
+    const list = store.listWithAddress();
+    expect(list[0].lastSeenAt).toBe(9999);
+  });
+
+  it('未设地址的设备 listWithAddress 返回 address=undefined', () => {
+    store.save(makeKey('FP1'));
+    const list = store.listWithAddress();
+    expect(list[0].address).toBeUndefined();
+  });
+
+  it('地址簿持久化：重新打开 store 仍能读地址', () => {
+    store.save(makeKey('FP1'));
+    store.setAddress('FP1', '10.0.0.1:8080');
+    const store2 = new PairingStore(dataDir, vault);
+    expect(store2.getAddress('FP1')).toBe('10.0.0.1:8080');
+  });
+});
+
+describe('PairingService.joinPairing', () => {
+  it('封装 derivePairingKey+save+setAddress（私钥不离开 service）', () => {
+    const service = new PairingService(store, vault);
+    const peerPub = service.myPublicKey;  // 用自己公钥测试（对称性）
+    const peerPubB64 = Buffer.from(peerPub).toString('base64');
+    service.joinPairing(peerPubB64, 'PEERFP', 'PeerDev', 'CODE1234', '1.2.3.4:5');
+    expect(service.get('PEERFP')).toBeDefined();
+    expect(store.getAddress('PEERFP')).toBe('1.2.3.4:5');
+  });
+});
