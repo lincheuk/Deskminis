@@ -74,6 +74,7 @@ async function waitFor(what: string, cond: () => boolean | Promise<boolean>, tim
 }
 
 // ---- 双实例 setup：A/B startMinisd + B begin + A join B（A 是拨号方） ----
+//   inst.close 包幂等守卫：测试内手动 close 后 cleanup 二次 close 不抛（db.close 不幂等）。
 async function setupTwoInstances(): Promise<{
   localA: RpcClient; localB: RpcClient;
   instA: { port: number; listenPort: number; authToken: string; close(): Promise<void> };
@@ -90,8 +91,18 @@ async function setupTwoInstances(): Promise<{
   process.env.DESKMINIS_TEST = '1';
   process.env.DESKMINIS_FAKE_PROVIDER = '1';
 
-  const instA = await startMinisd({ dataDir: dirA, host: '127.0.0.1', port: 0 });
-  const instB = await startMinisd({ dataDir: dirB, host: '127.0.0.1', port: 0 });
+  const instARaw = await startMinisd({ dataDir: dirA, host: '127.0.0.1', port: 0 });
+  const instBRaw = await startMinisd({ dataDir: dirB, host: '127.0.0.1', port: 0 });
+  // 幂等 close 包装（测试内可手动 close 后 cleanup 不重复抛错）
+  const makeIdempotent = (raw: typeof instARaw) => {
+    let closed = false;
+    return {
+      port: raw.port, listenPort: raw.listenPort, authToken: raw.authToken,
+      close: async () => { if (closed) return; closed = true; await raw.close(); },
+    };
+  };
+  const instA = makeIdempotent(instARaw);
+  const instB = makeIdempotent(instBRaw);
   cleanups.push(() => instA.close());
   cleanups.push(() => instB.close());
 
@@ -230,5 +241,63 @@ describe('自动同步收敛', () => {
     const aMsgs = ((await localA.call('sync.pull', { sessionId: s.id }) as any).messages as any[]).map(m => m.id);
     const bMsgs = ((await localB.call('sync.pull', { sessionId: s.id }) as any).messages as any[]).map(m => m.id);
     expect(bMsgs).toEqual(aMsgs);
+  });
+
+  // 6. 断线重连后增量收敛（补 Task 6 计划内遗漏用例）
+  //   A/B 互连收敛 → 关停 B → A 写一条（A 宕机期对 B 不可见）→ 重启 B（同数据根，端口持久化复用）
+  //   → A 重连对账 push → B 拿到 A 宕机期消息 → 两端 id 序列逐位一致
+  //   指纹序随机：A 是拨号方（setup 固定 A join B），故 A 持数据 + A 重连对账 push 是关键路径
+  //   （实证 reconcilePeer push 方向必需——单向 pull 在「持数据方=拨号方」时失效）。
+  //   反向（持数据方=监听方）由 e2e:m3c 用例 6 天然随机覆盖。
+  it('断线重连后增量收敛：关停 B → A 写 → 重启 B → 双向对账 → id 序列逐位一致', async () => {
+    const { localA, localB, instA, instB, dirB } = await setupTwoInstances();
+
+    // 打印指纹序（验证用例覆盖方向）
+    const stA = await localA.call('remote.status') as any;
+    const stB = await localB.call('remote.status') as any;
+    const fpA = stB.devices[0]?.peerFingerprint; // B 视角看 A
+    const fpB = stA.devices[0]?.peerFingerprint; // A 视角看 B
+    console.log(`[reconnect-test] fpA=${fpA} fpB=${fpB} A是拨号方=${fpA < fpB}`);
+
+    const s = await localA.call('chat.sessions.create', { title: 'reconnect-test' }) as any;
+    await localA.call('chat.prompt', { sessionId: s.id, text: '初始消息', providerId: '__fake__' });
+    await waitFor('B 收到初始消息', async () => {
+      const bMsgs = (await localB.call('sync.pull', { sessionId: s.id }) as any).messages;
+      return bMsgs.length > 0;
+    }, 5000);
+
+    // 关停 B（localB 也断）
+    await localB.close();
+    await instB.close();
+    await sleep(500); // 等 A 检测到断线 → onOffline
+
+    // A 宕机期写一条（B 重启后通过双向对账 push 拿到）
+    await localA.call('chat.prompt', { sessionId: s.id, text: '宕机期消息', providerId: '__fake__' });
+    await sleep(500); // 等回合落地
+    const aMsgsBefore = ((await localA.call('sync.pull', { sessionId: s.id }) as any).messages as any[]).map(m => m.id);
+    expect(aMsgsBefore.length).toBeGreaterThanOrEqual(4); // 初始用户+助手 + 宕机期用户+助手
+
+    // 重启 B（同数据根，端口持久化复用 minisd-port.json）
+    const instB2Raw = await startMinisd({ dataDir: dirB, host: '127.0.0.1', port: 0 });
+    let instB2Closed = false;
+    const instB2 = {
+      port: instB2Raw.port, listenPort: instB2Raw.listenPort, authToken: instB2Raw.authToken,
+      close: async () => { if (instB2Closed) return; instB2Closed = true; await instB2Raw.close(); },
+    };
+    cleanups.push(() => instB2.close());
+    expect(instB2.port).toBe(instB.port); // 端口持久化复用断言
+
+    const localB2 = await wsConnect(`ws://127.0.0.1:${instB2.port}/?token=${instB2.authToken}`);
+    cleanups.push(() => localB2.close());
+
+    // 等重连双向对账：B 拿到 A 宕机期消息
+    await waitFor('B 重启后双向对账拿到 A 宕机期消息', async () => {
+      const bMsgs = (await localB2.call('sync.pull', { sessionId: s.id }) as any).messages;
+      return bMsgs.length >= aMsgsBefore.length;
+    }, 8000);
+
+    const aMsgsAfter = ((await localA.call('sync.pull', { sessionId: s.id }) as any).messages as any[]).map(m => m.id);
+    const bMsgsAfter = ((await localB2.call('sync.pull', { sessionId: s.id }) as any).messages as any[]).map(m => m.id);
+    expect(bMsgsAfter).toEqual(aMsgsAfter);
   });
 });

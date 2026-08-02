@@ -154,7 +154,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // M3b 评审命门 3：PairingService 装配前移到 ChatStore 之前——
   // 静态身份（vault+dataDir）不依赖 db/chat，前移让 chat 构造时即可拿到 myFingerprint 注入 originDeviceId，
   // 避免 ChatStore 被多处引用（AgentLoop/CompactEngine/SyncCoordinator）前出现 setOriginDeviceId 注入空窗。
-  const vault: SecretVault = process.env.DESKMINIS_TEST ? new InMemoryVault() : new KeyringVault();
+  const vault: SecretVault = process.env.DESKMINIS_TEST ? InMemoryVault.forDataRoot(root) : new KeyringVault();
   const pairingStore = new PairingStore(root, vault);
   const pairingService = new PairingService(pairingStore, vault);
   const chat = new ChatStore(db, pairingService.myFingerprint);

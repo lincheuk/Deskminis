@@ -20,6 +20,17 @@ export class InMemoryVault implements SecretVault {
   set(k: string, v: string): void { this.m.set(k, v); }
   get(k: string): string | undefined { return this.m.get(k); }
   delete(k: string): void { this.m.delete(k); }
+
+  /**
+   * M3c 修复：按数据根复用的模块级单例（补 Task 6 断线重连测试基础设施）。
+   *   同进程内同 dataRoot 的 startMinisd 调用复用同一 vault → StaticIdentity 持久化 → 配对身份不丢。
+   *   不同 dataRoot 隔离（测试间不串扰）。生产路径用 KeyringVault 不受影响。
+   */
+  private static instances = new Map<string, InMemoryVault>();
+  static forDataRoot(root: string): InMemoryVault {
+    if (!this.instances.has(root)) this.instances.set(root, new InMemoryVault());
+    return this.instances.get(root)!;
+  }
 }
 
 /** Windows 凭据库。原生模块动态加载，单测不触碰真实凭据库（用 InMemoryVault）。 */

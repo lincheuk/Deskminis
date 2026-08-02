@@ -37,6 +37,8 @@ export class SyncCoordinator {
   private readonly debounceMs: number;
   private readonly outbound?: OutboundClient;
   private stopped = false;
+  /** M3c 修复：重连双向对账 in-flight 标志（per-peer，防连接抖动风暴）。 */
+  private reconciling = new Set<string>();
 
   constructor(
     private chat: ChatStore,
@@ -106,13 +108,60 @@ export class SyncCoordinator {
     }
   }
 
-  /** 实装：挂 OutboundClient.onRemoteDirty + 启动出站拨号（决策 8 装配）。 */
+  /** 实装：挂 OutboundClient.onRemoteDirty + onOnline + 启动出站拨号（决策 8 装配）。 */
   start(): void {
     if (this.outbound) {
       this.outbound.onRemoteDirty = (peerFp, sid) => {
         void this.pullFromPeer(peerFp, sid);
       };
+      // M3c 修复：重连双向对账挂钩 onOnline（补 Task 6 计划缺口）。
+      //   onOnline 只在拨号方触发（OutboundClient.dial 成功 + sync.hello 互认通过），
+      //   监听方不拨号无此回调。重连场景下持数据方可能是任意一侧——
+      //   单向 pull 在「持数据方 = 拨号方」时失效（拨号方 pull 对端拿不到自己宕机期数据），
+      //   故必须双向：push 本端全部 + pull 对端全部，hasChange 门控吸收冗余。
+      //   首次配对连接亦触发全量对账（合理副作用：历史会话首连即同步）。
+      this.outbound.onOnline = (peerFp) => {
+        void this.reconcilePeer(peerFp);
+      };
       this.outbound.start();
+    }
+  }
+
+  /**
+   * M3c 修复：重连双向对账（补 Task 6 计划缺口）。
+   *
+   * 触发：OutboundClient.onOnline（拨号方重连或首次拨号成功）。
+   * 行为：
+   *   a. push 方向：本端全部会话推给对端（含宕机期新写）
+   *   b. pull 方向：拉对端全部会话清单，逐个 pullFromPeer 合并
+   *
+   * 终止性论证（决策 4 ping-pong 门控延续）：
+   *   - 两方向回灌均经 mergeRemoteSession，hasChange=false（id 全重合）→ 不 onDirty → 链终止
+   *   - 冗余有界于一轮对账：本方法不在对账中触发递归 onOnline
+   *   - in-flight 标志防连接抖动风暴：对账进行中重入直接跳过
+   *
+   * dialNow 一过性说明（backlog 跟踪）：
+   *   remote.pair.join 成功后调 dialNow 立即拨号（绕过主从裁决），属于一次性初连手段；
+   *   进程重启后 start() 恢复主从裁决，dialNow 不再触发，行为已可接受。
+   */
+  private async reconcilePeer(peerFp: string): Promise<void> {
+    if (!this.outbound) return;
+    if (this.reconciling.has(peerFp)) return; // 防抖：对账进行中跳过重入
+    this.reconciling.add(peerFp);
+    try {
+      // a. push 方向：本端全部会话推给对端
+      for (const s of this.chat.listSyncedSessions()) {
+        void this.pushToPeer(peerFp, s.id);
+      }
+      // b. pull 方向：拉对端会话清单，逐个合并
+      const list = await this.outbound.callRpc(peerFp, 'sync.list', {}) as { sessions: Array<{ id: string }> };
+      for (const s of list.sessions ?? []) {
+        void this.pullFromPeer(peerFp, s.id);
+      }
+    } catch {
+      // 对端刚离线 / sync.list 失败 → 静默放弃，等下次重连再对账
+    } finally {
+      this.reconciling.delete(peerFp);
     }
   }
 
