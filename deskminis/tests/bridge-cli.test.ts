@@ -207,7 +207,7 @@ describe('真分发端到端（真 PowerShell）', () => {
     const root = mkdtempSync(join(tmpdir(), 'dm-cli-real-'));
     const paths = new MinisPaths(root);
     paths.ensureSessionDirs(SESSION);
-    const dispatch = makeBridgeDispatcher({ permissions: { async check() { return 'allow' as const; } }, paths });
+    const dispatch = makeBridgeDispatcher({ permissions: { async check() { return 'allow' as const; }, hasBridgeGrant: () => false }, paths });
     const pipePath = uniquePipePath();
     const server = new BridgeServer(dispatch);
     await server.listen(pipePath);

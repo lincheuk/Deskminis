@@ -87,6 +87,16 @@ export class PermissionGatewayImpl implements PermissionGateway {
     this.bridgeOnce.set(key, { count: (cur?.count ?? 0) + 1, grantedAt: this.now() });
   }
 
+  /** M4 Task 2：查询会话是否曾授权过桥（sessionBridgeGrants 或 bridgeOnce 有记录，TTL 内有效）。 */
+  hasBridgeGrant(sessionId: string): boolean {
+    const prefix = `${sessionId} `;
+    for (const k of this.sessionBridgeGrants) if (k.startsWith(prefix)) return true;
+    for (const [k, v] of this.bridgeOnce) {
+      if (k.startsWith(prefix) && this.now() - v.grantedAt <= BRIDGE_ONCE_TTL_MS) return true;
+    }
+    return false;
+  }
+
   async check(req: PermissionRequest): Promise<PermissionDecision> {
     // 非 shell 请求的 detail 是路径/能力串，不能喂给 shell 分类器：
     // 例如 C:\tools\diskpart\notes.txt 会被误判成 danger 而静默拒绝；桥 kind 直接就是类目。

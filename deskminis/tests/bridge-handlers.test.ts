@@ -13,10 +13,10 @@ import { withClipboardLock } from './clipboard-lock';
 const SESSION = 'A1B2C3D4-E5F6-4789-ABCD-EF0123456789';
 
 function allowGateway(captured: PermissionRequest[]): PermissionGateway {
-  return { async check(r) { captured.push(r); return 'allow'; } };
+  return { async check(r) { captured.push(r); return 'allow'; }, hasBridgeGrant: () => false };
 }
 function denyGateway(): PermissionGateway {
-  return { async check() { return 'deny'; } };
+  return { async check() { return 'deny'; }, hasBridgeGrant: () => false };
 }
 /** 假执行器：记录调用；stdin JSON 里带 path 时落一个假 PNG（配合截图 handler 的 statSync）；
  *  设备信息脚本返回固定 JSON；其余返回指定 stdout。 */
@@ -271,7 +271,7 @@ describe('真实 PowerShell 集成（allow-all 网关）', () => {
     const root = mkdtempSync(join(tmpdir(), 'dm-br-real-'));
     const paths = new MinisPaths(root);
     paths.ensureSessionDirs(SESSION);
-    return { permissions: { async check() { return 'allow' as const; } }, paths };
+    return { permissions: { async check() { return 'allow' as const; }, hasBridgeGrant: () => false }, paths };
   };
 
   // withClipboardLock 跨文件互斥：避免 vitest fileParallelism 下与

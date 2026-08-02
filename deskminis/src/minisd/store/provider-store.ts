@@ -89,7 +89,7 @@ export interface ModelGroup {
   id: string; name: string; memberIds: string[]; createdAt: number;
 }
 
-interface ConfigFile { providers: ProviderInstance[]; defaultProviderId?: string; modelGroups?: ModelGroup[] }
+interface ConfigFile { providers: ProviderInstance[]; defaultProviderId?: string; modelGroups?: ModelGroup[]; prompt?: { bridgeSection?: 'full' | 'minimal' | 'off'; discipline?: { toolUseEnforcement?: boolean } } }
 
 export class ProviderStore {
   private file: string;
@@ -137,6 +137,11 @@ export class ProviderStore {
 
   getDefaultId(): string | undefined { return this.cfg.defaultProviderId; }
   setDefaultId(id: string): void { this.cfg.defaultProviderId = id; this.save(); }
+
+  /** M4 Task 2：读取提示层配置（providers.json prompt 段）。 */
+  getPromptConfig(): { bridgeSection?: 'full' | 'minimal' | 'off'; discipline?: { toolUseEnforcement?: boolean } } {
+    return this.cfg.prompt ?? {};
+  }
 
   instantiate(id: string): AgentProvider {
     const p = this.cfg.providers.find(x => x.id === id);

@@ -7,8 +7,8 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 
 import { tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
 
-class AllowAllGateway { async check(_r: PermissionRequest): Promise<PermissionDecision> { return 'allow'; } }
-class DenyAllGateway { asked: PermissionRequest[] = []; async check(r: PermissionRequest): Promise<PermissionDecision> { this.asked.push(r); return 'deny'; } }
+class AllowAllGateway { async check(_r: PermissionRequest): Promise<PermissionDecision> { return 'allow'; } hasBridgeGrant(): boolean { return false; } }
+class DenyAllGateway { asked: PermissionRequest[] = []; async check(r: PermissionRequest): Promise<PermissionDecision> { this.asked.push(r); return 'deny'; } hasBridgeGrant(): boolean { return false; } }
 
 let root: string; let ctx: ToolContext; let reg: ToolRegistry;
 beforeEach(() => {

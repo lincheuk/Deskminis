@@ -15,7 +15,11 @@ export type BridgePermissionKind =
 
 export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string }
 export type PermissionDecision = 'allow' | 'deny';
-export interface PermissionGateway { check(req: PermissionRequest): Promise<PermissionDecision> }
+export interface PermissionGateway {
+  check(req: PermissionRequest): Promise<PermissionDecision>;
+  /** M4 Task 2：查询会话是否曾授权过桥（sessionBridgeGrants 或 bridgeOnce 有记录）。用于 systemPrompt 工厂决定注入完整/精简桥段落。 */
+  hasBridgeGrant(sessionId: string): boolean;
+}
 
 export interface ToolContext {
   sessionId: string; paths: MinisPaths; permissions: PermissionGateway;

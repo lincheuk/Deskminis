@@ -416,7 +416,7 @@ Commit: `feat(m4): 提示注入防御(sanitizeLiteral+sanitizeMultiline+wrapUntr
 
 **步骤**:
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
 // system-prompt.test.ts
@@ -496,7 +496,7 @@ it('降级切换后工厂用新 modelId 调（纪律块跟着变）', () => {
 });
 ```
 
-- [ ] **Step 2: 实现 system-prompt.ts**
+- [x] **Step 2: 实现 system-prompt.ts**
 
 ```typescript
 // agent/system-prompt.ts
@@ -535,7 +535,7 @@ export function buildSystemPrompt(opts: {
 }
 ```
 
-- [ ] **Step 3: loop.ts 接口变更（决策点 3 方案 a）**
+- [x] **Step 3: loop.ts 接口变更（决策点 3 方案 a）**
 
 [`loop.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/agent/loop.ts) L28 `RunOptions.systemPrompt` 类型：
 ```typescript
@@ -555,7 +555,7 @@ systemPrompt: typeof opts.systemPrompt === 'function'
 ```
 **回归保证**：传 string 时走 else 分支原样透传，等价于改前行为（Step 1 测试已覆盖）。
 
-- [ ] **Step 4: index.ts 组装链改传工厂函数**
+- [x] **Step 4: index.ts 组装链改传工厂函数**
 
 L325-326 现有：
 ```typescript
@@ -576,7 +576,7 @@ const promptFactory = (ctx: { modelId: string; sessionId: string }): string => {
 runAgentLoop(store, { ...opts, systemPrompt: promptFactory });
 ```
 
-- [ ] **Step 5: permissions.ts 增 hasBridgeGrant**
+- [x] **Step 5: permissions.ts 增 hasBridgeGrant**
 
 ```typescript
 hasBridgeGrant(sessionId: string): boolean {
@@ -586,7 +586,7 @@ hasBridgeGrant(sessionId: string): boolean {
 }
 ```
 
-- [ ] **Step 6: 单文件 + 全量 + commit**
+- [x] **Step 6: 单文件 + 全量 + commit**
 
 Commit: `feat(m4): 提示分层与条件注入(stable/context两层+桥段落条件注入+systemPrompt工厂函数轮内动态重建+stable三元组缓存失效,token估算未用桥会话每轮省~530token)`
 

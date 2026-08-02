@@ -23,6 +23,7 @@ import { memoryWriteTool, memoryGetTool, MEMORY_TOOL_NAMES } from './tools/memor
 import { ContextPolicy } from './agent/context-policy';
 import { OffloadEngine } from './agent/offload';
 import { CompactEngine } from './agent/compact';
+import { createStableCache } from './agent/system-prompt';
 import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
@@ -33,7 +34,7 @@ import { makeBridgeDispatcher } from './bridge/handlers';
 import { TerminalManager } from './terminal';
 import { FilesService } from './files';
 
-export const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。本机提供六个 Windows 能力桥，在 shell 中调用：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]（若系统装有 Node.js，node "$env:MINIS_BRIDGE_CLI" ... 亦可）。工具：windows-notify（弹系统通知）、windows-clipboard（读/写剪贴板）、windows-open（用默认程序打开网址或文件）、windows-speak（语音播报文本）、windows-screenshot（截屏保存到会话附件目录）、windows-device（读取系统信息）。需要某个工具的详细参数时运行 & "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> --help 查看；剪贴板读取与截屏等隐私敏感操作会向用户请求确认。';
+export { SYSTEM_PROMPT } from './agent/system-prompt';
 
 /** sessionId 直接被拼进文件系统路径（paths.ensureSessionDirs），必须限死成 UUID 形态：
  *  '..\\..\\Windows' 这类值会逃出数据根，在宿主任意目录建目录/落文件。 */
@@ -237,6 +238,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）
   const memoryStore = new MemoryStore(paths.globalDir('memory'));
   const memoryInjector = new MemoryInjector(memoryStore);
+  // M4 Task 2：stable 段缓存（按 sessionId+modelId+bridgeGranted 三元组，内存态）
+  const stableCache = createStableCache();
   const contextPolicy = new ContextPolicy(catalog);
   const offloadEngine = new OffloadEngine(paths);
   const compactEngine = new CompactEngine(chat);
@@ -321,10 +324,21 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
       // 记忆注入（设计 §3.4：每轮系统提示注入 GLOBAL/SOUL/日志）+ 工具过滤（memory_enabled=false 时排除记忆工具）
       const session = chat.getSession(sessionId);
-      // 技能块属于 base，记忆注入包在最外层（技能与记忆是独立开关：memoryEnabled=false 时仍注入技能块）
-      const baseWithSkills = SYSTEM_PROMPT + buildSkillsBlock(skillStore.listEnabledForSession(sessionId), skillsRoot, skillStore.nowEpoch());
-      const injectedPrompt = memoryInjector.build(baseWithSkills, { memoryEnabled: session?.memoryEnabled ?? true });
-      const excludedToolNames = (session?.memoryEnabled ?? true) ? undefined : new Set<string>(MEMORY_TOOL_NAMES);
+      // M4 Task 2：systemPrompt 改工厂函数（决策点 3 方案 a）——每轮用当前 activeSlot.provider.modelId 调工厂，
+      // 走 stable 段缓存 + 桥段落条件注入（会话授权状态当轮生效）+ 技能块 + 记忆注入。
+      // memoryBlock 用 __BASE__ 占位符：buildSystemPrompt 用 stable+skillsBlock 替换占位符。
+      const memoryEnabled = session?.memoryEnabled ?? true;
+      const promptConfig = providers.getPromptConfig();
+      const promptFactory = (ctx: { modelId: string; sessionId: string }): string => {
+        const bridgeGranted = gateway.hasBridgeGrant(ctx.sessionId);
+        // stable 段走缓存（命中则返回缓存的字符串引用，prefix-cache 友好）；context 段每轮重组
+        const stable = stableCache.get(ctx.sessionId, { bridgeGranted, modelId: ctx.modelId, config: promptConfig });
+        const skillsBlock = buildSkillsBlock(skillStore.listEnabledForSession(ctx.sessionId), skillsRoot, skillStore.nowEpoch());
+        const memoryBlock = memoryInjector.build('__BASE__', { memoryEnabled });
+        const base = stable + skillsBlock;
+        return memoryBlock ? memoryBlock.replace('__BASE__', base) : base;
+      };
+      const excludedToolNames = memoryEnabled ? undefined : new Set<string>(MEMORY_TOOL_NAMES);
 
       // 从这里到 IIFE 启动之间没有 await：占位与释放不会被别的请求插进来
       inFlight.add(sessionId);
@@ -346,7 +360,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
                 if (id && skillStore.get(id)) skillStore.bumpUseCount(id);
               },
             },
-            systemPrompt: injectedPrompt, thinkingLevel: clampedThinking,
+            systemPrompt: promptFactory, thinkingLevel: clampedThinking,
             signal: controller.signal,
             fallbackChain,
             contextPolicy, compactEngine, offloadEngine, excludedToolNames,
@@ -436,6 +450,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         // 决策 4c 桥双段授权合并：shell 卡批准时，对探测到的每个桥 kind 同步授权（会话级/一次性计数）
         if (p.decision === 'allow-session') for (const k of entry.bridgeTriggers) gateway.grantBridgeSession(entry.req.sessionId, k);
         else if (p.decision === 'allow-once') for (const k of entry.bridgeTriggers) gateway.grantBridgeOnce(entry.req.sessionId, k);
+        // M4 Task 2：桥授权状态变化 → 失效该会话 stable 缓存，下一轮工厂重建（精简→完整桥段落当轮生效）
+        if (p.decision !== 'deny' && entry.bridgeTriggers.length > 0) stableCache.invalidate(entry.req.sessionId);
         entry.resolve(p.decision);
         // 同一个请求可能在多个窗口里显示：告诉所有客户端这张卡片已了结
         rpc.broadcast('permission.resolved', { requestId: p.requestId, reason: 'answered' }); // 决策 4b'
