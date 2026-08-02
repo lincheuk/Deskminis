@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
 import { ChatStore } from './store/chat-store';
-import { ProviderStore, KeyringVault, InMemoryVault, type SecretVault } from './store/provider-store';
+import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { ToolRegistry } from './tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
 import { ShellManager, makeShellTool } from './tools/shell';
@@ -154,7 +154,11 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // M3b 评审命门 3：PairingService 装配前移到 ChatStore 之前——
   // 静态身份（vault+dataDir）不依赖 db/chat，前移让 chat 构造时即可拿到 myFingerprint 注入 originDeviceId，
   // 避免 ChatStore 被多处引用（AgentLoop/CompactEngine/SyncCoordinator）前出现 setOriginDeviceId 注入空窗。
-  const vault: SecretVault = process.env.DESKMINIS_TEST ? InMemoryVault.forDataRoot(root) : new KeyringVault();
+  // M3c 修复：e2e 跨进程持久化用 FileVault（DESKMINIS_E2E=1），单测用 InMemoryVault.forDataRoot 单例，
+  //   生产用 KeyringVault。FileVault 明文存 dataRoot/vault.json，隔离于临时数据根，不污染真实凭据库。
+  const vault: SecretVault = process.env.DESKMINIS_E2E
+    ? new FileVault(root)
+    : (process.env.DESKMINIS_TEST ? InMemoryVault.forDataRoot(root) : new KeyringVault());
   const pairingStore = new PairingStore(root, vault);
   const pairingService = new PairingService(pairingStore, vault);
   const chat = new ChatStore(db, pairingService.myFingerprint);
