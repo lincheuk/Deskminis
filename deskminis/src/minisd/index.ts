@@ -25,6 +25,7 @@ import { OffloadEngine } from './agent/offload';
 import { CompactEngine } from './agent/compact';
 import { createStableCache } from './agent/system-prompt';
 import { buildDisciplineBlock } from './agent/model-discipline';
+import { createDiagnosticsMethods } from './diagnostics';
 import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
@@ -64,6 +65,7 @@ export async function resolveAndPersistPort(
   host: string,
   requestedPort: number,
   listen: (host: string, port: number) => Promise<number>,
+  authToken?: string,
 ): Promise<number> {
   const portFile = join(dataDir, PORT_FILE);
   // 读持久化端口
@@ -78,19 +80,22 @@ export async function resolveAndPersistPort(
   if (preferred > 0) {
     try {
       const port = await listen(host, preferred);
-      writePersistedPort(portFile, port);
+      writePersistedPort(portFile, port, authToken);
       return port;
     } catch { /* 端口被占用，回退随机 */ }
   }
   // 随机分配
   const port = await listen(host, 0);
-  writePersistedPort(portFile, port);
+  writePersistedPort(portFile, port, authToken);
   return port;
 }
 
-function writePersistedPort(portFile: string, port: number): void {
+function writePersistedPort(portFile: string, port: number, authToken?: string): void {
   const tmp = portFile + '.tmp';
-  writeFileSync(tmp, JSON.stringify({ port }), 'utf8');
+  const data: Record<string, unknown> = { port };
+  // M4 Task 4：authToken 追加写入 minisd-port.json，供 CLI dry-run.mjs 读取连接
+  if (authToken) data.authToken = authToken;
+  writeFileSync(tmp, JSON.stringify(data), 'utf8');
   renameSync(tmp, portFile);
 }
 
@@ -529,6 +534,14 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
   const authToken = randomUUID().toUpperCase();
 
+  // M4 Task 4：diagnostics.dryRun RPC 方法（authMode=local，仅本机渲染进程/CLI 可调）
+  // 注册在 guardBusinessMethod 循环之前——会被循环包装（拒 pairing），方法体内另拒 remote（双重保险）
+  const diagnosticsMethods = createDiagnosticsMethods({
+    providers, vault, catalog, skillStore, pairingService, skillsRoot,
+    config: providers.getPromptConfig(),
+  });
+  Object.assign(methods, diagnosticsMethods);
+
   // M3a 接线：PairingService 已前移至 ChatStore 之前（评审命门 3），此处仅接线 remote.* 方法面 + additionalVerify。
   // 沿用 M1 vault/keyring 路径（KeyringVault L26-36）；DESKMINIS_TEST=1 时 vault 已是 InMemoryVault
   // StaticIdentity 首次生成后持久化到 vault，后续启动复用（设计 §2.1「长期身份」）
@@ -581,7 +594,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   rpc = new RpcServer(methods, authToken, additionalVerify);
   // M3c Task 4：端口持久化（必改 4b）——读 minisd-port.json 复用 → 占用回退随机 → 写文件
   const listenHost = opts?.host ?? '127.0.0.1';
-  const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p));
+  const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p), authToken);
   syncOpts.listenPort = port; // sync.hello 响应带实际监听端口（对端刷新地址簿，端口漂移自愈）
 
   // M3c Task 6：OutboundClient 装配（决策 8）——出站 WS 客户端，拨已配对对端（主从裁决 myFp < peerFp 者主拨）

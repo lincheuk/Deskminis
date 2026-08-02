@@ -682,7 +682,7 @@ Commit: `feat(m4): 按模型族操作纪律块(OpenAI/Google/Anthropic三分派,
 
 **步骤**:
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
 // diagnostics.test.ts（双 in-process startMinisd，fake provider）
@@ -757,7 +757,7 @@ it('不调模型/不执行工具/不连桥（side-effect free）', async () => {
 });
 ```
 
-- [ ] **Step 2: 实现 diagnostics.ts**
+- [x] **Step 2: 实现 diagnostics.ts**
 
 ```typescript
 // diagnostics.ts
@@ -789,12 +789,12 @@ export async function dryRun(deps: {
 }
 ```
 
-- [ ] **Step 3: 注册 RPC + CLI 包装**
+- [x] **Step 3: 注册 RPC + CLI 包装**
 
 `index.ts` 注册 `diagnostics.dryRun`（authMode=local，本机渲染进程/CLI 调用）。
 `scripts/dry-run.mjs`：ws 连本机 minisd（读 minisd-port.json 拿端口 + authToken），调 `diagnostics.dryRun`，格式化输出报告。
 
-- [ ] **Step 4: 单文件 + 全量 + commit**
+- [x] **Step 4: 单文件 + 全量 + commit**
 
 Commit: `feat(m4): dry-run预检(diagnostics.dryRun RPC+CLI包装,静态解析ready/warning/blocked+下一步建议,覆盖providers/vault/model-catalog/技能/桥/M3c配对/提示预览token估算)`
 
