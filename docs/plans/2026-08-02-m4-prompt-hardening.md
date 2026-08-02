@@ -604,7 +604,7 @@ Commit: `feat(m4): 提示分层与条件注入(stable/context两层+桥段落条
 
 **步骤**:
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
 it('gpt/codex/grok 模型 → 注入 OpenAI 系纪律块（强调调工具）', () => {
@@ -639,7 +639,7 @@ it('降级切换 modelId → 纪律块跟着变', () => {
 });
 ```
 
-- [ ] **Step 2: 实现 model-discipline.ts**
+- [x] **Step 2: 实现 model-discipline.ts**
 
 ```typescript
 // agent/model-discipline.ts
@@ -660,11 +660,11 @@ export function buildDisciplineBlock(modelId: string, config: { toolUseEnforceme
 }
 ```
 
-- [ ] **Step 3: 接入 system-prompt.ts + 降级切换 hook**
+- [x] **Step 3: 接入 system-prompt.ts + 降级切换 hook**
 
 `buildSystemPrompt` 增 `disciplineBlock` 参数（Task 2 Step 2 已预留）。降级切换时（[`loop.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/agent/loop.ts) L278/L301/L324）通知 stable 缓存失效（`activeSlot` 变 → modelId 变 → 纪律块变 → stable 重建）。
 
-- [ ] **Step 4: 单文件 + 全量 + commit**
+- [x] **Step 4: 单文件 + 全量 + commit**
 
 Commit: `feat(m4): 按模型族操作纪律块(OpenAI/Google/Anthropic三分派,防声称完成不调工具,每块带配置开关,降级切换跟着变)`
 

@@ -24,6 +24,7 @@ import { ContextPolicy } from './agent/context-policy';
 import { OffloadEngine } from './agent/offload';
 import { CompactEngine } from './agent/compact';
 import { createStableCache } from './agent/system-prompt';
+import { buildDisciplineBlock } from './agent/model-discipline';
 import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
@@ -331,8 +332,9 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       const promptConfig = providers.getPromptConfig();
       const promptFactory = (ctx: { modelId: string; sessionId: string }): string => {
         const bridgeGranted = gateway.hasBridgeGrant(ctx.sessionId);
-        // stable 段走缓存（命中则返回缓存的字符串引用，prefix-cache 友好）；context 段每轮重组
-        const stable = stableCache.get(ctx.sessionId, { bridgeGranted, modelId: ctx.modelId, config: promptConfig });
+        // M4 Task 3：纪律块按 modelId 分派（降级切换后当轮跟着变）；stable 段走缓存
+        const disciplineBlock = buildDisciplineBlock(ctx.modelId, promptConfig.discipline ?? {});
+        const stable = stableCache.get(ctx.sessionId, { bridgeGranted, modelId: ctx.modelId, config: promptConfig, disciplineBlock });
         const skillsBlock = buildSkillsBlock(skillStore.listEnabledForSession(ctx.sessionId), skillsRoot, skillStore.nowEpoch());
         const memoryBlock = memoryInjector.build('__BASE__', { memoryEnabled });
         const base = stable + skillsBlock;

@@ -78,8 +78,8 @@ function stableCacheKey(sessionId: string, modelId: string, bridgeGranted: boole
 
 /** stable 段缓存接口。 */
 export interface StableCache {
-  /** 按 sessionId+modelId+bridgeGranted+config 取缓存；未命中则重建并缓存。 */
-  get(sessionId: string, key: { bridgeGranted: boolean; modelId: string; config?: PromptConfig }): string;
+  /** 按 sessionId+modelId+bridgeGranted+config 取缓存；未命中则重建并缓存。disciplineBlock 由 modelId 决定，同 key 固定，不入缓存键。 */
+  get(sessionId: string, key: { bridgeGranted: boolean; modelId: string; config?: PromptConfig; disciplineBlock?: string }): string;
   /** 失效该会话所有缓存项（桥授权状态变化时调）。 */
   invalidate(sessionId: string): void;
 }
@@ -95,7 +95,7 @@ export function createStableCache(): StableCache {
       const ck = stableCacheKey(sessionId, key.modelId, key.bridgeGranted, key.config);
       const cached = cache.get(ck);
       if (cached !== undefined) return cached;
-      const stable = buildStableSegment(key.bridgeGranted, key.config);
+      const stable = buildStableSegment(key.bridgeGranted, key.config, key.disciplineBlock);
       cache.set(ck, stable);
       return stable;
     },
