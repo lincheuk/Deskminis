@@ -93,7 +93,33 @@ export async function resolveAndPersistPort(
 function writePersistedPort(portFile: string, port: number, authToken?: string): void {
   const tmp = portFile + '.tmp';
   const data: Record<string, unknown> = { port };
-  // M4 Task 4：authToken 追加写入 minisd-port.json，供 CLI dry-run.mjs 读取连接
+  // M4 Task 4：authToken 追加写入 minisd-port.json（明文），供 CLI dry-run.mjs 免交互连接。
+  //
+  // 【安全权衡申报——这是安全姿态的实质变更，不是缺口补齐】
+  // 变更前：authToken 只存在于内存，经 IPC 交给渲染进程；磁盘上没有副本。
+  // 变更后：明文落盘于 %APPDATA%\Roaming\DeskMinis\minisd-port.json。
+  //
+  // 权限边界：该目录默认 ACL 仅当前用户账户可读写。
+  //
+  // 对「同用户攻击者」不扩大攻击面：能以同一账户执行代码的攻击者，本就能通过 DPAPI
+  // 解开 KeyringVault 取到 provider API key 与 PairingKey/StaticIdentity 私钥——
+  // 那些是长期机密，价值远高于本 token。
+  //
+  // 与 KeyringVault 的定位差异：vault 存长期机密；authToken 是每次启动 randomUUID()
+  // 重新生成的短期凭据，进程退出即失去意义（下次启动换新 token，旧值不再被任何监听者接受）。
+  //
+  // 实际扩大的暴露面有两条，如实记录：
+  //   ① 文件在进程退出后仍留在磁盘。残留的是陈旧 token，无监听者时无法利用，
+  //      但它会一直躺在那里直到下次启动被覆盖。
+  //   ② Roaming 是漫游配置目录——域环境的漫游用户配置、OneDrive 等同步工具会同步该目录，
+  //      token 可能因此离开本机。这是本次变更中最值得注意的一条。
+  //
+  // token 的权限范围受 M3a 双条件校验约束：授予 authMode=local（业务面全开 + remote.pair.*），
+  // 但必须同时满足「持有 token」与「来自回环连接」，非回环持 token 者一律 401（M3a 命门修复）。
+  // 因此即使 token 经同步离开本机，远端也无法凭它连回来。
+  //
+  // 缓解方向见计划 Backlog：dry-run 独立运行模式（不连 minisd，直接静态解析数据根），
+  // 可彻底移除落盘需求。
   if (authToken) data.authToken = authToken;
   writeFileSync(tmp, JSON.stringify(data), 'utf8');
   renameSync(tmp, portFile);

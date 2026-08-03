@@ -39,7 +39,15 @@ const ws = new WebSocket(`ws://127.0.0.1:${port}/?token=${encodeURIComponent(aut
 const id = 1;
 
 ws.on('error', (e) => {
-  console.error(`错误：无法连接 minisd (ws://127.0.0.1:${port})——请确认应用正在运行。`);
+  // 401 与「连不上」是两回事：401 说明 minisd 在监听但 token 不被接受，
+  // 通常是 minisd-port.json 与实际持有该端口的进程失步（旧实例仍占端口，
+  // 新实例写了自己的 token）。此时提示「请确认应用正在运行」会误导——应用明明在跑。
+  if (/\b401\b/.test(e.message)) {
+    console.error(`错误：minisd 在 127.0.0.1:${port} 上响应了，但拒绝了 minisd-port.json 里的 authToken（401）。`);
+    console.error('  多为端口文件与实际持有端口的进程失步（例如存在多个实例）。请完全退出 DeskMinis 后重新启动。');
+  } else {
+    console.error(`错误：无法连接 minisd (ws://127.0.0.1:${port})——请确认应用正在运行。`);
+  }
   console.error(`  ${e.message}`);
   process.exit(1);
 });
