@@ -121,6 +121,14 @@ const BUILTIN: [RegExp, ModelCatalogEntry][] = [
   [/^deepseek-v/i, { contextWindow: 128_000, thinking: false }],
   [/^llama/i, { contextWindow: 128_000, thinking: false }],
   [/^mistral/i, { contextWindow: 128_000, thinking: false }],
+  // M4.5 Task 2：国内中转站主力模型族（models.dev 全量 6043 条按族聚合的一手数据，非二手报道）。
+  // contextWindow 取当代主力型号下界且不低于 128K；thinking 按该族 reasoning 占比判定。
+  // 顺序约束：^qwen 必须在 ^qwen3 之后——qwen3 仍优先匹配 thinking:true（先中先赢）。
+  [/^glm/i, { contextWindow: 128_000, thinking: true }],
+  [/^grok/i, { contextWindow: 128_000, thinking: true }],
+  [/^kimi/i, { contextWindow: 128_000, thinking: true }],
+  [/^minimax/i, { contextWindow: 128_000, thinking: true }], // reasoning 占 182/202
+  [/^qwen/i, { contextWindow: 128_000, thinking: false }],
 ];
 
 interface CacheFile { fetchedAt: number; models: Record<string, ModelCatalogEntry>; source?: 'models.dev' | 'basellm' }

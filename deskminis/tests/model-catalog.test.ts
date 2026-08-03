@@ -66,3 +66,42 @@ describe('ModelCatalog', () => {
     expect(c.clampThinkingLevel('totally-unknown', 'medium')).toBe('off'); // 未知模型保守钳 off
   });
 });
+
+describe('BUILTIN 国内中转站模型族', () => {
+  it('glm 族：contextWindow=128K，thinking=true', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelContextWindow('glm-4.5')).toBe(128_000);
+    expect(c.getModelContextWindow('glm-5.1')).toBe(128_000);
+    expect(c.clampThinkingLevel('glm-4.5', 'high')).toBe('high');
+  });
+
+  it('grok 族：contextWindow=128K，thinking=true', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelContextWindow('grok-4.5')).toBe(128_000);
+    expect(c.clampThinkingLevel('grok-4.5', 'high')).toBe('high');
+  });
+
+  it('kimi 族：contextWindow=128K，thinking=true', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelContextWindow('kimi-k2')).toBe(128_000);
+    expect(c.clampThinkingLevel('kimi-k2', 'high')).toBe('high');
+  });
+
+  it('minimax 族：contextWindow=128K，thinking=true（当代主力 M2/M2.5/M3 全线支持推理）', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelContextWindow('MiniMax-M2')).toBe(128_000);
+    expect(c.clampThinkingLevel('MiniMax-M2', 'high')).toBe('high');
+  });
+
+  it('qwen（非 qwen3）族：contextWindow=128K，thinking=false', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelContextWindow('qwen-max')).toBe(128_000);
+    expect(c.clampThinkingLevel('qwen-max', 'high')).toBe('off');
+  });
+
+  it('qwen3 仍优先匹配 thinking=true（先中先赢顺序验证）', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelContextWindow('qwen3-235b')).toBe(128_000);
+    expect(c.clampThinkingLevel('qwen3-235b', 'high')).toBe('high'); // qwen3 条目优先
+  });
+});
