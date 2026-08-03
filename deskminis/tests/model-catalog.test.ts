@@ -105,3 +105,45 @@ describe('BUILTIN 国内中转站模型族', () => {
     expect(c.clampThinkingLevel('qwen3-235b', 'high')).toBe('high'); // qwen3 条目优先
   });
 });
+
+describe('getModelContextWindow 优先级链 (M4.5 Task 3)', () => {
+  it('优先级：手动值 > models.dev 缓存 > BUILTIN', async () => {
+    const c = new ModelCatalog(cacheFile, fakeFetch()); // fakeFetch 含 gpt-4o: 128K
+    await c.refresh(true);
+    // models.dev 缓存命中
+    expect(c.getModelContextWindow('gpt-4o')).toBe(128_000);
+    // 手动值覆盖（通过 setManualOverride 注入）
+    c.setManualOverride('gpt-4o', 256_000);
+    expect(c.getModelContextWindow('gpt-4o')).toBe(256_000);
+    // 手动值清空 → 回落缓存
+    c.setManualOverride('gpt-4o', undefined);
+    expect(c.getModelContextWindow('gpt-4o')).toBe(128_000);
+  });
+
+  it('手动值对 BUILTIN 族的覆盖', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelContextWindow('glm-4.5')).toBe(128_000); // BUILTIN
+    c.setManualOverride('glm-4.5', 200_000);
+    expect(c.getModelContextWindow('glm-4.5')).toBe(200_000); // 手动优先
+    c.setManualOverride('glm-4.5', undefined);
+    expect(c.getModelContextWindow('glm-4.5')).toBe(128_000); // 回落 BUILTIN
+  });
+
+  it('手动值只影响 getModelContextWindow，不影响 clampThinkingLevel（决策点 3）', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    // gpt-4o 在 BUILTIN 是 thinking:false → clamp 到 off
+    // 即便手动覆盖窗口，clamp 仍走 lookup（BUILTIN thinking:false）
+    c.setManualOverride('gpt-4o', 256_000);
+    expect(c.getModelContextWindow('gpt-4o')).toBe(256_000); // 手动值生效
+    expect(c.clampThinkingLevel('gpt-4o', 'high')).toBe('off'); // 仍钳 off（BUILTIN thinking:false）
+  });
+
+  it('手动值对完全未知模型的覆盖（BUILTIN 无该族）', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelContextWindow('mystery-1')).toBeUndefined(); // 未知
+    c.setManualOverride('mystery-1', 64_000);
+    expect(c.getModelContextWindow('mystery-1')).toBe(64_000); // 手动值生效
+    // clampThinkingLevel 仍钳 off（lookup 返回 undefined → !info 钳 off）
+    expect(c.clampThinkingLevel('mystery-1', 'high')).toBe('off');
+  });
+});

@@ -142,6 +142,8 @@ export class ModelCatalog {
   private models: Record<string, ModelCatalogEntry> = {};
   private fetchedAt = 0;
   private fetchImpl: FetchLike;
+  /** M4.5 Task 3：手动 contextWindow 覆盖表（modelId → 窗口值）。查询优先级最高。 */
+  private manualOverrides: Map<string, number> = new Map();
 
   constructor(private cacheFile: string, fetchImpl?: FetchLike) {
     this.fetchImpl = fetchImpl ?? fetch;
@@ -225,12 +227,22 @@ export class ModelCatalog {
     return undefined;
   }
 
-  /** M2a ContextPolicy 的窗口查询入口；未知模型返回 undefined（M2a 回退其内置映射）。 */
+  /** M4.5 Task 3：设置手动 contextWindow 覆盖（modelId → 窗口值；undefined 清除覆盖）。 */
+  setManualOverride(modelId: string, window: number | undefined): void {
+    if (window === undefined) this.manualOverrides.delete(modelId);
+    else this.manualOverrides.set(modelId, window);
+  }
+
+  /** M2a ContextPolicy 的窗口查询入口；未知模型返回 undefined（M2a 回退其内置映射）。
+   *  M4.5 Task 3：优先级为「手动值 > models.dev 缓存/BUILTIN（lookup）> undefined」。 */
   getModelContextWindow(modelId: string): number | undefined {
+    const manual = this.manualOverrides.get(modelId);
+    if (manual !== undefined) return manual;
     return this.lookup(modelId)?.contextWindow;
   }
 
-  /** 按模型族钳制 thinking 档位：目录/内置表判定不支持推理的模型一律钳到 off（设计 §4.1）。 */
+  /** 按模型族钳制 thinking 档位：目录/内置表判定不支持推理的模型一律钳到 off（设计 §4.1）。
+   *  M4.5 Task 3 决策点 3：不查 manualOverrides——手动值只有窗口没有 thinking 标记，thinking 仍走 lookup。 */
   clampThinkingLevel(modelId: string, level: ThinkingLevel): ThinkingLevel {
     if (level === 'off') return 'off';
     const info = this.lookup(modelId);
