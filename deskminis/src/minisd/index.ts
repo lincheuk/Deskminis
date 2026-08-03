@@ -23,6 +23,9 @@ import { memoryWriteTool, memoryGetTool, MEMORY_TOOL_NAMES } from './tools/memor
 import { ContextPolicy } from './agent/context-policy';
 import { OffloadEngine } from './agent/offload';
 import { CompactEngine } from './agent/compact';
+import { createStableCache } from './agent/system-prompt';
+import { buildDisciplineBlock } from './agent/model-discipline';
+import { createDiagnosticsMethods } from './diagnostics';
 import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
@@ -33,7 +36,7 @@ import { makeBridgeDispatcher } from './bridge/handlers';
 import { TerminalManager } from './terminal';
 import { FilesService } from './files';
 
-export const SYSTEM_PROMPT = '你是 DeskMinis，一个运行在用户 Windows 电脑上的 AI Agent。你可以读写文件、执行 PowerShell 命令来帮助用户完成任务。危险操作会请求用户确认。本机提供六个 Windows 能力桥，在 shell 中调用：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> [参数]（若系统装有 Node.js，node "$env:MINIS_BRIDGE_CLI" ... 亦可）。工具：windows-notify（弹系统通知）、windows-clipboard（读/写剪贴板）、windows-open（用默认程序打开网址或文件）、windows-speak（语音播报文本）、windows-screenshot（截屏保存到会话附件目录）、windows-device（读取系统信息）。需要某个工具的详细参数时运行 & "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" <工具> --help 查看；剪贴板读取与截屏等隐私敏感操作会向用户请求确认。';
+export { SYSTEM_PROMPT } from './agent/system-prompt';
 
 /** sessionId 直接被拼进文件系统路径（paths.ensureSessionDirs），必须限死成 UUID 形态：
  *  '..\\..\\Windows' 这类值会逃出数据根，在宿主任意目录建目录/落文件。 */
@@ -62,6 +65,7 @@ export async function resolveAndPersistPort(
   host: string,
   requestedPort: number,
   listen: (host: string, port: number) => Promise<number>,
+  authToken?: string,
 ): Promise<number> {
   const portFile = join(dataDir, PORT_FILE);
   // 读持久化端口
@@ -76,19 +80,48 @@ export async function resolveAndPersistPort(
   if (preferred > 0) {
     try {
       const port = await listen(host, preferred);
-      writePersistedPort(portFile, port);
+      writePersistedPort(portFile, port, authToken);
       return port;
     } catch { /* 端口被占用，回退随机 */ }
   }
   // 随机分配
   const port = await listen(host, 0);
-  writePersistedPort(portFile, port);
+  writePersistedPort(portFile, port, authToken);
   return port;
 }
 
-function writePersistedPort(portFile: string, port: number): void {
+function writePersistedPort(portFile: string, port: number, authToken?: string): void {
   const tmp = portFile + '.tmp';
-  writeFileSync(tmp, JSON.stringify({ port }), 'utf8');
+  const data: Record<string, unknown> = { port };
+  // M4 Task 4：authToken 追加写入 minisd-port.json（明文），供 CLI dry-run.mjs 免交互连接。
+  //
+  // 【安全权衡申报——这是安全姿态的实质变更，不是缺口补齐】
+  // 变更前：authToken 只存在于内存，经 IPC 交给渲染进程；磁盘上没有副本。
+  // 变更后：明文落盘于 %APPDATA%\Roaming\DeskMinis\minisd-port.json。
+  //
+  // 权限边界：该目录默认 ACL 仅当前用户账户可读写。
+  //
+  // 对「同用户攻击者」不扩大攻击面：能以同一账户执行代码的攻击者，本就能通过 DPAPI
+  // 解开 KeyringVault 取到 provider API key 与 PairingKey/StaticIdentity 私钥——
+  // 那些是长期机密，价值远高于本 token。
+  //
+  // 与 KeyringVault 的定位差异：vault 存长期机密；authToken 是每次启动 randomUUID()
+  // 重新生成的短期凭据，进程退出即失去意义（下次启动换新 token，旧值不再被任何监听者接受）。
+  //
+  // 实际扩大的暴露面有两条，如实记录：
+  //   ① 文件在进程退出后仍留在磁盘。残留的是陈旧 token，无监听者时无法利用，
+  //      但它会一直躺在那里直到下次启动被覆盖。
+  //   ② Roaming 是漫游配置目录——域环境的漫游用户配置、OneDrive 等同步工具会同步该目录，
+  //      token 可能因此离开本机。这是本次变更中最值得注意的一条。
+  //
+  // token 的权限范围受 M3a 双条件校验约束：授予 authMode=local（业务面全开 + remote.pair.*），
+  // 但必须同时满足「持有 token」与「来自回环连接」，非回环持 token 者一律 401（M3a 命门修复）。
+  // 因此即使 token 经同步离开本机，远端也无法凭它连回来。
+  //
+  // 缓解方向见计划 Backlog：dry-run 独立运行模式（不连 minisd，直接静态解析数据根），
+  // 可彻底移除落盘需求。
+  if (authToken) data.authToken = authToken;
+  writeFileSync(tmp, JSON.stringify(data), 'utf8');
   renameSync(tmp, portFile);
 }
 
@@ -237,6 +270,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）
   const memoryStore = new MemoryStore(paths.globalDir('memory'));
   const memoryInjector = new MemoryInjector(memoryStore);
+  // M4 Task 2：stable 段缓存（按 sessionId+modelId+bridgeGranted 三元组，内存态）
+  const stableCache = createStableCache();
   const contextPolicy = new ContextPolicy(catalog);
   const offloadEngine = new OffloadEngine(paths);
   const compactEngine = new CompactEngine(chat);
@@ -321,10 +356,22 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
       // 记忆注入（设计 §3.4：每轮系统提示注入 GLOBAL/SOUL/日志）+ 工具过滤（memory_enabled=false 时排除记忆工具）
       const session = chat.getSession(sessionId);
-      // 技能块属于 base，记忆注入包在最外层（技能与记忆是独立开关：memoryEnabled=false 时仍注入技能块）
-      const baseWithSkills = SYSTEM_PROMPT + buildSkillsBlock(skillStore.listEnabledForSession(sessionId), skillsRoot, skillStore.nowEpoch());
-      const injectedPrompt = memoryInjector.build(baseWithSkills, { memoryEnabled: session?.memoryEnabled ?? true });
-      const excludedToolNames = (session?.memoryEnabled ?? true) ? undefined : new Set<string>(MEMORY_TOOL_NAMES);
+      // M4 Task 2：systemPrompt 改工厂函数（决策点 3 方案 a）——每轮用当前 activeSlot.provider.modelId 调工厂，
+      // 走 stable 段缓存 + 桥段落条件注入（会话授权状态当轮生效）+ 技能块 + 记忆注入。
+      // memoryBlock 用 __BASE__ 占位符：buildSystemPrompt 用 stable+skillsBlock 替换占位符。
+      const memoryEnabled = session?.memoryEnabled ?? true;
+      const promptConfig = providers.getPromptConfig();
+      const promptFactory = (ctx: { modelId: string; sessionId: string }): string => {
+        const bridgeGranted = gateway.hasBridgeGrant(ctx.sessionId);
+        // M4 Task 3：纪律块按 modelId 分派（降级切换后当轮跟着变）；stable 段走缓存
+        const disciplineBlock = buildDisciplineBlock(ctx.modelId, promptConfig.discipline ?? {});
+        const stable = stableCache.get(ctx.sessionId, { bridgeGranted, modelId: ctx.modelId, config: promptConfig, disciplineBlock });
+        const skillsBlock = buildSkillsBlock(skillStore.listEnabledForSession(ctx.sessionId), skillsRoot, skillStore.nowEpoch());
+        const memoryBlock = memoryInjector.build('__BASE__', { memoryEnabled });
+        const base = stable + skillsBlock;
+        return memoryBlock ? memoryBlock.replace('__BASE__', base) : base;
+      };
+      const excludedToolNames = memoryEnabled ? undefined : new Set<string>(MEMORY_TOOL_NAMES);
 
       // 从这里到 IIFE 启动之间没有 await：占位与释放不会被别的请求插进来
       inFlight.add(sessionId);
@@ -346,7 +393,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
                 if (id && skillStore.get(id)) skillStore.bumpUseCount(id);
               },
             },
-            systemPrompt: injectedPrompt, thinkingLevel: clampedThinking,
+            systemPrompt: promptFactory, thinkingLevel: clampedThinking,
             signal: controller.signal,
             fallbackChain,
             contextPolicy, compactEngine, offloadEngine, excludedToolNames,
@@ -436,6 +483,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         // 决策 4c 桥双段授权合并：shell 卡批准时，对探测到的每个桥 kind 同步授权（会话级/一次性计数）
         if (p.decision === 'allow-session') for (const k of entry.bridgeTriggers) gateway.grantBridgeSession(entry.req.sessionId, k);
         else if (p.decision === 'allow-once') for (const k of entry.bridgeTriggers) gateway.grantBridgeOnce(entry.req.sessionId, k);
+        // M4 Task 2：桥授权状态变化 → 失效该会话 stable 缓存，下一轮工厂重建（精简→完整桥段落当轮生效）
+        if (p.decision !== 'deny' && entry.bridgeTriggers.length > 0) stableCache.invalidate(entry.req.sessionId);
         entry.resolve(p.decision);
         // 同一个请求可能在多个窗口里显示：告诉所有客户端这张卡片已了结
         rpc.broadcast('permission.resolved', { requestId: p.requestId, reason: 'answered' }); // 决策 4b'
@@ -511,6 +560,14 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
 
   const authToken = randomUUID().toUpperCase();
 
+  // M4 Task 4：diagnostics.dryRun RPC 方法（authMode=local，仅本机渲染进程/CLI 可调）
+  // 注册在 guardBusinessMethod 循环之前——会被循环包装（拒 pairing），方法体内另拒 remote（双重保险）
+  const diagnosticsMethods = createDiagnosticsMethods({
+    providers, vault, catalog, skillStore, pairingService, skillsRoot,
+    config: providers.getPromptConfig(),
+  });
+  Object.assign(methods, diagnosticsMethods);
+
   // M3a 接线：PairingService 已前移至 ChatStore 之前（评审命门 3），此处仅接线 remote.* 方法面 + additionalVerify。
   // 沿用 M1 vault/keyring 路径（KeyringVault L26-36）；DESKMINIS_TEST=1 时 vault 已是 InMemoryVault
   // StaticIdentity 首次生成后持久化到 vault，后续启动复用（设计 §2.1「长期身份」）
@@ -563,7 +620,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   rpc = new RpcServer(methods, authToken, additionalVerify);
   // M3c Task 4：端口持久化（必改 4b）——读 minisd-port.json 复用 → 占用回退随机 → 写文件
   const listenHost = opts?.host ?? '127.0.0.1';
-  const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p));
+  const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p), authToken);
   syncOpts.listenPort = port; // sync.hello 响应带实际监听端口（对端刷新地址簿，端口漂移自愈）
 
   // M3c Task 6：OutboundClient 装配（决策 8）——出站 WS 客户端，拨已配对对端（主从裁决 myFp < peerFp 者主拨）

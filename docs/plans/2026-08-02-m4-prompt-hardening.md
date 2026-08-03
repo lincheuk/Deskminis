@@ -225,7 +225,7 @@ Unicode 属性转义 `\p{Cc}`/`\p{Cf}` 在 Node 22 / V8 原生支持（`new RegE
 
 **步骤**:
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `deskminis/tests/sanitize.test.ts`：
 
@@ -349,7 +349,7 @@ it('buildSkillsBlock 对 description 先 sanitizeLiteral（零宽剥离）再 es
 });
 ```
 
-- [ ] **Step 2: 实现 sanitize.ts**
+- [x] **Step 2: 实现 sanitize.ts**
 
 ```typescript
 // agent/sanitize.ts
@@ -383,7 +383,7 @@ export function wrapUntrustedDataBlock(s: unknown, opts?: { maxLen?: number }): 
 }
 ```
 
-- [ ] **Step 3: 出口侧消毒接入**
+- [x] **Step 3: 出口侧消毒接入**
 
 `loop.ts` `toAgentMessages` L41：对 `toolResult.output` 过 `sanitizeMultiline`（多行块文本，保换行/制表符；不改 parts 结构，只改 output 字符串）。
 `compact.ts` `CompactEngine.buildEffectiveHistory` L78-102：对 `marker.summary` 过 `sanitizeMultiline`（L83 模板字符串处）。
@@ -391,7 +391,7 @@ export function wrapUntrustedDataBlock(s: unknown, opts?: { maxLen?: number }): 
 `memory-injector.ts` L15-52：SOUL.md 过 `sanitizeMultiline`（多行 Markdown 人设文件，保留换行结构，不包裹——人设是指令非数据）；GLOBAL.md/日志内容过 `wrapUntrustedDataBlock`（b 包裹，内部走 `sanitizeMultiline`——多行数据，前缀显式数据块声明）。
 `skills/prompt.ts` `esc` L19 前增 `sanitizeLiteral` 调用（单行值，先消毒再转义——`sanitizeLiteral` 剥控制字符，`esc` 转 XML 实体，两者不叠加：`sanitizeLiteral` 不碰 `&`/`<`/`>`，`esc` 不碰控制字符）。
 
-- [ ] **Step 4: 单文件验证 + 全量 + commit**
+- [x] **Step 4: 单文件验证 + 全量 + commit**
 
 ```bash
 cd deskminis && npm test -- tests/sanitize.test.ts
@@ -416,7 +416,7 @@ Commit: `feat(m4): 提示注入防御(sanitizeLiteral+sanitizeMultiline+wrapUntr
 
 **步骤**:
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
 // system-prompt.test.ts
@@ -496,7 +496,7 @@ it('降级切换后工厂用新 modelId 调（纪律块跟着变）', () => {
 });
 ```
 
-- [ ] **Step 2: 实现 system-prompt.ts**
+- [x] **Step 2: 实现 system-prompt.ts**
 
 ```typescript
 // agent/system-prompt.ts
@@ -535,7 +535,7 @@ export function buildSystemPrompt(opts: {
 }
 ```
 
-- [ ] **Step 3: loop.ts 接口变更（决策点 3 方案 a）**
+- [x] **Step 3: loop.ts 接口变更（决策点 3 方案 a）**
 
 [`loop.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/agent/loop.ts) L28 `RunOptions.systemPrompt` 类型：
 ```typescript
@@ -555,7 +555,7 @@ systemPrompt: typeof opts.systemPrompt === 'function'
 ```
 **回归保证**：传 string 时走 else 分支原样透传，等价于改前行为（Step 1 测试已覆盖）。
 
-- [ ] **Step 4: index.ts 组装链改传工厂函数**
+- [x] **Step 4: index.ts 组装链改传工厂函数**
 
 L325-326 现有：
 ```typescript
@@ -576,7 +576,7 @@ const promptFactory = (ctx: { modelId: string; sessionId: string }): string => {
 runAgentLoop(store, { ...opts, systemPrompt: promptFactory });
 ```
 
-- [ ] **Step 5: permissions.ts 增 hasBridgeGrant**
+- [x] **Step 5: permissions.ts 增 hasBridgeGrant**
 
 ```typescript
 hasBridgeGrant(sessionId: string): boolean {
@@ -586,7 +586,7 @@ hasBridgeGrant(sessionId: string): boolean {
 }
 ```
 
-- [ ] **Step 6: 单文件 + 全量 + commit**
+- [x] **Step 6: 单文件 + 全量 + commit**
 
 Commit: `feat(m4): 提示分层与条件注入(stable/context两层+桥段落条件注入+systemPrompt工厂函数轮内动态重建+stable三元组缓存失效,token估算未用桥会话每轮省~530token)`
 
@@ -604,7 +604,7 @@ Commit: `feat(m4): 提示分层与条件注入(stable/context两层+桥段落条
 
 **步骤**:
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
 it('gpt/codex/grok 模型 → 注入 OpenAI 系纪律块（强调调工具）', () => {
@@ -639,7 +639,7 @@ it('降级切换 modelId → 纪律块跟着变', () => {
 });
 ```
 
-- [ ] **Step 2: 实现 model-discipline.ts**
+- [x] **Step 2: 实现 model-discipline.ts**
 
 ```typescript
 // agent/model-discipline.ts
@@ -660,11 +660,11 @@ export function buildDisciplineBlock(modelId: string, config: { toolUseEnforceme
 }
 ```
 
-- [ ] **Step 3: 接入 system-prompt.ts + 降级切换 hook**
+- [x] **Step 3: 接入 system-prompt.ts + 降级切换 hook**
 
 `buildSystemPrompt` 增 `disciplineBlock` 参数（Task 2 Step 2 已预留）。降级切换时（[`loop.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/agent/loop.ts) L278/L301/L324）通知 stable 缓存失效（`activeSlot` 变 → modelId 变 → 纪律块变 → stable 重建）。
 
-- [ ] **Step 4: 单文件 + 全量 + commit**
+- [x] **Step 4: 单文件 + 全量 + commit**
 
 Commit: `feat(m4): 按模型族操作纪律块(OpenAI/Google/Anthropic三分派,防声称完成不调工具,每块带配置开关,降级切换跟着变)`
 
@@ -682,7 +682,7 @@ Commit: `feat(m4): 按模型族操作纪律块(OpenAI/Google/Anthropic三分派,
 
 **步骤**:
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
 // diagnostics.test.ts（双 in-process startMinisd，fake provider）
@@ -757,7 +757,7 @@ it('不调模型/不执行工具/不连桥（side-effect free）', async () => {
 });
 ```
 
-- [ ] **Step 2: 实现 diagnostics.ts**
+- [x] **Step 2: 实现 diagnostics.ts**
 
 ```typescript
 // diagnostics.ts
@@ -789,12 +789,12 @@ export async function dryRun(deps: {
 }
 ```
 
-- [ ] **Step 3: 注册 RPC + CLI 包装**
+- [x] **Step 3: 注册 RPC + CLI 包装**
 
 `index.ts` 注册 `diagnostics.dryRun`（authMode=local，本机渲染进程/CLI 调用）。
 `scripts/dry-run.mjs`：ws 连本机 minisd（读 minisd-port.json 拿端口 + authToken），调 `diagnostics.dryRun`，格式化输出报告。
 
-- [ ] **Step 4: 单文件 + 全量 + commit**
+- [x] **Step 4: 单文件 + 全量 + commit**
 
 Commit: `feat(m4): dry-run预检(diagnostics.dryRun RPC+CLI包装,静态解析ready/warning/blocked+下一步建议,覆盖providers/vault/model-catalog/技能/桥/M3c配对/提示预览token估算)`
 
@@ -802,19 +802,22 @@ Commit: `feat(m4): dry-run预检(diagnostics.dryRun RPC+CLI包装,静态解析re
 
 ## 完成定义
 
-- [ ] Task 1-4 全部 commit 落地
-- [ ] `npm test` 全套绿（834 基线 + ~45 M4 新增，以实际输出为准）
-- [ ] `npm run typecheck` 0 错误
-- [ ] `npm run build` 三件套通过
-- [ ] `chat-context-info.test.ts` 例 2（M2a 红线锚点）仍绿
-- [ ] M3c e2e（`npm run e2e:m3c`）仍 15/15 通过（消毒不破坏同步链路）
-- [ ] 不可信入口清单完整（决策点 1 审计表 8 入口全覆盖，每入口标注 `sanitizeLiteral`/`sanitizeMultiline`）
-- [ ] 出口侧消毒守卫断言（源文本 grep 确认所有 toolResult.output/marker.summary 插值点都过 `sanitizeMultiline`，技能 name/description 过 `sanitizeLiteral`）
-- [ ] 多行内容换行保留（`sanitizeMultiline` 测试断言 file_read/shell 多行输出消毒后行数不变、`\t` 保留、`\r\n` 归一为 `\n`）
-- [ ] systemPrompt 工厂接口回归（传 string 仍兼容 + 传工厂降级切换跟着变——决策点 3 方案 a）
-- [ ] token 估算对比落地（Task 2 测试断言未用桥会话 stable 段 < 350 字符；token 数为粗估见决策点 2）
-- [ ] dry-run CLI 可运行（`node scripts/dry-run.mjs` 输出 ready/warning/blocked 报告）
-- [ ] **生产配置口径**：`providers.json` 增 `prompt.bridgeSection`/`prompt.discipline.*` 配置项，文档注明默认值与可选值
+> 以下各项均由复核方在本机亲自执行验证（2026-08-03），非依据执行方报告勾选。
+
+- [x] Task 1-4 全部 commit 落地（be436f1 / bf0ebd4 / 8b87ccf / 4468ae3，四笔）
+- [x] `npm test` 全套绿 —— **复核方亲跑 891/891，85 文件**
+- [x] `npm run typecheck` 0 错误 —— **复核方亲跑**
+- [x] `npm run build` 三件套通过 —— **复核方亲跑（main/preload/renderer 三产物）**
+- [x] `chat-context-info.test.ts` 例 2（M2a 红线锚点）仍绿（含在 891 内）
+- [x] M3c e2e（`npm run e2e:m3c`）仍 15/15 通过 —— **复核方亲跑 15/15**
+- [x] 不可信入口清单完整（决策点 1 审计表 8 入口全覆盖，每入口标注 `sanitizeLiteral`/`sanitizeMultiline`）—— 复核方另行核实 mediaRef/originalFileName/WireSessionFile 三条可能漏网路径，确认不进 prompt
+- [x] 出口侧消毒守卫断言（源文本 grep 确认所有 toolResult.output/marker.summary 插值点都过 `sanitizeMultiline`，技能 name/description 过 `sanitizeLiteral`）
+- [x] 多行内容换行保留 —— **复核方独立构造 400 行含制表符与中文的真实代码文件验证**：行数 400→400、`\t` 保留、干净内容逐字节零改动；攻击载荷零宽/双向/LS/NUL/BELL 全剥且行数不变、幂等
+- [x] systemPrompt 工厂接口回归（传 string 仍兼容 + 传工厂降级切换跟着变——决策点 3 方案 a）—— 复核方核实占位 `''` 在 while 体顶部 provider 调用前必被覆写
+- [x] token 估算对比落地（`system-prompt.test.ts:77` 断言未用桥会话 stable 段 < 350 字符）
+- [x] dry-run CLI 可运行 —— **复核方重启应用后亲跑，真实输出见下**（总体 WARNING；1 provider；`未知模型 glm-5.1，回退内置表`；hello-skill OK；Node 解析 `C:\Program Files\nodejs\node.exe`；预估 190 token / 759 字符）
+  - ⚠️ **此前 M4 交付报告中粘贴的 dry-run 输出与实际不符，已作废**。复核方以四种独立方法（`cat` / `stat` / `node`+APPDATA 解析 / `find` 全盘）交叉验证 `providers.json`：全盘单一文件，size 295，`modelId: glm-5.1`，mtime `2026-07-30 21:51:58 +0800` 至今未变；数据根内 `grok-4.5` **0 命中**。**验收一律以复核方实测为准。**
+- [x] **生产配置口径**：`providers.json` 增 `prompt.bridgeSection`（`'full'|'minimal'|'off'`，默认 `'full'`）/ `prompt.discipline.toolUseEnforcement` 配置项（`provider-store.ts:92` 类型定义，`system-prompt.ts:62` 默认值）
 
 ## 非目标（本计划绝对不做）
 
@@ -830,3 +833,22 @@ Commit: `feat(m4): dry-run预检(diagnostics.dryRun RPC+CLI包装,静态解析re
 - ❌ **MODEL_CONTEXT_WINDOW 表/模型能力目录改动**：dry-run 只读 model-catalog 缓存/内置表，不拉 models.dev（离线可用）。
 - ❌ **不夹带 backlog**：M3c 那两条加固、桥授权 key 分隔符、Icon.vue v-html 等不进 M4。
 - ❌ **公网 relay / mDNS / SessionRunner**：M3c 非目标延续。
+
+## 安全权衡申报（合并前补录）
+
+### authToken 明文落盘（Task 4 引入）
+
+Task 4 为让 `scripts/dry-run.mjs` 免交互连接 minisd，把 `authToken` 追加写入 `%APPDATA%\Roaming\DeskMinis\minisd-port.json`（明文）。**这是安全姿态的实质变更，不是缺口补齐**，故单列申报。完整威胁模型见 `src/minisd/index.ts` 的 `writePersistedPort` 注释，要点：
+
+- **变更前**：authToken 只在内存，经 IPC 交渲染进程，磁盘无副本。**变更后**：明文落盘。
+- **对同用户攻击者不扩大攻击面**：能以同一账户执行代码者本就能经 DPAPI 解开 KeyringVault 取到 provider API key 与 PairingKey/StaticIdentity 私钥，那些是长期机密，价值远高于本 token。
+- **与 vault 的定位差异**：vault 存长期机密；authToken 每次启动 `randomUUID()` 重生成，属短期凭据。
+- **实际扩大的暴露面两条**：① 进程退出后文件仍留在磁盘（陈旧 token，无监听者时不可利用）；② **`Roaming` 是漫游配置目录**，域环境漫游用户配置与 OneDrive 等同步工具会同步该目录，token 可能离开本机——本次变更中最值得注意的一条。
+- **权限范围受 M3a 双条件校验约束**：token 授予 `authMode=local`，但必须同时满足「持有 token」与「来自回环连接」，非回环持 token 一律 401。故即使 token 经同步离开本机，远端也无法凭它连回。
+- **缓解方向**：见下方 Backlog 第 1 条（dry-run 独立运行模式可彻底移除落盘需求）。
+
+## Backlog（M4 产生，不在本里程碑处理）
+
+1. **dry-run 独立运行模式**：不连 minisd、直接静态解析数据根的形态。可彻底移除 authToken 明文落盘的需求（见上方安全权衡申报）。
+2. **按 provider 的代理开关**：仅当用户改用境外直连端点（如直接 `api.openai.com`）时需要。实测依据：用户中转站 `ai.nodetect.com` 直连 80ms、走代理 466ms（香港 CDN + 电信优化线路回国），**做成全局会让 provider 流量慢 5.8 倍**，故必须按 provider 而非全局。
+3. **`minisd-port.json` 与实际持有端口的进程失步**（复核方修正期间实测发现）：`resolveAndPersistPort` 在 preferred 端口被占时会回退随机端口并改写文件，多实例场景下文件记录的 token 可能不属于实际持有该端口的进程，`dry-run.mjs` 因此拿到 401。本次仅改善了 CLI 的错误提示（区分 401 与连不上，不再误报「请确认应用正在运行」），**根因未修**——需要的是启动期的实例互斥或端口文件归属校验。

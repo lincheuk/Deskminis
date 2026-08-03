@@ -1,9 +1,12 @@
 import { join } from 'node:path';
+import { sanitizeLiteral } from '../agent/sanitize';
 
 /**
  * 系统提示 <available_skills> 注入（设计 §5.1）：只给 名 + ≤200字描述 + SKILL.md 绝对路径，
  * 正文永不预载 —— 模型需要时自行 file_read（同时触发 use_count 计数）。
  * >20 个时分级披露：内置 > 7 天内更新(≤10) > use_count 高→低；溢出只列名并提示可 ls/grep。
+ *
+ * M4 出口侧消毒：name/description 先 sanitizeLiteral（剥控制字符）再 esc（转 XML 实体）——两者不叠加。
  */
 
 export interface PromptSkill {
@@ -49,14 +52,14 @@ export function buildSkillsBlock(skills: PromptSkill[], skillsRoot: string, nowE
   const lines: string[] = ['', '<available_skills>'];
   for (const s of full) {
     lines.push('<skill>');
-    lines.push(`<name>${esc(s.name)}</name>`);
-    if (s.description) lines.push(`<description>${esc(truncate(s.description, MAX_DESC))}</description>`);
+    lines.push(`<name>${esc(sanitizeLiteral(s.name))}</name>`);
+    if (s.description) lines.push(`<description>${esc(truncate(sanitizeLiteral(s.description), MAX_DESC))}</description>`);
     lines.push(`<path>${esc(join(skillsRoot, s.id, 'SKILL.md'))}</path>`);
     lines.push('</skill>');
   }
   if (rest.length > 0) {
     lines.push('<overflowed_skills>');
-    for (const s of rest) lines.push(`<name>${esc(s.name)}</name>`);
+    for (const s of rest) lines.push(`<name>${esc(sanitizeLiteral(s.name))}</name>`);
     lines.push('</overflowed_skills>');
     lines.push(`另有 ${rest.length} 个技能未展开：可用 shell_execute 执行 ls "${skillsRoot}" 并 grep 关键字查找，命中后用 file_read 读取对应 SKILL.md。`);
   }

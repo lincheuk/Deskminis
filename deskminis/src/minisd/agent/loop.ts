@@ -7,6 +7,7 @@ import type { ToolContext } from '../tools/types';
 import type { ContextPolicy } from './context-policy';
 import type { OffloadEngine } from './offload';
 import type { CompactEngine } from './compact';
+import { sanitizeMultiline } from './sanitize';
 
 export type LoopEvent =
   | { kind: 'textDelta'; text: string }
@@ -23,9 +24,13 @@ export type LoopEvent =
 
 export interface ProviderSlot { provider: AgentProvider; label: string }
 
+/** systemPrompt 工厂函数入参（决策点 3 方案 a）：轮内动态重建 stable 段。 */
+export interface SystemPromptCtx { modelId: string; sessionId: string }
+
 export interface RunOptions {
   sessionId: string; provider: AgentProvider; tools: ToolRegistry; toolContext: ToolContext;
-  systemPrompt: string; maxTokens?: number; thinkingLevel?: ThinkingLevel; maxTurns?: number;
+  /** 系统提示——传 string 时每轮原样用（向后兼容）；传工厂函数时每轮用当前 activeSlot.provider.modelId 调工厂（降级/桥授权当轮生效）。 */
+  systemPrompt: string | ((ctx: SystemPromptCtx) => string); maxTokens?: number; thinkingLevel?: ThinkingLevel; maxTurns?: number;
   signal?: AbortSignal; retryDelaysMs?: number[];
   fallbackChain?: ProviderSlot[];
   contextPolicy?: ContextPolicy;       // 上下文水位分层决策（Task 4）
@@ -37,9 +42,18 @@ export interface RunOptions {
 const DEFAULT_RETRY = [3000, 5000, 10000, 15000, 30000];
 const CONCURRENCY = 10;
 
-/** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}。 */
-function toAgentMessages(history: RawMessage[]): AgentMessage[] {
-  return history.map(m => ({ role: m.role, parts: m.parts }));
+/** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}。出口侧消毒：toolResult.output 过 sanitizeMultiline（存储不动）。 */
+export function toAgentMessages(history: RawMessage[]): AgentMessage[] {
+  return history.map(m => ({
+    role: m.role,
+    parts: m.parts.map(p => {
+      if (p.type === 'toolResult') {
+        const v = p.value as { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' };
+        return { type: 'toolResult' as const, value: { ...v, output: sanitizeMultiline(v.output) } };
+      }
+      return p;
+    }),
+  }));
 }
 
 /**
@@ -203,7 +217,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     const req: StreamRequest = {
       // 发送前在 provider 边界配对 tool_use/tool_result（修中断后会话永久损坏），不改存储
       messages: pairToolResults(effectiveHistory),
-      systemPrompt: opts.systemPrompt, tools: toolDefs, maxTokens, thinkingLevel,
+      // systemPrompt 占位——下方 while 循环内按当前 activeSlot 重算（降级切换后当轮生效）
+      systemPrompt: '',
+      tools: toolDefs, maxTokens, thinkingLevel,
     };
 
     let text = ''; let reasoning = ''; let usage: TokenUsage | undefined; let stopReason: StopReason = 'endTurn';
@@ -216,6 +232,11 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     while (true) {
       text = ''; reasoning = ''; usage = undefined; stopReason = 'endTurn'; calls = [];
       const currentProvider = activeSlot.provider;
+      // systemPrompt 工厂：每次 slot 切换后用当前 activeSlot.provider.modelId 重算（决策点 3 方案 a：降级当轮生效）；
+      // 传 string 时原样透传（向后兼容——等价于改前行为）
+      req.systemPrompt = typeof opts.systemPrompt === 'function'
+        ? opts.systemPrompt({ modelId: currentProvider.modelId, sessionId: opts.sessionId })
+        : opts.systemPrompt;
 
       // 透明重试：仅对 retryable 错误（M1 逻辑不变）
       let attemptSucceeded = false;

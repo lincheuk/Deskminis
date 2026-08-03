@@ -79,7 +79,7 @@ describe('PersistentShell (真实 powershell)', () => {
 describe('shell_execute 工具', () => {
   it('权限 deny 时不执行', async () => {
     const asked: PermissionRequest[] = [];
-    const gateway = { async check(r: PermissionRequest): Promise<PermissionDecision> { asked.push(r); return 'deny'; } };
+    const gateway = { async check(r: PermissionRequest): Promise<PermissionDecision> { asked.push(r); return 'deny'; }, hasBridgeGrant: () => false };
     const root = mkdtempSync(join(tmpdir(), 'dm-sh-'));
     const paths = new MinisPaths(root); paths.ensureSessionDirs('S1');
     const mgr = new ShellManager();
@@ -95,7 +95,7 @@ describe('shell_execute 工具', () => {
     const paths = new MinisPaths(root); paths.ensureSessionDirs('S1');
     const mgr = new ShellManager();
     const tool = makeShellTool(mgr, ctx => ({ MINIS_CHAT_SESSION_ID: ctx.sessionId, MINIS_BRIDGE_PIPE: '\\\\.\\pipe\\deskminis-deadbeef' }));
-    const allowAll = { async check(): Promise<PermissionDecision> { return 'allow'; } };
+    const allowAll = { async check(): Promise<PermissionDecision> { return 'allow'; }, hasBridgeGrant: () => false };
     const r = await tool.execute({ command: '$env:MINIS_CHAT_SESSION_ID + "|" + $env:MINIS_BRIDGE_PIPE', tool_title: '读桥环境变量' }, { sessionId: 'S1', paths, permissions: allowAll });
     expect(r.success).toBe(true);
     expect(r.output).toContain('S1|\\\\.\\pipe\\deskminis-deadbeef');
@@ -113,7 +113,7 @@ describe('shell_execute 工具', () => {
     expect(bridgeCli).toBeTruthy(); // 先决：stub 能定位（否则本用例挂起也没意义）
     const mgr = new ShellManager();
     const tool = makeShellTool(mgr, ctx => makeBridgeEnv(ctx.sessionId, undefined, bridgeCli!, resolveBridgeNode()));
-    const allowAll = { async check(): Promise<PermissionDecision> { return 'allow'; } };
+    const allowAll = { async check(): Promise<PermissionDecision> { return 'allow'; }, hasBridgeGrant: () => false };
     const cmd = '& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" --help';
     const r = await tool.execute({ command: cmd, tool_title: '调用桥 CLI --help' }, { sessionId: 'S1', paths, permissions: allowAll });
     expect(r.success).toBe(true); // exitCode===0 → success=true（shell.ts 153 行）

@@ -49,7 +49,7 @@ function mkCtx(): { store: ChatStore; tools: ToolRegistry; toolContext: ToolCont
   const tools = new ToolRegistry(); tools.register(echoTool);
   const root = mkdtempSync(join(tmpdir(), 'dm-loop-'));
   const paths = new MinisPaths(root); paths.ensureSessionDirs(s.id);
-  const toolContext: ToolContext = { sessionId: s.id, paths, permissions: { async check() { return 'allow'; } } };
+  const toolContext: ToolContext = { sessionId: s.id, paths, permissions: { async check() { return 'allow'; }, hasBridgeGrant: () => false } };
   return { store, tools, toolContext, sessionId: s.id };
 }
 
