@@ -83,13 +83,18 @@ describe('diagnostics.dryRun', () => {
     c.close();
   });
 
-  it('model-catalog 未知模型 → warning（回退内置表）', async () => {
+  it('model-catalog 未知模型 → warning（含两个后果说明 + 修法建议）', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     // 配 unknown modelId（claude- 前缀会被内置表匹配，用完全未知的前缀）
     await createDefaultProvider(c, 'unknown-model-xyz');
     const r = (await c.call('diagnostics.dryRun', {})).result;
     expect(r.checks.modelCatalog.status).toBe('warning');
+    expect(r.checks.modelCatalog.detail).toContain('回退 32K');           // 后果 A
+    expect(r.checks.modelCatalog.detail).toContain('offload 过早触发');     // 后果 A
+    expect(r.checks.modelCatalog.detail).toContain('永不 compact');        // 后果 A
+    expect(r.checks.modelCatalog.detail).toContain('thinking 被钳到 off'); // 后果 B
+    expect(r.checks.modelCatalog.detail).toContain('contextWindow');       // 修法
     c.close();
   });
 
