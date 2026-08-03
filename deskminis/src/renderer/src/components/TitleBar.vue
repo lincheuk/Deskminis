@@ -121,6 +121,13 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
   background: var(--material-tint); backdrop-filter: var(--material-thin);
   border-bottom: .5px solid var(--separator);
   -webkit-app-region: drag; user-select: none; flex: 0 0 40px;
+  /* backdrop-filter 会创建层叠上下文，把下拉菜单 .pop 的 z-index:40 困在 titlebar 内部；
+     而 titlebar 本身是 static/z-auto，在根层叠上下文里按「非定位元素」绘制，
+     顺序低于主体中任何定位元素 —— 菜单会被 .datehead(sticky,z1,不透明背景)、
+     .stream/.empty（静态但 DOM 在后）盖住：前者显示为横条遮挡，后者抢走点击命中。
+     故给 titlebar 自身一个定位与层级，让整棵子树抬到主体之上；
+     50 低于 SettingsModal(100)/DevicesModal(110)，保证模态仍能盖住标题栏。 */
+  position: relative; z-index: 50;
 }
 .tb-ico, .menubar, .mi { -webkit-app-region: no-drag; }
 .tb-ico {
