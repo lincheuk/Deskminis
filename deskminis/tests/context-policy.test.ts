@@ -36,11 +36,11 @@ describe('ContextPolicy.estimateTokens', () => {
 });
 
 describe('ContextPolicy.decide', () => {
-  it('未知窗口（undefined）→ 回退 32K 档：超 70% offload，不 compact', () => {
+  it('未知窗口（undefined）→ 回退 128K 档：超 50% offload，超 70% compact', () => {
     const p = new ContextPolicy(fakeCatalog(undefined));
-    expect(p.decide('unknown', 10_000)).toBe('none');     // 10K < 22.4K (70% of 32K)
-    expect(p.decide('unknown', 24_000)).toBe('offload');  // > 70%
-    expect(p.decide('unknown', 50_000)).toBe('offload');  // 仍只 offload（保守档不压缩）
+    expect(p.decide('unknown', 10_000)).toBe('none');     // < 64K (50% of 128K)
+    expect(p.decide('unknown', 70_000)).toBe('offload');  // > 50% * 128K = 64000
+    expect(p.decide('unknown', 95_000)).toBe('compact');  // > 70% * 128K = 89600
   });
 
   it('32K 窗口：超 70% offload，不 compact', () => {

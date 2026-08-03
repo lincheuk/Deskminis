@@ -2,8 +2,8 @@ import type { AgentMessage } from '../../shared/types';
 
 export type ContextAction = 'none' | 'offload' | 'compact';
 
-/** 模型窗口未知时的保守回退窗口（只 offload 不 compact）。 */
-const FALLBACK_WINDOW = 32_000;
+/** 模型窗口未知时的保守回退窗口。M4.5：32K → 128K（避免落入「只 offload 不 compact」陷阱档，2026 年主流模型 ≥128K）。 */
+const FALLBACK_WINDOW = 128_000;
 
 /**
  * 上下文水位检查（设计 §4.2「上下文水位检查」段）。

@@ -83,6 +83,8 @@ export class FileVault implements SecretVault {
 export interface ProviderInstance {
   id: string; name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama';
   baseUrl?: string; modelId: string;
+  /** M4.5 Task 3：手动 contextWindow（可选），查询优先级最高。用户修正目录错误值的终极兜底。 */
+  contextWindow?: number;
 }
 
 export interface ModelGroup {

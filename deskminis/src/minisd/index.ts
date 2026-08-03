@@ -16,7 +16,7 @@ import { PairingStore, PairingService } from './remote/pairing';
 import { createRemoteMethods, createAdditionalVerify, guardBusinessMethod } from './remote';
 import { SyncCoordinator, createSyncMethods, OutboundClient } from './sync';
 import type { AgentStreamEvent } from '../shared/types';
-import { ModelCatalog } from './providers/model-catalog';
+import { ModelCatalog, createProxyFetch } from './providers/model-catalog';
 import { MemoryStore } from './store/memory-store';
 import { MemoryInjector } from './store/memory-injector';
 import { memoryWriteTool, memoryGetTool, MEMORY_TOOL_NAMES } from './tools/memory';
@@ -198,8 +198,16 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const providers = new ProviderStore(root, vault);
 
   // 模型能力目录：后台预热 models.dev；失败静默回退磁盘缓存/内置兜底表
-  const catalog = new ModelCatalog(join(root, 'models-dev-cache.json'));
+  const catalog = new ModelCatalog(join(root, 'models-dev-cache.json'), createProxyFetch());
   void catalog.refresh();
+  // M4.5 Task 3：从 providers.json 同步手动 contextWindow 覆盖到 catalog（启动 + provider 变更后调）。
+  // 优先级：手动值 > models.dev 缓存 > BUILTIN > undefined。用户修正目录错误值的终极兜底。
+  function syncManualOverrides(): void {
+    for (const p of providers.list()) {
+      if (p.contextWindow !== undefined) catalog.setManualOverride(p.modelId, p.contextWindow);
+    }
+  }
+  syncManualOverrides();
 
   // 权限：把询问经 RPC 广播给 UI，UI 用 permission.respond 回决议。
   // 广播给所有连接是安全的——RpcServer 现在要求 per-run token，能连上的只可能是本应用自己的窗口。
@@ -422,33 +430,40 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       return { ok: true };
     },
     'provider.instances.list': () => providers.list(),
-    'provider.instances.create': (p: { name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl?: string; modelId: string; apiKey?: string }) => {
+    'provider.instances.create': (p: { name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl?: string; modelId: string; apiKey?: string; contextWindow?: number }) => {
       const baseUrl = (typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '') || undefined;
       if (p.kind === 'openai-compat' && !baseUrl) throw new Error('OpenAI 兼容 provider 需要 base URL');
       // ollama 本地端点免 key；其余类型必须带 key
       if (p.kind !== 'ollama' && (typeof p.apiKey !== 'string' || p.apiKey === '')) throw new Error('该 provider 类型需要 API key');
-      return providers.create({ name: p.name, kind: p.kind, baseUrl, modelId: p.modelId }, p.apiKey || undefined);
+      const created = providers.create({ name: p.name, kind: p.kind, baseUrl, modelId: p.modelId, contextWindow: p.contextWindow }, p.apiKey || undefined);
+      syncManualOverrides();
+      return created;
     },
     /** 改配置不必删了重建；apiKey 省略/空串 = 保留原密钥（前端也永远拿不到旧密钥回显）。 */
-    'provider.instances.update': (p: { id: string; name?: string; kind?: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl?: string; modelId?: string; apiKey?: string }) => {
+    'provider.instances.update': (p: { id: string; name?: string; kind?: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl?: string; modelId?: string; apiKey?: string; contextWindow?: number }) => {
       const cur = providers.list().find(x => x.id === p.id);
       if (!cur) throw new Error(`provider 不存在: ${p.id}`);
-      const patch: Partial<{ name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl: string | undefined; modelId: string }> & { apiKey?: string } = {};
+      const patch: Partial<{ name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl: string | undefined; modelId: string; contextWindow: number | undefined }> & { apiKey?: string } = {};
       if (typeof p.name === 'string' && p.name.trim()) patch.name = p.name.trim();
       if (p.kind === 'anthropic' || p.kind === 'openai-compat' || p.kind === 'gemini' || p.kind === 'ollama') patch.kind = p.kind;
       if (typeof p.modelId === 'string' && p.modelId.trim()) patch.modelId = p.modelId.trim();
       if (p.baseUrl !== undefined) patch.baseUrl = (typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '') || undefined;
       if (typeof p.apiKey === 'string' && p.apiKey !== '') patch.apiKey = p.apiKey;
+      // M4.5 Task 3：contextWindow 支持「显式传 undefined 清空」——'contextWindow' in p 判定是否显式传入
+      if ('contextWindow' in p) patch.contextWindow = typeof p.contextWindow === 'number' ? p.contextWindow : undefined;
       // 校验「改完之后」的形态，而不是补丁本身：openai-compat 没有 base URL 无法请求
       const kind = patch.kind ?? cur.kind;
       const baseUrl = 'baseUrl' in patch ? patch.baseUrl : cur.baseUrl;
       if (kind === 'openai-compat' && !baseUrl) throw new Error('OpenAI 兼容 provider 需要 base URL');
       providers.update(p.id, patch);
+      syncManualOverrides();
       return { ok: true };
     },
     'provider.instances.delete': (p: { id: string; confirm?: boolean }) => {
       if (p.confirm !== true) throw new Error('删除 provider 需 confirm:true');
-      providers.delete(p.id); return { ok: true };
+      providers.delete(p.id);
+      syncManualOverrides();
+      return { ok: true };
     },
     'provider.setDefault': (p: { id: string }) => { providers.setDefaultId(p.id); return { ok: true }; },
     // ── ModelGroup ──
@@ -523,8 +538,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
           modelId = 'unknown';
         }
       }
-      // 32000 对齐 context-policy.ts FALLBACK_WINDOW（未导出常量）
-      const windowTokens = modelId === 'unknown' ? 32000 : (catalog.getModelContextWindow(modelId) ?? 32000);
+      // 128000 对齐 context-policy.ts FALLBACK_WINDOW（未导出常量）
+      const windowTokens = modelId === 'unknown' ? 128_000 : (catalog.getModelContextWindow(modelId) ?? 128_000);
       return { windowTokens, usedTokens, remaining: Math.max(0, windowTokens - usedTokens) };
     },
     // ---- M2c 技能 RPC 面 ----

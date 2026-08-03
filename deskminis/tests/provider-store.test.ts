@@ -110,3 +110,29 @@ describe('ProviderStore ModelGroup', () => {
     expect(store.resolveGroupMembers('NOPE')).toEqual([]);
   });
 });
+
+describe('ProviderInstance 手动 contextWindow (M4.5 Task 3)', () => {
+  it('create 支持手动 contextWindow 字段并持久化', () => {
+    const p = store.create({ name: 'test', kind: 'openai-compat', baseUrl: 'http://x/v1', modelId: 'm1', contextWindow: 256_000 }, 'k');
+    expect(p.contextWindow).toBe(256_000);
+    expect(store.list()[0].contextWindow).toBe(256_000);
+    // 持久化：重开实例仍读到
+    const reopened = new ProviderStore(dir, vault);
+    expect(reopened.list()[0].contextWindow).toBe(256_000);
+  });
+
+  it('update 可修改 contextWindow', () => {
+    const p = store.create({ name: 'test', kind: 'openai-compat', baseUrl: 'http://x/v1', modelId: 'm1' }, 'k');
+    expect(store.list()[0].contextWindow).toBeUndefined();
+    store.update(p.id, { contextWindow: 200_000 });
+    expect(store.list()[0].contextWindow).toBe(200_000);
+    // 再次 update 清空
+    store.update(p.id, { contextWindow: undefined });
+    expect(store.list()[0].contextWindow).toBeUndefined();
+  });
+
+  it('create 不传 contextWindow → 字段为 undefined（向后兼容）', () => {
+    const p = store.create({ name: 'test', kind: 'anthropic', modelId: 'm1' }, 'k');
+    expect(p.contextWindow).toBeUndefined();
+  });
+});
