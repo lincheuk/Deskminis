@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import type { ThinkingLevel } from '../../shared/types';
 import type { FetchLike } from './types';
 
@@ -10,6 +11,39 @@ export interface ModelCatalogEntry {
 
 const API_URL = 'https://models.dev/api.json';
 const TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * M4.5 Task 1：构造走系统代理的 fetchImpl，**严格限定 ModelCatalog.refresh 这一个调用点**。
+ *
+ * 红线：禁止 setGlobalDispatcher 或任何全局改动——全局改会把中转站 ai.nodetect.com 的
+ *   直连 80ms 变成走代理 466ms（实测，香港 CDN + 电信优化线路回国，tracert 有证）。
+ *
+ * 代理环境变量优先级（curl / Node convention）：
+ *   HTTPS_PROXY > HTTP_PROXY > ALL_PROXY（大小写各查一次，POSIX 兼容）
+ * NO_PROXY 尊重：含 models.dev（精确或后缀匹配）或 * 时直连。
+ * 无代理环境变量时返回 undefined（用默认全局 fetch = 直连，行为不变）。
+ */
+export function createProxyFetch(): FetchLike | undefined {
+  const proxyUri =
+    process.env.HTTPS_PROXY || process.env.https_proxy ||
+    process.env.HTTP_PROXY || process.env.http_proxy ||
+    process.env.ALL_PROXY || process.env.all_proxy;
+  if (!proxyUri) return undefined; // 无代理 → 用默认全局 fetch（直连）
+  // NO_PROXY 尊重：models.dev 命中则直连
+  const noProxy = process.env.NO_PROXY || process.env.no_proxy;
+  if (noProxy) {
+    const domains = noProxy.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+    if (domains.includes('*')) return undefined; // 全部直连
+    // models.dev 域名匹配（精确或后缀）
+    if (domains.some(d => d === 'models.dev' || 'models.dev'.endsWith(d))) return undefined;
+  }
+  // 仅此一处实例化 ProxyAgent，不 setGlobalDispatcher——实例仅存于闭包内
+  const agent = new ProxyAgent(proxyUri);
+  // undici fetch 的类型与 DOM lib 的 typeof fetch 不完全兼容（dispatcher 字段/Blob 类型差异），
+  // 用类型断言对齐 FetchLike——运行时行为正确，只绕过 lib DOM 与 undici 类型定义的细节差异
+  return (async (url: string, init?: Parameters<typeof fetch>[1]) =>
+    undiciFetch(url as Parameters<typeof undiciFetch>[0], { ...init, dispatcher: agent } as Parameters<typeof undiciFetch>[1])) as unknown as FetchLike;
+}
 
 /** 内置兜底表：models.dev 与磁盘缓存都不可用时仍可用。按模型族前缀正则，先中先赢。 */
 const BUILTIN: [RegExp, ModelCatalogEntry][] = [

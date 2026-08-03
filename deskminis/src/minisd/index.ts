@@ -16,7 +16,7 @@ import { PairingStore, PairingService } from './remote/pairing';
 import { createRemoteMethods, createAdditionalVerify, guardBusinessMethod } from './remote';
 import { SyncCoordinator, createSyncMethods, OutboundClient } from './sync';
 import type { AgentStreamEvent } from '../shared/types';
-import { ModelCatalog } from './providers/model-catalog';
+import { ModelCatalog, createProxyFetch } from './providers/model-catalog';
 import { MemoryStore } from './store/memory-store';
 import { MemoryInjector } from './store/memory-injector';
 import { memoryWriteTool, memoryGetTool, MEMORY_TOOL_NAMES } from './tools/memory';
@@ -198,7 +198,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const providers = new ProviderStore(root, vault);
 
   // 模型能力目录：后台预热 models.dev；失败静默回退磁盘缓存/内置兜底表
-  const catalog = new ModelCatalog(join(root, 'models-dev-cache.json'));
+  const catalog = new ModelCatalog(join(root, 'models-dev-cache.json'), createProxyFetch());
   void catalog.refresh();
 
   // 权限：把询问经 RPC 广播给 UI，UI 用 permission.respond 回决议。
