@@ -126,10 +126,11 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
     if (window !== undefined) {
       modelCatalogCheck = { status: 'ready', detail: String(window) };
     } else {
-      // M4.5 Task 4：说清两个后果 + 给出修法（models.dev/basellm/BUILTIN/手动 contextWindow 均未命中时）
+      // M4.5 Task 4/5：说清两个后果 + 给出修法（models.dev/basellm/BUILTIN/手动 contextWindow 均未命中时）
+      // Task 5 同步更新：FALLBACK_WINDOW 32K→128K 后，128K 档有 compact 兜底，「永不 compact」不再成立
       modelCatalogCheck = {
         status: 'warning',
-        detail: `未知模型 ${defaultModelId}，回退 32K 档（offload 过早触发且永不 compact）+ thinking 被钳到 off。修法：在 providers.json 为该 provider 配 contextWindow 字段，或等待 models.dev 目录更新`
+        detail: `未知模型 ${defaultModelId}，回退 128K 档（窗口可能低估，offload/compact 阈值偏低）+ thinking 被钳到 off。修法：在 providers.json 为该 provider 配 contextWindow 字段，或等待 models.dev 目录更新`
       };
     }
   } else {

@@ -90,9 +90,8 @@ describe('diagnostics.dryRun', () => {
     await createDefaultProvider(c, 'unknown-model-xyz');
     const r = (await c.call('diagnostics.dryRun', {})).result;
     expect(r.checks.modelCatalog.status).toBe('warning');
-    expect(r.checks.modelCatalog.detail).toContain('回退 32K');           // 后果 A
-    expect(r.checks.modelCatalog.detail).toContain('offload 过早触发');     // 后果 A
-    expect(r.checks.modelCatalog.detail).toContain('永不 compact');        // 后果 A
+    expect(r.checks.modelCatalog.detail).toContain('回退 128K');           // 后果 A（窗口低估）
+    expect(r.checks.modelCatalog.detail).toContain('窗口可能低估');         // 后果 A
     expect(r.checks.modelCatalog.detail).toContain('thinking 被钳到 off'); // 后果 B
     expect(r.checks.modelCatalog.detail).toContain('contextWindow');       // 修法
     c.close();

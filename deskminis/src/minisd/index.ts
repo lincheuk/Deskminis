@@ -538,8 +538,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
           modelId = 'unknown';
         }
       }
-      // 32000 对齐 context-policy.ts FALLBACK_WINDOW（未导出常量）
-      const windowTokens = modelId === 'unknown' ? 32000 : (catalog.getModelContextWindow(modelId) ?? 32000);
+      // 128000 对齐 context-policy.ts FALLBACK_WINDOW（未导出常量）
+      const windowTokens = modelId === 'unknown' ? 128_000 : (catalog.getModelContextWindow(modelId) ?? 128_000);
       return { windowTokens, usedTokens, remaining: Math.max(0, windowTokens - usedTokens) };
     },
     // ---- M2c 技能 RPC 面 ----

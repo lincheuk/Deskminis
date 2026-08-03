@@ -69,7 +69,7 @@ describe('chat.contextInfo RPC（#7 水位条所需；M2a 红线：buildEffectiv
     expect(typeof info.windowTokens).toBe('number');
     expect(typeof info.usedTokens).toBe('number');
     expect(typeof info.remaining).toBe('number');
-    expect(info.windowTokens).toBeGreaterThanOrEqual(32000);  // fake provider 的 catalog 查不到会兜底 32K
+    expect(info.windowTokens).toBe(128_000);  // fake provider 的 catalog 查不到，兜底 FALLBACK_WINDOW=128K
     expect(info.usedTokens).toBeGreaterThanOrEqual(0);
     expect(info.remaining).toBe(Math.max(0, info.windowTokens - info.usedTokens));
     c.close();
@@ -85,8 +85,8 @@ describe('chat.contextInfo RPC（#7 水位条所需；M2a 红线：buildEffectiv
     await promptTurn(c, s.id, '压缩前 3：继续往会话里塞内容，确保 raw history 数组至少 8 条（每轮 user + assistant 各一条），锚在倒数第 2 条时前面至少有几条会被压缩。');
     await promptTurn(c, s.id, '压缩前 4：最后一轮先落库，usedBefore 按完整 effectiveHistory（无 marker）估算。');
     const before = (await c.call('chat.contextInfo', { sessionId: s.id })).result;
-    // 直接写 compact marker（不走 agent 循环：fake 32K 档 ContextPolicy 只 offload 不 compact，
-    //   循环永远触发不了 compacted，红线断言对象是 chat.contextInfo 的 buildEffectiveHistory 链路，
+    // 直接写 compact marker（不走 agent 循环：更确定性——fake provider 走 FALLBACK_WINDOW=128K 档虽有
+    //   compact 但循环触发时机不可控，红线断言对象是 chat.contextInfo 的 buildEffectiveHistory 链路，
     //   循环触发时机 M2a 已测，不归本用例。计划内修正：按真名 appendCompactMarker）
     const db2 = openDb(join(dataDir, 'minis.db'));
     try {
