@@ -90,6 +90,32 @@ describe('resolveBasellmConflict', () => {
     ];
     expect(resolveBasellmConflict(entries, 'kimi-k2')?.contextWindow).toBe(128_000);
   });
+
+  /**
+   * thinking 取「任一为真」——与 models.dev 主源同规则。
+   * 原实现把 thinking 取自「窗口最小的那一条」，实测该口径会让 88 个模型丢掉推理能力：
+   * 例如 gemini-2.5-flash 在 15 家 vendor 中有 14 家报 Reasoning，但窗口最小的 302.AI 没报，
+   * 于是 thinking 被判成 false —— 正是 M4.5 立项要修的那个 bug 换个入口复发。
+   * 能力是模型的属性而非某个 vendor 的属性，故跨全部条目取或。
+   */
+  it('thinking 取任一为真：窗口最小的那条没报 Reasoning 也不丢能力', () => {
+    const entries = [
+      { model_name: 'mystery-r', vendor_name: '窗口最小但漏标', tags: '64K' },
+      { model_name: 'mystery-r', vendor_name: 'A', tags: 'Reasoning,128K' },
+      { model_name: 'mystery-r', vendor_name: 'B', tags: 'Reasoning,256K' },
+    ];
+    const r = resolveBasellmConflict(entries, 'mystery-r');
+    expect(r?.contextWindow).toBe(64_000); // 窗口仍取最小（安全方向不变）
+    expect(r?.thinking).toBe(true);        // 但能力位不被那一条拖成 false
+  });
+
+  it('确实全员无 Reasoning → thinking 为 false（不误判成有能力）', () => {
+    const entries = [
+      { model_name: 'mystery-n', vendor_name: 'A', tags: 'Tools,128K' },
+      { model_name: 'mystery-n', vendor_name: 'B', tags: 'Vision,256K' },
+    ];
+    expect(resolveBasellmConflict(entries, 'mystery-n')?.thinking).toBe(false);
+  });
 });
 
 describe('ModelCatalog 双源 refresh', () => {

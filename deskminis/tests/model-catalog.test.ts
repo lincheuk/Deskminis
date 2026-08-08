@@ -147,3 +147,103 @@ describe('getModelContextWindow 优先级链 (M4.5 Task 3)', () => {
     expect(c.clampThinkingLevel('mystery-1', 'high')).toBe('off');
   });
 });
+
+/**
+ * models.dev 主源多 vendor 同名冲突消解。
+ *
+ * 背景（复核方 2026-08-03 对 models.dev 全量 6043 条实测）：929 个 id 跨 provider 重复，
+ * 其中 434 个各家报的 contextWindow 不一致（分歧最大 15.6 倍），189 个 reasoning 标记不一致。
+ * 原实现 `models[id] = ...` 是后写覆盖（last-wins），值由 JSON 迭代顺序决定：
+ *   - glm-5.1 实测取到 cortecs 的 204800，而官方 zhipuai/zai 报 200000 —— 高估
+ *   - 63 个模型因末位 vendor 报 reasoning:false 而丢掉推理能力（如 glm-5 是 16:1 的少数派）
+ * 且顺序依赖意味着 models.dev 重排 vendor 时值会静默改变。
+ *
+ * 规则按字段分开定，依据是「错的方向」而非「错的次数」：
+ *   - contextWindow / maxOutputTokens 取最小：低估只是压缩提前（功能正常，且有手动
+ *     contextWindow 兜底）；高估会把阈值算在不存在的空间上，导致模型直接拒绝请求的硬失败。
+ *   - thinking 取「任一为真」：这是能力位，误判为 false 会永久钳掉 thinking 档位
+ *     （正是 M4.5 立项要修的那个 bug）；实测 false 都是 16:1 这种极少数离群。
+ * 「官方 vendor 优先」方案已被数据否掉：deepseek-chat 的 1000000 恰恰来自官方 provider
+ * `deepseek` 自己，而真实是 128K —— 官方源同样会报错值，且该方案要维护映射表。
+ */
+describe('models.dev 多 vendor 同名冲突消解', () => {
+  const MULTI = {
+    vendorA: { models: { m1: { limit: { context: 200_000, output: 8_000 }, reasoning: true } } },
+    vendorB: { models: { m1: { limit: { context: 1_000_000, output: 32_000 }, reasoning: false } } },
+    vendorC: { models: { m1: { limit: { context: 204_800, output: 16_000 }, reasoning: true } } },
+  };
+
+  it('contextWindow 取最小（拒绝高估——高估会导致上下文超限硬失败）', async () => {
+    const c = new ModelCatalog(cacheFile, fakeFetch(MULTI));
+    expect(await c.refresh(true)).toBe(true);
+    expect(c.getModelContextWindow('m1')).toBe(200_000);
+  });
+
+  it('thinking 取任一为真（少数 vendor 报 false 不得丢掉推理能力）', async () => {
+    const c = new ModelCatalog(cacheFile, fakeFetch(MULTI));
+    await c.refresh(true);
+    expect(c.clampThinkingLevel('m1', 'high')).toBe('high');
+  });
+
+  it('末位 vendor 报 false 也不丢推理能力（回归 last-wins 的 63 例）', async () => {
+    // 顺序刻意让「reasoning:false 且窗口最大」的 vendor 排在最后——last-wins 下两项都会错
+    const worst = {
+      good: { models: { m2: { limit: { context: 128_000, output: 8_000 }, reasoning: true } } },
+      bad: { models: { m2: { limit: { context: 1_000_000, output: 64_000 }, reasoning: false } } },
+    };
+    const c = new ModelCatalog(cacheFile, fakeFetch(worst));
+    await c.refresh(true);
+    expect(c.getModelContextWindow('m2')).toBe(128_000);
+    expect(c.clampThinkingLevel('m2', 'high')).toBe('high');
+  });
+
+  it('结果与 vendor 迭代顺序无关（消除 models.dev 重排导致的静默变化）', async () => {
+    const entries = Object.entries(MULTI);
+    const forward = new ModelCatalog(join(dir, 'f.json'), fakeFetch(Object.fromEntries(entries)));
+    const reversed = new ModelCatalog(join(dir, 'r.json'), fakeFetch(Object.fromEntries([...entries].reverse())));
+    await forward.refresh(true);
+    await reversed.refresh(true);
+    expect(forward.getModelContextWindow('m1')).toBe(reversed.getModelContextWindow('m1'));
+    expect(forward.clampThinkingLevel('m1', 'high')).toBe(reversed.clampThinkingLevel('m1', 'high'));
+  });
+
+  it('缺 limit.context 的条目不参与取最小，也不覆盖已有值', async () => {
+    const partial = {
+      withWindow: { models: { m3: { limit: { context: 128_000, output: 8_000 }, reasoning: false } } },
+      noWindow: { models: { m3: { reasoning: true } } }, // 无 limit
+    };
+    const c = new ModelCatalog(cacheFile, fakeFetch(partial));
+    await c.refresh(true);
+    expect(c.getModelContextWindow('m3')).toBe(128_000); // 不被 undefined 抹掉
+    expect(c.clampThinkingLevel('m3', 'high')).toBe('high'); // 能力位仍取到 true
+  });
+
+  it('旧规则算出的缓存视为失效（否则修复要等 24h TTL 才生效）', async () => {
+    // 模拟升级前留下的缓存：无 mergeRule 标记，且值是 last-wins 的高估值
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(cacheFile, JSON.stringify({
+      fetchedAt: Date.now(), // 明确在 TTL 内——若不作废，refresh() 会跳过
+      models: { m1: { contextWindow: 204_800, thinking: false } },
+    }), 'utf8');
+    const c = new ModelCatalog(cacheFile, fakeFetch(MULTI));
+    expect(c.getModelContextWindow('m1')).toBeUndefined(); // 旧缓存未被采纳
+    expect(await c.refresh()).toBe(true);                  // 非 force 也重拉（fetchedAt 已作废）
+    expect(c.getModelContextWindow('m1')).toBe(200_000);   // 按新规则重算
+  });
+
+  it('带当前规则标记的缓存正常复用（不误伤新缓存）', async () => {
+    const c1 = new ModelCatalog(cacheFile, fakeFetch(MULTI));
+    await c1.refresh(true);
+    const c2 = new ModelCatalog(cacheFile, async () => { throw new Error('不应发请求'); });
+    expect(await c2.refresh()).toBe(false); // TTL 内跳过
+    expect(c2.getModelContextWindow('m1')).toBe(200_000);
+  });
+
+  it('单 vendor 模型行为不变（不回归既有用例）', async () => {
+    const c = new ModelCatalog(cacheFile, fakeFetch());
+    await c.refresh(true);
+    expect(c.getModelContextWindow('claude-sonnet-5')).toBe(200_000);
+    expect(c.getModelContextWindow('gemini-2.5-flash')).toBe(1_048_576);
+    expect(c.clampThinkingLevel('gpt-4o', 'high')).toBe('off'); // reasoning:false 单源仍为 false
+  });
+});
