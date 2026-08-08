@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // DeskMinis M5 打包与分发端到端验收驱动（对应 docs/plans/2026-08-08-m5-packaging.md §6 复核方实测清单）。
 // 用法：先 `npm run build`，再 `npm run e2e:m5`。
+// 产物路径默认读取 dist/；若 dist/ 被占用（EBUSY），可用环境变量
+// DESKMINIS_M5_UNPACKED / DESKMINIS_M5_SETUP 指定实际产物根再运行。
 //
 // 执行方可自动断言（无需 GUI/真安装，对 win-unpacked 即可）：
 //   1) extraResources 随包：resources/bridge-cli.mjs + resources/bridge-node.cmd（硬阻塞 1/2 产物面）
@@ -25,8 +27,11 @@ const results = [];
 const record = (step, pass, detail) => { results.push({ step, pass, detail }); console.log(`${pass ? 'PASS' : 'FAIL'}  [${step}] ${detail}`); };
 const isWin = process.platform === 'win32';
 
-const UNPACKED = join(CWD, 'dist', 'win-unpacked');
-const SETUP = join(CWD, 'dist', 'DeskMinis-0.1.1-Setup.exe');
+// 产物路径支持环境变量注入：本机 dist/ 曾被工具宿主持有 resources/app.asar 句柄（EBUSY），
+// 只能把产物构建到临时目录。复核方/执行方跑本脚本时可用环境变量指向实际产物根，绕开锁。
+// 未设置时回落默认 dist/ 路径。
+const UNPACKED = process.env.DESKMINIS_M5_UNPACKED || join(CWD, 'dist', 'win-unpacked');
+const SETUP = process.env.DESKMINIS_M5_SETUP || join(CWD, 'dist', 'DeskMinis-0.1.1-Setup.exe');
 
 async function main() {
   console.log('═'.repeat(64));
@@ -43,6 +48,11 @@ async function main() {
     console.error('错误：未找到打包产物。');
     console.error('  请先：npm run build && npx electron-builder --dir');
     console.error('  期望路径: dist/win-unpacked/DeskMinis.exe');
+    console.error('  若 dist/ 被占用（EBUSY，如工具宿主已持有 resources/app.asar 句柄），');
+    console.error('  请把产物构建到临时目录，并用环境变量指定产物根绕开锁：');
+    console.error('    $env:DESKMINIS_M5_UNPACKED="<临时目录>/win-unpacked"');
+    console.error('    $env:DESKMINIS_M5_SETUP="<临时目录>/DeskMinis-0.1.1-Setup.exe"');
+    console.error('    再运行: npm run e2e:m5');
     process.exit(2);
   }
 

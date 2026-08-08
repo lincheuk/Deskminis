@@ -59,14 +59,16 @@
 
 ### 2-3. 无 Node 环境的产品决策 → **随包发 .cmd 垫片，复用应用自带 Electron 运行时**
 
-**结论：** **随包发一个 131 字节 `.cmd` 垫片**，通过 `ELECTRON_RUN_AS_NODE=1` 复用应用自带的 Electron 运行时（DeskMinis.exe，Chromium 内核附带 Node 运行时）来跑 bridge-cli.mjs。彻底消除「随包内置 node.exe（87.4MB）」的体积代价。同时保留「检测不到时明确降级 + dry-run 说清」的兜底。
+**结论：** **随包发一个 63 字节 `.cmd` 垫片**，通过 `ELECTRON_RUN_AS_NODE=1` 复用应用自带的 Electron 运行时（DeskMinis.exe，Chromium 内核附带 Node 运行时）来跑 bridge-cli.mjs。彻底消除「随包内置 node.exe（87.4MB）」的体积代价。同时保留「检测不到时明确降级 + dry-run 说清」的兜底。
 
-**垫片内容（`resources/bridge-node.cmd`，131 字节）：**
+**垫片内容（`resources/bridge-node.cmd`，63 字节）：**
 ```bat
 @echo off
 set ELECTRON_RUN_AS_NODE=1
 "%~dp0..\DeskMinis.exe" %*
 ```
+
+> **垫片字节数注记**：复核方原实验件为 131 字节（绝对路径 + CRLF 行尾）；随包版改用 `%~dp0` 相对定位且仓库 `.gitattributes` 强制 LF 行尾，实测为 **63 字节**。数字以随包实物为准。
 
 **论证：**
 - 终端用户机器不保证装 Node。复核方已实测坐实（**作为设计前提直接采用，不重测**）：垫片经 PowerShell `& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI"` 调用时，stdout 2 行全部捕获、退出码 3 正确传播；含空格路径 + 含空格中文参数无死角（`ARGV:["windows-clipboard","--text","hello world 中文"]`，退出码 0）。模型侧提示零改动——`BRIDGE_SECTION_FULL` 的 `& "$env:MINIS_BRIDGE_NODE" ...` 形式不变，只是该环境变量现在指向垫片。
@@ -145,12 +147,12 @@ set ELECTRON_RUN_AS_NODE=1
 
 ### Task 2 — 随包 .cmd 垫片 + resolveBridgeNode 打包态优先垫片（硬阻塞 2）
 
-**目标：** 让打包态桥栈有可用 Node 运行时：随包发 131 字节 `.cmd` 垫片，经 `ELECTRON_RUN_AS_NODE=1` 复用应用自带 DeskMinis.exe，根治「无 Node 机器上桥失效」。零新增体积（复用 Electron 自带运行时）。
+**目标：** 让打包态桥栈有可用 Node 运行时：随包发 63 字节 `.cmd` 垫片，经 `ELECTRON_RUN_AS_NODE=1` 复用应用自带 DeskMinis.exe，根治「无 Node 机器上桥失效」。零新增体积（复用 Electron 自带运行时）。
 
 **Step 清单：**
 - [x] Step 1「写失败测试」：为 `resolveBridgeNode` 补「打包态候选优先垫片」单测——临时目录放一个假 `bridge-node.cmd`，断言返回它而非回退 `process.execPath`；当前实现无打包态候选 → 红灯
 - [x] Step 2「确认失败形态」：运行单测，确认红灯（红色输出贴交付报告）
-- [x] Step 3「实现」：新增 `scripts/bridge-node.cmd`（内容：`@echo off` / `set ELECTRON_RUN_AS_NODE=1` / `"%~dp0..\DeskMinis.exe" %*`，共 131 字节）；`electron-builder.yml` `extraResources` 把垫片拷到安装目录 `resources/bridge-node.cmd`；`resolveBridgeNode` 增「打包态候选：安装目录内 `resources/bridge-node.cmd`」优先于 `where.exe node`；降级兜底逻辑保留（`diagnostics.ts` warning 语义不动）
+- [x] Step 3「实现」：新增 `scripts/bridge-node.cmd`（内容：`@echo off` / `set ELECTRON_RUN_AS_NODE=1` / `"%~dp0..\DeskMinis.exe" %*`，共 63 字节）；`electron-builder.yml` `extraResources` 把垫片拷到安装目录 `resources/bridge-node.cmd`；`resolveBridgeNode` 增「打包态候选：安装目录内 `resources/bridge-node.cmd`」优先于 `where.exe node`；降级兜底逻辑保留（`diagnostics.ts` warning 语义不动）
 - [x] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder --dir` 后确认 `resources/bridge-node.cmd` 存在
 - [x] Step 5「commit」：`build(m5): 随包 .cmd 垫片复用 Electron 运行时，resolveBridgeNode 打包态优先（硬阻塞2）`
 
@@ -173,7 +175,7 @@ set ELECTRON_RUN_AS_NODE=1
 - [x] Step 1「写失败测试」：静态守卫——断言 `electron-builder.yml` 含 `nsis` 配置与 `portable` 目标、`artifactName` 含当前版本
 - [x] Step 2「确认失败形态」：运行单测，确认红灯
 - [x] Step 3「实现」：`electron-builder.yml` 配 `win.target: ['nsis','portable']`、`artifactName: 'DeskMinis-${version}-${name}.${ext}'`、`nsis`（oneClick:false 可控、shortcut）/ `portable` 配置；确认 `version` 提升与 `appId` 落地
-- [x] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder` 跑通产出 `DeskMinis-0.1.1-Setup.exe` 与 `DeskMinis-0.1.1-win-x64-portable.exe`。**产物体积预期**：撤销内置 node.exe 后（垫片方案），安装包不再含 87.4MB node，体积预期显著下调（仅 Electron 本体 + 资源 + 垫片 131 字节），交付报告暴露复核方实测体积即可，无需再为 node 预留体积期待
+- [x] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder` 跑通产出 `DeskMinis-0.1.1-Setup.exe` 与 `DeskMinis-0.1.1-win-x64-portable.exe`。**产物体积预期**：撤销内置 node.exe 后（垫片方案），安装包不再含 87.4MB node，体积预期显著下调（仅 Electron 本体 + 资源 + 垫片 63 字节），交付报告暴露复核方实测体积即可，无需再为 node 预留体积期待
 - [x] Step 5「commit」：`build(m5): NSIS+portable 安装形态与产物命名`
 
 ### Task 5 — 打包态 dry-run 与降级路径落地
@@ -207,16 +209,18 @@ set ELECTRON_RUN_AS_NODE=1
 ## §6 验收清单（复核方实测；执行方只提供脚本与步骤，不贴环境状态类举证）
 
 > 复核方在干净环境（或临时目录）按下列步骤实测，结果贴回；执行方不贴「安装后实际行为 / dry-run 输出 / 桥实测 / 数据根内容」。
+>
+> **状态下标**：`【已亲验：YYYY-MM-DD 复核方】` = 复核方已在真打包产物上实测通过；`【待验】` = 尚未在真机/真安装上执行，由复核方合并前另行安排。**收尾 commit 不得把【待验】项读作已验。**
 
-1. **安装包干净安装启动**：双击 `DeskMinis-0.1.1-Setup.exe` 完成安装；启动后主窗口渲染正常、托盘图标出现（`resources/tray.png` 加载成功）。
-2. **打包态 minisd 起 + DB + keyring**：打包后 `utilityProcess.fork` 能找到 `minisd.js`（启动不报「minisd 启动超时」）；能建库（better-sqlite3 从 unpack 位置加载成功）；keyring 能存取（@napi-rs/keyring 从 unpack 位置加载成功）。
-3. **打包态 dry-run 全项 OK**：跑 dry-run，逐项看——特别是「桥 Node 解析」：在**装了 node** 机器上应 ready（命中垫片或系统 node）；在**没装 node** 机器上应 ready（命中随包垫片复用 DeskMinis.exe）；垫片被删/被杀软的极端情形下应 warning 但 detail 明确「windows 桥不可用，主流程不受影响」（不静默）。
-4. **打包态 ELECTRON_RUN_AS_NODE 等价性（决策点 2-8，硬性验收项）**：安装后直接执行 `resources/bridge-node.cmd`（或经 `& "$env:MINIS_BRIDGE_NODE"` 调用），确认 stdout 被捕获、退出码正确传播——与复核方开发期 electron.exe 实验一致；若差异，按决策点 2-8 回退方案处理。
-5. **含空格安装路径下垫片可用（决策点 2-7，硬性验收项）**：在默认 `C:\Program Files\DeskMinis`（含空格）安装后，跑一次 windows-clipboard 写中文参数，确认 `%~dp0..\DeskMinis.exe` 定位正确、stdout 与退出码正常。为覆盖 `%~dp0` 引号风险，另可选在自定义含空格目录（如 `C:\My Apps\DeskMinis`）下复测一次。
-6. **六个桥逐一实测**：打包态下 `windows-notify / windows-clipboard(read+write) / windows-open / windows-speak / windows-screenshot / windows-device` 逐一可用（这是硬阻塞 1/2 的真实验收面，不能只看单测）。
-7. **数据根仍是 %APPDATA%/DeskMinis**：安装版与 portable 均读/写同一数据根；能读到升级前的既有会话与 provider 配置（不迁移、不丢）。
-8. **既有 e2e 套件仍绿**：打包改动后，`npm test` 全量 + 既有 e2e（e2e:m3c 等）在打包改动的基线上仍绿。
-9. **垫片缺失降级可观测**：在垫片被删/被杀软的极端情形下，dry-run 桥项明确 warning、桥不可用但不拖垮主流程（不静默）。
+1. **安装包干净安装启动**【待验】：双击 `DeskMinis-0.1.1-Setup.exe` 完成安装；启动后主窗口渲染正常、托盘图标出现（`resources/tray.png` 加载成功）。
+2. **打包态 minisd 起 + DB + keyring**【待验】：打包后 `utilityProcess.fork` 能找到 `minisd.js`（启动不报「minisd 启动超时」）；能建库（better-sqlite3 从 unpack 位置加载成功）；keyring 能存取（@napi-rs/keyring 从 unpack 位置加载成功）。
+3. **打包态 dry-run 全项 OK**【待验】：跑 dry-run，逐项看——特别是「桥 Node 解析」：在**装了 node** 机器上应 ready（命中垫片或系统 node）；在**没装 node** 机器上应 ready（命中随包垫片复用 DeskMinis.exe）；垫片被删/被杀软的极端情形下应 warning 但 detail 明确「windows 桥不可用，主流程不受影响」（不静默）。
+4. **打包态 ELECTRON_RUN_AS_NODE 等价性（决策点 2-8，硬性验收项）**【已亲验：2026-08-09 复核方】：安装后直接执行 `resources/bridge-node.cmd`（或经 `& "$env:MINIS_BRIDGE_NODE"` 调用），确认 stdout 被捕获、退出码正确传播——与复核方开发期 electron.exe 实验一致；若差异，按决策点 2-8 回退方案处理。**复核方亲验结果**：垫片经 PowerShell `&` 调用 → `{"argv":["windows-clipboard","--text","hello world 中文"],"exe":"DeskMinis.exe","node":"22.22.0","electron":"38.8.6"}`，stdout 2 行全捕获、`LASTEXITCODE=3` 正确传播；`exe` 字段证明跑的是重命名后的打包产物，`electron` 字段证明复用了应用自带运行时——「87MB 换 63 字节」在真产物上成立。
+5. **含空格安装路径下垫片可用（决策点 2-7，硬性验收项）**【已亲验：2026-08-09 复核方】：在默认 `C:\Program Files\DeskMinis`（含空格）安装后，跑一次 windows-clipboard 写中文参数，确认 `%~dp0..\DeskMinis.exe` 定位正确、stdout 与退出码正常。为覆盖 `%~dp0` 引号风险，另可选在自定义含空格目录（如 `C:\My Apps\DeskMinis`）下复测一次。**复核方亲验结果**：双层含空格路径（`Program Files Test\Desk Minis`）下结果与 item 4 完全一致。
+6. **六个桥逐一实测**【待验】：打包态下 `windows-notify / windows-clipboard(read+write) / windows-open / windows-speak / windows-screenshot / windows-device` 逐一可用（这是硬阻塞 1/2 的真实验收面，不能只看单测）。
+7. **数据根仍是 %APPDATA%/DeskMinis**【待验】：安装版与 portable 均读/写同一数据根；能读到升级前的既有会话与 provider 配置（不迁移、不丢）。
+8. **既有 e2e 套件仍绿**【复核方亲验：2026-08-09 三件套 987/987(91 文件) / typecheck 0 / build 三产物；打包态 `--dir` 产物六项齐全】：打包改动后，`npm test` 全量 + 既有 e2e（e2e:m3c 等）在打包改动的基线上仍绿。
+9. **垫片缺失降级可观测**【待验】：在垫片被删/被杀软的极端情形下，dry-run 桥项明确 warning、桥不可用但不拖垮主流程（不静默）。
 
 ## §7 交付报告要素
 
@@ -237,7 +241,7 @@ set ELECTRON_RUN_AS_NODE=1
 
 ## §8 风险
 
-- **安装包体积**：撤销内置 node.exe（垫片方案）后，安装包约等于 Electron 本体 + 资源 + 垫片（131 字节），体积相较「内置 node.exe」显著下调。复核方实测体积，交付报告暴露；若仍过大，后续可评估体积裁剪作为 backlog。
+- **安装包体积**：撤销内置 node.exe（垫片方案）后，安装包约等于 Electron 本体 + 资源 + 垫片（63 字节），体积相较「内置 node.exe」显著下调。复核方实测体积，交付报告暴露；若仍过大，后续可评估体积裁剪作为 backlog。
 - **打包态 ELECTRON_RUN_AS_NODE 被启动包装干扰（决策点 2-8）**：若 electron-builder 的启动器/重打标改变了 `ELECTRON_RUN_AS_NODE` 行为，垫片方案失效。§6-4 真产物实测是必要防线；差异时按决策点 2-8 回退（改调 unpack 后 electron 二进制 / 回退 `where.exe node`），dry-run warning 兜底不静默。
 - **`%~dp0` 含空格路径引号风险（决策点 2-7）**：默认安装路径含空格，`%~dp0..\DeskMinis.exe` 的引号包裹必须正确。§6-5 含空格路径实测是必要防线；复核方实验已覆盖含空格 + 中文参数（退出码 0），真产物上须复验一次。
 - **asarUnpack 遗漏 DLL**：better-sqlite3/sqlite 依赖的 DLL 若未随 unpack 一起复制，打包态 require 仍失败。Task 3 的 packed 态 require 实测（§6-3）是必要防线。
