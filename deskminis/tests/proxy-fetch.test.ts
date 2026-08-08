@@ -99,4 +99,17 @@ describe('createProxyFetch', () => {
     process.env.NO_PROXY = '.dev';
     expect(createProxyFetch()).toBeUndefined();
   });
+
+  // M4.6 Task 4：域后缀匹配收紧（A3 / M4.5 Backlog d）——裸 `dev`/`v` 不得误命中 models.dev
+  it('M4.6 反例：NO_PROXY=dev 不再命中 models.dev（仍走代理）', () => {
+    process.env.HTTPS_PROXY = 'http://127.0.0.1:10808';
+    process.env.NO_PROXY = 'dev';
+    expect(typeof createProxyFetch()).toBe('function');
+  });
+
+  it('M4.6 反例：NO_PROXY=v 不再命中 models.dev（仍走代理）', () => {
+    process.env.HTTPS_PROXY = 'http://127.0.0.1:10808';
+    process.env.NO_PROXY = 'v';
+    expect(typeof createProxyFetch()).toBe('function');
+  });
 });

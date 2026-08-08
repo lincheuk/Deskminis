@@ -32,6 +32,9 @@ import { RpcServer, type RpcConnection, type RpcMethods } from '../src/minisd/rp
 import { createSyncMethods } from '../src/minisd/sync';
 import { OutboundClient } from '../src/minisd/sync/outbound-client';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join as pathJoin } from 'node:path';
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -416,5 +419,56 @@ describe('OutboundClient', () => {
     // 等 TTL 过期 + 重连
     await sleep(500);
     expect(onlineCount).toBeGreaterThanOrEqual(2);  // TTL 重铸后重连成功
+  });
+
+  // M4.6 Task 2 — sync.hello mac 常量时间比较（A1）
+  describe('M4.6 Task 2 — sync.hello mac 常量时间比较', () => {
+    // 静态断言：实现必须用 timingSafeEqual（长度不同/空串下 `!==` 与 timingSafeEqual 行为一致，
+    // 唯一可测差异是机制本身——读源码文本断言，行尾归一化）
+    it('实现机制：doHello mac 校验使用 crypto.timingSafeEqual（源码静态断言）', () => {
+      const srcFile = pathJoin(
+        dirname(fileURLToPath(import.meta.url)),
+        '../src/minisd/sync/outbound-client.ts',
+      );
+      const src = readFileSync(srcFile, 'utf8').replace(/\r\n/g, '\n');
+      // 导入 + 调用点都出现 timingSafeEqual
+      expect(src).toContain('timingSafeEqual');
+      // 长度先行：先比长度再进 timingSafeEqual（timingSafeEqual 长度不等会抛，必须先比长度）
+      expect(src).toMatch(/expectedBuf\.length === respBuf\.length/);
+    });
+
+    // 行为断言：对端返回长度不符的 mac（多/少字节）→ doHello 返回 false（onOffline），不抛错
+    it('长度不符的 mac → 互认失败（onOffline），不抛错', async () => {
+      const { serviceA, fpA, serviceB, fpB } = setupMutualPair();
+      // 返回比正确 mac 短一字节的 hex（去掉末尾 2 个 hex 字符）
+      const { port } = await bootServer({
+        service: serviceB,
+        listenPort: 0,
+        customHello: (_p) => {
+          const { hmac } = require('@noble/hashes/hmac.js');
+          const { sha256 } = require('@noble/hashes/sha2.js');
+          const mac = hmac(sha256, new Uint8Array(32).fill(0xAA), new TextEncoder().encode('m3c-hello' + _p.nonce));
+          const hex = Buffer.from(mac).toString('hex');
+          return { mac: hex.slice(0, hex.length - 2), listenPort: port }; // 少一字节
+        },
+      });
+
+      storeA = (serviceA as any).store as PairingStore;
+      storeA.setAddress(fpB, `127.0.0.1:${port}`);
+
+      const client = new OutboundClient(serviceA, fpA, {
+        pingIntervalMs: 10000,
+        pongTimeoutMs: 5000,
+        reconnectBackoffMs: [10000],
+        pasetoTtlMs: 60000,
+      });
+      cleanups.push(() => client.stop());
+
+      let offline = '';
+      client.onOffline = fp => { offline = fp; };
+      client.dialNow(fpB);
+      await sleep(800);
+      expect(offline).toBe(fpB); // 长度不符 → 互认失败，未抛错
+    });
   });
 });

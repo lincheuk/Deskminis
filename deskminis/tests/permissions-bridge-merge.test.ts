@@ -100,4 +100,27 @@ describe('桥双段合并授权（决策 4c）', () => {
     expect(await g.check(bReq('bridge-open', 'windows-open open'))).toBe('deny'); // 不残留：第二次也走 prompt
     expect(asked).toBe(2);
   });
+
+  // M4.6 Task 7：桥授权 key 分隔符统一为 \u0000（A5）
+  it('分隔符统一 \u0000：含空格会话 id 不跨会话误命中（hasBridgeGrant 前缀安全）', () => {
+    const g = new PermissionGatewayImpl(async () => 'deny');
+    g.grantBridgeSession('S 1', 'bridge-clipboard-read');
+    // 空格分隔下 hasBridgeGrant('S') 前缀 `S ` 会命中 `S 1 ...` → 误判（红灯）
+    // \u0000 分隔下前缀 `S\u0000` 不会命中 `S 1\u0000...` → 正确（绿灯）
+    expect(g.hasBridgeGrant('S 1')).toBe(true);
+    expect(g.hasBridgeGrant('S')).toBe(false);   // 空格分隔 → true（红灯）
+    expect(g.hasBridgeGrant('S 2')).toBe(false); // 不同完整会话 → false
+  });
+
+  it('分隔符统一 \u0000：check 的 bKey 与 grant 键一致才能命中（同 kind 命中、异 kind 不串）', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    g.grantBridgeSession('S 1', 'bridge-notify');
+    // 同会话同 kind → allow（grant 与 check bKey 用同一 \u0000 规则）
+    expect(await g.check(bReq('bridge-notify', 'windows-notify show', 'S 1'))).toBe('allow');
+    expect(asked).toBe(0);
+    // 同会话异 kind → 不串（走 prompt）
+    expect(await g.check(bReq('bridge-clipboard-read', 'windows-clipboard get', 'S 1'))).toBe('deny');
+    expect(asked).toBe(1);
+  });
 });

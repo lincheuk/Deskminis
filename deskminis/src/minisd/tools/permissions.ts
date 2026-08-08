@@ -77,19 +77,19 @@ export class PermissionGatewayImpl implements PermissionGateway {
 
   /** 决策 4c：shell 卡「本会话允许」时对该命令探测到的每个桥 kind 做会话级授权。 */
   grantBridgeSession(sessionId: string, kind: BridgePermissionKind): void {
-    this.sessionBridgeGrants.add(`${sessionId} ${kind}`);
+    this.sessionBridgeGrants.add(`${sessionId}\u0000${kind}`);
   }
 
   /** 决策 4c：shell 卡「允许一次」时计数 +1；同 kind 多次 grant 的 grantedAt 以最后一次为准。 */
   grantBridgeOnce(sessionId: string, kind: BridgePermissionKind): void {
-    const key = `${sessionId} ${kind}`;
+    const key = `${sessionId}\u0000${kind}`;
     const cur = this.bridgeOnce.get(key);
     this.bridgeOnce.set(key, { count: (cur?.count ?? 0) + 1, grantedAt: this.now() });
   }
 
   /** M4 Task 2：查询会话是否曾授权过桥（sessionBridgeGrants 或 bridgeOnce 有记录，TTL 内有效）。 */
   hasBridgeGrant(sessionId: string): boolean {
-    const prefix = `${sessionId} `;
+    const prefix = `${sessionId}\u0000`;
     for (const k of this.sessionBridgeGrants) if (k.startsWith(prefix)) return true;
     for (const [k, v] of this.bridgeOnce) {
       if (k.startsWith(prefix) && this.now() - v.grantedAt <= BRIDGE_ONCE_TTL_MS) return true;
@@ -108,7 +108,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
 
     // 桥双段合并授权（决策 4c）：精确 key 之后、prompt 之前；先会话级按 kind，再一次性计数消费。
     if (req.kind.startsWith('bridge-')) {
-      const bKey = `${req.sessionId} ${req.kind}`;
+      const bKey = `${req.sessionId}\u0000${req.kind}`;
       if (this.sessionBridgeGrants.has(bKey)) return 'allow';
       const once = this.bridgeOnce.get(bKey);
       if (once) {

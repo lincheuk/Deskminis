@@ -65,6 +65,11 @@ interface BasellmEntry {
  * 原实现按后者，实测会让 88 个模型丢掉推理能力——例如 gemini-2.5-flash 在 15 家 vendor 中
  * 有 14 家报 Reasoning，但窗口最小的 302.AI 没报，thinking 就被判成 false，
  * 正是 M4.5 立项要修的那个 bug 换个入口复发。能力是模型的属性，不是某个 vendor 的属性。
+ *
+ * M4.6 Task 1 决策点 2：此处**不加**「≥2 家佐证」条件（对比主源 resolveModelsDevConflict）。
+ * 理由：a) 官方 vendor 命中时本函数已有主导权（取官方值），加佐证大概率结果不变，收益≈零；
+ * b) basellm 仅当 models.dev 失败时作备源（罕见路径），任何行为变化都引入回归面；
+ * c) 官方优先路径依赖单个官方 vendor，与「≥2 佐证」概念不天然契合。
  */
 export function resolveBasellmConflict(entries: BasellmEntry[], modelName: string): ModelCatalogEntry | undefined {
   // 解析所有条目，过滤掉无窗口的
@@ -105,8 +110,8 @@ export function createProxyFetch(): FetchLike | undefined {
   if (noProxy) {
     const domains = noProxy.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
     if (domains.includes('*')) return undefined; // 全部直连
-    // models.dev 域名匹配（精确或后缀）
-    if (domains.some(d => d === 'models.dev' || 'models.dev'.endsWith(d))) return undefined;
+    // models.dev 域名匹配：精确或「点号前缀的域后缀」（M4.6 Task 4 收紧——裸 `dev`/`v` 不再误命中）
+    if (domains.some(d => d === 'models.dev' || (d.startsWith('.') && 'models.dev'.endsWith(d)))) return undefined;
   }
   // 仅此一处实例化 ProxyAgent，不 setGlobalDispatcher——实例仅存于闭包内
   const agent = new ProxyAgent(proxyUri);
@@ -137,44 +142,54 @@ const BUILTIN: [RegExp, ModelCatalogEntry][] = [
   [/^qwen/i, { contextWindow: 128_000, thinking: false }],
 ];
 
-/** 两个可选数值取较小者；任一缺失时取另一个（缺失不得把已有值抹成 undefined）。 */
-function minDefined(a: number | undefined, b: number | undefined): number | undefined {
-  if (a === undefined) return b;
-  if (b === undefined) return a;
-  return Math.min(a, b);
-}
-
 /**
  * models.dev 多 vendor 同名冲突消解。实测依据：全量 6043 条中 929 个 id 跨 provider 重复，
  * 其中 434 个 contextWindow 不一致（分歧最大 15.6 倍）、189 个 reasoning 不一致。
  *
  * 规则按字段分开定，依据是「错的方向」而不是「错的次数」：
- *   - contextWindow / maxOutputTokens 取最小。低估只是压缩提前触发（功能正常，且用户可用
+ *   - contextWindow / maxOutputTokens 取「被 ≥2 家 vendor 佐证过的值中的最小者」；
+ *     全部值都只有一家报时退化为纯最小。低估只是压缩提前触发（功能正常，且用户可用
  *     providers.json 的手动 contextWindow 兜底）；高估会把水位阈值算在并不存在的空间上，
  *     模型到真实上限就直接拒绝请求——是查不出原因的硬失败。
+ *     佐证条件（M4.6 Task 1 / A6）防「单离群 vendor 拖垮」：glm-5.1 有 18 家 vendor，
+ *     8 家报 200000（含官方 zhipuai/zai），仅 digitalocean 一家报 163840——纯最小取到
+ *     163840（比官方低 18%）。计数单位 = 不同 provider 数（同一 provider 内同一 id 只出现一次）。
  *   - thinking 取「任一为真」。这是能力位，误判为 false 会把 thinking 档位永久钳到 off
  *     （正是 M4.5 立项要修的那个 bug）；实测报 false 的都是 16:1 这类极少数离群 vendor。
  *
  * 「官方 vendor 优先」的备选方案已被数据否掉：deepseek-chat 的 1000000 恰恰来自官方 provider
  * `deepseek` 自己（真实 128K），官方源同样会报错值，且该方案需要长期维护映射表。
  *
- * 合并结果与 vendor 迭代顺序无关——原实现是后写覆盖，models.dev 重排 vendor 时窗口会静默改变。
+ * 合并结果与 vendor 迭代顺序无关——计数统计天然顺序无关，models.dev 重排 vendor 时值不变。
  */
-function mergeModelsDevEntry(prev: ModelCatalogEntry | undefined, next: ModelCatalogEntry): ModelCatalogEntry {
-  if (!prev) return next;
+export function resolveModelsDevConflict(entries: ModelCatalogEntry[]): ModelCatalogEntry {
+  const windows = new Map<number, number>();
+  const outputs = new Map<number, number>();
+  let thinking = false;
+  for (const e of entries) {
+    if (e.thinking === true) thinking = true;
+    if (e.contextWindow !== undefined) windows.set(e.contextWindow, (windows.get(e.contextWindow) ?? 0) + 1);
+    if (e.maxOutputTokens !== undefined) outputs.set(e.maxOutputTokens, (outputs.get(e.maxOutputTokens) ?? 0) + 1);
+  }
+  /** 佐证最小：≥2 家佐证的值取最小；全单例退化为纯最小。 */
+  const corroboratedMin = (counts: Map<number, number>): number | undefined => {
+    const corroborated = [...counts.entries()].filter(([, c]) => c >= 2).map(([v]) => v);
+    if (corroborated.length > 0) return Math.min(...corroborated);
+    return counts.size > 0 ? Math.min(...counts.keys()) : undefined;
+  };
   return {
-    contextWindow: minDefined(prev.contextWindow, next.contextWindow),
-    maxOutputTokens: minDefined(prev.maxOutputTokens, next.maxOutputTokens),
-    thinking: prev.thinking === true || next.thinking === true,
+    contextWindow: corroboratedMin(windows),
+    maxOutputTokens: corroboratedMin(outputs),
+    thinking,
   };
 }
 
 /**
  * 合并规则版本。缓存里存的是「按当时规则算好的结果」而非原始响应，规则一变旧缓存就是错的。
  * 不作废的话，升级后最长要等满 24h TTL 修复才生效（期间窗口仍是高估值、被丢的推理位仍是关的）。
- * 规则再变时 +1。
+ * 规则再变时 +1。M4.6 Task 1：1 → 2（佐证规则引入，旧纯最小缓存作废）。
  */
-const MERGE_RULE_VERSION = 1;
+export const MERGE_RULE_VERSION = 2;
 
 interface CacheFile {
   fetchedAt: number;
@@ -225,17 +240,23 @@ export class ModelCatalog {
       const res = await this.fetchImpl(API_URL);
       if (!res.ok) return false;
       const data = await res.json() as Record<string, { models?: Record<string, { limit?: { context?: number; output?: number }; reasoning?: boolean }> }>;
-      const models: Record<string, ModelCatalogEntry> = {};
+      // M4.6 Task 1：先收集同一 id 的全部 vendor 条目，再按佐证规则一次性消解。
+      // 折叠式 `models[id] = merge(...)` 拿不到全局 vendor 计数，无法做 ≥2 佐证。
+      const byId = new Map<string, ModelCatalogEntry[]>();
       for (const vendor of Object.values(data)) {
         for (const [id, m] of Object.entries(vendor.models ?? {})) {
-          // 同一 id 可能出现在多个 provider 下且报值不一致 → 按字段规则合并，不做后写覆盖
-          models[id] = mergeModelsDevEntry(models[id], {
+          const entry: ModelCatalogEntry = {
             contextWindow: m.limit?.context,
             maxOutputTokens: m.limit?.output,
             thinking: m.reasoning === true,
-          });
+          };
+          const arr = byId.get(id) ?? [];
+          arr.push(entry);
+          byId.set(id, arr);
         }
       }
+      const models: Record<string, ModelCatalogEntry> = {};
+      for (const [id, entries] of byId) models[id] = resolveModelsDevConflict(entries);
       this.commitCache(models, 'models.dev');
       return true;
     } catch { return false; } // 离线/格式变化：静默回退备源

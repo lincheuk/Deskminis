@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ModelCatalog } from '../src/minisd/providers/model-catalog';
+import { ModelCatalog, resolveModelsDevConflict, MERGE_RULE_VERSION } from '../src/minisd/providers/model-catalog';
 import { mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -245,5 +245,83 @@ describe('models.dev 多 vendor 同名冲突消解', () => {
     expect(c.getModelContextWindow('claude-sonnet-5')).toBe(200_000);
     expect(c.getModelContextWindow('gemini-2.5-flash')).toBe(1_048_576);
     expect(c.clampThinkingLevel('gpt-4o', 'high')).toBe('off'); // reasoning:false 单源仍为 false
+  });
+});
+
+/**
+ * M4.6 Task 1：佐证规则（A6）——取「被 ≥2 家 vendor 佐证过的值中的最小者」；
+ * 全部值都只有一家报时退化为纯最小。计数单位 = 不同 provider 数。
+ * 背景（复核方 2026-08-08 实时全量）：glm-5.1 有 18 家 vendor，8 家报 200000（含官方），
+ * 仅 digitalocean 一家报 163840——纯最小被单离群拖到比官方低 18%。
+ */
+describe('M4.6 Task 1 佐证规则', () => {
+  it('MERGE_RULE_VERSION 已递增到 2（作废按旧规则算出的缓存）', () => {
+    expect(MERGE_RULE_VERSION).toBe(2);
+  });
+
+  it('单离群不拖垮：8 家报 200000 + 1 家报 163840 → 取被佐证的最小 200000', () => {
+    const entries = [
+      ...Array.from({ length: 8 }, () => ({ contextWindow: 200_000, maxOutputTokens: 64_000, thinking: true })),
+      { contextWindow: 163_840, maxOutputTokens: 32_000, thinking: true }, // digitalocean 单离群
+    ];
+    expect(resolveModelsDevConflict(entries)).toMatchObject({ contextWindow: 200_000 });
+  });
+
+  it('全单例退化纯最小：每个值只有一家报 → 取全局最小（与现状一致）', () => {
+    const entries = [
+      { contextWindow: 200_000, maxOutputTokens: 64_000, thinking: true },
+      { contextWindow: 1_000_000, maxOutputTokens: 32_000, thinking: false },
+      { contextWindow: 128_000, maxOutputTokens: 16_000, thinking: true },
+    ];
+    expect(resolveModelsDevConflict(entries)).toMatchObject({ contextWindow: 128_000 });
+  });
+
+  it('结果与 vendor 迭代顺序无关（消除 models.dev 重排导致的静默变化）', () => {
+    const entries = [
+      { contextWindow: 200_000, maxOutputTokens: 64_000, thinking: true },
+      { contextWindow: 1_000_000, maxOutputTokens: 32_000, thinking: false },
+      { contextWindow: 200_000, maxOutputTokens: 64_000, thinking: true },
+      { contextWindow: 163_840, maxOutputTokens: 32_000, thinking: true },
+    ];
+    const reversed = [...entries].reverse();
+    expect(resolveModelsDevConflict(entries)).toEqual(resolveModelsDevConflict(reversed));
+  });
+
+  it('佐证值中仍取最小：多家 200000 + 多家 1047576 → 取 200000', () => {
+    const entries = [
+      ...Array.from({ length: 3 }, () => ({ contextWindow: 1_047_576, maxOutputTokens: 64_000, thinking: true })),
+      ...Array.from({ length: 3 }, () => ({ contextWindow: 200_000, maxOutputTokens: 32_000, thinking: true })),
+    ];
+    expect(resolveModelsDevConflict(entries)).toMatchObject({ contextWindow: 200_000 });
+  });
+
+  it('maxOutputTokens 套用同规则（独立必要性：output 分歧 524 > 窗口分歧 452）', () => {
+    const entries = [
+      ...Array.from({ length: 3 }, () => ({ contextWindow: 128_000, maxOutputTokens: 64_000, thinking: true })),
+      { contextWindow: 128_000, maxOutputTokens: 8_000, thinking: true }, // output 单离群
+    ];
+    expect(resolveModelsDevConflict(entries)).toMatchObject({
+      contextWindow: 128_000, // 窗口单值多 vendor 佐证 → 128000
+      maxOutputTokens: 64_000, // output 被佐证值 64000 胜出，单离群 8000 不拖垮
+    });
+  });
+
+  it('thinking 任一为真不变（能力位不被"窗口最小那条漏标"影响）', () => {
+    expect(resolveModelsDevConflict([
+      { contextWindow: 200_000, maxOutputTokens: 64_000, thinking: false },
+      { contextWindow: 1_000_000, maxOutputTokens: 32_000, thinking: true },
+    ])).toMatchObject({ thinking: true });
+  });
+
+  it('经 ModelCatalog 集成：glm-5.1 场景假 fetch 取 200000（纯最小会取 163840）', async () => {
+    const glmSources = {
+      zhipuai: { models: { 'glm-5.1': { limit: { context: 200_000, output: 64_000 }, reasoning: true } } },
+      zai: { models: { 'glm-5.1': { limit: { context: 200_000, output: 64_000 }, reasoning: true } } },
+      digitalocean: { models: { 'glm-5.1': { limit: { context: 163_840, output: 32_000 }, reasoning: true } } },
+      moonshot: { models: { 'glm-5.1': { limit: { context: 200_000, output: 64_000 }, reasoning: true } } },
+    };
+    const c = new ModelCatalog(cacheFile, fakeFetch(glmSources));
+    expect(await c.refresh(true)).toBe(true);
+    expect(c.getModelContextWindow('glm-5.1')).toBe(200_000);
   });
 });

@@ -140,6 +140,43 @@ describe('createStableCache', () => {
     const b = c.get('s1', { bridgeGranted: false, modelId: 'gpt-5', config: { bridgeSection: 'full' } });
     expect(a).toBe(b); // s1 未被清，缓存命中
   });
+
+  // M4.6 Task 5：容量上限 64（插入序淘汰，止血无界增长）
+  it('容量上限：插入 65 条后 size 保持 64，最旧被淘汰（FIFO）', () => {
+    const c = createStableCache();
+    // 用不同 modelId 构造 65 个不同缓存键
+    for (let i = 0; i < 65; i++) {
+      c.get('s1', { bridgeGranted: false, modelId: `m-${i}`, config: { bridgeSection: 'full' } });
+    }
+    // 第 65 条插入后应触发淘汰，size 保持 64（当前实现无上限 → 65，红灯）
+    expect(c._cache.size).toBe(64);
+  });
+
+  it('容量上限：被淘汰最旧键不在缓存中（重建后命中，size 不超上限）', () => {
+    const c = createStableCache();
+    for (let i = 0; i < 65; i++) {
+      c.get('s1', { bridgeGranted: false, modelId: `m-${i}`, config: { bridgeSection: 'full' } });
+    }
+    // m-0 被淘汰 → 不在缓存中
+    expect(c._cache.has(`s1\u0000m-0\u0000false\u0000full`)).toBe(false);
+    // 重新 get 会重建并命中，size 仍不超上限
+    const rebuilt = c.get('s1', { bridgeGranted: false, modelId: 'm-0', config: { bridgeSection: 'full' } });
+    expect(typeof rebuilt).toBe('string');
+    expect(rebuilt.length).toBeGreaterThan(0);
+    expect(c._cache.size).toBe(64);
+  });
+
+  it('容量上限：同键重复 get 命中不重复插入（size 不涨）', () => {
+    const c = createStableCache();
+    for (let i = 0; i < 40; i++) {
+      c.get('s1', { bridgeGranted: false, modelId: `m-${i}`, config: { bridgeSection: 'full' } });
+    }
+    // 重复 get 已存在的键 20 次
+    for (let j = 0; j < 20; j++) {
+      c.get('s1', { bridgeGranted: false, modelId: 'm-5', config: { bridgeSection: 'full' } });
+    }
+    expect(c._cache.size).toBe(40); // 命中不涨
+  });
 });
 
 // ===== RunOptions.systemPrompt 工厂函数接口（决策点 3 方案 a）=====
