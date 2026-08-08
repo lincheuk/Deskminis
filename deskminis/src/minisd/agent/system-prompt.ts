@@ -82,11 +82,18 @@ export interface StableCache {
   get(sessionId: string, key: { bridgeGranted: boolean; modelId: string; config?: PromptConfig; disciplineBlock?: string }): string;
   /** 失效该会话所有缓存项（桥授权状态变化时调）。 */
   invalidate(sessionId: string): void;
+  /** M4.6 Task 5：暴露内部 Map 供测试观测 size（残留设施，非公开 API——仅测试用）。 */
+  _cache: Map<string, string>;
 }
+
+/** M4.6 Task 5：stable 缓存容量上限（插入序淘汰，止血无界增长，非性能优化）。 */
+const STABLE_CACHE_MAX = 64;
 
 /**
  * 创建 stable 段缓存（内存态 Map，不落库）。
  * 失效条件：桥授权状态变化（invalidate）/ 降级切换 provider（modelId 变 → 键变 → 自然 miss 重建）。
+ * M4.6 Task 5：加容量上限 64，插入序淘汰（FIFO）——该缓存几乎零收益（buildStableSegment 仅 3 次字符串拼接），
+ * 上限是消除无界增长的止血，命中率非关键，FIFO 挤掉热条目无实际代价。
  */
 export function createStableCache(): StableCache {
   const cache = new Map<string, string>();
@@ -95,6 +102,11 @@ export function createStableCache(): StableCache {
       const ck = stableCacheKey(sessionId, key.modelId, key.bridgeGranted, key.config);
       const cached = cache.get(ck);
       if (cached !== undefined) return cached;
+      // 超限先删 Map 首键（Map 迭代序即插入序，删最旧），再 set——纯 FIFO，不 re-touch
+      if (cache.size >= STABLE_CACHE_MAX) {
+        const oldest = cache.keys().next().value;
+        if (oldest !== undefined) cache.delete(oldest);
+      }
       const stable = buildStableSegment(key.bridgeGranted, key.config, key.disciplineBlock);
       cache.set(ck, stable);
       return stable;
@@ -105,5 +117,6 @@ export function createStableCache(): StableCache {
         if (k.startsWith(prefix)) cache.delete(k);
       }
     },
+    _cache: cache,
   };
 }
