@@ -220,12 +220,12 @@ CREATE TABLE settings (
 - **结论：选方案 A。** 理由：① 监听方角色是方案 B 单用会漏掉的，而暂停用户可能恰好就是纯监听方；② A 复用既有 `onDirty`→`flush` 路径，无新增对账逻辑；③ 冗余被 id 幂等吸收——`buildPushBatches` 是全量态，对未改动会话重 push 无副作用，peer 侧 merge id 重合 `hasChange=false` 无 ping-pong。**不加方案 B**（A 已覆盖两种角色，B 是多余全量对账）。
 
 **checkbox：**
-- [ ] settings 表 get/set 方法
-- [ ] `control.pause` / `control.resume` RPC 注册
-- [ ] `control.resume` 显式触发方案 A：对全部 synced session `onDirty` + `flush`
-- [ ] 暂停标志持久化（重启后仍暂停）
-- [ ] 启动时读 `settings.sync.paused` 注入 coordinator（`start()` 前 `setPaused`，暂停态不拨号/不广播，但 pull 照常）
-- [ ] pause/resume 写审计事件
+- [x] settings 表 get/set 方法
+- [x] `control.pause` / `control.resume` RPC 注册
+- [x] `control.resume` 显式触发方案 A：对全部 synced session `onDirty` + `flush`
+- [x] 暂停标志持久化（重启后仍暂停）
+- [x] 启动时读 `settings.sync.paused` 注入 coordinator（`start()` 前 `setPaused`，暂停态不拨号/不广播，但 pull 照常）
+- [x] pause/resume 写审计事件
 
 **暂停态的用户可见性（决策点 2-6 补充结论）：** 重启后仍暂停带来一个用户可见后果——同步静默停着，直到用户显式 `control.resume`；用户可能忘了自己暂停过，把「同步没动静」当成 bug 查。**结论：本里程碑暴露 `syncPaused` 于 `control.status`（RPC 可查）+ dry-run 诊断项（`diagnostics` 加一行「当前同步状态：已暂停」），UI 不渲染**（2-2 已定本里程碑不出 UI）。这样用户/外部工具随时可查暂停态，兜住「忘了暂停」的困惑。
 
@@ -240,10 +240,10 @@ CREATE TABLE settings (
 - 暂停期间若有对端 push 从 `sync.push` handler 进来，`mergeRemoteSession` 幂等落库，但因其内部 `onDirty` 触发的 `flush` 被暂停阀挡住，不会回推。
 
 **checkbox：**
-- [ ] `setPaused` 影响 flush 的 broadcast + push
-- [ ] `setPaused` 影响 reconcile 的 push 方向，但保留 pull 方向
-- [ ] `onRemoteDirty`/`sync.push` 收下合并不受暂停影响
-- [ ] 解除暂停后收敛正确（见 Task 8 专项测试）
+- [x] `setPaused` 影响 flush 的 broadcast + push
+- [x] `setPaused` 影响 reconcile 的 push 方向，但保留 pull 方向
+- [x] `onRemoteDirty`/`sync.push` 收下合并不受暂停影响
+- [x] 解除暂停后收敛正确（见 Task 8 专项测试）
 
 ### Task 7 — 审计联动 + 删会话审计保留
 
@@ -251,7 +251,7 @@ CREATE TABLE settings (
 - 验证 `chat-store.deleteSession`（L63-70）**不**删 audit_logs：补一条断言测试（决策点 2-3 落地）。
 
 **checkbox：**
-- [ ] 删会话后 audit_logs 记录仍在（测试固化）
+- [x] 删会话后 audit_logs 记录仍在（测试固化）
 
 ### Task 8 — 测试
 
@@ -274,14 +274,14 @@ CREATE TABLE settings (
 - **先红后绿门控（硬要求）：** 方向 2 的测试必须在**实现 Task 5 方案 A 之前先红**（暂停期间产生本地改动、恢复后 B 收不到——暴露搁浅）。若在改 Task 5 之前它已绿，说明测试没测到真东西，**停手报告**，不得继续。
 
 **checkbox：**
-- [ ] audit 单测（append/redact/list/轮转/密钥剔除）
-- [ ] auditRedact 对抗性用例（密钥样式不出现在审计）
-- [ ] settings 单测
-- [ ] coordinator-pause 单测
-- [ ] 删会话审计保留测试
-- [ ] R2 收敛方向 1（B 推 A）子路径 1a/1b
-- [ ] R2 收敛方向 2（A 推 B）子路径 2a/2b，且**先红后绿**（改 Task 5 前必红）
-- [ ] `e2e:m3c` 回归通过
+- [x] audit 单测（append/redact/list/轮转/密钥剔除）
+- [x] auditRedact 对抗性用例（密钥样式不出现在审计）
+- [x] settings 单测
+- [x] coordinator-pause 单测
+- [x] 删会话审计保留测试
+- [x] R2 收敛方向 1（B 推 A）子路径 1a/1b
+- [x] R2 收敛方向 2（A 推 B）子路径 2a/2b，且**先红后绿**（改 Task 5 前必红）
+- [x] `e2e:m3c` 回归通过
 
 ---
 
