@@ -54,9 +54,13 @@ export function resolveBridgeCliPath(resourcesDir?: string): string | undefined 
  *  策略：M5 打包态优先返回随包 `.cmd` 垫片（resources/bridge-node.cmd，ELECTRON_RUN_AS_NODE 复用 DeskMinis.exe）；
  *  否则 `where.exe node` 取第一个存在的路径（PATH 里的真 node.exe，CONSOLE 子系统）；找不到则回退 process.execPath（electron）。
  *  开发期必有 node（跑得起本项目即有）。M5 打包后此函数不再退役——打包态见决策点 2-3/2-7/2-8（垫片复用 Electron 运行时）。
- */
-export function resolveBridgeNode(): string {
+ *  传参 resourcesDir 供测试注入临时目录；缺省用打包态/开发布局的自然回溯。 */
+export function resolveBridgeNode(resourcesDir?: string): string {
   try {
+    // M5 打包态优先：随包 resources/bridge-node.cmd 垫片（ELECTRON_RUN_AS_NODE 复用应用自带 DeskMinis.exe）
+    const shim = join(resourcesDir ?? packedResourcesDir(), 'bridge-node.cmd');
+    if (existsSync(shim)) return shim;
+    // 否则走 where.exe node
     const wh = spawnSync('where.exe', ['node'], { encoding: 'utf8', windowsHide: true, timeout: 3000 });
     if (wh.status === 0 && typeof wh.stdout === 'string') {
       const first = wh.stdout.split(/\r?\n/).map(s => s.trim()).find(s => s && existsSync(s));

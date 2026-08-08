@@ -177,6 +177,15 @@ describe('resolveBridgeNode', () => {
     expect(existsSync(p)).toBe(true);
   });
 
+  it('打包态候选优先垫片：给定含 bridge-node.cmd 的资源目录，返回该垫片而非回退 process.execPath（Task 2）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dm-bridge-node-'));
+    const shim = join(dir, 'bridge-node.cmd');
+    writeFileSync(shim, '@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"%~dp0..\\DeskMinis.exe" %*\r\n');
+    cleanups.push(() => { rmSync(dir, { recursive: true, force: true }); });
+    const p = resolveBridgeNode(dir);
+    expect(p).toBe(shim);
+  });
+
   it('PATH 有 node.exe 时返回真 node（而非 electron GUI PE）；PATH 缺失时退回 process.execPath', () => {
     const wh = spawnSync('where.exe', ['node'], { encoding: 'utf8', windowsHide: true });
     const firstLine = wh.status === 0 ? wh.stdout.split(/\r?\n/).map(s => s.trim()).find(s => s && existsSync(s)) : undefined;
