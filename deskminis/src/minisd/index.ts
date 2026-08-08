@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync 
 import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
+import { AuditLogger } from './store/audit';
 import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { ToolRegistry } from './tools/registry';
@@ -184,6 +185,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   mkdirSync(root, { recursive: true });
   const paths = new MinisPaths(root);
   const db = openDb(join(root, 'minis.db'));
+  // M6 R4 审计日志：跨会话事件审计（权限决议等），独立于会话生命周期（决策点 2-3）。
+  const audit = new AuditLogger(db);
   // M3b 评审命门 3：PairingService 装配前移到 ChatStore 之前——
   // 静态身份（vault+dataDir）不依赖 db/chat，前移让 chat 构造时即可拿到 myFingerprint 注入 originDeviceId，
   // 避免 ChatStore 被多处引用（AgentLoop/CompactEngine/SyncCoordinator）前出现 setOriginDeviceId 注入空窗。
@@ -238,11 +241,13 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       if (!pendingPerms.has(requestId)) return;
       pendingPerms.delete(requestId);
       rpc.broadcast('permission.resolved', { requestId, reason: 'timeout' }); // 决策 4b'：Task 10 超时留条的判定源
+      audit.append('permission.resolved', { requestId, reason: 'timeout' }, { sessionId: req.sessionId });
       resolve('deny');
     }, permTimeoutMs);
     timer.unref?.();
     pendingPerms.set(requestId, { resolve, timer, req, bridgeTriggers });
     rpc.broadcast('permission.request', { requestId, req, meta });
+    audit.append('permission.request', { requestId, req, meta }, { sessionId: req.sessionId });
   });
   const gateway = new PermissionGatewayImpl(prompt, undefined, permTimeoutMs);
 
@@ -503,6 +508,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         entry.resolve(p.decision);
         // 同一个请求可能在多个窗口里显示：告诉所有客户端这张卡片已了结
         rpc.broadcast('permission.resolved', { requestId: p.requestId, reason: 'answered' }); // 决策 4b'
+        audit.append('permission.resolved', { requestId: p.requestId, reason: 'answered', decision: p.decision }, { sessionId: entry.req.sessionId });
       }
       return { ok: true };
     },

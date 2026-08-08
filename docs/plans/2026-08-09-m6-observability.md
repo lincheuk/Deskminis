@@ -187,10 +187,10 @@ CREATE TABLE settings (
 关键词：`requestId` 用于关联 request→resolved 成对事件。`req` 里 `detail`（shell 命令/剪贴板）经 `auditRedact` 落盘。
 
 **checkbox：**
-- [ ] permission.request 落库（含 req/meta）
-- [ ] permission.resolved（timeout）落库
-- [ ] permission.resolved（answered，含 decision）落库
-- [ ] requestId 关联成对
+- [x] permission.request 落库（含 req/meta）
+- [x] permission.resolved（timeout）落库
+- [x] permission.resolved（answered，含 decision）落库
+- [x] requestId 关联成对
 
 ### Task 4 — RPC 查询面 audit.list
 
