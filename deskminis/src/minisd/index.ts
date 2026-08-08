@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync 
 import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
-import { AuditLogger } from './store/audit';
+import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
 import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { ToolRegistry } from './tools/registry';
@@ -576,6 +576,12 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       skillStore.delete(p.id); // 表行 + 会话覆盖（事务）
       rpc.broadcast('skills.changed', {});
       return { ok: true };
+    },
+    // ---- M6 Task 4：审计查询面 audit.list（决策点 2-2：只留 RPC 接缝，不出 UI）----
+    // 透传 AuditLogger.list 过滤参数；payload 防御性再脱敏一次（double-redact，红线：密钥材料不出现在任何出口）。
+    'audit.list': (p: AuditListOpts) => {
+      const res = audit.list(p ?? {});
+      return { total: res.total, rows: res.rows.map(r => ({ ...r, payload: auditRedact(r.payload) })) };
     },
   };
 

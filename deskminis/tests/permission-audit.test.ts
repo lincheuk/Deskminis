@@ -110,4 +110,33 @@ describe('M6 Task 3：权限决议落库', () => {
     expect(JSON.parse(resRow!.payloadJson).reason).toBe('timeout');
     c.close();
   }, 30000);
+
+  it('audit.list RPC：可查、过滤生效、payload 防御性再脱敏', async () => {
+    const { port, authToken, dataDir } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    const outside = join(mkdtempSync(join(tmpdir(), 'dm-perm-audit-')), 'z.txt');
+    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('file_write', { path: outside, content: 'ok', tool_title: '写' }) });
+    await waitFor('permission.request', () => c.notifications.some(n => n.method === 'permission.request'));
+    const requestId = c.notifications.find(n => n.method === 'permission.request')!.params.requestId;
+    await c.call('permission.respond', { requestId, decision: 'deny' });
+    await waitFor('permission.resolved(answered)', () => c.notifications.some(n => n.method === 'permission.resolved' && n.params.requestId === requestId));
+    await new Promise(r => setTimeout(r, 200));
+
+    const all = (await c.call('audit.list', {})).result;
+    expect(all.total).toBeGreaterThanOrEqual(2);
+    expect(all.rows.length).toBeGreaterThanOrEqual(2);
+    expect(all.rows[0]).toHaveProperty('eventType');
+    expect(all.rows[0]).toHaveProperty('payload');
+    // 过滤：按 sessionId / eventType
+    const byType = (await c.call('audit.list', { eventType: 'permission.request' })).result;
+    expect(byType.rows.every((r: any) => r.eventType === 'permission.request')).toBe(true);
+    const bySid = (await c.call('audit.list', { sessionId: s.id })).result;
+    expect(bySid.rows.length).toBeGreaterThanOrEqual(2);
+    // double-redact：哪怕落盘 payload 里的 detail 被读回，出口仍无密钥样式
+    const detail = JSON.stringify(bySid.rows.map((r: any) => r.payload));
+    expect(detail).not.toContain('sk-');
+    expect(detail).not.toContain('Bearer ');
+    c.close();
+  }, 30000);
 });

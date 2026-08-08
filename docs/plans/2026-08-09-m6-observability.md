@@ -197,8 +197,8 @@ CREATE TABLE settings (
 在 [`index.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/index.ts) RPC `methods` 注册 `audit.list`，透传 `AuditLogger.list` 的过滤参数，返回 `{ rows, total }`。
 
 **checkbox：**
-- [ ] `methods['audit.list']` 注册并可查
-- [ ] 返回脱敏后的 payload（防御性再红act一次）
+- [x] `methods['audit.list']` 注册并可查
+- [x] 返回脱敏后的 payload（防御性再红act一次）
 
 ### Task 5 — R2 暂停标志 + control.pause/control.resume
 
