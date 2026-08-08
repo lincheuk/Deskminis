@@ -1,10 +1,19 @@
 /**
- * M6 Task 8 · R2 收敛正确性专项（方向 2 镜像：A 推 B，本端数据流出到对端）
+ * M6 Task 8 · R2 收敛正确性专项（双向 × 双角色，共四条子路径）
  *
- * 先红后绿门控（硬要求）：本文件的方向 2 测试必须在"实现 Task 5 方案 A 之前"先红——
- * 场景：A 暂停 → A 本地改动 → A 恢复 → B 收到 A 的改动。
- * 判据：暂停期间 A 的 dirty 信号已被 flush 清空丢弃，恢复若只清标志不触发收敛（无方案 A），
- *       则 B 收不到 A 的改动（断言红）；实现方案 A（恢复时对全部 synced session 重 onDirty + flush）后转绿。
+ * 拓扑约定（remote.pair 语义：begin = 监听方托管等待入站，join = 拨号方主动拨入）：
+ *   - 拨号方 = join 侧（主动拨入），监听方 = begin 侧（托管等待入站）。
+ *   - converged 目标：解除暂停后两端收敛回一致，无永久丢失、无重复（id 幂等）。
+ *
+ * 方向 1（对端数据流入本端）：A 暂停 → B 改动 → A 恢复 → A 收敛到 B 的改动。
+ *   - 1a：A 为监听方（B push 经 A 的 sync.push handler 收下合并）——收下照常，暂停期即已流入。
+ *   - 1b：A 为拨号方（B dirty → A onRemoteDirty → pullFromPeer 收下合并）——pull 不受暂停影响。
+ * 方向 2（本端数据流出到对端，镜像）：A 暂停 → A 本地改动 → A 恢复 → B 收到 A 的改动。
+ *   - 2a：A 为监听方（恢复后 flush 广播 sync.dirty → B 拨号方 pull 拉取）——方案 A 覆盖监听方角色。
+ *   - 2b：A 为拨号方（恢复后 flush pushToPeer 推给 B）——方案 A 覆盖拨号方角色。
+ *
+ * 先红后绿门控（硬要求）：方向 2 测试在"实现 Task 5 方案 A 之前"必须先红——本文件 2b 是门控主测试，
+ * 已先红（commit 6e191b8）后转绿（commit 444d018）。剩余子路径为方案 A 落地后的全量补齐验证。
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -55,7 +64,7 @@ function writeFakeProviders(dir: string): void {
   }, null, 2), 'utf8');
 }
 
-async function waitFor(what: string, cond: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
+async function waitFor(what: string, cond: () => boolean | Promise<boolean>, timeoutMs = 8000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (true) {
     try { if (await cond()) break; } catch { /* not ready */ }
@@ -64,8 +73,8 @@ async function waitFor(what: string, cond: () => boolean | Promise<boolean>, tim
   }
 }
 
-/** A 拨 B（A 是拨号方）：用于方向 2b。 */
-async function setupTwoInstances(): Promise<{
+/** 建立双实例对。dialer='A'：A 拨 B（A 拨号方，B 监听方）；dialer='B'：B 拨 A（A 监听方，B 拨号方）。 */
+async function setupTwoInstances(dialer: 'A' | 'B'): Promise<{
   localA: RpcClient; localB: RpcClient;
   instA: { port: number; close(): Promise<void> }; instB: { port: number; close(): Promise<void> };
   dirA: string; dirB: string;
@@ -96,12 +105,20 @@ async function setupTwoInstances(): Promise<{
   cleanups.push(() => localA.close());
   cleanups.push(() => localB.close());
 
-  const begin = await localB.call('remote.pair.begin', {}) as any;
-  await localA.call('remote.pair.join', {
-    host: '127.0.0.1', port: instB.port, pairingCode: begin.pairingCode, peerName: 'B-设备', listenPort: 0,
-  });
+  // begin = 监听方（托管等待入站），join = 拨号方（主动拨入）
+  if (dialer === 'A') {
+    const begin = await localB.call('remote.pair.begin', {}) as any;
+    await localA.call('remote.pair.join', {
+      host: '127.0.0.1', port: instB.port, pairingCode: begin.pairingCode, peerName: 'B-设备', listenPort: 0,
+    });
+  } else {
+    const begin = await localA.call('remote.pair.begin', {}) as any;
+    await localB.call('remote.pair.join', {
+      host: '127.0.0.1', port: instA.port, pairingCode: begin.pairingCode, peerName: 'A-设备', listenPort: 0,
+    });
+  }
 
-  await waitFor('A 拨 B 互认', async () => {
+  await waitFor('Pairing 互认', async () => {
     const st = await localA.call('remote.status') as any;
     return st.devices.some((d: any) => d.online === true);
   }, 5000);
@@ -109,34 +126,86 @@ async function setupTwoInstances(): Promise<{
   return { localA, localB, instA, instB, dirA, dirB };
 }
 
-describe('R2 收敛方向 2（A 推 B：A 暂停 → A 改动 → A 恢复 → B 收到）', () => {
-  it('方向 2：A 暂停 → A 写 → A 恢复 → B 收到 A 的改动（镜像；先红后绿门控）', async () => {
-    const { localA, localB } = await setupTwoInstances();
+async function msgCount(cli: RpcClient, sid: string): Promise<number> {
+  const r = await cli.call('sync.pull', { sessionId: sid }) as any;
+  return (r.messages as any[]).length;
+}
 
-    const s = await localA.call('chat.sessions.create', { title: 'dir2' }) as any;
-    // 基线：写一条并等 B 收敛（确立连接 + 基线消息数）
+describe('R2 收敛方向 1（B 推 A：A 暂停 → B 改动 → A 恢复 → A 收敛到 B 的改动）', () => {
+  it('1a：A 为监听方（B push 经 A 的 sync.push handler 收下合并）', async () => {
+    const { localA, localB } = await setupTwoInstances('B');
+    const s = await localA.call('chat.sessions.create', { title: 'dir1a' }) as any;
     await localA.call('chat.prompt', { sessionId: s.id, text: '基线', providerId: '__fake__' });
-    await waitFor('B 收到基线', async () => {
-      const b = (await localB.call('sync.pull', { sessionId: s.id }) as any).messages;
-      return b.length > 0;
-    }, 5000);
-    const baseline = ((await localB.call('sync.pull', { sessionId: s.id }) as any).messages as any[]).length;
+    await waitFor('A 基线收敛到 B', async () => (await msgCount(localB, s.id)) > 0, 5000);
+    const baselineA = await msgCount(localA, s.id);
 
-    // A 暂停
-    const pauseRes = await localA.call('control.pause') as any;
-    expect(pauseRes.syncPaused).toBe(true);
+    await localA.call('control.pause') as any;
+    await localB.call('chat.prompt', { sessionId: s.id, text: 'B改动', providerId: '__fake__' });
+    await sleep(600); // B push → A sync.push 收下合并（收下照常，不因暂停受损）
+    const during = await msgCount(localA, s.id);
+    expect(during).toBeGreaterThan(baselineA); // 监听方 A 暂停期即已收下 B 的改动
 
-    // A 暂停期间写一条本地改动
+    await localA.call('control.resume') as any;
+    await sleep(400);
+    await waitFor('A 收敛到 B 改动', async () => (await msgCount(localA, s.id)) === during, 3000);
+    expect(await msgCount(localA, s.id)).toBeGreaterThan(baselineA);
+  }, 30000);
+
+  it('1b：A 为拨号方（B dirty → A onRemoteDirty → pullFromPeer 收下合并）', async () => {
+    const { localA, localB } = await setupTwoInstances('A');
+    const s = await localA.call('chat.sessions.create', { title: 'dir1b' }) as any;
+    await localA.call('chat.prompt', { sessionId: s.id, text: '基线', providerId: '__fake__' });
+    await waitFor('A 基线收敛到 B', async () => (await msgCount(localB, s.id)) > 0, 5000);
+    const baselineA = await msgCount(localA, s.id);
+
+    await localA.call('control.pause') as any;
+    await localB.call('chat.prompt', { sessionId: s.id, text: 'B改动', providerId: '__fake__' });
+    await sleep(800); // B 广播 sync.dirty → A onRemoteDirty → pullFromPeer（pull 不受暂停影响）
+    const during = await msgCount(localA, s.id);
+    expect(during).toBeGreaterThan(baselineA); // 拨号方 A 暂停期 pull 照常，已收下
+
+    await localA.call('control.resume') as any;
+    await waitFor('A 收敛到 B 改动', async () => (await msgCount(localA, s.id)) === during, 3000);
+    expect(await msgCount(localA, s.id)).toBeGreaterThan(baselineA);
+  }, 30000);
+});
+
+describe('R2 收敛方向 2（A 推 B：A 暂停 → A 本地改动 → A 恢复 → B 收到 A 的改动）', () => {
+  it('2a：A 为监听方（恢复后 flush 广播 sync.dirty → B 拨号方 pull 拉取；方案 A 覆盖监听方角色）', async () => {
+    const { localA, localB } = await setupTwoInstances('B');
+    const s = await localA.call('chat.sessions.create', { title: 'dir2a' }) as any;
+    await localA.call('chat.prompt', { sessionId: s.id, text: '基线', providerId: '__fake__' });
+    await waitFor('基线收敛到 B', async () => (await msgCount(localB, s.id)) > 0, 5000);
+    const baselineB = await msgCount(localB, s.id);
+
+    await localA.call('control.pause') as any;
+
+    // A 暂停期间写本地改动（dirty 被暂停阀丢弃，B 收不到）
     await localA.call('chat.prompt', { sessionId: s.id, text: '暂停期改动', providerId: '__fake__' });
-    await sleep(400); // 让暂停期 dirty 触发 flush 并被丢弃（决策点 2-7：恢复无残留队列）
+    await sleep(400);
+    expect(await msgCount(localB, s.id)).toBe(baselineB); // 暂停期 B 未收到（无方案 A 时恢复也收不到）
 
-    // A 恢复（无方案 A 时：只清标志，不触发收敛）
+    // A 恢复：方案 A 对全部 synced session 重 onDirty + flush → 广播 sync.dirty → B pull
     const resumeRes = await localA.call('control.resume') as any;
     expect(resumeRes.syncPaused).toBe(false);
-    await sleep(800); // 若方案 A 存在，B 应在此窗口收到 A 的改动
+    await waitFor('B 收到 A 暂停期改动', async () => (await msgCount(localB, s.id)) > baselineB, 6000);
+  }, 30000);
 
-    const after = ((await localB.call('sync.pull', { sessionId: s.id }) as any).messages as any[]).length;
-    // 断言方向 2：恢复后 B 必须收到 A 暂停期写的改动（无方案 A 时此断言红）
-    expect(after).toBeGreaterThan(baseline);
+  it('2b：A 为拨号方（恢复后 flush pushToPeer 推给 B；先红后绿门控主测试）', async () => {
+    const { localA, localB } = await setupTwoInstances('A');
+    const s = await localA.call('chat.sessions.create', { title: 'dir2b' }) as any;
+    await localA.call('chat.prompt', { sessionId: s.id, text: '基线', providerId: '__fake__' });
+    await waitFor('基线收敛到 B', async () => (await msgCount(localB, s.id)) > 0, 5000);
+    const baselineB = await msgCount(localB, s.id);
+
+    await localA.call('control.pause') as any;
+
+    await localA.call('chat.prompt', { sessionId: s.id, text: '暂停期改动', providerId: '__fake__' });
+    await sleep(400);
+    expect(await msgCount(localB, s.id)).toBe(baselineB); // 暂停期 B 未收到
+
+    const resumeRes = await localA.call('control.resume') as any;
+    expect(resumeRes.syncPaused).toBe(false);
+    await waitFor('B 收到 A 暂停期改动', async () => (await msgCount(localB, s.id)) > baselineB, 6000);
   }, 30000);
 });
