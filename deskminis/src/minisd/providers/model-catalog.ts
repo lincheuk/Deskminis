@@ -58,8 +58,13 @@ interface BasellmEntry {
 }
 
 /**
- * 多 vendor 同名冲突消解（决策点 6 结论 B）：官方 vendor 优先，无官方则取最小值。
+ * 多 vendor 同名冲突消解（决策点 6 结论 B）：窗口官方 vendor 优先、无官方则取最小值。
  * 无窗口的条目（parseTagsWindow 返回 undefined）被跳过；全部无窗口返回 undefined。
+ *
+ * thinking 与主源同规则取「任一为真」，而不是取自窗口最小的那一条。
+ * 原实现按后者，实测会让 88 个模型丢掉推理能力——例如 gemini-2.5-flash 在 15 家 vendor 中
+ * 有 14 家报 Reasoning，但窗口最小的 302.AI 没报，thinking 就被判成 false，
+ * 正是 M4.5 立项要修的那个 bug 换个入口复发。能力是模型的属性，不是某个 vendor 的属性。
  */
 export function resolveBasellmConflict(entries: BasellmEntry[], modelName: string): ModelCatalogEntry | undefined {
   // 解析所有条目，过滤掉无窗口的
@@ -67,14 +72,15 @@ export function resolveBasellmConflict(entries: BasellmEntry[], modelName: strin
     .map(e => ({ vendor: e.vendor_name, window: parseTagsWindow(e.tags), thinking: parseTagsThinking(e.tags) }))
     .filter(e => e.window !== undefined) as { vendor: string; window: number; thinking: boolean }[];
   if (parsed.length === 0) return undefined;
-  // 官方优先
+  // 窗口：官方优先
   const fam = knownFamily(modelName);
   const officialVendors = fam ? OFFICIAL_VENDORS[fam] : [];
   const official = parsed.filter(e => officialVendors.includes(e.vendor));
   const pool = official.length > 0 ? official : parsed;
   // 取最小值（官方内部也取最小，避免多官方 vendor 值不一致时超限）
   const min = pool.reduce((a, b) => a.window <= b.window ? a : b);
-  return { contextWindow: min.window, thinking: min.thinking };
+  // 能力位：跨全部条目取或，不受「窗口最小那条是否漏标」影响
+  return { contextWindow: min.window, thinking: parsed.some(e => e.thinking) };
 }
 
 /**
@@ -131,7 +137,51 @@ const BUILTIN: [RegExp, ModelCatalogEntry][] = [
   [/^qwen/i, { contextWindow: 128_000, thinking: false }],
 ];
 
-interface CacheFile { fetchedAt: number; models: Record<string, ModelCatalogEntry>; source?: 'models.dev' | 'basellm' }
+/** 两个可选数值取较小者；任一缺失时取另一个（缺失不得把已有值抹成 undefined）。 */
+function minDefined(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return Math.min(a, b);
+}
+
+/**
+ * models.dev 多 vendor 同名冲突消解。实测依据：全量 6043 条中 929 个 id 跨 provider 重复，
+ * 其中 434 个 contextWindow 不一致（分歧最大 15.6 倍）、189 个 reasoning 不一致。
+ *
+ * 规则按字段分开定，依据是「错的方向」而不是「错的次数」：
+ *   - contextWindow / maxOutputTokens 取最小。低估只是压缩提前触发（功能正常，且用户可用
+ *     providers.json 的手动 contextWindow 兜底）；高估会把水位阈值算在并不存在的空间上，
+ *     模型到真实上限就直接拒绝请求——是查不出原因的硬失败。
+ *   - thinking 取「任一为真」。这是能力位，误判为 false 会把 thinking 档位永久钳到 off
+ *     （正是 M4.5 立项要修的那个 bug）；实测报 false 的都是 16:1 这类极少数离群 vendor。
+ *
+ * 「官方 vendor 优先」的备选方案已被数据否掉：deepseek-chat 的 1000000 恰恰来自官方 provider
+ * `deepseek` 自己（真实 128K），官方源同样会报错值，且该方案需要长期维护映射表。
+ *
+ * 合并结果与 vendor 迭代顺序无关——原实现是后写覆盖，models.dev 重排 vendor 时窗口会静默改变。
+ */
+function mergeModelsDevEntry(prev: ModelCatalogEntry | undefined, next: ModelCatalogEntry): ModelCatalogEntry {
+  if (!prev) return next;
+  return {
+    contextWindow: minDefined(prev.contextWindow, next.contextWindow),
+    maxOutputTokens: minDefined(prev.maxOutputTokens, next.maxOutputTokens),
+    thinking: prev.thinking === true || next.thinking === true,
+  };
+}
+
+/**
+ * 合并规则版本。缓存里存的是「按当时规则算好的结果」而非原始响应，规则一变旧缓存就是错的。
+ * 不作废的话，升级后最长要等满 24h TTL 修复才生效（期间窗口仍是高估值、被丢的推理位仍是关的）。
+ * 规则再变时 +1。
+ */
+const MERGE_RULE_VERSION = 1;
+
+interface CacheFile {
+  fetchedAt: number;
+  models: Record<string, ModelCatalogEntry>;
+  source?: 'models.dev' | 'basellm';
+  mergeRule?: number;
+}
 
 /**
  * 模型能力目录（设计 §4.1「模型能力目录」段）：
@@ -150,8 +200,11 @@ export class ModelCatalog {
     if (existsSync(cacheFile)) {
       try {
         const c = JSON.parse(readFileSync(cacheFile, 'utf8')) as CacheFile;
-        this.models = c.models ?? {};
-        this.fetchedAt = c.fetchedAt ?? 0;
+        // 规则版本不符 = 缓存是按旧合并规则算出来的，值不可信，按无缓存处理（下次 refresh 会重拉）
+        if (c.mergeRule === MERGE_RULE_VERSION) {
+          this.models = c.models ?? {};
+          this.fetchedAt = c.fetchedAt ?? 0;
+        }
       } catch { /* 缓存损坏按无缓存处理 */ }
     }
   }
@@ -175,7 +228,12 @@ export class ModelCatalog {
       const models: Record<string, ModelCatalogEntry> = {};
       for (const vendor of Object.values(data)) {
         for (const [id, m] of Object.entries(vendor.models ?? {})) {
-          models[id] = { contextWindow: m.limit?.context, maxOutputTokens: m.limit?.output, thinking: m.reasoning === true };
+          // 同一 id 可能出现在多个 provider 下且报值不一致 → 按字段规则合并，不做后写覆盖
+          models[id] = mergeModelsDevEntry(models[id], {
+            contextWindow: m.limit?.context,
+            maxOutputTokens: m.limit?.output,
+            thinking: m.reasoning === true,
+          });
         }
       }
       this.commitCache(models, 'models.dev');
@@ -213,7 +271,7 @@ export class ModelCatalog {
     this.models = models;
     this.fetchedAt = Date.now();
     const tmp = this.cacheFile + '.tmp';
-    writeFileSync(tmp, JSON.stringify({ fetchedAt: this.fetchedAt, models, source } satisfies CacheFile), 'utf8');
+    writeFileSync(tmp, JSON.stringify({ fetchedAt: this.fetchedAt, models, source, mergeRule: MERGE_RULE_VERSION } satisfies CacheFile), 'utf8');
     renameSync(tmp, this.cacheFile); // 原子写（对齐 providers.json 模式）
   }
 
