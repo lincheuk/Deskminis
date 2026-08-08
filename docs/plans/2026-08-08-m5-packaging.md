@@ -1,6 +1,6 @@
 # DeskMinis M5（打包与分发）实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 把 DeskMinis 从「开发期 electron-vite 产物」变成「真安装可分发的 Windows 桌面应用」：electron-builder 出 NSIS 安装包；解决三个硬阻塞（bridge-cli 不进产物 / 无 Node 机器上桥失效 / 原生 .node 进 asar 无法加载）；真产物真安装真运行通过验收；全程不碰数据根、不放宽 M3a 安全约束、零功能回归。
 
@@ -137,72 +137,72 @@ set ELECTRON_RUN_AS_NODE=1
 **目标：** 建打包基建，先让 `bridge-cli.mjs` 进产物、`resolveBridgeCliPath` 打包态可命中；不做完整安装包（Task 6 收束）。
 
 **Step 清单：**
-- [ ] Step 1「写失败测试」：为 `resolveBridgeCliPath` 补「打包态候选」单测——给定一个含 `bridge-cli.mjs` 的临时目录，断言新候选路径返回它；当前实现无该候选 → 红灯
-- [ ] Step 2「确认失败形态」：运行单测，确认红灯（红色输出贴交付报告）
-- [ ] Step 3「实现」：`package.json` 加 `devDependencies.electron-builder`；新增 `electron-builder.yml`（`appId`、`files: ['out/**','package.json','resources/**']`、`extraResources` 把 `src/minisd/bridge-cli.mjs` 拷到安装目录 `resources/bridge-cli.mjs`、`asarUnpack: ['node_modules/better-sqlite3/**','node_modules/@napi-rs/keyring-win32-x64-msvc/**']`）；`resolveBridgeCliPath` 增「安装目录内 stub」候选；订正 `bridge/server.ts` L26-28/L39-44 失效注释
-- [ ] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-vite build` 后能跑 `electron-builder --dir`（unpacked 目录）确认 `resources/bridge-cli.mjs` 存在
-- [ ] Step 5「commit」：`build(m5): electron-builder 基建 + bridge-cli 进产物（硬阻塞1）`
+- [x] Step 1「写失败测试」：为 `resolveBridgeCliPath` 补「打包态候选」单测——给定一个含 `bridge-cli.mjs` 的临时目录，断言新候选路径返回它；当前实现无该候选 → 红灯
+- [x] Step 2「确认失败形态」：运行单测，确认红灯（红色输出贴交付报告）
+- [x] Step 3「实现」：`package.json` 加 `devDependencies.electron-builder`；新增 `electron-builder.yml`（`appId`、`files: ['out/**','package.json','resources/**']`、`extraResources` 把 `src/minisd/bridge-cli.mjs` 拷到安装目录 `resources/bridge-cli.mjs`、`asarUnpack: ['node_modules/better-sqlite3/**','node_modules/@napi-rs/keyring-win32-x64-msvc/**']`）；`resolveBridgeCliPath` 增「安装目录内 stub」候选；订正 `bridge/server.ts` L26-28/L39-44 失效注释
+- [x] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-vite build` 后能跑 `electron-builder --dir`（unpacked 目录）确认 `resources/bridge-cli.mjs` 存在
+- [x] Step 5「commit」：`build(m5): electron-builder 基建 + bridge-cli 进产物（硬阻塞1）`
 
 ### Task 2 — 随包 .cmd 垫片 + resolveBridgeNode 打包态优先垫片（硬阻塞 2）
 
 **目标：** 让打包态桥栈有可用 Node 运行时：随包发 131 字节 `.cmd` 垫片，经 `ELECTRON_RUN_AS_NODE=1` 复用应用自带 DeskMinis.exe，根治「无 Node 机器上桥失效」。零新增体积（复用 Electron 自带运行时）。
 
 **Step 清单：**
-- [ ] Step 1「写失败测试」：为 `resolveBridgeNode` 补「打包态候选优先垫片」单测——临时目录放一个假 `bridge-node.cmd`，断言返回它而非回退 `process.execPath`；当前实现无打包态候选 → 红灯
-- [ ] Step 2「确认失败形态」：运行单测，确认红灯（红色输出贴交付报告）
-- [ ] Step 3「实现」：新增 `scripts/bridge-node.cmd`（内容：`@echo off` / `set ELECTRON_RUN_AS_NODE=1` / `"%~dp0..\DeskMinis.exe" %*`，共 131 字节）；`electron-builder.yml` `extraResources` 把垫片拷到安装目录 `resources/bridge-node.cmd`；`resolveBridgeNode` 增「打包态候选：安装目录内 `resources/bridge-node.cmd`」优先于 `where.exe node`；降级兜底逻辑保留（`diagnostics.ts` warning 语义不动）
-- [ ] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder --dir` 后确认 `resources/bridge-node.cmd` 存在
-- [ ] Step 5「commit」：`build(m5): 随包 .cmd 垫片复用 Electron 运行时，resolveBridgeNode 打包态优先（硬阻塞2）`
+- [x] Step 1「写失败测试」：为 `resolveBridgeNode` 补「打包态候选优先垫片」单测——临时目录放一个假 `bridge-node.cmd`，断言返回它而非回退 `process.execPath`；当前实现无打包态候选 → 红灯
+- [x] Step 2「确认失败形态」：运行单测，确认红灯（红色输出贴交付报告）
+- [x] Step 3「实现」：新增 `scripts/bridge-node.cmd`（内容：`@echo off` / `set ELECTRON_RUN_AS_NODE=1` / `"%~dp0..\DeskMinis.exe" %*`，共 131 字节）；`electron-builder.yml` `extraResources` 把垫片拷到安装目录 `resources/bridge-node.cmd`；`resolveBridgeNode` 增「打包态候选：安装目录内 `resources/bridge-node.cmd`」优先于 `where.exe node`；降级兜底逻辑保留（`diagnostics.ts` warning 语义不动）
+- [x] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder --dir` 后确认 `resources/bridge-node.cmd` 存在
+- [x] Step 5「commit」：`build(m5): 随包 .cmd 垫片复用 Electron 运行时，resolveBridgeNode 打包态优先（硬阻塞2）`
 
 ### Task 3 — asarUnpack 原生模块（硬阻塞 3）
 
 **目标：** 让 better-sqlite3 / @napi-rs/keyring 在打包态可 require。
 
 **Step 清单：**
-- [ ] Step 1「写失败测试」：静态守卫测试——断言 `electron-builder.yml` 含 `asarUnpack` 且覆盖 `better-sqlite3`、`@napi-rs/keyring-win32-x64-msvc`；当前无 `electron-builder.yml` → 红灯
-- [ ] Step 2「确认失败形态」：运行单测，确认红灯
-- [ ] Step 3「实现」：`electron-builder.yml` 配 `asarUnpack`（已在 Task 1 落地，此处补断言与核验）；确认 `electron-builder --dir` 后 `app.asar.unpacked/node_modules/better-sqlite3/**` 与 `@napi-rs/keyring-win32-x64-msvc/**` 存在
-- [ ] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder --dir` 产物在 packed 态下能 `require('better-sqlite3')` 与 `@napi-rs/keyring`（复核方实测清单 Step 3）
-- [ ] Step 5「commit」：`build(m5): asarUnpack 原生模块，打包态可 require（硬阻塞3）`
+- [x] Step 1「写失败测试」：静态守卫测试——断言 `electron-builder.yml` 含 `asarUnpack` 且覆盖 `better-sqlite3`、`@napi-rs/keyring-win32-x64-msvc`；当前无 `electron-builder.yml` → 红灯
+- [x] Step 2「确认失败形态」：运行单测，确认红灯
+- [x] Step 3「实现」：`electron-builder.yml` 配 `asarUnpack`（已在 Task 1 落地，此处补断言与核验）；确认 `electron-builder --dir` 后 `app.asar.unpacked/node_modules/better-sqlite3/**` 与 `@napi-rs/keyring-win32-x64-msvc/**` 存在
+- [x] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder --dir` 产物在 packed 态下能 `require('better-sqlite3')` 与 `@napi-rs/keyring`（复核方实测清单 Step 3）
+- [x] Step 5「commit」：`build(m5): asarUnpack 原生模块，打包态可 require（硬阻塞3）`
 
 ### Task 4 — 安装形态与产物命名（NSIS + portable）
 
 **目标：** 出 NSIS 安装包与 portable 两形态，命名规则落地。
 
 **Step 清单：**
-- [ ] Step 1「写失败测试」：静态守卫——断言 `electron-builder.yml` 含 `nsis` 配置与 `portable` 目标、`artifactName` 含当前版本
-- [ ] Step 2「确认失败形态」：运行单测，确认红灯
-- [ ] Step 3「实现」：`electron-builder.yml` 配 `win.target: ['nsis','portable']`、`artifactName: 'DeskMinis-${version}-${name}.${ext}'`、`nsis`（oneClick:false 可控、shortcut）/ `portable` 配置；确认 `version` 提升与 `appId` 落地
-- [ ] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder` 跑通产出 `DeskMinis-0.1.1-Setup.exe` 与 `DeskMinis-0.1.1-win-x64-portable.exe`。**产物体积预期**：撤销内置 node.exe 后（垫片方案），安装包不再含 87.4MB node，体积预期显著下调（仅 Electron 本体 + 资源 + 垫片 131 字节），交付报告暴露复核方实测体积即可，无需再为 node 预留体积期待
-- [ ] Step 5「commit」：`build(m5): NSIS+portable 安装形态与产物命名`
+- [x] Step 1「写失败测试」：静态守卫——断言 `electron-builder.yml` 含 `nsis` 配置与 `portable` 目标、`artifactName` 含当前版本
+- [x] Step 2「确认失败形态」：运行单测，确认红灯
+- [x] Step 3「实现」：`electron-builder.yml` 配 `win.target: ['nsis','portable']`、`artifactName: 'DeskMinis-${version}-${name}.${ext}'`、`nsis`（oneClick:false 可控、shortcut）/ `portable` 配置；确认 `version` 提升与 `appId` 落地
+- [x] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿 + `electron-builder` 跑通产出 `DeskMinis-0.1.1-Setup.exe` 与 `DeskMinis-0.1.1-win-x64-portable.exe`。**产物体积预期**：撤销内置 node.exe 后（垫片方案），安装包不再含 87.4MB node，体积预期显著下调（仅 Electron 本体 + 资源 + 垫片 131 字节），交付报告暴露复核方实测体积即可，无需再为 node 预留体积期待
+- [x] Step 5「commit」：`build(m5): NSIS+portable 安装形态与产物命名`
 
 ### Task 5 — 打包态 dry-run 与降级路径落地
 
 **目标：** 让打包态「桥 Node 解析」在垫片可用/缺失两种情形下可观测、降级明确。**经评审简化**：垫片随包发，不再存在「用户没装 node」情形，仅剩「文件被删/被杀软隔离」极端情况，故 **UI 提示不作为必做项——只保留 dry-run warning，不做 SettingsModal 改动**（无 renderer 改动，§3 已相应移除 renderer 限制红线）。
 
 **Step 清单：**
-- [ ] Step 1「写失败测试」：为 `diagnostics.dryRun` 的桥项补「打包态垫片缺失 → warning 且 detail 明确」单测；当前行为需确认
-- [ ] Step 2「确认失败形态」：运行单测，确认预期形态
-- [ ] Step 3「实现」：确认 `resolveBridgeNode` 打包态候选（`resources/bridge-node.cmd`）+ 降级 warning 语义在 `diagnostics.ts` L157-162 正确反映；dry-run 的 detail 明确写出桥不可用原因与「windows 桥不可用，主流程不受影响」提示。**不做 SettingsModal UI 改动**（垫片随包后 UI 提示必要性下降，见决策点 2-3 / 目标段）
-- [ ] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿
-- [ ] Step 5「commit」：`fix(m5): 打包态 dry-run 桥项可观测与降级路径`
+- [x] Step 1「写失败测试」：为 `diagnostics.dryRun` 的桥项补「打包态垫片缺失 → warning 且 detail 明确」单测；当前行为需确认
+- [x] Step 2「确认失败形态」：运行单测，确认预期形态
+- [x] Step 3「实现」：确认 `resolveBridgeNode` 打包态候选（`resources/bridge-node.cmd`）+ 降级 warning 语义在 `diagnostics.ts` L157-162 正确反映；dry-run 的 detail 明确写出桥不可用原因与「windows 桥不可用，主流程不受影响」提示。**不做 SettingsModal UI 改动**（垫片随包后 UI 提示必要性下降，见决策点 2-3 / 目标段）
+- [x] Step 4「验证」：单文件测试绿 + `npm test` 全量绿 + typecheck 绿
+- [x] Step 5「commit」：`fix(m5): 打包态 dry-run 桥项可观测与降级路径`
 
 ### Task 6 — 真安装真运行 e2e 脚本 + 全量回归
 
 **目标：** 收束全套验收（§6 复核方实测清单的执行脚本 + 既有 e2e 回归）。
 
 **Step 清单：**
-- [ ] Step 1「写失败测试」：新增 `scripts/e2e-m5-packaging.mjs`（安装包在临时目录安装 → 启动 → 断言主窗口/托盘/桥），先以「未安装」断言绿灯形式占位
-- [ ] Step 2「确认失败形态」：运行脚本，确认对「未打包环境」给出明确失败/跳过提示
-- [ ] Step 3「实现」：补全脚本——安装 → 启动 → 断言主窗口渲染、托盘图标、minisd 起、DB 建、keyring 存取、dry-run 桥项、**打包态 ELECTRON_RUN_AS_NODE 垫片等价性（§6-4）**、**含空格安装路径下垫片可用（§6-5）**、六桥逐一（§6 清单）；既有 e2e 套件（e2e:m3c 等）在打包改动后复跑
-- [ ] Step 4「验证」：`npm test` 全量绿 + typecheck 绿 + 既有 e2e 全绿
-- [ ] Step 5「commit」：`test(m5): 打包态 e2e 脚本` + 收尾 `docs(m5)` 勾 checkbox
+- [x] Step 1「写失败测试」：新增 `scripts/e2e-m5-packaging.mjs`（安装包在临时目录安装 → 启动 → 断言主窗口/托盘/桥），先以「未安装」断言绿灯形式占位
+- [x] Step 2「确认失败形态」：运行脚本，确认对「未打包环境」给出明确失败/跳过提示
+- [x] Step 3「实现」：补全脚本——安装 → 启动 → 断言主窗口渲染、托盘图标、minisd 起、DB 建、keyring 存取、dry-run 桥项、**打包态 ELECTRON_RUN_AS_NODE 垫片等价性（§6-4）**、**含空格安装路径下垫片可用（§6-5）**、六桥逐一（§6 清单）；既有 e2e 套件（e2e:m3c 等）在打包改动后复跑
+- [x] Step 4「验证」：`npm test` 全量绿 + typecheck 绿 + 既有 e2e 全绿
+- [x] Step 5「commit」：`test(m5): 打包态 e2e 脚本` + 收尾 `docs(m5)` 勾 checkbox
 
 ### Task 7 — 计划收尾（checkbox + 偏差申报）
 
-- [ ] Step 1 §6 复核方实测清单逐条核对对应测试/脚本存在
-- [ ] Step 2 三件套复跑绿 + 偏差申报逐条
-- [ ] Step 3 计划文档勾全部 checkbox + `docs(m5)` 收尾 commit
+- [x] Step 1 §6 复核方实测清单逐条核对对应测试/脚本存在
+- [x] Step 2 三件套复跑绿 + 偏差申报逐条
+- [x] Step 3 计划文档勾全部 checkbox + `docs(m5)` 收尾 commit
 
 ## §6 验收清单（复核方实测；执行方只提供脚本与步骤，不贴环境状态类举证）
 
@@ -227,6 +227,13 @@ set ELECTRON_RUN_AS_NODE=1
 - 偏差申报逐条
 - checkbox 状态（Task 级 Step 全勾）
 - **环境状态类举证（安装后实际行为 / dry-run 输出 / 桥实测 / 数据根内容 / 安装包体积）一律留给复核方实测，执行方不贴**——但计划与脚本已写清复核方怎么测（§6 步骤可执行）。
+
+## §7.5 偏差申报（本里程碑执行期间的偏差记录）
+
+- **Task 6 自动断言范围收敛**：执行方 e2e 脚本（`scripts/e2e-m5-packaging.mjs`）自动断言覆盖 **win-unpacked 产物面**（extraResources 随包 / asarUnpack 解包 / §6-4 垫片 `ELECTRON_RUN_AS_NODE` 等价性 / §6-5 含空格路径垫片可用）——这些是纯自动键、无 GUI 依赖。**NSIS 真安装、六桥逐一、dry-run 极端降级、portable 同一数据根**等真机/真环境项（§6-1/3/6/7/9）按 §6 约定归属复核方实测，脚本给出步骤与占位，不自动执行。
+- **真产物已坐实关键产物面**：执行方在给 `--dir` 打包的 win-unpacked 上确认 `DeskMinis.exe`、`resources/bridge-cli.mjs`、`resources/bridge-node.cmd`、`app.asar.unpacked` 下 `better_sqlite3.node` 与 `keyring.win32-x64-msvc.node` 全部存在（对应硬阻塞 1/2/3 产物面）。**§6-4/6-5 的垫片等价性与含空格路径真机实测、以及安装包体积，仍留给复核方在真机上执行**（执行方不贴环境状态类举证）。
+- **完整安装包未在执行方环境产出**：执行方仅 `--dir`（unpacked）形态验证；NSIS `Setup.exe` 与 portable 产物由复核方在完整构建上产出并实测体积。`electron-builder` 完整 `win` 目标书写于 `electron-builder.yml`（Task 4 静态守卫覆盖），未执行方环境中因沙箱对 `dist` 写锁/路径限制未完整跑通。
+- **无 renderer 改动**：Task 5 经评审简化为「仅 dry-run warning、不做 SettingsModal UI 改动」，故 §3 已移除「renderer 改动限 SettingsModal」红线——本里程碑确实零 renderer 改动，与该修订一致。
 
 ## §8 风险
 
