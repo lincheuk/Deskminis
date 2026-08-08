@@ -1,7 +1,7 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { resolve, join, basename } from 'node:path';
+import { resolve, join, basename, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { encodeFrame, FrameDecoder } from './frame';
@@ -23,12 +23,23 @@ export function makeBridgeEnv(sessionId: string, pipePath: string | undefined, c
   };
 }
 
+/**
+ * 打包态资源目录：electron-builder extraResources 把桥 stub / 垫片拷到安装目录 resources/。
+ * 从 dirname(process.execPath)（安装根）回溯 resources 最稳——打包后所有代码在 app.asar 内，
+ * 但不能用 import.meta.url 相对 resources（asar 是虚拟归档，相对回溯到不了安装根）。
+ */
+function packedResourcesDir(): string {
+  return resolve(dirname(process.execPath), 'resources');
+}
+
 /** 定位 bridge-cli.mjs：① vitest/ts 直跑时在 minisd 入口目录（src/minisd/，stub 与主入口同级）；
- *  ② electron-vite 产物在 out/main/，回溯到 src 布局。
- *  M4 打包为 SEA exe 后此函数整体退役（届时 stub 进安装目录/PATH）。 */
-export function resolveBridgeCliPath(): string | undefined {
+ *  ② electron-vite 产物在 out/main/，回溯到 src 布局；
+ *  ③ M5 打包态：extraResources 拷到安装目录 resources/bridge-cli.mjs（见 packedResourcesDir）。
+ *  传参 resourcesDir 供测试注入临时目录；缺省用打包态/开发布局的自然回溯。 */
+export function resolveBridgeCliPath(resourcesDir?: string): string | undefined {
   const here = fileURLToPath(new URL('.', import.meta.url));
   const candidates = [
+    join(resourcesDir ?? packedResourcesDir(), 'bridge-cli.mjs'), // M5 打包态/显式注入优先：resources/bridge-cli.mjs
     join(here, '..', 'bridge-cli.mjs'), // dev：src/minisd/bridge/ → src/minisd/bridge-cli.mjs
     join(here, 'bridge-cli.mjs'),        // 兼容：stub 与 server 同目录的布局
     resolve(here, '..', '..', 'src', 'minisd', 'bridge-cli.mjs'), // prod：out/main/bridge/ → src/minisd/bridge-cli.mjs
@@ -40,8 +51,9 @@ export function resolveBridgeCliPath(): string | undefined {
  *  PowerShell 对 GUI 程序的 `&` 调用**不等待、不接管 stdout**（已三方实证：& 直调输出空且 $LASTEXITCODE 不设；
  *  Process.Start 显式重定向正常；cmd /c 包裹正常；node 直调正常）。ELECTRON_RUN_AS_NODE 只改运行时，不改 PE 子系统标志。
  *
- *  策略：`where.exe node` 取第一个存在的路径（PATH 里的真 node.exe，CONSOLE 子系统）；找不到则回退 process.execPath（electron）。
- *  开发期必有 node（跑得起本项目即有）；M4 SEA 打包后此函数与 resolveBridgeCliPath 一同退役（stub 已变 exe 直调）。
+ *  策略：M5 打包态优先返回随包 `.cmd` 垫片（resources/bridge-node.cmd，ELECTRON_RUN_AS_NODE 复用 DeskMinis.exe）；
+ *  否则 `where.exe node` 取第一个存在的路径（PATH 里的真 node.exe，CONSOLE 子系统）；找不到则回退 process.execPath（electron）。
+ *  开发期必有 node（跑得起本项目即有）。M5 打包后此函数不再退役——打包态见决策点 2-3/2-7/2-8（垫片复用 Electron 运行时）。
  */
 export function resolveBridgeNode(): string {
   try {

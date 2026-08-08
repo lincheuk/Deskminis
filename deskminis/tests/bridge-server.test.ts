@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import net from 'node:net';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -159,6 +159,15 @@ describe('resolveBridgeCliPath', () => {
     const p = resolveBridgeCliPath();
     expect(p).toBeTruthy();
     expect(p!).toMatch(/bridge-cli\.mjs$/);
+  });
+
+  it('打包态候选：给定含 bridge-cli.mjs 的资源目录，返回该 stub（Task 1）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dm-bridge-cli-'));
+    const stub = join(dir, 'bridge-cli.mjs');
+    writeFileSync(stub, 'export {};\n');
+    cleanups.push(() => { rmSync(dir, { recursive: true, force: true }); });
+    const p = resolveBridgeCliPath(dir);
+    expect(p).toBe(stub);
   });
 });
 

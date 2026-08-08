@@ -47,6 +47,7 @@
     "@vitejs/plugin-vue": "^6.0.8",
     "cross-env": "^10.1.0",
     "electron": "^38.8.6",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.1",
     "pinia": "^3.0.4",
     "typescript": "^5.9.3",
