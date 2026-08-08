@@ -1,0 +1,46 @@
+# M5 打包配置（决策点 1: electron-builder）
+# 红线段：数据根 %APPDATA%/DeskMinis 不改、M3a 安全约束不放宽、MIGRATIONS 零改动。
+appId: com.deskminis.app
+productName: DeskMinis
+
+# 复用本地 node_modules/electron/dist 作为打包用 Electron 二进制，避免 electron-builder 从 GitHub 下载
+# （网络受限环境；本地 dist 即安装的 electron ^38，与 ABI 一致）。--dir 打包复制该目录即可。
+electronDist: node_modules/electron/dist
+
+# electron-vite 产物布局：out/main(out/main/index.js + minisd.js) / out/preload/index.cjs / out/renderer/
+files:
+  - 'out/**'
+  - 'package.json'
+  # resources/tray.png 需进 asar（main/index.ts 用 ../../resources/tray.png 相对回溯加载）
+  - 'resources/**'
+
+# 桥 stub 与 .cmd 垫片放安装目录 resources/（不进 asar，供 resolveBridgeCliPath/resolveBridgeNode 用 dirname(process.execPath) 回溯）。
+# 注意 extraResources.to 相对 resources 目录，故不用 resources/ 前缀。
+extraResources:
+  - from: src/minisd/bridge-cli.mjs
+    to: bridge-cli.mjs
+  - from: scripts/bridge-node.cmd
+    to: bridge-node.cmd
+
+# 原生 .node 模块在 asar 内无法 require，解包到 app.asar.unpacked（硬阻塞 3）
+asarUnpack:
+  - 'node_modules/better-sqlite3/**'
+  - 'node_modules/@napi-rs/keyring-win32-x64-msvc/**'
+
+directories:
+  output: dist
+
+# 安装形态（决策点 2-4）：NSIS 安装包为主 + portable 免安装形态；命名规则（决策点 2-6）。
+artifactName: 'DeskMinis-${version}-${name}.${ext}'
+win:
+  target:
+    - nsis
+    - portable
+nsis:
+  oneClick: false
+  perMachine: false
+  shortcutName: DeskMinis
+  deleteAppDataOnUninstall: false
+  artifactName: 'DeskMinis-${version}-Setup.${ext}'
+portable:
+  artifactName: 'DeskMinis-${version}-win-x64-portable.${ext}'
