@@ -29,3 +29,18 @@ asarUnpack:
 
 directories:
   output: dist
+
+# 安装形态（决策点 2-4）：NSIS 安装包为主 + portable 免安装形态；命名规则（决策点 2-6）。
+artifactName: 'DeskMinis-${version}-${name}.${ext}'
+win:
+  target:
+    - nsis
+    - portable
+nsis:
+  oneClick: false
+  perMachine: false
+  shortcutName: DeskMinis
+  deleteAppDataOnUninstall: false
+  artifactName: 'DeskMinis-${version}-Setup.${ext}'
+portable:
+  artifactName: 'DeskMinis-${version}-win-x64-portable.${ext}'

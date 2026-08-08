@@ -23,4 +23,19 @@ describe('M5 electron-builder.yml 静态守卫', () => {
     expect(builderYml).toMatch(/bridge-cli\.mjs/);
     expect(builderYml).toMatch(/bridge-node\.cmd/);
   });
+
+  it('win 目标含 nsis 与 portable 两形态（决策点 2-4）', () => {
+    expect(builderYml).toMatch(/win:\s*$/m);
+    expect(builderYml).toMatch(/nsis/);
+    expect(builderYml).toMatch(/portable/);
+  });
+
+  it('artifactName 使用版本模板（决策点 2-6）', () => {
+    expect(builderYml).toMatch(/artifactName:\s*'?DeskMinis-\$\{version\}/);
+  });
+
+  it('version 从 0.1.0 提升到 0.1.1（决策点 2-6）', () => {
+    const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as { version?: string };
+    expect(pkg.version).toBe('0.1.1');
+  });
 });
