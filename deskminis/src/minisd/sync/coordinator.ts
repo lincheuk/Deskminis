@@ -37,6 +37,11 @@ export class SyncCoordinator {
   private readonly debounceMs: number;
   private readonly outbound?: OutboundClient;
   private stopped = false;
+  /** M6 R2 本端暂停（决策点 2-5/2-7）：暂停时本端不发起任何同步（flush 的 broadcast+push、reconcile 的 push），
+   *  但收下对端数据照常（onRemoteDirty/pull、sync.push 合并不受影响）。 */
+  private paused = false;
+  /** 出站客户端是否已启动拨号（暂停态启动时跳过拨号，恢复时补拨——否则方案 A 的 push 无对端可推）。 */
+  private dialed = false;
   /** M3c 修复：重连双向对账 in-flight 标志（per-peer，防连接抖动风暴）。 */
   private reconciling = new Set<string>();
 
@@ -59,9 +64,22 @@ export class SyncCoordinator {
     }, this.debounceMs);
   }
 
+  /** M6 R2：切换暂停阀。暂停时本端不发起同步；解除后收敛靠 control.resume 显式触发（方案 A），不靠队列残留。 */
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    // 仅在「从未拨号」（暂停态启动跳过首拨）时补拨——否则方案 A 的 push 无对端可推。
+    // 已在线连接不得重连：dial() 会 cleanup 旧连接并重连，重连触发 onOnline → reconcilePeer 双向对账，
+    //   等效实现收敛，会掩盖方案 A 的缺失（M6 先红门控正是被这条副作用掩盖成假绿的）。
+    //   因此这里用 !this.dialed（真·从未拨号）而非恒真的 dialed=start 被调过。
+    if (!paused && this.outbound && !this.dialed) { this.outbound.start(); this.dialed = true; }
+  }
+
   async flush(): Promise<void> {
     const sids = Array.from(this.pendingQueue);
     this.pendingQueue.clear();
+    // M6 R2 暂停阀（决策点 2-7）：暂停期间本端 dirty 信号到此丢弃（队列已清空），不 broadcast 不 push。
+    // 恢复收敛不由残留队列驱动——由 control.resume 显式 onDirty 全部会话 + 本 flush 触发（方案 A，见 Task 5）。
+    if (this.paused) return;
     for (const sid of sids) {
       const cursor = this.chat.getSessionCursor(sid);
       // 监听方职责：广播 sync.dirty 给本端入站客户端（拨号方作为入站客户端会收到）
@@ -123,7 +141,10 @@ export class SyncCoordinator {
       this.outbound.onOnline = (peerFp) => {
         void this.reconcilePeer(peerFp);
       };
-      this.outbound.start();
+      // M6 R2：暂停态启动不拨号（决策点 2-5/2-7「暂停态不拨号」）；恢复时 setPaused(false) 补拨。
+      // dialed 语义 = 「是否真的拨过号」，而非「start() 被调过」——暂停态启动跳过首拨时置 false，
+      // setPaused(false) 才能据 !dialed 补拨；已在线连接不得由此重连（见 setPaused 注释）。
+      if (!this.paused) { this.outbound.start(); this.dialed = true; }
     }
   }
 
@@ -149,11 +170,13 @@ export class SyncCoordinator {
     if (this.reconciling.has(peerFp)) return; // 防抖：对账进行中跳过重入
     this.reconciling.add(peerFp);
     try {
-      // a. push 方向：本端全部会话推给对端
-      for (const s of this.chat.listSyncedSessions()) {
-        void this.pushToPeer(peerFp, s.id);
+      // a. push 方向：本端全部会话推给对端——M6 R2 暂停时跳过（本端不发起同步），但保留 pull（决策点 2-7）
+      if (!this.paused) {
+        for (const s of this.chat.listSyncedSessions()) {
+          void this.pushToPeer(peerFp, s.id);
+        }
       }
-      // b. pull 方向：拉对端会话清单，逐个合并
+      // b. pull 方向：拉对端会话清单，逐个合并（不受暂停影响，对端数据照常收下）
       const list = await this.outbound.callRpc(peerFp, 'sync.list', {}) as { sessions: Array<{ id: string }> };
       for (const s of list.sessions ?? []) {
         void this.pullFromPeer(peerFp, s.id);
