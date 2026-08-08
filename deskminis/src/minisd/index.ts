@@ -616,6 +616,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const diagnosticsMethods = createDiagnosticsMethods({
     providers, vault, catalog, skillStore, pairingService, skillsRoot,
     config: providers.getPromptConfig(),
+    // M6 R2 决策点 2-6 补充：dry-run 诊断项暴露本端同步暂停状态（懒读取，反映调用时状态）
+    syncPaused: () => settings.getBool(SYNC_PAUSE_KEY, false),
   });
   Object.assign(methods, diagnosticsMethods);
 
