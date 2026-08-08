@@ -49,7 +49,12 @@ describe('M3c UI 源文本守卫', () => {
 
   // M4.6 Task 3：joinPairing 需透传 listenPort 到 remote.pair.join，
   // 否则 begin 侧断线后没有 join 侧监听端口无法回拨（回复收敛只剩单方向）
-  it('chat.ts：joinPairing 透传 listenPort 到 remote.pair.join（M4.6 Task 3）', () => {
+  //
+  // 强度边界（复核评审 2026-08-08）：本条是源码子串匹配，只能挡「整段被删除」，
+  // 不能证明「listenPort 到达 join RPC」——写一行注释或没用到的 `const listenPort` 照样绿。
+  // Task 3 验收依据是真行为测试 renderer-chat-joinpairing.test.ts（桩 rpc.call 断言值），
+  // 本条仅作灰盒守卫保留，不作为验收证据。
+  it('chat.ts：joinPairing 透传 listenPort 到 remote.pair.join（M4.6 Task 3，灰盒守卫）', () => {
     const src = readFileSync(join(root, 'stores/chat.ts'), 'utf8').replace(/\r\n/g, '\n');
     const start = src.indexOf('async joinPairing');
     const end = src.indexOf('async retryLast');
