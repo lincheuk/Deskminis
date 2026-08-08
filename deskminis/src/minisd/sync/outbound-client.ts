@@ -17,7 +17,7 @@
 import { WebSocket } from 'ws';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { PairingService } from '../remote/pairing';
 import { encodePaseto } from '../remote/paseto';
 
@@ -215,7 +215,13 @@ export class OutboundClient {
       // 本地算 HMAC 比对
       const expectedMac = hmac(sha256, authKey, new TextEncoder().encode('m3c-hello' + nonce));
       const expectedHex = Buffer.from(expectedMac).toString('hex');
-      if (resp.mac !== expectedHex) return false; // 伪造/中间人
+      // 常量时间比较：先比长度，长度不等直接返回 false（timingSafeEqual 长度不等会抛，必须先比长度）
+      const expectedBuf = Buffer.from(expectedHex, 'hex');
+      const respBuf = Buffer.from(resp.mac, 'hex');
+      const ok = expectedBuf.length === respBuf.length && expectedBuf.length > 0
+        ? timingSafeEqual(expectedBuf, respBuf)
+        : false;
+      if (!ok) return false; // 伪造/中间人
       // 端口漂移自愈：用响应的 listenPort 刷新地址簿
       if (resp.listenPort && resp.listenPort > 0) {
         const addrParts = conn.addr.split(':');
