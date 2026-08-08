@@ -16,6 +16,7 @@
     "e2e:m3a": "node scripts/e2e-m3a-acceptance.mjs",
     "e2e:m3b": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/e2e-m3b-acceptance.mjs",
     "e2e:m3c": "node scripts/e2e-m3c-acceptance.mjs",
+    "e2e:m5": "node scripts/e2e-m5-packaging.mjs",
     "e2e:mu2a": "node scripts/e2e-mu2a-acceptance.mjs",
     "e2e:mu2b": "node scripts/e2e-mu2b-acceptance.mjs",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
