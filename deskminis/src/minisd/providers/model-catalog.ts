@@ -110,8 +110,8 @@ export function createProxyFetch(): FetchLike | undefined {
   if (noProxy) {
     const domains = noProxy.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
     if (domains.includes('*')) return undefined; // 全部直连
-    // models.dev 域名匹配（精确或后缀）
-    if (domains.some(d => d === 'models.dev' || 'models.dev'.endsWith(d))) return undefined;
+    // models.dev 域名匹配：精确或「点号前缀的域后缀」（M4.6 Task 4 收紧——裸 `dev`/`v` 不再误命中）
+    if (domains.some(d => d === 'models.dev' || (d.startsWith('.') && 'models.dev'.endsWith(d)))) return undefined;
   }
   // 仅此一处实例化 ProxyAgent，不 setGlobalDispatcher——实例仅存于闭包内
   const agent = new ProxyAgent(proxyUri);
