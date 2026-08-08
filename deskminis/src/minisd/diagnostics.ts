@@ -25,6 +25,19 @@ export interface CheckResult {
   detail?: string;
 }
 
+/**
+ * 桥 Node 运行时可用性判定（Task 5）：真 node.exe 或随包 .cmd 垫片（M5 复用 Electron 运行时）
+ * 都是可用 Node 运行时 → ready；其余（回退到 electron.exe，即无 node 且垫片缺失）→ warning，
+ * detail 明确写出「windows 桥不可用，主流程不受影响」，绝不静默。
+ */
+export function classifyBridgeNode(bridgeNodePath: string): CheckResult {
+  const base = basename(bridgeNodePath).toLowerCase();
+  const ready = base === 'node.exe' || base === 'bridge-node.cmd';
+  return ready
+    ? { status: 'ready', detail: bridgeNodePath }
+    : { status: 'warning', detail: `windows 桥不可用：未找到 node.exe 且随包垫片缺失，回退到 ${bridgeNodePath}。windows 桥不可用，主流程不受影响` };
+}
+
 export interface DryRunResult {
   overall: 'ready' | 'warning' | 'blocked';
   checks: {
@@ -154,12 +167,9 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
     }
   }
 
-  // 6. 桥 node 解析（无 node.exe = warning，桥命令不可用但不阻断主流程）
+  // 6. 桥 node 解析（无 node.exe 且无垫片 = warning，桥命令不可用但不阻断主流程）
   const bridgeNodePath = resolveBridgeNode();
-  const isNodeExe = basename(bridgeNodePath).toLowerCase() === 'node.exe';
-  const bridgeNodeCheck: CheckResult = isNodeExe
-    ? { status: 'ready', detail: bridgeNodePath }
-    : { status: 'warning', detail: `未找到 node.exe，回退到 ${bridgeNodePath}` };
+  const bridgeNodeCheck: CheckResult = classifyBridgeNode(bridgeNodePath);
 
   // 7. M3c 配对状态（列出已配对设备，纯信息性）
   const pairing = pairingService.listWithAddress().map(d => ({

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { startMinisd } from '../src/minisd/index';
-import { createDiagnosticsMethods, type DryRunDeps } from '../src/minisd/diagnostics';
+import { createDiagnosticsMethods, classifyBridgeNode, type DryRunDeps } from '../src/minisd/diagnostics';
 import type { RpcConnection, AuthMode } from '../src/minisd/rpc/server';
 import { InMemoryVault } from '../src/minisd/store/provider-store';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -120,6 +120,21 @@ describe('diagnostics.dryRun', () => {
     const r = (await c.call('diagnostics.dryRun', {})).result;
     expect(['ready', 'warning']).toContain(r.checks.bridgeNode.status);
     c.close();
+  });
+
+  it('classifyBridgeNode：真 node.exe → ready', () => {
+    expect(classifyBridgeNode('C:\\Program Files\\nodejs\\node.exe').status).toBe('ready');
+  });
+
+  it('classifyBridgeNode：随包 .cmd 垫片 → ready（Task 5，垫片即可用 Node 运行时）', () => {
+    const r = classifyBridgeNode('C:\\Program Files\\DeskMinis\\resources\\bridge-node.cmd');
+    expect(r.status).toBe('ready');
+  });
+
+  it('classifyBridgeNode：无 node 且无垫片（回退 electron.exe）→ warning 且 detail 明确「windows 桥不可用」', () => {
+    const r = classifyBridgeNode('C:\\Program Files\\DeskMinis\\DeskMinis.exe');
+    expect(r.status).toBe('warning');
+    expect(r.detail).toContain('windows 桥不可用');
   });
 
   it('M3c 配对状态 → 列出已配对设备', async () => {
