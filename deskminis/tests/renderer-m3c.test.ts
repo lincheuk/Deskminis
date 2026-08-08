@@ -46,4 +46,17 @@ describe('M3c UI 源文本守卫', () => {
     expect(src).toContain('online');
     expect(src).toContain('lastSeenAt');
   });
+
+  // M4.6 Task 3：joinPairing 需透传 listenPort 到 remote.pair.join，
+  // 否则 begin 侧断线后没有 join 侧监听端口无法回拨（回复收敛只剩单方向）
+  it('chat.ts：joinPairing 透传 listenPort 到 remote.pair.join（M4.6 Task 3）', () => {
+    const src = readFileSync(join(root, 'stores/chat.ts'), 'utf8').replace(/\r\n/g, '\n');
+    const start = src.indexOf('async joinPairing');
+    const end = src.indexOf('async retryLast');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const seg = src.slice(start, end);
+    expect(seg).toContain('remote.pair.join');
+    expect(seg).toContain('listenPort'); // 当前缺失 → 红灯
+  });
 });

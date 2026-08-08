@@ -239,8 +239,20 @@ export const useChat = defineStore('chat', {
     },
     // M3c Task 7：加入配对（免手抄公钥，决策 3）——调 remote.pair.join 真出站完成配对，
     // 成功后刷新设备列表 + 返回 peerFingerprint 供 UI 人工比对。RPC 由 Task 4 实装。
-    async joinPairing(p: { host: string; port: number; pairingCode: string; peerName?: string }): Promise<string> {
-      const r = await rpc.call('remote.pair.join', p);
+    // M4.6 Task 3：透传本端 minisd 监听端口 listenPort——begin 侧断线后靠它回拨，
+    // 否则重连收敛只剩单方向。取不到本端端口时传 undefined 维持现状，不阻塞配对。
+    async joinPairing(p: { host: string; port: number; pairingCode: string; peerName?: string; listenPort?: number }): Promise<string> {
+      let listenPort = p.listenPort;
+      if (listenPort === undefined) {
+        try {
+          const bridge = (window as any).deskminis;
+          if (typeof bridge?.minisdInfo === 'function') {
+            const info = await bridge.minisdInfo();
+            listenPort = info?.port;
+          }
+        } catch { listenPort = undefined; } // 取不到不阻塞配对
+      }
+      const r = await rpc.call('remote.pair.join', { ...p, listenPort });
       await this.refreshDevices();
       return String(r.peerFingerprint);
     },
