@@ -427,9 +427,9 @@ function onSlashTab(e: KeyboardEvent): void {
   position: absolute; right: 20px; bottom: 96px; z-index: 20;
   width: 32px; height: 32px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--material-tint); backdrop-filter: var(--material-thin);
+  background: var(--surface-1);
   border: .5px solid var(--separator); color: var(--label-secondary);
-  cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, .14);
+  cursor: pointer; box-shadow: 0 4px 16px var(--shadow-color);
 }
 .back-bottom:hover { color: var(--label); background: var(--fill-tertiary); }
 
@@ -463,19 +463,19 @@ function onSlashTab(e: KeyboardEvent): void {
 .dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes jump { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
 
-/* 输入区：浮动容器 + 材质 */
+/* 输入区：浮动容器（MU3：材质退场改实底） */
 .composer {
-  margin: 0 16px 16px; border-radius: var(--r-input); background: var(--material-tint);
-  backdrop-filter: var(--material-thin); border: .5px solid var(--separator);
+  margin: 0 16px 16px; border-radius: var(--r-input); background: var(--surface-1);
+  border: .5px solid var(--separator);
   padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
   position: relative;
 }
 .slashmenu {
   position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
   display: flex; flex-direction: column; padding: 6px; gap: 2px; max-height: 260px; overflow: auto;
-  background: var(--material-tint); backdrop-filter: var(--material-thin);
+  background: var(--surface-1);
   border: .5px solid var(--separator); border-radius: var(--r-md);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+  box-shadow: 0 8px 28px var(--shadow-color);
 }
 .slashitem {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: none; background: none;
@@ -502,7 +502,7 @@ function onSlashTab(e: KeyboardEvent): void {
 .achip img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .adel {
   position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%;
-  border: none; background: var(--material-tint); color: var(--label); font-size: 11px; line-height: 1;
+  border: none; background: var(--surface-1); color: var(--label); font-size: 11px; line-height: 1;
   display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
 }
 .ctools { display: flex; align-items: center; gap: 8px; }

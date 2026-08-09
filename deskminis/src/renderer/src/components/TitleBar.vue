@@ -118,15 +118,15 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 <style scoped>
 .titlebar {
   height: 40px; display: flex; align-items: center; gap: 2px; padding: 0 4px 0 10px;
-  background: var(--material-tint); backdrop-filter: var(--material-thin);
+  background: var(--bg);
   border-bottom: .5px solid var(--separator);
   -webkit-app-region: drag; user-select: none; flex: 0 0 40px;
-  /* backdrop-filter 会创建层叠上下文，把下拉菜单 .pop 的 z-index:40 困在 titlebar 内部；
-     而 titlebar 本身是 static/z-auto，在根层叠上下文里按「非定位元素」绘制，
-     顺序低于主体中任何定位元素 —— 菜单会被 .datehead(sticky,z1,不透明背景)、
-     .stream/.empty（静态但 DOM 在后）盖住：前者显示为横条遮挡，后者抢走点击命中。
-     故给 titlebar 自身一个定位与层级，让整棵子树抬到主体之上；
-     50 低于 SettingsModal(100)/DevicesModal(110)，保证模态仍能盖住标题栏。 */
+  /* MU3 材质全退场：毛玻璃改实底，滤镜摘除。
+     下面的 position/z-index 保留为「防御性层级槽位」（论证见 renderer-titlebar-stacking.test.ts 头注）：
+     背景滤镜曾创建层叠上下文、把下拉菜单 .pop 的 z-index:40 困在 titlebar 内部，
+     当时靠给 titlebar 自身定位+层级把整棵子树抬到主体之上修复（CDP 实测取证）。
+     诱因虽消失，但保留槽位可继续固化「主体所有 z-index < 50 < 模态 100/110」不变量，
+     且未来任何滤镜/transform 重新引入层叠上下文时陷阱不复发；保留成本为零。 */
   position: relative; z-index: 50;
 }
 .tb-ico, .menubar, .mi { -webkit-app-region: no-drag; }
