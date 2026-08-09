@@ -208,7 +208,7 @@ describe('MU3 Appica 移植守卫（12 例）', () => {
     // 唯一合法硬编码（Task 4 按新调色板 oklch→srgb 换算后同步更新白名单值）。
     const term = C('TerminalPanel');
     const found = [...new Set([...term.matchAll(COLOR)].map(m => m[0]))].sort();
-    expect(found).toEqual(['#000000', '#ffffff', 'rgba(120,120,128,.2)'].sort());
+    expect(found).toEqual(['#4a5565', '#e5e7eb', '#ffffff'].sort());
   });
 
   it('10. 7 级 label 组件消费清单（Task 5 表：15 改各含指定新级；7 不改零引用）', () => {

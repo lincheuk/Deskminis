@@ -99,7 +99,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 
 <style scoped>
 .mask {
-  position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.4);
+  position: fixed; inset: 0; z-index: 100; background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
 }
 .modal {

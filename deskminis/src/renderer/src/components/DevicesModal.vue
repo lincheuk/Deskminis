@@ -194,7 +194,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .mask {
-  position: fixed; inset: 0; z-index: 110; background: rgba(0,0,0,.4);
+  position: fixed; inset: 0; z-index: 110; background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
 }
 .modal {

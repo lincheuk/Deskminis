@@ -153,7 +153,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 .it:hover { background: var(--accent); color: var(--on-action); }
 .it.danger { color: var(--red); }
 .it .kbd { margin-left: auto; font-size: 12px; color: var(--label-tertiary); font-family: var(--font-mono); }
-.it:hover .kbd { color: rgba(255, 255, 255, .7); }
+.it:hover .kbd { color: var(--on-action); opacity: .7; }
 .sep { height: .5px; background: var(--separator); margin: 5px 8px; }
 .tb-title {
   flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: var(--label-secondary);
