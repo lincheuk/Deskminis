@@ -32,14 +32,21 @@ MU1 拍板「变体 A + Codex/WorkBuddy/OpenMinis 三合一视觉基准」，其
 - label 引用实测（与复核方口径微差，以实测为准）：`--label` 48 / `-secondary` 44 / `-tertiary` 34 / `-quaternary` 3 = 129 处 / 18 文件。**无 label 引用组件 4 个**：FadeText、Icon、MarkdownInline、TerminalPanel。
 - 硬编码颜色 9 处 / 5 文件（与复核方清单逐条核对一致，见 §4 Task 4）。
 - material 消费点实测 5 处：TitleBar.vue:121（.titlebar）、ChatView.vue:430（.back-bottom）、468-469（.composer）、476（.slashmenu）、505（.adel）；`--material-regular` 零消费（死 token）。
-- `--brand`/`--on-brand`/`--purple`/`--blue`/`--yellow` 组件侧**零消费**；`--cyan` 1 处（FileTreeNode:43）；`--orange` 1 处（FileTreeNode:43）。
+- 单例色 token 组件侧消费权威统计（`grep -ro 'var(--X)' components/ App.vue`，自审复测订正）：`--brand` 0 / `--on-brand` 0 / `--purple` 0 / `--blue` 0 / `--yellow` 0 / `--green` 0（仅经 tokens.css 的 state-ok 派生间接消费，本轮改直给后成死 token，作别名保留）/ `--cyan` 1（FileTreeNode:43）/ **`--orange` 6 处 5 行 2 文件**（FileTreeNode:43 + ProviderSettings 136/146/149/158）/ `--red` 7 / `--accent` 6 / `--action` 10 / `--link` 1 / `--assistant-gradient` 1（ChatView 助手头像）。
+  - ⚠️ 初稿曾误记 `--orange` 为「1 处」（源于一条只匹配 yellow|purple|cyan|blue 的正则，orange 系同行捎带出现被误读）。**订正影响**：ProviderSettings 的告警态（`.miss` 缺 key 提示 / `.inp.warn` 边框 / `.addbtn.confirm`）会随别名换向由 iOS 橙整体变为 Appica `--warning-emphasis`，是有真实视觉面的改动 → §6 截图清单据此补「Provider 设置告警态」一屏。
 - 焦点环现状：tokens.css 与组件中 focus/ring 机制为零；仅 ProviderSettings.vue:145 有 `:focus` 改边框色；`outline: none` 3 处（ChatView:492 .field、DevicesModal:251 配对码、ProviderSettings:143 .inp）。
 
 **守卫测试现场（30 处 var(--token) 断言 / 8 文件）**
 
-- 值锚 11 处必改：tokens-evolution L57-61（color-mix 3 处）、L63-70（6 组抽样）、diff.test L145-146（color-mix 2 处）。
-- 名锚 19 处不动：eventnote 5、diff 2（L128-129）、sessioncard 3、toolline 2、devices 1、composer 1、settings-modal 1、tokens-evolution 4（L74/76/91/92）——乙案下 token 名保留，全部继续绿。
-- tokens-evolution L79-84（newbtn 无 brand）在 `--brand` 删除后恒真，保留作防回归。
+**值锚共 11 处必改，但分属两个口径，不可相加充作 30**（自审订正：初稿写「值锚 11 + 名锚 19 = 30」是假平衡——6 处抽样根本不含 `var(`，不在 30 之内）：
+
+- 含 `var()` 的值锚 **5 处**（计入 30）：tokens-evolution L58/L59/L60（color-mix 比例槽）、diff.test L145/L146（color-mix 12%）。
+- 不含 `var()` 的值锚 **6 处**（**不计入 30**）：tokens-evolution L64-L69 的 6 组 Apple 原值抽样，形如 `toContain('--accent: #3686EE')` 的纯字符串断言。
+
+**名锚 25 处不动**（= 30 − 5）：tokens-evolution **10**（L74/76/79/81/82/83/87/88/91/92）、eventnote 5、diff 2（L128/129）、sessioncard 3、toolline 2、devices 1、composer 1、settings-modal 1 —— 乙案下 token 名保留，全部继续绿。其中两组本轮后成恒真断言，均保留作防回归：
+
+- L79/L81/L83（newbtn 无 `--brand`/`--on-brand`）——`--brand` 删除后恒真；
+- L87/L88（ChatView 无 `color-mix(... var(--orange)/var(--purple)`）——本轮 color-mix 全退场后恒真。
 - renderer-titlebar-stacking.test.ts L54 断言 `.titlebar` 块含 `backdrop-filter` —— 材质退场必红，修订方案见 §3-4。
 - section() 字面切片标记 6 个：`:root {` / `@media (prefers-color-scheme: dark)` / `/* 强制深色` / `:root[data-theme="dark"]` / `:root[data-theme="light"]` / `/* 基础复位` —— **全部保留**（§2-6）。
 
@@ -70,7 +77,7 @@ MU1 拍板「变体 A + Codex/WorkBuddy/OpenMinis 三合一视觉基准」，其
 
 ### 2-1. token 命名策略 → **乙案：双层别名（raw 照抄 + 语义层别名）**
 
-**结论**：新增 Appica 原始值层（token 名与值逐字照抄参考文件），DeskMinis 现有语义 token 全部改为指向 raw 层的别名；组件 517 处引用与 19 处名锚断言零改动。
+**结论**：新增 Appica 原始值层（token 名与值逐字照抄参考文件），DeskMinis 现有语义 token 全部改为指向 raw 层的别名；组件 517 处引用与 **25 处名锚断言**零改动。
 
 **理由**：
 
@@ -136,7 +143,7 @@ MU1 拍板「变体 A + Codex/WorkBuddy/OpenMinis 三合一视觉基准」，其
 
 **② 新增 3 级消费场景**（每级 ≥2 处真实消费）：
 
-- --label-strong：各面板头/标题类（ArtifactsPanel、FilesPanel、ProgressPanel、SessionList 会话标题、ChatView .aname/.sname、ToolLine 工具名、DiffView 文件路径、ModelPicker 已选模型名、ProviderSettings 字段标题、PermissionPicker 选项标题、TitleBar .tb-title、PermissionCard 标题）。
+- --label-strong（14 处消费，与 Task 5 表逐行对齐）：ArtifactsPanel、ChatView（.aname/.sname）、DevicesModal 分组标题、DiffView 文件路径、EmptyState 要点标题、FilesPanel、ModelPicker 已选模型名、PermissionCard 标题、PermissionPicker 选项标题、ProgressPanel、ProviderSettings 字段标题、SessionList 会话标题、TitleBar .tb-title、ToolLine 工具名。
 - --label-emphasis：EmptyState 主标题、SettingsModal 分组标题。
 - --label-intense：DevicesModal 配对码读数、PermissionCard 命令 mono 文本、SettingsModal 页标题（--fs-display 位）。
 
@@ -225,11 +232,13 @@ Appica `--radius: 0.875rem`（=14px @16px 根）派生：4xs=4 / 3xs=6 / 2xs=8 /
 brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 另加别名映射断言组（防漂移）：`:root` 段含 `--accent: var(--secondary-emphasis)`、`--green: var(--success-emphasis)`、`--label: var(--foreground)`、`--state-warn-bg: var(--warning-subtle)` 等核心映射逐字断言。
 
-### 3-2. 命门 2：名/结构依赖 → **6 个切片标记全保留，22 个被断言 token 名 21 留 1 删**
+### 3-2. 命门 2：名/结构依赖 → **6 个切片标记全保留，22 个被断言 token 名 20 留 2 删**
 
 - 标记：`:root {` / `@media (prefers-color-scheme: dark)` / `/* 强制深色` / `:root[data-theme="dark"]` / `:root[data-theme="light"]` / `/* 基础复位` —— 全部逐字保留（§2-6），section() 零改动。
-- 22 个被断言 token 名：--fill-tertiary --font-mono --fs-body --fs-ui --green --h-control --label --on-brand --orange --purple --red --r-sheet --state-err --state-err-bg --state-err-border --state-info-bg --state-ok --state-ok-bg --state-warn --state-warn-bg --state-warn-border —— 21 个保留为别名（值换向、名不动）；**--brand 删除**，其 2 处断言（tokens-evolution L81/83）为「不存在性」断言，删除后恒真保留。
-- 连锁失效面 = 0：19 处名锚不动；值锚 11 处改法见 §3-1/§3-3。
+- 22 个被断言 token 名：--brand --fill-tertiary --font-mono --fs-body --fs-ui --green --h-control --label --on-brand --orange --purple --red --r-sheet --state-err --state-err-bg --state-err-border --state-info-bg --state-ok --state-ok-bg --state-warn --state-warn-bg --state-warn-border。
+  - **20 个保留为别名**（值换向、名不动）。
+  - **2 个删除：`--brand` 与 `--on-brand`**（自审订正：初稿写「21 留 1 删」，把 `--on-brand` 错记为保留，与 §2-1「两个都删」自相矛盾）。二者相关的 3 处断言——tokens-evolution L79（`it()` 标题字符串）、L81（newbtn 无 `var(--brand)`）、L83（sessionList 无 `var(--on-brand)`）——全部是**不存在性断言**，token 删除后恒真，保留作防回归。
+- 连锁失效面 = 0：**25 处**名锚不动；值锚 11 处（含 `var()` 5 + 纯字符串 6，口径见 §1）改法见 §3-1/§3-3。
 
 ### 3-3. 命门 3：state-* 派生机制 → **选 B：Appica 直给 alpha，color-mix 全退场**
 
@@ -326,7 +335,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 | 21 | TitleBar | 6 | 改 | .tb-title → --label-strong（配合既有 w600） |
 | 22 | ToolLine | 8 | 改 | 工具名（mono）→ --label-strong |
 
-- [ ] 上表 13 个「改」组件逐落地（仅 class 级 token 换名，不动 DOM/逻辑）
+- [ ] 上表 **15** 个「改」组件逐落地（仅 class 级 token 换名，不动 DOM/逻辑）；**7** 个「不改」组件 git diff 自查为空（自审订正：初稿误写「13 改 9 不改」，按表逐行点数实为 15 改 7 不改）
 - [ ] 守卫转绿；commit
 
 ### Task 6 — 焦点环应用（转绿：焦点环守卫）
@@ -364,9 +373,9 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 - [ ] npm test 全绿；测试数估算 **1019 → ≈1029**（新守卫文件 +10 例；tokens-evolution 例数不变（8 例，2 例内容重锚）；diff/titlebar 例数不变）
 - [ ] typecheck 0 错误；build 三产物成功
 - [ ] `git diff --stat -- src/minisd` 为空
-- [ ] 30 处既有断言账：19 处名锚零改动绿；11 处值锚按 §3-1/§3-3 改法绿；titlebar 1 处按计划内修正绿
-- [ ] 双主题逐屏截图目视（复核方亲跑），场景 ≥ 9：对话流（含 markdown/工具行/EventNote）、左栏会话列表、右栏三面板（Files/Artifacts/Progress）、设置模态、设备/配对面、权限卡、空状态、终端面板、焦点环 Tab 走查（每主题 ≥1 张代表）＝ ≥19 张（9 场景 × 2 主题 + Tab 走查）
-- [ ] 重点目视项：正文基色中灰化（--label→foreground base）、用户气泡暗色变实（fill-tertiary→background-muted）、状态块 alpha 略弱（命门 3）、sheet 圆角 +4px、hairline 变浅（separator→border）、助手头像金色退场
+- [ ] 既有断言账（口径见 §1，两类值锚不可混算）：30 处 `var()` 断言 = **25 名锚零改动绿 + 5 值锚**按 §3-3 改法绿；另 **6 处纯字符串值锚**按 §3-1 重锚绿；titlebar 1 处按计划内修正绿
+- [ ] 双主题逐屏截图目视（复核方亲跑），场景 **≥ 10**：对话流（含 markdown/工具行/EventNote）、左栏会话列表、右栏三面板（Files/Artifacts/Progress）、设置模态、**Provider 设置告警态（.miss/.inp.warn/.addbtn.confirm，自审补入——`--orange` 实为 6 处消费，见 §1）**、设备/配对面、权限卡、空状态、终端面板、焦点环 Tab 走查（每主题 ≥1 张代表）＝ **≥20 张**（10 场景 × 2 主题）
+- [ ] 重点目视项：正文基色中灰化（--label→foreground base）、用户气泡暗色变实（fill-tertiary→background-muted）、状态块 alpha 略弱（命门 3）、sheet 圆角 +4px、hairline 变浅（separator→border）、助手头像金色退场、**ProviderSettings 告警态 iOS 橙 → Appica warning-emphasis**
 - [ ] 计划 checkbox 全勾；独立 docs commit
 
 ## §7 影响面清单
@@ -386,7 +395,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 3. `feat(mu3): tokens.css 双层重构——Appica raw 层照抄 + 语义别名层重锚（含 MIT 头注）`
 4. `feat(mu3): material/backdrop-filter 全退场 + TitleBar 层叠论证修订（测试计划内修正申报）`
 5. `feat(mu3): 9 处硬编码收编（scrim token 化/xterm 兜底换算/kbd 等效改写/阴影走 shadow-color）`
-6. `feat(mu3): 22 组件 7 级 label 清单化改造（13 改 9 不改）`
+6. `feat(mu3): 22 组件 7 级 label 清单化改造（15 改 7 不改）`
 7. `feat(mu3): 焦点环 token 应用——10 组件 :focus-visible + outline:none 改造`
 8. `docs(mu3): ui-design-v3 新增 + v2 取代注记 + PROJECT_NOTES 进度 + checkbox 勾选`
 
@@ -395,9 +404,32 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 ## §9 交付报告要素
 
 - 每 Task 的红/绿证据（失败形态记录 + 转绿输出）
-- 11 处值锚改法与理由清单（对照 §3-1/§3-3）
+- 11 处值锚（含 `var()` 5 + 纯字符串 6）改法与理由清单（对照 §3-1/§3-3）
 - xterm 兜底 4 值的 oklch→srgb 换算式与结果
 - 测试数 1019 → 实际值（与估算 1029 的偏差说明）
-- 双主题截图索引（≥19 张）+ 重点目视项结论
+- 双主题截图索引（≥20 张）+ 重点目视项结论
 - `git diff --stat -- src/minisd` 为空 的证据
 - 偏差与申报项汇总（本计划全部「申报」标注点的最终处置）
+
+## §10 自审记录（本计划由复核方自撰，故按「他人交付物」再审一遍）
+
+本计划非 Trae 所写，缺少两方互检，因此落盘后按既有纪律（M4.5 教训：**写完自己的计划要当成他人交付物复核一遍**）自审一轮。**结论：架构判断站得住，账目有 5 处错，已全部订正。**
+
+站得住的部分（复测验证）：
+
+- 引用的 25 个 Appica token 名**全部存在**于参考文件（逐个 `grep -c` 验证）。
+- 圆角旧值逐一属实：8/10/12/16/18/20/999px；`--radius: 0.875rem` 的 11 阶派生算术全部核对无误（5 个等值、sheet 20→24）。
+- tokens.css 确为 287 行、4 段结构、6 个切片标记齐全。
+- `--brand`/`--on-brand`/`--purple`/`--blue`/`--yellow` 零消费属实（这是乙案与「删 brand」成立的前提）。
+
+订正的 5 处错：
+
+| # | 缺陷 | 性质 | 订正处 |
+|---|---|---|---|
+| 1 | `--orange` 误记为 1 处，实为 **6 处 / 5 行 / 2 文件** | 事实错。源于一条只匹配 `yellow\|purple\|cyan\|blue` 的正则，orange 系同行捎带出现被误读。**漏掉 ProviderSettings 整个告警态的视觉影响面** | §1、§6 截图清单 +1 屏、§6 重点目视项 |
+| 2 | 「值锚 11 + 名锚 19 = 30」是**假平衡** | 口径错。11 里有 6 处（Apple 原值抽样）不含 `var(`、不在 30 之内；真实分桶为 **值锚(var) 5 + 名锚 25 = 30**，另有 6 处纯字符串值锚独立计。且原名锚清单**漏列 L87/L88** | §1、§3-2、§6、§9 |
+| 3 | 「13 改 9 不改」与 Task 5 表不符，实为 **15 改 7 不改** | 计数错。该数字是 Task 5 的完成判据，错了会让执行方按错误基数自查 | Task 5、§8 commit 6 |
+| 4 | §2-2 的 `--label-strong` 消费清单 12 项，与 Task 5 表的 14 项不一致（漏 DevicesModal 分组标题、EmptyState 要点标题） | 内部不一致 | §2-2 |
+| 5 | §3-2 写「22 个被断言 token 名 **21 留 1 删**」，把 `--on-brand` 错记为保留 | **自相矛盾**。§2-1 明写 `--brand`/`--on-brand` 两个都删；实为 **20 留 2 删**。执行方若照 §3-2 保留 `--on-brand` 别名，会与 §2-1 直接打架 | §3-2 |
+
+**教训（可复用）**：① 用正则统计消费面时，**匹配组之外的 token 会在同一行捎带出现**，逐行读输出容易把邻近 token 记到匹配组头上——统计每个 token 必须各跑一次 `grep -o`。② 断言账目必须先定义口径再相加；两个不同口径的数字凑出一个「正好对上」的总数，是最容易骗过自己的一类错。
