@@ -74,6 +74,19 @@ export class SyncCoordinator {
     if (!paused && this.outbound && !this.dialed) { this.outbound.start(); this.dialed = true; }
   }
 
+  /**
+   * M6 R2 方案 A：恢复收敛（决策点 2-7）。必须在暂停阀已关闭（setPaused(false)）之后调用——
+   * 否则重新入队的 sid 会被仍开着的暂停阀在 flush() 里丢弃（「恢复了但什么也没推出去」）。
+   * 对全部 synced session 重新 onDirty 入队后 flush()：监听方角色走 flush 的 broadcast(sync.dirty)
+   * （远端拨号方客户端收到后 pull 本端），拨号方角色走 flush 的 pushToPeer（本端主动 push），一次覆盖两种角色。
+   */
+  async resumeSync(): Promise<void> {
+    for (const s of this.chat.listSyncedSessions()) {
+      this.onDirty(s.id);
+    }
+    await this.flush();
+  }
+
   async flush(): Promise<void> {
     const sids = Array.from(this.pendingQueue);
     this.pendingQueue.clear();

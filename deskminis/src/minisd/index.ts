@@ -596,10 +596,13 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     },
     'control.resume': () => {
       settings.setBool(SYNC_PAUSE_KEY, false);
-      // 先清暂停阀，再 setPaused(false)：顺序反了则恢复后仍被暂停阀拦截。
-      // 收敛动作（方案 A，对全部 synced session 重 onDirty+flush）由下一提交「Task5 方案A」补上——
-      // 本提交只清标志不收敛，故方向 2「恢复后 B 未收到 A 的暂停期改动」为红（先红门控）。
+      // 陷阱顺序：必须先清暂停标志，再触发方案 A 收敛——顺序反了的话，onDirty 重新入队的 sid
+      // 会被仍开着的暂停阀在 flush() 里丢弃（「恢复了但什么也没推出去」）。
       syncCoordinator.setPaused(false);
+      // 方案 A（决策点 2-7 / Task 5）：对全部 synced session 重 onDirty + flush，兜住两种角色
+      //（监听方 broadcast sync.dirty / 拨号方 push）。启动即暂停场景由恢复时补拨的 reconcile 覆盖，
+      //  这里统一触发的方案 A 保证运行时暂停的本端改动也流出。
+      void syncCoordinator.resumeSync();
       audit.append('sync.resumed', {});
       return { ok: true, syncPaused: false };
     },
