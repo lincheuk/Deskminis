@@ -67,7 +67,7 @@ const preselect = computed<'allow-once' | 'allow-session'>(() =>
 .shield { display: inline-flex; color: var(--state-warn); }
 .shield.danger { color: var(--state-err); }
 .htext { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.title { font-size: 17px; font-weight: 600; }
+.title { font-size: 17px; font-weight: 600; color: var(--label-strong); }
 .sub { font-size: 12.5px; color: var(--label-secondary); }
 /* 右上 mono 读秒；urgent（≤10s）变橙 */
 .countdown { font-family: var(--font-mono); font-size: 13px; color: var(--label-secondary); }
@@ -78,7 +78,7 @@ const preselect = computed<'allow-once' | 'allow-session'>(() =>
 }
 .k { font-size: 13px; font-weight: 600; color: var(--label-secondary); }
 /* 逐字完整、可换行、绝不截断 */
-.v { font-size: 13px; font-family: var(--font-mono); word-break: break-all; white-space: pre-wrap; line-height: 1.5; }
+.v { font-size: 13px; font-family: var(--font-mono); color: var(--label-intense); word-break: break-all; white-space: pre-wrap; line-height: 1.5; }
 .triggers {
   background: var(--state-warn-bg); border: .5px solid var(--state-warn-border); border-radius: var(--r-md);
   padding: 8px 12px; display: flex; flex-direction: column; gap: 4px;

@@ -111,7 +111,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
   width: 180px; flex: 0 0 180px; padding: 14px 10px; background: var(--grouped-bg-secondary);
   border-right: .5px solid var(--separator); display: flex; flex-direction: column; gap: 2px;
 }
-.shead { font-size: var(--fs-title); font-weight: 700; color: var(--label); padding: 4px 10px 12px; }
+.shead { font-size: var(--fs-title); font-weight: 700; color: var(--label-emphasis); padding: 4px 10px 12px; }
 .sitem {
   padding: 7px 10px; border-radius: var(--r-control); font-size: var(--fs-ui);
   color: var(--label-secondary); cursor: pointer;
@@ -119,7 +119,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 .sitem:hover { background: var(--fill-quaternary); }
 .sitem.on { background: var(--fill-tertiary); color: var(--label); font-weight: 600; }
 .sbody { flex: 1; min-width: 0; overflow: auto; padding: 18px 20px; }
-.stitle { font-size: var(--fs-display); font-weight: 700; color: var(--label); margin-bottom: 14px; }
+.stitle { font-size: var(--fs-display); font-weight: 700; color: var(--label-intense); margin-bottom: 14px; }
 .opt {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px;
   border: .5px solid var(--separator); border-radius: var(--r-card); cursor: pointer;

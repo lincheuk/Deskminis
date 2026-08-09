@@ -156,7 +156,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 .it:hover .kbd { color: var(--on-action); opacity: .7; }
 .sep { height: .5px; background: var(--separator); margin: 5px 8px; }
 .tb-title {
-  flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: var(--label-secondary);
+  flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: var(--label-strong);
   letter-spacing: .01em; pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* 右上角留给系统原生窗口控制（titleBarOverlay），此占位保证自绘内容不被遮挡 */

@@ -54,7 +54,7 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
   /* 底部多留白把内容上提：对话区很高，纯居中会让视觉重心偏低 */
   padding: 24px 24px calc(24px + 10vh);
 }
-.empty h2 { font-size: 22px; font-weight: 700; color: var(--label); }
+.empty h2 { font-size: 22px; font-weight: 700; color: var(--label-emphasis); }
 .sub { font-size: 15px; color: var(--label-secondary); }
 
 /* 示例指令卡：横排三张（窄了自动换行），点击填入输入框 */
@@ -67,7 +67,7 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
 .excard:hover { background: var(--fill-quaternary); color: var(--label); }
 .excard :deep(svg) { flex: 0 0 auto; margin-top: 2px; }
 .extxt { min-width: 0; text-align: left; }
-.extitle { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
+.extitle { font-size: var(--fs-ui); font-weight: 600; color: var(--label-strong); }
 .exsub {
   font-size: var(--fs-caption); color: var(--label-tertiary); margin-top: 3px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;

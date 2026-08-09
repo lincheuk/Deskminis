@@ -121,7 +121,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .scard:hover { background: var(--fill-quaternary); }
 .scard.on { background: var(--fill-tertiary); }
 .stitle {
-  font-size: var(--fs-ui); font-weight: 600; color: var(--label);
+  font-size: var(--fs-ui); font-weight: 600; color: var(--label-strong);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .scard.on .stitle { color: var(--action); }

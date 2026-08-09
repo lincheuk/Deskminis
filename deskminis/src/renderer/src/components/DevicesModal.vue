@@ -210,7 +210,7 @@ onBeforeUnmount(() => {
 }
 .xbtn:hover { background: var(--fill-quaternary); color: var(--label); }
 .sect { margin-top: 14px; }
-.sectitle { font-size: var(--fs-ui); font-weight: 700; color: var(--label); margin-bottom: 8px; }
+.sectitle { font-size: var(--fs-ui); font-weight: 700; color: var(--label-strong); margin-bottom: 8px; }
 .empty { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 10px 2px; }
 .devcard {
   display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 6px;
@@ -228,7 +228,7 @@ onBeforeUnmount(() => {
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px;
   border: .5px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
 }
-.code { font-family: var(--font-mono); font-size: 32px; font-weight: 700; letter-spacing: 8px; color: var(--label); }
+.code { font-family: var(--font-mono); font-size: 32px; font-weight: 700; letter-spacing: 8px; color: var(--label-intense); }
 .codestate { font-size: var(--fs-caption); color: var(--label-secondary); font-variant-numeric: tabular-nums; }
 .codestate.urgent { color: var(--state-warn); }
 .pairrow { display: flex; gap: 8px; margin-top: 8px; }

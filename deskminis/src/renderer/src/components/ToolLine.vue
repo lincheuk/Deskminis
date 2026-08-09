@@ -119,7 +119,7 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
 }
 @keyframes tlspin { to { transform: rotate(360deg); } }
 .tico { display: inline-flex; color: var(--label-secondary); flex: 0 0 auto; }
-.ttitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.ttitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; color: var(--label-strong); }
 .tdur { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--label-tertiary); flex: 0 0 auto; }
 .tchev { display: inline-flex; color: var(--label-tertiary); flex: 0 0 auto; }
 .texpand { margin: 2px 0 4px 23px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }

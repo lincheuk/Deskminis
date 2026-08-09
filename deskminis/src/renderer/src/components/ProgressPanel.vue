@@ -173,7 +173,7 @@ function fmt(n: number): string {
 <style scoped>
 .ppanel { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .phint { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 12px; text-align: center; line-height: 1.6; }
-.ptask { font-size: var(--fs-title); font-weight: 600; color: var(--label); padding: 2px 4px; line-height: 1.4; }
+.ptask { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); padding: 2px 4px; line-height: 1.4; }
 .psec { background: var(--surface-1); border-radius: var(--r-card); padding: 10px 12px; }
 .psec.pending { border-left: 3px solid var(--state-warn); }
 .pending-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -196,7 +196,7 @@ function fmt(n: number): string {
 .pbadge { margin-left: auto; font-size: 10px; color: var(--on-action); padding: 1px 6px; border-radius: 999px; }
 .prow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: var(--fs-ui); }
 .plabel { color: var(--label-secondary); flex: 0 0 auto; }
-.pval { color: var(--label); display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; text-align: right; }
+.pval { color: var(--label-strong); display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; text-align: right; }
 .pnote { font-size: var(--fs-caption); color: var(--state-warn); padding: 2px 0 4px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-ok); flex: 0 0 auto; }
 .dot.run { background: var(--state-warn); animation: pulse 1.2s ease-in-out infinite; }

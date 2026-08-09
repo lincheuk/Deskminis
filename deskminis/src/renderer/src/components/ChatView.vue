@@ -454,7 +454,7 @@ function onSlashTab(e: KeyboardEvent): void {
 .msg-a { padding: 0; }
 .ahead { display: flex; align-items: center; gap: 8px; }
 .aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
-.aname { font-size: var(--fs-title); font-weight: 600; }
+.aname { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); }
 .abody { font-size: var(--fs-body); line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
@@ -484,7 +484,7 @@ function onSlashTab(e: KeyboardEvent): void {
 }
 .slashitem.on { background: var(--fill-tertiary); }
 .slashitem :deep(svg) { stroke: var(--label-secondary); flex: 0 0 auto; }
-.sname { font-weight: 600; flex: 0 0 auto; }
+.sname { font-weight: 600; flex: 0 0 auto; color: var(--label-strong); }
 .sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field {
   background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);

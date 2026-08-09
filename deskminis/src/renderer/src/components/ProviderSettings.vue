@@ -124,7 +124,7 @@ async function remove(id: string): Promise<void> {
 <style scoped>
 .settings { display: flex; flex-direction: column; gap: 12px; }
 .title3 { font-size: 20px; font-weight: 600; }
-.grouphead { font-size: 15px; font-weight: 600; color: var(--label-secondary); margin-top: 4px; }
+.grouphead { font-size: 15px; font-weight: 600; color: var(--label-strong); margin-top: 4px; }
 .group { background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-md); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .hint { font-size: 13px; color: var(--label-tertiary); padding: 6px; }
 .prow { display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: var(--r-control); }

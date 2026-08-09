@@ -61,7 +61,7 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 .mrow { display: flex; gap: 10px; padding: 9px 10px; border-radius: var(--r-control); cursor: pointer; align-items: flex-start; color: var(--label); }
 .mrow:hover { background: var(--fill-quaternary); }
 .mtxt { flex: 1; min-width: 0; }
-.mt { font-size: 15px; font-weight: 600; }
+.mt { font-size: 15px; font-weight: 600; color: var(--label-strong); }
 .ms { font-size: 13px; color: var(--label-secondary); margin-top: 2px; }
 .chk { margin-left: auto; color: var(--accent); flex: 0 0 auto; margin-top: 2px; }
 .mrow.danger .mt, .mrow.danger .ms { color: var(--red); }

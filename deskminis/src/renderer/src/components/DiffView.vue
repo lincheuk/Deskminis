@@ -46,7 +46,7 @@ const displayLines = computed(() => (expanded.value ? props.lines : collapseCtx(
   background: var(--grouped-bg-tertiary); border-bottom: .5px solid var(--separator);
 }
 .path {
-  font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--label);
+  font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--label-strong);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
 }
 .diff-badge { font-family: var(--font-mono); font-size: var(--fs-micro); flex: 0 0 auto; }
