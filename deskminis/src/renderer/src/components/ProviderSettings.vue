@@ -136,13 +136,16 @@ async function remove(id: string): Promise<void> {
 .miss { color: var(--orange); }
 .act { background: none; border: none; color: var(--label-tertiary); cursor: pointer; padding: 4px; display: inline-flex; border-radius: var(--r-control); }
 .act:hover { background: var(--fill-quaternary); color: var(--label); }
+.act:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .del:hover { color: var(--red); }
 .form { padding: 10px; }
 .inp {
   width: 100%; padding: 8px 10px; border-radius: var(--r-control); border: 1px solid var(--separator);
-  background: var(--bg-tertiary); color: var(--label); font-family: var(--font-ui); font-size: 14px; outline: none;
+  background: var(--bg-tertiary); color: var(--label); font-family: var(--font-ui); font-size: 14px;
 }
 .inp:focus { border-color: var(--accent); }
+/* MU3 §2-5：输入类焦点环叠加（:focus 边框保留；原灭绝默认环写法退场） */
+.inp:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
 .inp.warn { border-color: var(--orange); }
 .warnmsg {
   display: flex; gap: 6px; align-items: flex-start; font-size: 12px; line-height: 1.5;
@@ -155,11 +158,13 @@ async function remove(id: string): Promise<void> {
   color: var(--label); font-size: 15px; font-weight: 600; cursor: pointer; font-family: var(--font-ui);
 }
 .addbtn:hover { background: var(--fill-quaternary); }
+.addbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .addbtn.confirm { border-color: var(--orange); color: var(--orange); }
 .cancelbtn {
   padding: 9px 14px; border-radius: var(--r-control); border: .5px solid var(--separator); background: transparent;
   color: var(--label-secondary); font-size: 15px; cursor: pointer; font-family: var(--font-ui);
 }
 .cancelbtn:hover { background: var(--fill-quaternary); }
+.cancelbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .err { font-size: 13px; color: var(--red); line-height: 1.5; }
 </style>

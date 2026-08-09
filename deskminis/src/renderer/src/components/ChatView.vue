@@ -432,6 +432,8 @@ function onSlashTab(e: KeyboardEvent): void {
   cursor: pointer; box-shadow: 0 4px 16px var(--shadow-color);
 }
 .back-bottom:hover { color: var(--label); background: var(--fill-tertiary); }
+/* MU3 §2-5 焦点环：键盘 :focus-visible 出环，鼠标点击无环 */
+.back-bottom:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* 回合容器（设计 v2 §2.1）：回合间 1px 分隔线 + 24px 间距，回合内块间 8px */
 .turn { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
@@ -449,6 +451,7 @@ function onSlashTab(e: KeyboardEvent): void {
 }
 .ublock:hover .uops, .uops:focus-visible { opacity: 1; }
 .uops:hover { color: var(--label); background: var(--fill-tertiary); }
+.uops:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .utext { font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 /* 助手消息：无气泡（名称行只留实时回合一处） */
 .msg-a { padding: 0; }
@@ -483,16 +486,19 @@ function onSlashTab(e: KeyboardEvent): void {
   font-size: var(--fs-body); text-align: left;
 }
 .slashitem.on { background: var(--fill-tertiary); }
+.slashitem:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .slashitem :deep(svg) { stroke: var(--label-secondary); flex: 0 0 auto; }
 .sname { font-weight: 600; flex: 0 0 auto; color: var(--label-strong); }
 .sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field {
   background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);
   padding: 8px 12px; font-size: var(--fs-body); color: var(--label); font-family: var(--font-ui);
-  min-height: 36px; max-height: 176px; resize: none; line-height: 20px; outline: none; width: 100%;
+  min-height: 36px; max-height: 176px; resize: none; line-height: 20px; width: 100%;
   overflow-y: auto; /* 超 8 行（176px）内滚 */
 }
 .field::placeholder { color: var(--label-tertiary); }
+/* MU3 §2-5：输入类焦点环 --ring-input（原灭绝默认环写法退场，键盘/鼠标聚焦均有环） */
+.field:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
 /* 附件 chip（设计 §5.5：48px 圆角 --r-control，对齐 OpenMinis AttachmentChip 语义） */
 .achips { display: flex; gap: 8px; flex-wrap: wrap; }
 .achip {
@@ -518,6 +524,7 @@ function onSlashTab(e: KeyboardEvent): void {
   display: flex; align-items: center; justify-content: center; flex: 0 0 auto; border: none; cursor: pointer; padding: 0;
 }
 .send :deep(svg) { stroke: var(--on-action); }
+.send:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .send:disabled { background: var(--label-quaternary); cursor: default; }
 .send.stop :deep(svg) { stroke: var(--on-action); fill: var(--on-action); }
 /* M3c Task 7：回合区消息设备标（决策 7c）——originDeviceId 映射色点 + 6 字短名 */

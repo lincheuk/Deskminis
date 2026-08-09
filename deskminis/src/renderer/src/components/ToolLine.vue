@@ -107,6 +107,8 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
   width: 100%;
 }
 .tline:hover { background: var(--fill-quaternary); }
+/* MU3 §2-5 焦点环 */
+.tline:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 /* 状态符号（✓ 绿 / ✕ 红）；类型色退役后唯一的色彩语义 */
 .tmark { width: 15px; text-align: center; font-size: 12px; flex: 0 0 auto; }
 .tmark.ok { color: var(--state-ok); }

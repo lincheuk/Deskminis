@@ -60,6 +60,8 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 .mhead { font-size: 12px; color: var(--label-secondary); padding: 8px 10px 6px; }
 .mrow { display: flex; gap: 10px; padding: 9px 10px; border-radius: var(--r-control); cursor: pointer; align-items: flex-start; color: var(--label); }
 .mrow:hover { background: var(--fill-quaternary); }
+/* MU3 §2-5 焦点环 */
+.mrow:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .mtxt { flex: 1; min-width: 0; }
 .mt { font-size: 15px; font-weight: 600; color: var(--label-strong); }
 .ms { font-size: 13px; color: var(--label-secondary); margin-top: 2px; }

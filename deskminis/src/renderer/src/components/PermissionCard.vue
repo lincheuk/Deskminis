@@ -93,6 +93,9 @@ const preselect = computed<'allow-once' | 'allow-session'>(() =>
   font-size: 15px; font-weight: 600; cursor: pointer;
 }
 .btn:hover { background: var(--fill-quaternary); }
+/* MU3 §2-5 焦点环：允许/会话允许走 --ring；拒绝钮走 --ring-danger */
+.btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.btn.deny:focus-visible { outline: 2px solid var(--ring-danger); outline-offset: 1px; }
 /* 主钮「允许」：--action 实底（设计 §5.2 按钮序） */
 .btn.primary { background: var(--action); border-color: var(--action); color: var(--on-action); }
 .btn.primary:hover { background: var(--action); }

@@ -110,6 +110,8 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   background: var(--fill-tertiary); color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer; flex: 0 0 auto;
 }
 .newbtn:hover { background: var(--fill); }
+/* MU3 §2-5 焦点环 */
+.newbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .newbtn :deep(svg) { stroke: var(--label); }
 .list { flex: 1; min-height: 0; overflow: auto; padding: 0 6px 8px; }
 .datehead {
@@ -119,6 +121,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 /* 任务卡（变体 A）：标题行 + meta 行（相对时间/状态徽标/产物角标） */
 .scard { padding: 9px 10px; border-radius: var(--r-md); margin-bottom: 2px; cursor: pointer; }
 .scard:hover { background: var(--fill-quaternary); }
+.scard:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .scard.on { background: var(--fill-tertiary); }
 .stitle {
   font-size: var(--fs-ui); font-weight: 600; color: var(--label-strong);
@@ -144,4 +147,5 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   font-size: var(--fs-ui); font-weight: 500; color: var(--label-secondary); cursor: pointer;
 }
 .lfbtn:hover { background: var(--fill-quaternary); color: var(--label); }
+.lfbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 </style>

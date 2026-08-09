@@ -209,6 +209,8 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; justify-content: center;
 }
 .xbtn:hover { background: var(--fill-quaternary); color: var(--label); }
+/* MU3 §2-5 焦点环 */
+.xbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .sect { margin-top: 14px; }
 .sectitle { font-size: var(--fs-ui); font-weight: 700; color: var(--label-strong); margin-bottom: 8px; }
 .empty { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 10px 2px; }
@@ -237,19 +239,23 @@ onBeforeUnmount(() => {
   color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
 }
 .pbtn:disabled { opacity: .45; cursor: default; }
+.pbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .rbtn {
   display: flex; align-items: center; gap: 5px; padding: 6px 12px; flex: 0 0 auto;
   border: .5px solid var(--separator); border-radius: var(--r-control); background: var(--surface-1);
   color: var(--label-secondary); font-size: var(--fs-caption); cursor: pointer;
 }
 .rbtn:hover { background: var(--fill-quaternary); color: var(--label); }
+.rbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .rbtn.danger { color: var(--state-err); border-color: var(--state-err); }
 .joinrow { display: flex; gap: 8px; }
 .codeinput {
   flex: 1; min-width: 0; padding: 8px 12px; border: .5px solid var(--separator); border-radius: var(--r-control);
   background: var(--bg-tertiary); color: var(--label); font-family: var(--font-mono); font-size: var(--fs-ui);
-  letter-spacing: 2px; outline: none;
+  letter-spacing: 2px;
 }
+/* MU3 §2-5：输入类焦点环 --ring-input（原灭绝默认环写法退场） */
+.codeinput:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
 .codeinput:disabled { opacity: .45; }
 .codeinput.joinaddr { letter-spacing: 0; font-family: var(--font-mono); }
 .snote { font-size: var(--fs-caption); color: var(--label-tertiary); line-height: 1.6; padding: 8px 2px; }

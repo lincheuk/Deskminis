@@ -135,12 +135,15 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
   border-radius: var(--r-control); color: var(--label-secondary); cursor: pointer;
 }
 .tb-ico:hover { background: var(--fill-quaternary); }
+/* MU3 §2-5 焦点环 */
+.tb-ico:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .menubar { display: flex; gap: 1px; }
 .mi {
   position: relative; font-size: 13px; padding: 5px 10px; border-radius: var(--r-control);
   color: var(--label); cursor: pointer;
 }
 .mi:hover, .mi.open { background: var(--fill-quaternary); }
+.mi:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 230px; }
 .mpop {
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-md);
@@ -151,6 +154,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
   font-size: 13px; cursor: pointer; white-space: nowrap; color: var(--label);
 }
 .it:hover { background: var(--accent); color: var(--on-action); }
+.it:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .it.danger { color: var(--red); }
 .it .kbd { margin-left: auto; font-size: 12px; color: var(--label-tertiary); font-family: var(--font-mono); }
 .it:hover .kbd { color: var(--on-action); opacity: .7; }
