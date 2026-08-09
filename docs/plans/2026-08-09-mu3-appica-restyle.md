@@ -49,7 +49,7 @@ MU1 拍板「变体 A + Codex/WorkBuddy/OpenMinis 三合一视觉基准」，其
 
 - L79/L81/L83（newbtn 无 `--brand`/`--on-brand`）——`--brand` 删除后恒真；
 - L87/L88（ChatView 无 `color-mix(... var(--orange)/var(--purple)`）——本轮 color-mix 全退场后恒真。
-- renderer-titlebar-stacking.test.ts L54 断言 `.titlebar` 块含 `backdrop-filter` —— 材质退场必红，修订方案见 §3-4。
+- renderer-titlebar-stacking.test.ts L54 断言 `.titlebar` 块含 `backdrop-filter` —— **全仓库唯一提及 backdrop-filter 的断言**；材质退场后该断言**反转**为 `not.toMatch`（不是删除，理由见 §3-4）。组件侧 `backdrop-filter` 实测 4 处：ChatView 430/469/476 + TitleBar 121（另 ChatView 505 只用 `--material-tint` 无滤镜，故 material 消费 5 处、滤镜 4 处）。
 - section() 字面切片标记 6 个：`:root {` / `@media (prefers-color-scheme: dark)` / `/* 强制深色` / `:root[data-theme="dark"]` / `:root[data-theme="light"]` / `/* 基础复位` —— **全部保留**（§2-6）。
 
 **Appica 侧自检锚（与参考文件逐字一致）**
@@ -264,7 +264,29 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 - 未来任何浮层/滤镜/transform 重新引入 titlebar 层叠上下文时，陷阱不复发；
 - 保留成本为零（一行既有 CSS 不动）。
 
-**测试修订（计划内修正，单独申报）**：renderer-titlebar-stacking.test.ts 第 1 例删除 `expect(block).toMatch(/backdrop-filter/)`（其注释本就写明「若被移除本守卫的理由需重新评估」——本轮即该情形），position/z-index 两断言保留；文件头注重写为防御性槽位论证；第 2-4 例（模态 > 50、主体 < 50、.pop < 50）一字不动，必须继续绿。
+**测试修订（计划内修正，单独申报）→ 反转，不是删除**（自审第 8 处订正，见 §10）：
+
+renderer-titlebar-stacking.test.ts 第 1 例把 L54 的
+
+```js
+expect(block).toMatch(/backdrop-filter/);       // 旧义：陷阱前提仍在
+```
+
+**反转**为
+
+```js
+expect(block).not.toMatch(/backdrop-filter/);   // 新义：材质已退场，不得回潮
+```
+
+position/z-index 两断言保留不动；文件头注重写为防御性槽位论证；第 2-4 例（模态 > 50、主体 < 50、.pop < 50）一字不动，必须继续绿。
+
+**为什么必须反转而不能删**（初稿写「删除」，是错的）：
+
+1. **删除会让先红预期落空**。删掉 L54 后第 1 例只剩 position/z-index 两条，而这两条**当前代码本来就满足**（489b1f0 修的正是它们），Task 1 修订完该例立刻转绿并一路绿到底 —— 计划 Task 1 写的「预期 titlebar 第 1 例红」根本不成立。
+2. **删除会留下守卫真空**。全仓库只有 L54 这一条断言提到 `backdrop-filter`；删掉它，Task 3 摘除 4 处 `backdrop-filter`（ChatView 430/469/476 + TitleBar 121）就**没有任何测试能证明它真的走了**，也拦不住日后回潮重新踩中层叠上下文陷阱。
+3. **反转同时解决两者**：Task 1 时 TitleBar:121 仍有 `backdrop-filter` → 反转断言**必然红，且红得对**（计划原有的红预期反而因此成立，只是理由从「删了所以红」换成「还没摘所以红」）；Task 3 摘除后自然转绿；守卫本身不消失，只是把守的方向从「前提仍在」换成「不得回潮」。
+
+**配套加宽守卫**：新守卫文件增设一例「组件侧 `backdrop-filter` 清零」——walk 全部 `.vue` 的 `<style>` 块断言零命中，覆盖 ChatView 那 3 处（原方案对它们零覆盖）。同为 Task 1 红、Task 3 绿。
 
 ## §4 Task 序列（串行 TDD；每 Task 先红后绿）
 
@@ -272,19 +294,20 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 
 - [ ] tokens-evolution.test.ts：文件头红线注释改写（只追加红线 → MU3 新红线，引用本节授权声明）；L57-61 color-mix 例改别名断言；L63-70 抽样例改 §3-1 新 6 锚 + 别名映射断言组
 - [ ] diff.test.ts L145-146 改别名断言（§3-3）
-- [ ] renderer-titlebar-stacking.test.ts 第 1 例删 backdrop-filter 断言 + 头注重写（§3-4）
+- [ ] renderer-titlebar-stacking.test.ts 第 1 例 L54 **反转**为 `expect(block).not.toMatch(/backdrop-filter/)` + 头注重写（§3-4；**不是删除**——删除会让红预期落空且留下守卫真空）
 - [ ] 新建 tests/tokens-mu3-appica.test.ts（读源码一律 `replace(/\r\n/g,'\n')` 归一化行尾——项目既有教训）：
   - [ ] MIT 头注四要素（unpkg URL / @appica/ui-react@1.0.0 / MIT / 参考文件相对路径）
   - [ ] tokens.css 各段 A 区与参考文件对应块（`:root,.light` / `.dark`）声明体逐行一致（提取后 trim 比对）
   - [ ] 别名映射总表全量断言（§2-1 表逐行转为 :root 段断言；分叉项另断 mediaDark 段）
   - [ ] 7 级 label：--label-strong/-emphasis/-intense 存在且指向 var(--foreground-strong/-emphasis/-intense)
   - [ ] color-mix 清零：tokens.css 全文不含 `color-mix`
-  - [ ] material 清零：全文不含 `--material`
+  - [ ] material 清零：tokens.css 全文不含 `--material`
+  - [ ] **组件侧 `backdrop-filter` 清零**：walk 全部 `.vue` 的 `<style>` 块零命中（覆盖 ChatView 430/469/476 + TitleBar 121 共 4 处；§3-4 配套加宽）
   - [ ] 圆角别名：--r-control: var(--radius-2xs) 等 6 条 + --r-pill 字面值保留
   - [ ] 组件零硬编码颜色：walk 全部 .vue 的 <style> 块，无 `#[0-9a-fA-F]{3,8}` / `rgba?(`（TerminalPanel <script> 兜底 4 值登记白名单，Task 4 换算后白名单值同步更新）
   - [ ] 焦点环：10 组件清单各含 `:focus-visible` 与 `var(--ring`
   - [ ] --scrim 收编：tokens.css 含 `--scrim: rgba(0,0,0,.4)`；DevicesModal/SettingsModal 用 var(--scrim)
-- [ ] 全量跑红，记录失败形态（预期：新守卫全红 + 重锚例红 + titlebar 第 1 例红），commit
+- [ ] 全量跑红，**逐条记录失败形态并确认红得对**（预期：新守卫全红 + 重锚例红 + **titlebar 第 1 例红——因反转后断言与「此刻 TitleBar:121 仍有 backdrop-filter」冲突**，而非因删除）；commit
 
 ### Task 2 — tokens.css 双层重构（转绿：新守卫 1-7 例）
 
@@ -301,7 +324,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 
 - [ ] 按 §2-4 表改 TitleBar.vue:121、ChatView.vue 430/468-469/476/505
 - [ ] TitleBar.vue .titlebar 注释重写为防御性槽位论证（§3-4），`position: relative; z-index: 50` 不动
-- [ ] titlebar-stacking 测试 4 例全绿；commit（message 显式申报测试修订）
+- [ ] titlebar-stacking 测试 4 例全绿（第 1 例由反转断言驱动转绿——摘除 backdrop-filter 后成立）+ 新守卫「组件侧 backdrop-filter 清零」转绿；commit（message 显式申报测试修订为**反转**而非删除）
 
 ### Task 4 — 硬编码收编 9 处（转绿：零硬编码守卫）
 
@@ -367,7 +390,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 3. raw 层取值唯一来源是参考文件；禁止联网重取、禁止凭印象写值（xterm 兜底换算值除外，须记录换算式）。
 4. src/minisd 整目录零改动（完成定义含 git diff 自查为空）。
 5. XSS 红线一行不动：Markdown 全链路禁 v-html/innerHTML；Icon.vue 静态字典豁免维持。
-6. renderer-titlebar-stacking.test.ts 修订仅限 §3-4 申报范围（第 1 例删 1 行断言 + 头注），第 2-4 例必须继续绿。
+6. renderer-titlebar-stacking.test.ts 修订仅限 §3-4 申报范围（第 1 例 L54 **反转**为 `not.toMatch` + 头注重写），第 2-4 例一字不动、必须继续绿；**不得删除该断言**。
 7. 三模式（跟随系统/强制暗/强制浅）能力不得退化；6 个切片标记逐字保留。
 8. 不夹带 backlog（M5 真机验收、M7 subagent 与本轮无关）。
 9. 测试读源码文本必须 `replace(/\r\n/g,'\n')` 归一化行尾（既有教训）；仓库 .gitattributes 已固定 LF，不新增行尾风险。
@@ -375,7 +398,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 
 ## §6 验收与完成定义
 
-- [ ] npm test 全绿；测试数估算 **1019 → ≈1029**（新守卫文件 +10 例；tokens-evolution 例数不变（8 例，2 例内容重锚）；diff/titlebar 例数不变）
+- [ ] npm test 全绿；测试数估算 **1019 → ≈1030**（新守卫文件 +11 例，含 §3-4 配套的「组件侧 backdrop-filter 清零」；tokens-evolution 例数不变（8 例，2 例内容重锚）；diff/titlebar 例数不变，titlebar 第 1 例为断言反转不增减例数）
 - [ ] typecheck 0 错误；build 三产物成功
 - [ ] `git diff --stat -- src/minisd` 为空
 - [ ] `e2e:mu2a` / `e2e:mu2b` 执行方跑通（含 `CSS_SLOTS` 六槽三模式非空——别名链的活链路证据）；18 张入库截图 artifact 已重生成并提交
@@ -427,7 +450,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 
 ## §10 自审记录（本计划由复核方自撰，故按「他人交付物」再审一遍）
 
-本计划非 Trae 所写，缺少两方互检，因此落盘后按既有纪律（M4.5 教训：**写完自己的计划要当成他人交付物复核一遍**）自审一轮。**结论：架构判断站得住，账目/自洽性/影响面有 7 处错，已全部订正。**
+本计划非 Trae 所写，缺少两方互检，因此落盘后按既有纪律（M4.5 教训：**写完自己的计划要当成他人交付物复核一遍**）自审一轮。**结论：架构判断站得住，账目/自洽性/影响面/时序有 8 处错，已全部订正。**
 
 站得住的部分（复测验证）：
 
@@ -436,7 +459,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 - tokens.css 确为 287 行、4 段结构、6 个切片标记齐全。
 - `--brand`/`--on-brand`/`--purple`/`--blue`/`--yellow` 零消费属实（这是乙案与「删 brand」成立的前提）。
 
-订正的 7 处错：
+订正的 8 处错：
 
 | # | 缺陷 | 性质 | 订正处 |
 |---|---|---|---|
@@ -446,6 +469,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 | 4 | §2-2 的 `--label-strong` 消费清单 12 项，与 Task 5 表的 14 项不一致（漏 DevicesModal 分组标题、EmptyState 要点标题） | 内部不一致 | §2-2 |
 | 5 | §3-2 写「22 个被断言 token 名 **21 留 1 删**」，把 `--on-brand` 错记为保留 | **自相矛盾**。§2-1 明写 `--brand`/`--on-brand` 两个都删；实为 **20 留 2 删**。执行方若照 §3-2 保留 `--on-brand` 别名，会与 §2-1 直接打架 | §3-2 |
 | 6 | §8 写「从 main@3555b85 切 + commit 1 为计划交付」，与文档实际落点不符（三笔文档 commit 已直接落在 main） | 与仓库现状脱节。照此执行会**重复提交计划文档** | §8 |
+| 8 | **titlebar 第 1 例的「先红」预期与 §3-4 授权的修订内容自相矛盾**（用户评审指出） | **时序错 + 守卫真空**。§3-4 原授权「删除 L54」，但删完只剩 position/z-index 两条本就满足的断言 → Task 1 修订后立刻转绿，「预期红」不成立；且全仓库仅此一条断言提及 `backdrop-filter`，删除后 Task 3 摘除 4 处滤镜无任何回归守卫。改为**反转**为 `not.toMatch`：Task 1 红得对、Task 3 转绿、守卫换向续命，并配套加宽为组件级清零守卫 | §1、§3-4、Task 1、Task 3、§5、§6 |
 | 7 | **影响面完全遗漏 e2e 与入库截图 artifact** | 漏面。初稿 §7 一字未提 e2e：① `e2e-mu2b:471` 的 `CSS_SLOTS` 六槽三模式校验（乙案下继续绿，但这是对乙案的硬约束，也是甲案代价的追加证据）；② **18 张入库 PNG**（mu2a 3 + mu2b 15）是 Apple 板下的视觉记录，换板后与产品不符，必须重生成入库，且**不得按既有习惯 checkout 回退** | §2-1、§7、§6、Task 8、§8 |
 
 **教训（可复用）**：① 用正则统计消费面时，**匹配组之外的 token 会在同一行捎带出现**，逐行读输出容易把邻近 token 记到匹配组头上——统计每个 token 必须各跑一次 `grep -o`。② 断言账目必须先定义口径再相加；两个不同口径的数字凑出一个「正好对上」的总数，是最容易骗过自己的一类错。
