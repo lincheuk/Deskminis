@@ -49,6 +49,8 @@ export interface DryRunResult {
     bridgeNode: CheckResult;
     /** M3c 已配对设备列表（计划内修正：pairing 是数组而非 CheckResult，匹配测试 Array.isArray 断言） */
     pairing: Array<{ peerFingerprint: string; peerName: string; address?: string }>;
+    /** M6 R2 本端同步暂停状态（决策点 2-6 补充：dry-run 诊断项，纯信息性，不参与 overall） */
+    syncState: CheckResult;
   };
   promptPreview: string;
   estimatedTokens: number;
@@ -63,6 +65,8 @@ export interface DryRunDeps {
   /** 技能根目录（检查 SKILL.md 可读性用，计划内修正：增 skillsRoot 字段） */
   skillsRoot: string;
   config: PromptConfig;
+  /** M6 R2：本端同步暂停状态读取器（懒读取，反映调用时状态；未注入视为未暂停） */
+  syncPaused?: () => boolean;
 }
 
 /**
@@ -178,7 +182,12 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
     address: d.address,
   }));
 
-  // 8. 系统提示预览 + token 估算（用 bridgeGranted=true 展示完整提示）
+  // 8. M6 R2 本端同步暂停状态（决策点 2-6 补充：dry-run 诊断项，兜住「忘了暂停过」的困惑；纯信息性不参与 overall）
+  const syncState: CheckResult = deps.syncPaused?.()
+    ? { status: 'warning', detail: '当前同步状态：已暂停（同步收敛已冻结，需 control.resume 恢复）' }
+    : { status: 'ready', detail: '当前同步状态：正常' };
+
+  // 9. 系统提示预览 + token 估算（用 bridgeGranted=true 展示完整提示）
   const modelId = defaultModelId ?? 'gpt-5';
   const disciplineBlock = buildDisciplineBlock(modelId, config.discipline ?? {});
   const enabledSkills = skillStore.list().filter(s => s.isEnabled).map(s => ({
@@ -217,6 +226,7 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
       skills: skillsChecks,
       bridgeNode: bridgeNodeCheck,
       pairing,
+      syncState,
     },
     promptPreview,
     estimatedTokens,

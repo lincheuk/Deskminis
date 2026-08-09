@@ -64,6 +64,27 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_sync_orphan_markers_session ON sync_orphan_markers(session_id, created_at DESC);
   `,
+  // [4] M6 可观测与控制权：audit_logs（R4 审计）+ settings（R2 暂停标志）
+  //  迁移一经发布不可改：已发布库 user_version=4，runner 只对 v<5 的库跑 MIGRATIONS[4]。
+  //  audit_logs：事件型审计（权限决议等），跨会话查询面；轮转按 created_at FIFO 删最旧（决策点 2-3）。
+  //  settings：key-value 全局设置（R2 暂停标志 sync.paused），重启后仍生效（决策点 2-6）。
+  `
+  CREATE TABLE audit_logs (
+    id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    session_id TEXT,
+    peer_fingerprint TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+  );
+  CREATE INDEX idx_audit_logs_created ON audit_logs(created_at DESC, id);
+  CREATE INDEX idx_audit_logs_type ON audit_logs(event_type, created_at DESC);
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at REAL NOT NULL
+  );
+  `,
 ];
 
 export function openDb(filePath: string): Database.Database {

@@ -2,6 +2,8 @@ import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync 
 import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
+import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
+import { SettingsStore, SYNC_PAUSE_KEY } from './store/settings';
 import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { ToolRegistry } from './tools/registry';
@@ -184,6 +186,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   mkdirSync(root, { recursive: true });
   const paths = new MinisPaths(root);
   const db = openDb(join(root, 'minis.db'));
+  // M6 R4 审计日志：跨会话事件审计（权限决议等），独立于会话生命周期（决策点 2-3）。
+  const audit = new AuditLogger(db);
+  // M6 R2 全局设置：key-value 落 settings 表，重启后仍生效（决策点 2-6）。现唯一用途是暂停标志 sync.paused。
+  const settings = new SettingsStore(db);
   // M3b 评审命门 3：PairingService 装配前移到 ChatStore 之前——
   // 静态身份（vault+dataDir）不依赖 db/chat，前移让 chat 构造时即可拿到 myFingerprint 注入 originDeviceId，
   // 避免 ChatStore 被多处引用（AgentLoop/CompactEngine/SyncCoordinator）前出现 setOriginDeviceId 注入空窗。
@@ -238,11 +244,13 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       if (!pendingPerms.has(requestId)) return;
       pendingPerms.delete(requestId);
       rpc.broadcast('permission.resolved', { requestId, reason: 'timeout' }); // 决策 4b'：Task 10 超时留条的判定源
+      audit.append('permission.resolved', { requestId, reason: 'timeout' }, { sessionId: req.sessionId });
       resolve('deny');
     }, permTimeoutMs);
     timer.unref?.();
     pendingPerms.set(requestId, { resolve, timer, req, bridgeTriggers });
     rpc.broadcast('permission.request', { requestId, req, meta });
+    audit.append('permission.request', { requestId, req, meta }, { sessionId: req.sessionId });
   });
   const gateway = new PermissionGatewayImpl(prompt, undefined, permTimeoutMs);
 
@@ -503,6 +511,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         entry.resolve(p.decision);
         // 同一个请求可能在多个窗口里显示：告诉所有客户端这张卡片已了结
         rpc.broadcast('permission.resolved', { requestId: p.requestId, reason: 'answered' }); // 决策 4b'
+        audit.append('permission.resolved', { requestId: p.requestId, reason: 'answered', decision: p.decision }, { sessionId: entry.req.sessionId });
       }
       return { ok: true };
     },
@@ -571,6 +580,33 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       rpc.broadcast('skills.changed', {});
       return { ok: true };
     },
+    // ---- M6 Task 4：审计查询面 audit.list（决策点 2-2：只留 RPC 接缝，不出 UI）----
+    // 透传 AuditLogger.list 过滤参数；payload 防御性再脱敏一次（double-redact，红线：密钥材料不出现在任何出口）。
+    'audit.list': (p: AuditListOpts) => {
+      const res = audit.list(p ?? {});
+      return { total: res.total, rows: res.rows.map(r => ({ ...r, payload: auditRedact(r.payload) })) };
+    },
+    // ---- M6 Task 5：R2 本端暂停 control.pause/resume/status（决策点 2-5/2-6/2-7）----
+    // 只停同步收敛，不停 agent 循环/工具执行（决策点 2-5）。暂停标志落 settings 表，重启后仍生效（决策点 2-6）。
+    'control.pause': () => {
+      settings.setBool(SYNC_PAUSE_KEY, true);
+      syncCoordinator.setPaused(true);
+      audit.append('sync.paused', {});
+      return { ok: true, syncPaused: true };
+    },
+    'control.resume': () => {
+      settings.setBool(SYNC_PAUSE_KEY, false);
+      // 陷阱顺序：必须先清暂停标志，再触发方案 A 收敛——顺序反了的话，onDirty 重新入队的 sid
+      // 会被仍开着的暂停阀在 flush() 里丢弃（「恢复了但什么也没推出去」）。
+      syncCoordinator.setPaused(false);
+      // 方案 A（决策点 2-7 / Task 5）：对全部 synced session 重 onDirty + flush，兜住两种角色
+      //（监听方 broadcast sync.dirty / 拨号方 push）。启动即暂停场景由恢复时补拨的 reconcile 覆盖，
+      //  这里统一触发的方案 A 保证运行时暂停的本端改动也流出。
+      void syncCoordinator.resumeSync();
+      audit.append('sync.resumed', {});
+      return { ok: true, syncPaused: false };
+    },
+    'control.status': () => ({ syncPaused: settings.getBool(SYNC_PAUSE_KEY, false) }),
   };
 
   const authToken = randomUUID().toUpperCase();
@@ -580,6 +616,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const diagnosticsMethods = createDiagnosticsMethods({
     providers, vault, catalog, skillStore, pairingService, skillsRoot,
     config: providers.getPromptConfig(),
+    // M6 R2 决策点 2-6 补充：dry-run 诊断项暴露本端同步暂停状态（懒读取，反映调用时状态）
+    syncPaused: () => settings.getBool(SYNC_PAUSE_KEY, false),
   });
   Object.assign(methods, diagnosticsMethods);
 
@@ -646,6 +684,9 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // M3b 接线 + M3c Task 6 扩展：SyncCoordinator 注入 OutboundClient（决策 4 拨号方双职责 push+pull）
   const syncCoordinator = new SyncCoordinator(chat, rpc, { outbound: outboundClient });
   chat.onDirty = sid => syncCoordinator.onDirty(sid);
+  // M6 Task 5：启动时读 settings.sync.paused 注入暂停阀（决策点 2-6 持久化）——
+  //  setPaused 在 start() 前调用：暂停态不拨号/不广播，但 pull（对端主动推来）照常收下。
+  syncCoordinator.setPaused(settings.getBool(SYNC_PAUSE_KEY, false));
   syncCoordinator.start(); // 触发 outboundClient.start() + 挂 onRemoteDirty
 
   return {

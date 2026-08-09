@@ -205,4 +205,23 @@ describe('diagnostics.dryRun', () => {
     expect(afterDevices).toEqual(beforeDevices);
     c.close();
   });
+
+  it('M6 R2：dry-run 诊断项反映本端同步暂停状态（pause → warning，resume → ready）', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    await createDefaultProvider(c);
+
+    const r1 = (await c.call('diagnostics.dryRun', {})).result;
+    expect(r1.checks.syncState.status).toBe('ready');
+
+    await c.call('control.pause', {});
+    const r2 = (await c.call('diagnostics.dryRun', {})).result;
+    expect(r2.checks.syncState.status).toBe('warning');
+    expect(r2.checks.syncState.detail).toContain('已暂停');
+
+    await c.call('control.resume', {});
+    const r3 = (await c.call('diagnostics.dryRun', {})).result;
+    expect(r3.checks.syncState.status).toBe('ready');
+    c.close();
+  });
 });
