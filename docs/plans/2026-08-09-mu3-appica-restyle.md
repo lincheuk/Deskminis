@@ -1,6 +1,7 @@
 # DeskMinis MU3（Appica 视觉语言移植：换掉 Apple HIG + label 扩 7 级）实施计划
 
-> 状态：**待评审**。基线 main@3555b85。本轮只交计划与参考 CSS，不动 `src/`。
+> 状态：**评审通过**（用户 2026-08-09 拍板，四个申报项均按本计划结论采纳：品牌金色消亡 / 遮罩收编为 `--scrim` / 字体栈保留例外 / `--link` 与 `--accent` 收敛）。
+> 代码基线 main@3555b85（三件套 1019/1019 实测于此）；文档基线 main@626a817（本计划及其自审订正）。执行分支 `feature/mu3` 从 main 最新处切，见 §8。
 > 唯一取值来源：[2026-08-09-appica-tokens-reference.css](../specs/2026-08-09-appica-tokens-reference.css)（复核方取证，MIT，禁止联网重取、禁止凭印象写值）。
 
 ## 决议反转记录（先于一切，显式申报）
@@ -21,7 +22,8 @@ MU1 拍板「变体 A + Codex/WorkBuddy/OpenMinis 三合一视觉基准」，其
 ## §0 基线
 
 - main@3555b85（M6 及后续修已合并）。复核方亲跑：npm test **1019/1019（97 文件）**、typecheck 0、build 三产物成功；既有计划文档 checkbox 零未勾。
-- 分支：执行期从 main 切 `feature/mu3`；本计划文档与参考 CSS 先行入库（本轮交付）。
+- 分支：执行期从 **main 最新处**切 `feature/mu3`（本计划、参考 CSS、自审订正三/四笔文档 commit 已在 main 上，见 §8 第 0 条）。
+- 代码面自 3555b85 起未变（其后全是 docs commit），故 1019/1019 的三件套基线对 `feature/mu3` 仍然有效。
 
 ## §1 锚点（已核实；执行时仍请自行 grep 复核）
 
@@ -85,6 +87,7 @@ MU1 拍板「变体 A + Codex/WorkBuddy/OpenMinis 三合一视觉基准」，其
 - 这正是 Appica 官方文档自述的两层架构（raw value tokens + aliased theme tokens），乙案不是妥协而是同构。
 - 甲案（517 处组件引用 + 30 处断言机械改名）diff 巨大且纯机械，会把真正的视觉回归淹在噪音里；守卫测试的 22 个被断言 token 名全部失效需同步改名，风险与收益不成比例。
 - 乙案把全部取值风险收敛到 tokens.css 一个文件，diff 可逐行审；且可为 raw 层立「与参考文件逐字一致」的强守卫（§4 Task 1），移植保真度反而高于甲案。
+- **e2e 侧的额外证据（自审补入）**：`e2e-mu2b-acceptance.mjs:471` 的 `CSS_SLOTS` 在三模式下硬校验 `--surface-1/--action/--on-action/--state-ok/--state-warn-bg/--fs-body` 六槽非空。乙案下这 6 个名字全部保留 → e2e 脚本零改动继续绿；**甲案会把 e2e 一并打红**，改名成本比初稿估计的还大一圈。
 
 **映射总表**（别名层；「两段同」= 浅/暗同一目标，写一次仍每段重申以保持四段结构，见 §2-6）：
 
@@ -353,7 +356,9 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 ### Task 8 — 验收与截图
 
 - [ ] 三件套全绿；`git diff main...feature/mu3 --stat -- src/minisd` 为空（完成定义硬项）
-- [ ] 双主题逐屏截图（§6 清单）；交付报告（§9）
+- [ ] **执行方跑 `npm run e2e:mu2a` 与 `npm run e2e:mu2b`**：断言全过（mu2b 的 `CSS_SLOTS` 6 槽在三模式下均非空，验证别名链在真实渲染环境下解析成功——这是乙案能否成立的活链路证据，比单测的源文本断言更硬）
+- [ ] **18 张入库截图 artifact 重生成并入库**（mu2a 3 张 + mu2b 15 张）；**本轮不得 `git checkout --` 回退这些 artifact**（换板后新图即新事实，见 §7）
+- [ ] 双主题逐屏截图（§6 清单，复核方亲跑）；交付报告（§9）
 
 ## §5 红线（执行期硬约束）
 
@@ -373,6 +378,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 - [ ] npm test 全绿；测试数估算 **1019 → ≈1029**（新守卫文件 +10 例；tokens-evolution 例数不变（8 例，2 例内容重锚）；diff/titlebar 例数不变）
 - [ ] typecheck 0 错误；build 三产物成功
 - [ ] `git diff --stat -- src/minisd` 为空
+- [ ] `e2e:mu2a` / `e2e:mu2b` 执行方跑通（含 `CSS_SLOTS` 六槽三模式非空——别名链的活链路证据）；18 张入库截图 artifact 已重生成并提交
 - [ ] 既有断言账（口径见 §1，两类值锚不可混算）：30 处 `var()` 断言 = **25 名锚零改动绿 + 5 值锚**按 §3-3 改法绿；另 **6 处纯字符串值锚**按 §3-1 重锚绿；titlebar 1 处按计划内修正绿
 - [ ] 双主题逐屏截图目视（复核方亲跑），场景 **≥ 10**：对话流（含 markdown/工具行/EventNote）、左栏会话列表、右栏三面板（Files/Artifacts/Progress）、设置模态、**Provider 设置告警态（.miss/.inp.warn/.addbtn.confirm，自审补入——`--orange` 实为 6 处消费，见 §1）**、设备/配对面、权限卡、空状态、终端面板、焦点环 Tab 走查（每主题 ≥1 张代表）＝ **≥20 张**（10 场景 × 2 主题）
 - [ ] 重点目视项：正文基色中灰化（--label→foreground base）、用户气泡暗色变实（fill-tertiary→background-muted）、状态块 alpha 略弱（命门 3）、sheet 圆角 +4px、hairline 变浅（separator→border）、助手头像金色退场、**ProviderSettings 告警态 iOS 橙 → Appica warning-emphasis**
@@ -383,6 +389,12 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 **改（src/renderer 侧）**：tokens.css（重构）；ChatView、TitleBar（material + 硬编码 + label + 焦点环）；DevicesModal、SettingsModal、TerminalPanel（硬编码/焦点环）；ArtifactsPanel、DiffView、EmptyState、FilesPanel、ModelPicker、PermissionCard、PermissionPicker、ProgressPanel、ProviderSettings、SessionList、ToolLine（label 升级 + 部分焦点环）。
 **不改（组件）**：EventNote、FadeText、FileTreeNode、Icon、MarkdownInline、MarkdownView、App.vue、rpc.ts、main.ts。
 **测试**：tokens-evolution（重锚）、diff（重锚）、renderer-titlebar-stacking（计划内修正）、tokens-mu3-appica（新建）；其余 5 个含 token 断言的测试文件零改动。
+
+**e2e 与入库截图 artifact（自审补入，初稿完全遗漏）**：
+
+- `scripts/e2e-mu2b-acceptance.mjs:471` 定义 `CSS_SLOTS = ['--surface-1','--action','--on-action','--state-ok','--state-warn-bg','--fs-body']`，在 light/dark/system 三模式下逐一断言 `getComputedStyle(document.body).getPropertyValue(k)` 非空。**乙案下 6 个名字全部保留为别名 → 该用例继续绿，脚本零改动**；反之甲案（全量改名）会把 e2e 一并打红——这是初稿没算进去的、支持乙案的额外证据。
+- **18 张入库截图 artifact 会全部过时**：`scripts/e2e-shots-mu2a/`（3 张：light/dark/system）+ `scripts/e2e-shots-mu2b/`（15 张：3 模式 × chat/progress/artifacts/settings/devices）。它们是 MU2a/MU2b 在 **Apple HIG 调色板下**的视觉验收记录，换板后与实际产品不符，**必须由执行方重跑 `e2e:mu2a`/`e2e:mu2b` 重生成并入库**（Task 8）。
+  - 注意与既有教训的方向差异：平时「复核方亲跑 e2e 会刷新入库 artifact 字节 → 定向 `git checkout -- <artifact 目录>` 恢复」是正解；**本轮相反——重生成的 artifact 就是新事实，必须提交，不得 checkout 回退**。
 **文档**：本计划 + 参考 CSS（本轮）；v3 新增、v2 注记、PROJECT_NOTES（执行期 Task 7）。
 **零改动面**：src/minisd 整目录、src/main、src/preload；组件 517 处 var() 引用零改动；组件 DOM/逻辑零改动。
 
@@ -399,6 +411,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 6. `feat(mu3): 22 组件 7 级 label 清单化改造（15 改 7 不改）`
 7. `feat(mu3): 焦点环 token 应用——10 组件 :focus-visible + outline:none 改造`
 8. `docs(mu3): ui-design-v3 新增 + v2 取代注记 + PROJECT_NOTES 进度 + checkbox 勾选`
+9. `test(mu3): 重跑 e2e:mu2a/e2e:mu2b 并重生成 18 张入库截图 artifact（换板后新图即新事实）`
 
 先红说明：Task 1 一笔全红（新守卫 + 重锚 + titlebar），Task 2-6 逐片转绿；每 Task 先跑对应测试文件确认失败形态，实现后跑该文件转绿，再跑全量确认无连带。
 
@@ -414,7 +427,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 
 ## §10 自审记录（本计划由复核方自撰，故按「他人交付物」再审一遍）
 
-本计划非 Trae 所写，缺少两方互检，因此落盘后按既有纪律（M4.5 教训：**写完自己的计划要当成他人交付物复核一遍**）自审一轮。**结论：架构判断站得住，账目/自洽性有 6 处错，已全部订正。**
+本计划非 Trae 所写，缺少两方互检，因此落盘后按既有纪律（M4.5 教训：**写完自己的计划要当成他人交付物复核一遍**）自审一轮。**结论：架构判断站得住，账目/自洽性/影响面有 7 处错，已全部订正。**
 
 站得住的部分（复测验证）：
 
@@ -423,7 +436,7 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 - tokens.css 确为 287 行、4 段结构、6 个切片标记齐全。
 - `--brand`/`--on-brand`/`--purple`/`--blue`/`--yellow` 零消费属实（这是乙案与「删 brand」成立的前提）。
 
-订正的 6 处错：
+订正的 7 处错：
 
 | # | 缺陷 | 性质 | 订正处 |
 |---|---|---|---|
@@ -433,5 +446,6 @@ brand 轴无锚：--brand 消亡（§2-1），由删除断言替代。
 | 4 | §2-2 的 `--label-strong` 消费清单 12 项，与 Task 5 表的 14 项不一致（漏 DevicesModal 分组标题、EmptyState 要点标题） | 内部不一致 | §2-2 |
 | 5 | §3-2 写「22 个被断言 token 名 **21 留 1 删**」，把 `--on-brand` 错记为保留 | **自相矛盾**。§2-1 明写 `--brand`/`--on-brand` 两个都删；实为 **20 留 2 删**。执行方若照 §3-2 保留 `--on-brand` 别名，会与 §2-1 直接打架 | §3-2 |
 | 6 | §8 写「从 main@3555b85 切 + commit 1 为计划交付」，与文档实际落点不符（三笔文档 commit 已直接落在 main） | 与仓库现状脱节。照此执行会**重复提交计划文档** | §8 |
+| 7 | **影响面完全遗漏 e2e 与入库截图 artifact** | 漏面。初稿 §7 一字未提 e2e：① `e2e-mu2b:471` 的 `CSS_SLOTS` 六槽三模式校验（乙案下继续绿，但这是对乙案的硬约束，也是甲案代价的追加证据）；② **18 张入库 PNG**（mu2a 3 + mu2b 15）是 Apple 板下的视觉记录，换板后与产品不符，必须重生成入库，且**不得按既有习惯 checkout 回退** | §2-1、§7、§6、Task 8、§8 |
 
 **教训（可复用）**：① 用正则统计消费面时，**匹配组之外的 token 会在同一行捎带出现**，逐行读输出容易把邻近 token 记到匹配组头上——统计每个 token 必须各跑一次 `grep -o`。② 断言账目必须先定义口径再相加；两个不同口径的数字凑出一个「正好对上」的总数，是最容易骗过自己的一类错。
