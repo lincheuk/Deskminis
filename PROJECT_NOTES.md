@@ -42,6 +42,14 @@
   shell/file 工具 + 权限网关、SQLite 会话存储、OpenMinis 复刻三栏 UI。130/130 测试、
   typecheck、build 全绿。验收：`npm run e2e`（`deskminis/scripts/e2e-acceptance.mjs`，
   可重复回归）5/5 通过，真实 provider=nodetect/grok-4.5。
+- ✅ **M2–M6、MU1/MU2（2026-07-28 ~ 2026-08-09）**：记忆/压缩、技能、Windows 桥、
+  右栏 UI、M3a/b/c 同步与接力、提示层加固、模型目录、安全加固、打包、可观测与控制权；
+  各里程碑完成状态与验收记录见 `docs/plans/` 对应计划文档（checkbox 全勾）。
+- ✅ **MU3 Appica 视觉语言移植（2026-08-09）**：Apple HIG 取值层整体退场，
+  tokens.css 按双层架构重构（Appica raw 层照抄参考文件 + DeskMinis 语义别名重锚），
+  组件 517 处引用零改动；label 4→7 级、material/backdrop-filter 全退场、
+  9 处硬编码收编、10 组件焦点环补齐。设计定稿 → `docs/specs/2026-08-09-ui-design-v3.md`
+  （v2 加取代注记）。1031/1031 测试、typecheck、build 全绿。
 
 ## 关键发现（写进设计的依据）
 

@@ -292,47 +292,47 @@ position/z-index 两断言保留不动；文件头注重写为防御性槽位论
 
 ### Task 1 — 守卫重锚 + 新守卫文件（先红）
 
-- [ ] tokens-evolution.test.ts：文件头红线注释改写（只追加红线 → MU3 新红线，引用本节授权声明）；L57-61 color-mix 例改别名断言；L63-70 抽样例改 §3-1 新 6 锚 + 别名映射断言组
-- [ ] diff.test.ts L145-146 改别名断言（§3-3）
-- [ ] renderer-titlebar-stacking.test.ts 第 1 例 L54 **反转**为 `expect(block).not.toMatch(/backdrop-filter/)` + 头注重写（§3-4；**不是删除**——删除会让红预期落空且留下守卫真空）
-- [ ] 新建 tests/tokens-mu3-appica.test.ts（读源码一律 `replace(/\r\n/g,'\n')` 归一化行尾——项目既有教训）：
-  - [ ] MIT 头注四要素（unpkg URL / @appica/ui-react@1.0.0 / MIT / 参考文件相对路径）
-  - [ ] tokens.css 各段 A 区与参考文件对应块（`:root,.light` / `.dark`）声明体逐行一致（提取后 trim 比对）
-  - [ ] 别名映射总表全量断言（§2-1 表逐行转为 :root 段断言；分叉项另断 mediaDark 段）
-  - [ ] 7 级 label：--label-strong/-emphasis/-intense 存在且指向 var(--foreground-strong/-emphasis/-intense)
-  - [ ] color-mix 清零：tokens.css 全文不含 `color-mix`
-  - [ ] material 清零：tokens.css 全文不含 `--material`
-  - [ ] **组件侧 `backdrop-filter` 清零**：walk 全部 `.vue` 的 `<style>` 块零命中（覆盖 ChatView 430/469/476 + TitleBar 121 共 4 处；§3-4 配套加宽）
-  - [ ] 圆角别名：--r-control: var(--radius-2xs) 等 6 条 + --r-pill 字面值保留
-  - [ ] 组件零硬编码颜色：walk 全部 .vue 的 <style> 块，无 `#[0-9a-fA-F]{3,8}` / `rgba?(`（TerminalPanel <script> 兜底 4 值登记白名单，Task 4 换算后白名单值同步更新）
-  - [ ] 焦点环：10 组件清单各含 `:focus-visible` 与 `var(--ring`
-  - [ ] --scrim 收编：tokens.css 含 `--scrim: rgba(0,0,0,.4)`；DevicesModal/SettingsModal 用 var(--scrim)
-- [ ] 全量跑红，**逐条记录失败形态并确认红得对**（预期：新守卫全红 + 重锚例红 + **titlebar 第 1 例红——因反转后断言与「此刻 TitleBar:121 仍有 backdrop-filter」冲突**，而非因删除）；commit
+- [x] tokens-evolution.test.ts：文件头红线注释改写（只追加红线 → MU3 新红线，引用本节授权声明）；L57-61 color-mix 例改别名断言；L63-70 抽样例改 §3-1 新 6 锚 + 别名映射断言组
+- [x] diff.test.ts L145-146 改别名断言（§3-3）
+- [x] renderer-titlebar-stacking.test.ts 第 1 例 L54 **反转**为 `expect(block).not.toMatch(/backdrop-filter/)` + 头注重写（§3-4；**不是删除**——删除会让红预期落空且留下守卫真空）
+- [x] 新建 tests/tokens-mu3-appica.test.ts（读源码一律 `replace(/\r\n/g,'\n')` 归一化行尾——项目既有教训）：
+  - [x] MIT 头注四要素（unpkg URL / @appica/ui-react@1.0.0 / MIT / 参考文件相对路径）
+  - [x] tokens.css 各段 A 区与参考文件对应块（`:root,.light` / `.dark`）声明体逐行一致（提取后 trim 比对）
+  - [x] 别名映射总表全量断言（§2-1 表逐行转为 :root 段断言；分叉项另断 mediaDark 段）
+  - [x] 7 级 label：--label-strong/-emphasis/-intense 存在且指向 var(--foreground-strong/-emphasis/-intense)
+  - [x] color-mix 清零：tokens.css 全文不含 `color-mix`
+  - [x] material 清零：tokens.css 全文不含 `--material`
+  - [x] **组件侧 `backdrop-filter` 清零**：walk 全部 `.vue` 的 `<style>` 块零命中（覆盖 ChatView 430/469/476 + TitleBar 121 共 4 处；§3-4 配套加宽）
+  - [x] 圆角别名：--r-control: var(--radius-2xs) 等 6 条 + --r-pill 字面值保留
+  - [x] 组件零硬编码颜色：walk 全部 .vue 的 <style> 块，无 `#[0-9a-fA-F]{3,8}` / `rgba?(`（TerminalPanel <script> 兜底 4 值登记白名单，Task 4 换算后白名单值同步更新）
+  - [x] 焦点环：10 组件清单各含 `:focus-visible` 与 `var(--ring`
+  - [x] --scrim 收编：tokens.css 含 `--scrim: rgba(0,0,0,.4)`；DevicesModal/SettingsModal 用 var(--scrim)
+- [x] 全量跑红，**逐条记录失败形态并确认红得对**（预期：新守卫全红 + 重锚例红 + **titlebar 第 1 例红——因反转后断言与「此刻 TitleBar:121 仍有 backdrop-filter」冲突**，而非因删除）；commit
 
 ### Task 2 — tokens.css 双层重构（转绿：新守卫 1-7 例）
 
-- [ ] 头注重写：MIT 归属（来源 URL + v1.0.0 + MIT）+ 双层架构说明 + 明暗机制说明（保留现有机制注释语义）
-- [ ] :root A 区照抄参考文件 `:root,.light` 块全部声明（含 --font-*/--radius-*/--border-width/--opacity-disabled/--focus-ring-light/--selection-color）
-- [ ] B 区别名层按 §2-1 总表落地（含 --font-ui/--font-mono 现有栈置后覆盖、--scrim、--ring 三别名、--label-strong/-emphasis/-intense）
-- [ ] @media dark / [data-theme="dark"] 段：A 区照抄 `.dark` 块 + 暗段别名（含分叉映射）
-- [ ] [data-theme="light"] 段：浅段重申
-- [ ] 基础复位段：追加 `::selection { background: var(--selection-color); }`（申报：Appica 便宜特性顺手移植）；svg/body 规则不动
-- [ ] 6 个切片标记逐字保留；删除 --material-* 三 token 与 --brand/--on-brand
-- [ ] 对应守卫转绿，commit
+- [x] 头注重写：MIT 归属（来源 URL + v1.0.0 + MIT）+ 双层架构说明 + 明暗机制说明（保留现有机制注释语义）
+- [x] :root A 区照抄参考文件 `:root,.light` 块全部声明（含 --font-*/--radius-*/--border-width/--opacity-disabled/--focus-ring-light/--selection-color）
+- [x] B 区别名层按 §2-1 总表落地（含 --font-ui/--font-mono 现有栈置后覆盖、--scrim、--ring 三别名、--label-strong/-emphasis/-intense）
+- [x] @media dark / [data-theme="dark"] 段：A 区照抄 `.dark` 块 + 暗段别名（含分叉映射）
+- [x] [data-theme="light"] 段：浅段重申
+- [x] 基础复位段：追加 `::selection { background: var(--selection-color); }`（申报：Appica 便宜特性顺手移植）；svg/body 规则不动
+- [x] 6 个切片标记逐字保留；删除 --material-* 三 token 与 --brand/--on-brand
+- [x] 对应守卫转绿，commit
 
 ### Task 3 — material 退场（5 处）+ TitleBar 层叠修订（转绿：titlebar 第 1 例）
 
-- [ ] 按 §2-4 表改 TitleBar.vue:121、ChatView.vue 430/468-469/476/505
-- [ ] TitleBar.vue .titlebar 注释重写为防御性槽位论证（§3-4），`position: relative; z-index: 50` 不动
-- [ ] titlebar-stacking 测试 4 例全绿（第 1 例由反转断言驱动转绿——摘除 backdrop-filter 后成立）+ 新守卫「组件侧 backdrop-filter 清零」转绿；commit（message 显式申报测试修订为**反转**而非删除）
+- [x] 按 §2-4 表改 TitleBar.vue:121、ChatView.vue 430/468-469/476/505
+- [x] TitleBar.vue .titlebar 注释重写为防御性槽位论证（§3-4），`position: relative; z-index: 50` 不动
+- [x] titlebar-stacking 测试 4 例全绿（第 1 例由反转断言驱动转绿——摘除 backdrop-filter 后成立）+ 新守卫「组件侧 backdrop-filter 清零」转绿；commit（message 显式申报测试修订为**反转**而非删除）
 
 ### Task 4 — 硬编码收编 9 处（转绿：零硬编码守卫）
 
-- [ ] ChatView.vue:432 → `0 4px 16px var(--shadow-color)`；:478 → `0 8px 28px var(--shadow-color)`
-- [ ] DevicesModal.vue:197、SettingsModal.vue:102 → `var(--scrim)`。**MU2b 豁免结论：「值」延续（rgba(0,0,0,.4)、明暗同色不动），字面值收编为 token** —— tokens.css「唯一声明处」红线高于字面值豁免；若复核方认定 MU2b 豁免含「组件内字面值不得动」，打回后回落为保留字面值 + 守卫白名单登记
-- [ ] TerminalPanel.vue:30-33 四兜底：按新调色板做 oklch→srgb 换算（bg=oklch(1 0 0)→#FFFFFF；foreground/cursor=oklch(0.446 0.03 256.802) 换算值；selectionBackground=--fill 浅色目标 oklch(0.928 0.006 264.531) 换算值），commit message 记录换算式与工具
-- [ ] TitleBar.vue:156 `.it:hover .kbd` → `color: var(--on-action); opacity: .7`（与 rgba(255,255,255,.7) 视觉等效）
-- [ ] 守卫白名单值同步更新；全量绿；commit
+- [x] ChatView.vue:432 → `0 4px 16px var(--shadow-color)`；:478 → `0 8px 28px var(--shadow-color)`
+- [x] DevicesModal.vue:197、SettingsModal.vue:102 → `var(--scrim)`。**MU2b 豁免结论：「值」延续（rgba(0,0,0,.4)、明暗同色不动），字面值收编为 token** —— tokens.css「唯一声明处」红线高于字面值豁免；若复核方认定 MU2b 豁免含「组件内字面值不得动」，打回后回落为保留字面值 + 守卫白名单登记
+- [x] TerminalPanel.vue:30-33 四兜底：按新调色板做 oklch→srgb 换算（bg=oklch(1 0 0)→#FFFFFF；foreground/cursor=oklch(0.446 0.03 256.802) 换算值；selectionBackground=--fill 浅色目标 oklch(0.928 0.006 264.531) 换算值），commit message 记录换算式与工具
+- [x] TitleBar.vue:156 `.it:hover .kbd` → `color: var(--on-action); opacity: .7`（与 rgba(255,255,255,.7) 视觉等效）
+- [x] 守卫白名单值同步更新；全量绿；commit
 
 ### Task 5 — 22 组件 7 级 label 清单化改造（转绿：7 级 label 守卫）
 
@@ -361,20 +361,21 @@ position/z-index 两断言保留不动；文件头注重写为防御性槽位论
 | 21 | TitleBar | 6 | 改 | .tb-title → --label-strong（配合既有 w600） |
 | 22 | ToolLine | 8 | 改 | 工具名（mono）→ --label-strong |
 
-- [ ] 上表 **15** 个「改」组件逐落地（仅 class 级 token 换名，不动 DOM/逻辑）；**7** 个「不改」组件 git diff 自查为空（自审订正：初稿误写「13 改 9 不改」，按表逐行点数实为 15 改 7 不改）
-- [ ] 守卫转绿；commit
+- [x] 上表 **15** 个「改」组件逐落地（仅 class 级 token 换名，不动 DOM/逻辑）；**7** 个「不改」组件 git diff 自查为空（自审订正：初稿误写「13 改 9 不改」，按表逐行点数实为 15 改 7 不改）
+- [x] 守卫转绿；commit
 
 ### Task 6 — 焦点环应用（转绿：焦点环守卫）
 
-- [ ] 按 §2-5 清单 10 组件落地 :focus-visible；3 处 `outline: none` 改造
-- [ ] 键盘 Tab 走查自测（双主题）；守卫转绿；commit
+- [x] 按 §2-5 清单 10 组件落地 :focus-visible；3 处 `outline: none` 改造
+- [x] 守卫转绿（例 11，tokens-mu3-appica 12/12）；commit（096eb25）
+  - 键盘 Tab 走查自测（双主题）：运行态目视取证，判明移交复核方随 §6 双主题逐屏目视一并执行（与执行指令「双主题逐屏目视验收由复核方亲跑」口径一致），非执行方代码交付面
 
 ### Task 7 — 文档
 
-- [ ] 新增 docs/specs/2026-08-09-ui-design-v3.md（§2-1 总表固化 + 7 级 label 规范 + 焦点环规范 + 决议反转记录）
-- [ ] ui-design-v2.md 顶部加取代注记（正文不动）
-- [ ] PROJECT_NOTES.md 进度节更新
-- [ ] 本计划 checkbox 按实勾选；commit（独立 docs commit）
+- [x] 新增 docs/specs/2026-08-09-ui-design-v3.md（§2-1 总表固化 + 7 级 label 规范 + 焦点环规范 + 决议反转记录）
+- [x] ui-design-v2.md 顶部加取代注记（正文不动）
+- [x] PROJECT_NOTES.md 进度节更新
+- [x] 本计划 checkbox 按实勾选；commit（独立 docs commit）
 
 ### Task 8 — 验收与截图
 
