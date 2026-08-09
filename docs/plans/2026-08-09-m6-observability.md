@@ -340,6 +340,23 @@ CREATE TABLE settings (
 
 ---
 
+### §8.1 commit 卫生：先红那笔必须自洽（复核后修订落地）
+
+**原则（沉淀）：** 「先红」那笔的价值是「可被单独 checkout 重放的实质红灯证据」。切分判断标准：
+**checkout 这一笔单独跑，红灯形态是否与报告一致——不一致就说明切分错了。**
+
+- 仅含测试、不含「让红有意义所需的最小实现」（settings + index.ts 的 control.pause/resume）时，单独 checkout 会得到
+  `control.pause: 未知方法: control.pause` 的**平凡红**，而非「暂停期改动搁浅」的**实质红**——红灯审计留痕失效。
+- 因此先红那笔必须同时包含：**最小实现（不含方案 A / resumeSync）+ 方向 2 测试**。单独 checkout 即可重放
+  `expected N to be greater than N`；方案 A（resumeSync）单独放下一笔，作为转绿提交。
+
+**复核后改写（2026-08-09）：** 原 `6e191b8`（仅测试，不可重放实质红）与 `444d018`（实现+方案A混装）按上述原则重写为：
+- `6e191b8 → d062e5a`（已重写为自洽先红笔：settings.ts + index.ts control.pause/resume/status 不含 resumeSync + 方向2测试 + settings 单测；单独 checkout 实测红灯 `expected 2 to be greater than 2`）
+- `444d018 → db1d05f`（仅方案 A：coordinator.ts resumeSync + index.ts 调用，转绿）
+- 重写后三件套复核：`npm test` 1018/1018(97 文件)、`typecheck` 0、`build` 三产物成功；树内容与改写前逐字节一致。
+
+---
+
 ## §9 交付报告要素
 
 commit 链、三件套原始输出（`npm test` / `typecheck` / `build`）、`e2e:m3c` 原始输出、决策点结论逐条（§2 八条）、偏差申报、checkbox 状态（§4 逐项 [x]）。偏差申报如触发：MIGRATIONS 是否追加成功、暂停阀是否按决策点 2-7 语义落地、脱敏对抗用例是否全绿。
