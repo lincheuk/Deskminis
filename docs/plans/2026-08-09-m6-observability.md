@@ -158,9 +158,9 @@ CREATE TABLE settings (
 > 说明：`payload_json` 存已脱敏的事件体（权限决议的 req/meta + reason/decision）。`session_id`/`peer_fingerprint` 冗余为列便于按会话/按设备过滤而无需 JSON 解析。全局轮转按 `created_at` FIFO 删最旧。
 
 **checkbox：**
-- [ ] MIGRATIONS[4] 追加到数组末尾，[0]–[3] 一字不动
-- [ ] 两表均建索引
-- [ ] openDb 迁移跑通（新建库 + 已有库升级 user_version 4 均验证）
+- [x] MIGRATIONS[4] 追加到数组末尾，[0]–[3] 一字不动 —— 复核方实证：`git diff 6782c2e..main -- db.ts` 是纯 `+` 块，[0]–[3] 零改动
+- [x] 两表均建索引 —— `audit_logs` 两个显式索引；`settings` 的 `key` 是 PRIMARY KEY，SQLite 自动建 `sqlite_autoindex_settings_1`（不应再显式建）。合并后补断言 `pragma_index_list('settings')` 非空
+- [x] openDb 迁移跑通（新建库 + 已有库升级 user_version 4 均验证）—— **合并时此项为真实覆盖缺口**：原四条用例全用 `openDb(':memory:')`，只覆盖新建库。合并后补齐升级路径用例（v4 库重开 → 只补跑 [4] 到 5、存量 session/message/marker 不丢、新表可用、重开幂等），并反向验证承重：把 runner 改成「仅新建库跑全量」后，原四条全绿、仅新用例红（`expected 4 to be 5`）
 
 ### Task 2 — AuditLogger + auditRedact 落盘脱敏
 
@@ -173,12 +173,14 @@ CREATE TABLE settings (
   - 密钥材料防御：若 payload 含 `authKey`/`privateKey`/`sessionSecret`/`paseto` 等字段名，直接剔除该字段（KeySafe 白名单，见决策点 2-4）。
 
 **checkbox：**
-- [ ] `auditRedact` 对 URL user:pass 脱敏
-- [ ] `auditRedact` 对常见密钥样式（Bearer/sk-/api_key/x-api-key）擦值保留键名
-- [ ] `auditRedact` 保留命令主体/文件路径/剪贴板正文
-- [ ] `AuditLogger.append` 触发条数 FIFO 轮转
-- [ ] `AuditLogger.list` 支持 eventType/sessionId/时间/分页过滤
-- [ ] 密钥材料字段名防御剔除
+- [x] `auditRedact` 对 URL user:pass 脱敏 —— `tests/audit.test.ts:16`
+- [x] `auditRedact` 对常见密钥样式（Bearer/sk-/api_key/x-api-key）擦值保留键名 —— `tests/audit.test.ts:22`
+- [x] `auditRedact` 保留命令主体/文件路径/剪贴板正文 —— `tests/audit.test.ts:46`
+- [x] `AuditLogger.append` 触发条数 FIFO 轮转 —— `tests/audit.test.ts:78`（maxRows=3 写 4 条，断言最旧被淘汰）
+- [x] `AuditLogger.list` 支持 eventType/sessionId/时间/分页过滤 —— `tests/audit.test.ts:55`（eventType/sessionId）+ `:67`（from 时间范围 / limit 分页 + total）
+- [x] 密钥材料字段名防御剔除 —— `tests/audit.test.ts:37`
+
+> **补记（复核方，合并后）：** 以上 6 项在 M6 合并时 checkbox 空着，但代码与用例均已存在且在 1018/1018 内全绿——属簿记漏勾，非实现缺口。逐条核到具体用例行号后补勾。同段 Task 1 第三项则是**真缺口**，已另行补齐（见该项注记）。
 
 ### Task 3 — 权限决议落库
 
@@ -354,6 +356,23 @@ CREATE TABLE settings (
 - `6e191b8 → d062e5a`（已重写为自洽先红笔：settings.ts + index.ts control.pause/resume/status 不含 resumeSync + 方向2测试 + settings 单测；单独 checkout 实测红灯 `expected 2 to be greater than 2`）
 - `444d018 → db1d05f`（仅方案 A：coordinator.ts resumeSync + index.ts 调用，转绿）
 - 重写后三件套复核：`npm test` 1018/1018(97 文件)、`typecheck` 0、`build` 三产物成功；树内容与改写前逐字节一致。
+
+### §8.2 未勾的 checkbox 是信号，不是噪声（合并后复盘）
+
+**事故：** M6 合并时我只验了 commit 链、红线 diff、三件套，**没验 checkbox 完整性**，带着 9 个未勾项合了 main。
+事后逐条核实：8 项是簿记漏勾（代码+用例俱在且全绿），**1 项是真覆盖缺口**——Task 1 的
+「已有库升级 user_version 4」从未被测，四条用例全走 `openDb(':memory:')` 新建库路径。
+
+**为什么这条最危险：** 每台已装机器的库都停在 `user_version=4`，M6 首次启动才补跑 `MIGRATIONS[4]`。
+「MIGRATIONS 纯追加」这条红线存在的**全部意义**就是保护这条升级路径，而验证它的用例恰好没写。
+新建库测试对此零覆盖——反向验证实证：把 runner 改成「仅新建库跑全量」后，**原四条全绿、只有新补的用例红**。
+
+**沉淀两条：**
+1. **合并前的 checkbox 零未勾必须是硬门控**，与三件套同级。未勾项要么是漏勾、要么是没做到，
+   两种都必须在合并前判明——不能默认它是前者。
+2. **迁移类改动的验收必须显式区分「新建库」与「存量库升级」两条路径。**
+   `openDb(':memory:')` 永远从 `user_version=0` 起跑，它证明不了任何存量库的事。
+   项目内已有正确先例：`tests/skills-store.test.ts:16`（v2 库补跑 `MIGRATIONS[2]`）。
 
 ---
 
