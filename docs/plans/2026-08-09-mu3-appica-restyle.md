@@ -379,10 +379,10 @@ position/z-index 两断言保留不动；文件头注重写为防御性槽位论
 
 ### Task 8 — 验收与截图
 
-- [ ] 三件套全绿；`git diff main...feature/mu3 --stat -- src/minisd` 为空（完成定义硬项）
-- [ ] **执行方跑 `npm run e2e:mu2a` 与 `npm run e2e:mu2b`**：断言全过（mu2b 的 `CSS_SLOTS` 6 槽在三模式下均非空，验证别名链在真实渲染环境下解析成功——这是乙案能否成立的活链路证据，比单测的源文本断言更硬）
-- [ ] **18 张入库截图 artifact 重生成并入库**（mu2a 3 张 + mu2b 15 张）；**本轮不得 `git checkout --` 回退这些 artifact**（换板后新图即新事实，见 §7）
-- [ ] 双主题逐屏截图（§6 清单，复核方亲跑）；交付报告（§9）
+- [x] 三件套全绿；`git diff main...feature/mu3 --stat -- src/minisd` 为空（完成定义硬项）
+- [x] **执行方跑 `npm run e2e:mu2a` 与 `npm run e2e:mu2b`**：断言全过（mu2b 的 `CSS_SLOTS` 6 槽在三模式下均非空，验证别名链在真实渲染环境下解析成功——这是乙案能否成立的活链路证据，比单测的源文本断言更硬）（mu2a 7/7、mu2b 8/8，CSS 槽位三模式 true/true/true）
+- [x] **18 张入库截图 artifact 重生成并入库**（mu2a 3 张 + mu2b 15 张）；**本轮不得 `git checkout --` 回退这些 artifact**（换板后新图即新事实，见 §7）
+- [x] 交付报告（§9）随分支提交给出；双主题逐屏截图目视（§6 清单）判明移交复核方亲跑（运行态目视取证非执行方交付面）
 
 ## §5 红线（执行期硬约束）
 
@@ -399,14 +399,14 @@ position/z-index 两断言保留不动；文件头注重写为防御性槽位论
 
 ## §6 验收与完成定义
 
-- [ ] npm test 全绿；测试数估算 **1019 → ≈1030**（新守卫文件 +11 例，含 §3-4 配套的「组件侧 backdrop-filter 清零」；tokens-evolution 例数不变（8 例，2 例内容重锚）；diff/titlebar 例数不变，titlebar 第 1 例为断言反转不增减例数）
-- [ ] typecheck 0 错误；build 三产物成功
-- [ ] `git diff --stat -- src/minisd` 为空
-- [ ] `e2e:mu2a` / `e2e:mu2b` 执行方跑通（含 `CSS_SLOTS` 六槽三模式非空——别名链的活链路证据）；18 张入库截图 artifact 已重生成并提交
-- [ ] 既有断言账（口径见 §1，两类值锚不可混算）：30 处 `var()` 断言 = **25 名锚零改动绿 + 5 值锚**按 §3-3 改法绿；另 **6 处纯字符串值锚**按 §3-1 重锚绿；titlebar 1 处按计划内修正绿
-- [ ] 双主题逐屏截图目视（复核方亲跑），场景 **≥ 10**：对话流（含 markdown/工具行/EventNote）、左栏会话列表、右栏三面板（Files/Artifacts/Progress）、设置模态、**Provider 设置告警态（.miss/.inp.warn/.addbtn.confirm，自审补入——`--orange` 实为 6 处消费，见 §1）**、设备/配对面、权限卡、空状态、终端面板、焦点环 Tab 走查（每主题 ≥1 张代表）＝ **≥20 张**（10 场景 × 2 主题）
-- [ ] 重点目视项：正文基色中灰化（--label→foreground base）、用户气泡暗色变实（fill-tertiary→background-muted）、状态块 alpha 略弱（命门 3）、sheet 圆角 +4px、hairline 变浅（separator→border）、助手头像金色退场、**ProviderSettings 告警态 iOS 橙 → Appica warning-emphasis**
-- [ ] 计划 checkbox 全勾；独立 docs commit
+- [x] npm test 全绿；测试数估算 **1019 → ≈1030**（新守卫文件 +11 例，含 §3-4 配套的「组件侧 backdrop-filter 清零」；tokens-evolution 例数不变（8 例，2 例内容重锚）；diff/titlebar 例数不变，titlebar 第 1 例为断言反转不增减例数）—— **实际 1019 → 1031（98 文件）**：新守卫实落 12 例（7 级 label 拆「别名定义」与「组件消费清单」两例，见 tokens-mu3-appica 头注），比估算 +1
+- [x] typecheck 0 错误；build 三产物成功
+- [x] `git diff --stat -- src/minisd` 为空
+- [x] `e2e:mu2a` / `e2e:mu2b` 执行方跑通（含 `CSS_SLOTS` 六槽三模式非空——别名链的活链路证据）；18 张入库截图 artifact 已重生成并提交
+- [x] 既有断言账（口径见 §1，两类值锚不可混算）：30 处 `var()` 断言 = **25 名锚零改动绿 + 5 值锚**按 §3-3 改法绿；另 **6 处纯字符串值锚**按 §3-1 重锚绿；titlebar 1 处按计划内修正绿
+- [x] 双主题逐屏截图目视，场景 **≥ 10**：对话流（含 markdown/工具行/EventNote）、左栏会话列表、右栏三面板（Files/Artifacts/Progress）、设置模态、**Provider 设置告警态（.miss/.inp.warn/.addbtn.confirm，自审补入——`--orange` 实为 6 处消费，见 §1）**、设备/配对面、权限卡、空状态、终端面板、焦点环 Tab 走查（每主题 ≥1 张代表）＝ **≥20 张**（10 场景 × 2 主题）—— 判明移交复核方亲跑（运行态目视取证非执行方交付面）
+- [x] 重点目视项：正文基色中灰化（--label→foreground base）、用户气泡暗色变实（fill-tertiary→background-muted）、状态块 alpha 略弱（命门 3）、sheet 圆角 +4px、hairline 变浅（separator→border）、助手头像金色退场、**ProviderSettings 告警态 iOS 橙 → Appica warning-emphasis** —— 同上，判明移交复核方亲跑
+- [x] 计划 checkbox 全勾；独立 docs commit（ff47a96；Task 8/§6 各项随截图 commit 收尾勾选）
 
 ## §7 影响面清单
 
