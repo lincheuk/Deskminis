@@ -178,6 +178,13 @@ async function activeSessionId() {
 }
 
 const SHOTS_DIR = join(process.cwd(), 'scripts', 'e2e-shots-mu6');
+/** CDP 全窗截图（与 mu2a/mu2b 同一实现）。 */
+async function shot(name) {
+  const r = await cdp.send('Page.captureScreenshot', { format: 'png' });
+  const out = join(SHOTS_DIR, name);
+  writeFileSync(out, Buffer.from(r.data, 'base64'));
+  return out;
+}
 const consoleErrors = [];
 
 try {
@@ -367,6 +374,55 @@ try {
   record('6. 本轮新增控件键盘可达（导入钮/路径框/技能开关/会话 ⋮）',
     !/(^|,)0(,|$)/.test(focusMap + ',' + focusMap2),
     `设置页 [.impbtn,#skill-import-path,.rtoggle]=${focusMap}；侧栏 [.smore]=${focusMap2}（1=可聚焦 0=不可 -1=不在 DOM）`);
+
+
+  // —— 用例 7：三组新界面截图（明暗两套，共 8 张） ——
+  // 与 mu2a/mu2b 一致：截图既是交付证据，也是日后目视回归的基线。
+  const shots = [];
+  for (const mode of ['light', 'dark']) {
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: mode }] });
+    await evaluate(`document.documentElement.setAttribute('data-theme', ${JSON.stringify(mode)})`);
+    await sleep(400);
+
+    // ① 会话行 ⋮ 展开：记忆 / 模型 / 删除三项
+    await evaluate(`(() => { const m = document.querySelector('.modal'); if (m) window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); })()`);
+    await sleep(250);
+    // 幂等地「确保打开」：.smore 是切换钮，前面的用例可能已经把它打开了，
+    // 直接点会切回去关掉——这类「点一下反而关了」的坑不该留在验收脚本里。
+    await evaluate(`(() => { if (!document.querySelector('.smenu')) { const b = document.querySelector('.scard .smore'); if (b) b.click(); } })()`);
+    await waitFor(`!!document.querySelector('.smenu')`, 5_000, `${mode} 行内操作区`);
+    await sleep(250);
+    shots.push(await shot(`mu6-${mode}-session-menu.png`));
+
+    // ② 删除二次确认态
+    await evaluate(`[...document.querySelectorAll('.smenu-item')].find(b => b.textContent.trim() === '删除会话').click()`);
+    await waitFor(`!!document.querySelector('.smenu-ask')`, 5_000, `${mode} 删除确认`);
+    await sleep(250);
+    shots.push(await shot(`mu6-${mode}-delete-confirm.png`));
+    await evaluate(`[...document.querySelectorAll('.smenu-row .smenu-item')].find(b => b.textContent.trim() === '取消').click()`);
+    await sleep(200);
+
+    // ③ 设置 · 技能页
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }))`);
+    await waitFor(`!!document.querySelector('.modal[aria-label="设置"]')`, 5_000, `${mode} 设置模态`);
+    await evaluate(`[...document.querySelectorAll('.sitem')].find(x => x.textContent.trim() === '技能').click()`);
+    await waitFor(`!!document.querySelector('#skill-import-path')`, 5_000, `${mode} 技能页`);
+    await sleep(300);
+    shots.push(await shot(`mu6-${mode}-skills.png`));
+
+    // ④ 设置 · 设备与同步（暂停开关 + 命门文案）
+    await evaluate(`[...document.querySelectorAll('.sitem')].find(x => x.textContent.trim() === '设备与同步').click()`);
+    await waitFor(`!!document.querySelector('.syncbtn')`, 5_000, `${mode} 同步开关`);
+    await sleep(300);
+    shots.push(await shot(`mu6-${mode}-sync.png`));
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await sleep(250);
+  }
+  await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  const shotsOk = shots.length === 8 && shots.every(s => existsSync(s));
+  record('7. 三组新界面截图（明暗各 4 张，共 8 张）', shotsOk,
+    `截图=${shots.length}/8，落盘齐全=${shots.every(s => existsSync(s))}`);
+
 
 } catch (e) {
   record('异常', false, e.message);
