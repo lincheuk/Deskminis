@@ -1,6 +1,6 @@
 # DeskMinis MU6（能力接线）实施计划
 
-> 状态：**待评审**。基线 main@97d864f（MU5 已合并，1058 测试 / 99 文件）。
+> 状态：**评审通过（2026-08-10）**，两处决策见 §2-1 / §2-4。基线 main@97d864f（MU5 已合并，1058 测试 / 99 文件）。
 > 性质：**纯 renderer**，`src/minisd` / `src/main` / `src/preload` 三目录零改动、零新依赖。
 > 承接：[MU4 废止说明](2026-08-10-mu4-capability-surfacing.md) 与 [MU5 §9](2026-08-10-mu5-workbench-layout.md)。
 > 用户原话（2026-08-10）：「现在很多都是后端冗余很多功能，但是前端没有体现」。
@@ -47,13 +47,11 @@ MU5 新建的工作台标签系统与图标轨。缺的面此轮新建。
 
 ## §2 决策点（评审需拍板）
 
-### 2-1. 本轮做几组？→ **建议分两轮**
+### 2-1. 本轮做几组？→ **分两轮（用户 2026-08-10 拍板 A）**
 
 17 个能力、6 组落点、含 2 个新建面，一轮做完体量偏大（估计 +40~60 测试例）。
-**建议 MU6 只做前三组**（会话操作 / 技能管理 / 同步控制）——它们是「最常用」与「后端投入最大却完全没露头」的部分；
+**MU6 只做前三组**（会话操作 / 技能管理 / 同步控制）——它们是「最常用」与「后端投入最大却完全没露头」的部分；
 模型组 / 审计 / 预检 归 MU7。
-
-> 若评审要求一轮做完，Task 序列按 §3 顺延即可，不改结构。
 
 ### 2-2. 会话删除要不要二次确认？→ **要，且走行内确认不弹模态**
 
@@ -65,10 +63,33 @@ MU5 新建的工作台标签系统与图标轨。缺的面此轮新建。
 M6 的 `control.pause` 暂停的是**设备间同步**（SyncCoordinator），不是正在跑的 agent。
 界面文案必须说清，否则用户会以为点了能停下正在执行的任务——那是 `chat.cancel`（已接）。
 
-### 2-4. 技能「导入」用什么入口？→ **仅本地目录，不做 URL 拉取**
+### 2-4. 技能「导入」用什么入口？→ **设置页路径文本框（用户 2026-08-10 拍板 A）**
 
-`skills.import` 支持本地路径与 GitHub 拉取。本轮**只接本地目录**（走既有 file input 通路），
-GitHub 拉取涉及网络与信任边界，独立评估。
+`skills.import({ kind, source })` 支持 `folder` / `zip` / `github-url` 三种。本轮**只接 `folder`**，
+入口是**设置页里的一个路径文本框，手动输入或粘贴目录绝对路径**。
+
+**为什么不是原生目录选择器**（这是拍板时点明的关键）：原生选择器要走主进程 `dialog.showOpenDialog`，
+那就动了 `src/main`，**直接破红线 1**。文本框是唯一能守住「纯 renderer」的通路。
+代价是用户要自己粘路径——可接受，且路径非法时后端会抛错，界面照实显示即可。
+
+GitHub 拉取涉及网络与信任边界，独立评估，不在本轮。
+
+## §2.5 已核实的 RPC 签名（实现照此对齐，勿凭记忆）
+
+| 方法 | 签名 | 要点 |
+|---|---|---|
+| `chat.sessions.delete` | `{ sessionId, confirm?: boolean }` | **后端强制 `confirm:true`**，否则抛错 |
+| `chat.sessions.setMemoryEnabled` | `{ sessionId, enabled: boolean }` | |
+| `chat.sessions.setModelBinding` | `{ sessionId, binding?: string }` | `binding` 省略即解绑 |
+| `skills.setEnabled` | `{ id, enabled: boolean, sessionId? }` | **带 `sessionId` 写会话覆盖，不带写全局**——界面须说清范围（§6） |
+| `skills.delete` | `{ id, confirm?: boolean }` | **后端强制 `confirm:true`** |
+| `skills.import` | `{ kind: 'folder'\|'zip'\|'github-url', source: string }` | 后台任务，进度走 `skills.import.progress` 广播 + `importStatus` |
+| `skills.importStatus` | `{ taskId? }` | 省略 taskId 即列全部任务 |
+| `control.pause` | `()` → `{ ok, syncPaused: true }` | 暂停的是**同步**不是 agent 回合（§2-3） |
+| `control.resume` | `()` | 内部顺序敏感：先清标志再收敛 |
+| `control.status` | `()` → `{ syncPaused: boolean }` | |
+
+两个破坏性操作后端本身就要求 `confirm:true`——这与 §2-2 的行内二次确认互为印证，不是重复设防。
 
 ## §3 Task 序列（串行 TDD；每 Task 先红后绿）
 
