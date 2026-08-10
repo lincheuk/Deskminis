@@ -100,14 +100,14 @@ describe('MU3 Appica 移植守卫（12 例）', () => {
       ['--surface-0', 'var(--bg)'],
       ['--surface-1', 'var(--grouped-bg-secondary)'],
       ['--surface-2', 'var(--grouped-bg-tertiary)'],
-      ['--label', 'var(--foreground)'],
+      ['--label', 'var(--foreground-strong)'], // MU3 收尾：正文提一档（base→strong），见 ui-design-v3 §8
       ['--label-secondary', 'var(--foreground-muted)'],
       ['--label-tertiary', 'var(--foreground-subtle)'],
       ['--label-quaternary', 'var(--foreground-subtle)'], // 与 tertiary 视觉合并（Appica 弱级仅 2 档）
-      ['--label-strong', 'var(--foreground-strong)'],
+      ['--label-strong', 'var(--foreground-emphasis)'], // 随正文连带上移，保住「正文 vs 标题」色差
       ['--label-emphasis', 'var(--foreground-emphasis)'],
       ['--label-intense', 'var(--foreground-intense)'],
-      ['--separator', 'var(--border)'],
+      ['--separator', 'var(--border-strong)'], // MU3 收尾：hairline 提一档（border→border-strong）
       ['--separator-opaque', 'var(--border-strong)'],
       ['--fill', 'var(--background-strong)'],
       ['--fill-tertiary', 'var(--background-muted)'],
@@ -162,7 +162,7 @@ describe('MU3 Appica 移植守卫（12 例）', () => {
   });
 
   it('4. 7 级 label 别名定义：strong/emphasis/intense 指向 foreground 同名强级', () => {
-    expect(rootLight).toContain('--label-strong: var(--foreground-strong);');
+    expect(rootLight).toContain('--label-strong: var(--foreground-emphasis);');
     expect(rootLight).toContain('--label-emphasis: var(--foreground-emphasis);');
     expect(rootLight).toContain('--label-intense: var(--foreground-intense);');
   });
