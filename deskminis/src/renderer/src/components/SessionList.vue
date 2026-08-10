@@ -11,6 +11,9 @@ import { sessionBadge, artifactCountOf, type SessionBadge } from '../lib/session
 import { fmtRelative } from '../lib/time/relative';
 import Icon from './Icon.vue';
 
+/** MU5：展开态需要一条回到 52px 图标轨的路（折叠由 App.vue 持有状态，此处只发信号）。 */
+const emit = defineEmits<{ collapse: [] }>();
+
 const chat = useChat();
 // App.vue provide：打开设置独立模态（Task 5 起）
 const openSettings = inject<() => void>('openSettings', () => {});
@@ -74,8 +77,11 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 
 <template>
   <div class="pane">
-    <div class="newbtn" @click="chat.newSession()">
-      <Icon name="plus" :size="16" /><span>新建会话</span>
+    <div class="lhead">
+      <div class="newbtn" @click="chat.newSession()">
+        <Icon name="plus" :size="16" /><span>新建会话</span>
+      </div>
+      <button class="collapse" type="button" title="折叠为图标轨" @click="emit('collapse')">☰</button>
     </div>
     <div class="list">
       <template v-for="grp in grouped" :key="grp.group">
@@ -105,9 +111,19 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 
 <style scoped>
 .pane { display: flex; flex-direction: column; height: 100%; background: var(--bg); overflow: hidden; }
+/* MU5：新建钮与折叠钮同排（折叠钮把展开态收回 52px 图标轨） */
+.lhead { display: flex; align-items: center; gap: 6px; margin: 12px; flex: 0 0 auto; }
+.collapse {
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: var(--r-md);
+  border: none; background: none; color: var(--label-tertiary); cursor: pointer;
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+}
+.collapse:hover { background: var(--fill-quaternary); color: var(--label); }
+.collapse:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .newbtn {
-  display: flex; align-items: center; gap: 8px; margin: 12px; padding: 9px 12px; border-radius: var(--r-md);
-  background: var(--fill-tertiary); color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer; flex: 0 0 auto;
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: var(--r-md);
+  background: var(--fill-tertiary); color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
 }
 .newbtn:hover { background: var(--fill); }
 /* MU3 §2-5 焦点环 */

@@ -83,7 +83,9 @@ describe('MU5 持久化键换名，防旧值被静默改判语义（1 例）', (
     // 会被静默当成「用户设过的对话列宽」复原。换键名即绕开，不写迁移。
     expect(app).toContain("localStorage.setItem('deskminis.chatW'");
     expect(app).toContain("localStorage.getItem('deskminis.chatW')");
-    expect(app).not.toContain('deskminis.rightW');
+    // 精确到**调用形态**而非裸子串：源码注释里写明「旧键 deskminis.rightW 为何要换」
+    // 是有价值的文档，不该被守卫误伤。守卫要拦的是「代码还在读写旧键」。
+    expect(app).not.toMatch(/localStorage\.(get|set)Item\(\s*'deskminis\.rightW'/);
   });
 });
 

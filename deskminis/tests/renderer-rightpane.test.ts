@@ -54,8 +54,10 @@ describe('MU5 重锚 · App.vue 源文本守卫（3 例）', () => {
   it('对话列承担定宽与拖拽：默宽 336px，宽度状态名与持久化键同步换成 chat 语义', () => {
     expect(app).toMatch(/\.pane-c\s*\{[^}]*width:\s*336px/);
     expect(app).toContain('chatW');
-    // 旧的 rightW 语义整体退场，不留半套
-    expect(app).not.toContain('rightW');
+    // 旧的 rightW 语义整体退场，不留半套。锚在**标识符形态**上而非裸子串——
+    // 注释里提到旧名（说明换名理由）是有价值的文档，守卫要拦的是「代码里还有旧状态」。
+    expect(app).not.toMatch(/\brightW\.value\b/);
+    expect(app).not.toMatch(/\b(const|let|ref)\s*\(?\s*rightW\b/);
   });
 
   it('工作台四种内容仍可切换且懒挂载保活不丢（progress/artifacts/files/terminal 组件全部还在用）', () => {
