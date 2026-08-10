@@ -104,13 +104,26 @@ function closeTab(id: string): void {
 /** 关闭是隐藏不是销毁：一键把收起来的内置标签放回来，免得关错了没路回。 */
 function restoreTabs(): void { hiddenTabs.value = []; }
 
-/** 对话列宽度：336 默认、280–520 分隔条拖拽（lib/pane/drag 纯逻辑），localStorage 持久化。
- *  分隔条在对话列**右**缘，故右拖增宽（drag.ts 的符号已随之取反）。 */
+/** 左区实际占宽（与 .rail / .pane-l 的 CSS 定宽一一对应；改 CSS 要同步改这里）。 */
+const RAIL_W = 52;
+const SIDEBAR_W = 212;
+/** 视口宽度（响应式）——对话列上限要随它收缩，否则窄窗口下会把工作台饿死。 */
+const viewportW = ref(window.innerWidth);
+function onResize(): void { viewportW.value = window.innerWidth; }
+const leftW = computed(() => (railOpen.value ? (sidebarExpanded.value ? SIDEBAR_W : RAIL_W) : 0));
+/** 对话列与工作台共同瓜分的宽度。 */
+const availableW = computed(() => viewportW.value - leftW.value);
+
+/** 对话列宽度：336 默认、下限 280，上限 min(520, 可用宽 − 工作台最小宽)（lib/pane/drag 纯逻辑），
+ *  localStorage 持久化。分隔条在对话列**右**缘，故右拖增宽（drag.ts 的符号已随之取反）。 */
 const chatW = ref(336);
+/** 可用宽一变就重钳：窗口缩小、侧栏展开（多吃 160px）都会压缩上限。
+ *  没有这条时，在大屏拖到 520 再把窗口缩到 900 并展开侧栏，工作台会只剩 168px。 */
+watch(availableW, (av) => { chatW.value = clampPaneWidth(chatW.value, av); });
 function startCDrag(e: MouseEvent): void {
   const startX = e.clientX;
   const startW = chatW.value;
-  const onMove = (ev: MouseEvent): void => { chatW.value = nextWidth(startX, startW, ev.clientX); };
+  const onMove = (ev: MouseEvent): void => { chatW.value = nextWidth(startX, startW, ev.clientX, availableW.value); };
   const onUp = (): void => {
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', onUp);
@@ -199,18 +212,20 @@ function onGlobalKey(e: KeyboardEvent): void {
 
 onMounted(() => {
   const saved = Number(localStorage.getItem('deskminis.chatW'));
-  if (saved) chatW.value = clampPaneWidth(saved);
+  if (saved) chatW.value = clampPaneWidth(saved, availableW.value);
   applyTheme(); // 启动即应用 loadTheme 读回的偏好
   // MU2b Task 5：托盘菜单死通道接通（preload 白名单两订阅；main 侧零改动）
   const bridge = (window as { deskminis?: { onMenuOpenSettings?: (cb: () => void) => void; onMenuToggleRight?: (cb: () => void) => void } }).deskminis;
   bridge?.onMenuOpenSettings?.(() => { settingsOpen.value = true; });
   bridge?.onMenuToggleRight?.(() => { workbenchOpen.value = !workbenchOpen.value; });
   taskTick = setInterval(() => { nowMs.value = Date.now(); }, 1000);
+  window.addEventListener('resize', onResize);
   window.addEventListener('keydown', onGlobalKey);
   void chat.init();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey);
+  window.removeEventListener('resize', onResize);
   if (taskTick) clearInterval(taskTick);
 });
 </script>

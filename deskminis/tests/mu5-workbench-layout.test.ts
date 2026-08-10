@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { clampPaneWidth, nextWidth } from '../src/renderer/src/lib/pane/drag';
+import { clampPaneWidth, nextWidth, maxChatWidth, WORKBENCH_MIN } from '../src/renderer/src/lib/pane/drag';
 import { fmtElapsed } from '../src/renderer/src/lib/time/elapsed';
 
 const root = path.resolve(__dirname, '..');
@@ -81,6 +81,36 @@ describe('MU5 可拖边界移到对话列右缘（3 例）', () => {
   });
 });
 
+describe('MU5 对话列不得把工作台饿死（真机多尺寸走查发现，3 例）', () => {
+  it('maxChatWidth：上限随可用宽收缩，保证工作台不低于 WORKBENCH_MIN', () => {
+    // 缺陷现场：窗口 minWidth=900，侧栏展开 212 时可用宽 688，
+    // 而上限写死 520 → 工作台只剩 168px，标签条要横滚、内容挤成条状。
+    // 布局不算「错乱」（无重叠、无页面横向滚动、三区之和恒等于视口），但不可用。
+    expect(WORKBENCH_MIN).toBeGreaterThanOrEqual(320);
+    expect(maxChatWidth(2508)).toBe(520);        // 大屏：仍受 PANE_MAX 封顶，保住可读行长
+    expect(maxChatWidth(848)).toBe(848 - WORKBENCH_MIN); // 900 宽 + 图标轨 52 → 488（工作台下限优先于 PANE_MAX）
+    expect(maxChatWidth(688)).toBe(688 - WORKBENCH_MIN); // 900 宽 + 侧栏 212 → 上限收到 328
+    // 可用宽极小时不得让区间反转（上限跌破下限）
+    expect(maxChatWidth(300)).toBe(280);
+    expect(maxChatWidth(0)).toBe(280);
+  });
+
+  it('clampPaneWidth 带可用宽时按收缩后的上限钳制；不带时维持原契约', () => {
+    expect(clampPaneWidth(520, 688)).toBe(328);
+    expect(clampPaneWidth(999, 688)).toBe(328);
+    expect(clampPaneWidth(300, 688)).toBe(300);
+    expect(clampPaneWidth(100, 688)).toBe(280);
+    // 不传可用宽 = 老签名，行为一字不变（既有调用点与测试不受影响）
+    expect(clampPaneWidth(999)).toBe(520);
+    expect(clampPaneWidth(0)).toBe(280);
+  });
+
+  it('nextWidth 透传可用宽：窄窗口里右拖到底也停在收缩后的上限', () => {
+    expect(nextWidth(1000, 336, 9999, 688)).toBe(328);
+    expect(nextWidth(1000, 336, 9999)).toBe(520); // 不传则同旧
+  });
+});
+
 describe('MU5 持久化键换名，防旧值被静默改判语义（1 例）', () => {
   it('localStorage 键 deskminis.rightW → deskminis.chatW，且旧键不再被读写（计划决策 2-6）', () => {
     // 命门：旧值 360 落在对话列新区间 [280,520] 内，clamp 拦不住，
@@ -90,6 +120,18 @@ describe('MU5 持久化键换名，防旧值被静默改判语义（1 例）', (
     // 精确到**调用形态**而非裸子串：源码注释里写明「旧键 deskminis.rightW 为何要换」
     // 是有价值的文档，不该被守卫误伤。守卫要拦的是「代码还在读写旧键」。
     expect(app).not.toMatch(/localStorage\.(get|set)Item\(\s*'deskminis\.rightW'/);
+  });
+});
+
+describe('MU5 窗口尺寸变化时重新钳制对话列（1 例）', () => {
+  it('App.vue 监听 resize 并按可用宽重钳；侧栏展开也触发重钳', () => {
+    // 缺陷现场：大屏拖到 520 后把窗口缩到 900、或展开侧栏（多吃 160px），
+    // 都没有任何重钳逻辑，chatW 一直停在 520 → 工作台被饿死。
+    expect(app).toContain("addEventListener('resize'");
+    expect(app).toContain("removeEventListener('resize'");
+    expect(app).toContain('availableW');
+    // 重钳必须由「可用宽」驱动，而不是只在 resize 里写死一次——展开侧栏也要生效
+    expect(app).toMatch(/watch\(\s*availableW/);
   });
 });
 
