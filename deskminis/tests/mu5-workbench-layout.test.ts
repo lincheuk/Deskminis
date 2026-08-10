@@ -274,9 +274,19 @@ describe('MU5 对话列：文档式排版 + 输入卡片形态（2 例）', () =
     expect(chatView).toContain('attach');
     expect(chatView).toMatch(/\.send\s*\{[^}]*border-radius:\s*50%/);
     // 真机截图逮到的缺陷回归锚：对话列收成 336 定宽后，底部 chip 排挤不下会逐字换行。
-    // 源码守卫本身抓不到「难看」，但能守住修复不被回退。
-    expect(chatView).toMatch(/\.ctools\s*\{[^}]*overflow:\s*hidden/);
-    expect(chatView).toMatch(/white-space:\s*nowrap/);
+    // **这条守卫自己出过错**：原本断言 .ctools 必须 overflow:hidden，锚的是当时的实现而非意图，
+    // 结果把「容器裁剪」这个错误做法锁死了——它会把 chip 的下拉菜单整个裁掉（点了没反应）。
+    // 正确的意图是「chip 不换行」而非「容器裁剪」，故改锚子元素的 nowrap + 省略号，
+    // 并反过来禁止容器裁剪，免得弹出层被闷死。
+    expect(chatView).toMatch(/\.cpill[^{]*\{[^}]*white-space:\s*nowrap/);
+    expect(chatView).toMatch(/\.cpill[^{]*\{[^}]*text-overflow:\s*ellipsis/);
+    expect(chatView).not.toMatch(/\.ctools\s*\{[^}]*overflow:\s*hidden/);
+    // 两枚 picker 的弹层原本 min-width 240（权限档实测 300）、以 chip 为锚向右展开，
+    // 对话列收成 280 后会捅出右缘并被 ChatView 根的 overflow:hidden 裁掉——「点了没反应」。
+    // 改以 .ctools 为定位参照、左右对齐铺满，宽度随列宽自适应。
+    expect(chatView).toMatch(/\.ctools\s*\{[^}]*position:\s*relative/);
+    expect(chatView).toMatch(/\.ctools :deep\(\.wrap\)\s*\{[^}]*position:\s*static/);
+    expect(chatView).toMatch(/\.ctools :deep\(\.menu\)\s*\{[^}]*left:\s*0;\s*right:\s*0/);
   });
 });
 

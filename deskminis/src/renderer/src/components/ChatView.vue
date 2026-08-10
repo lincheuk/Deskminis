@@ -546,7 +546,12 @@ function onSlashTab(e: KeyboardEvent): void {
 /* MU5：对话列由弹性收成 336 定宽后，底部这排 chip 挤不下会**逐字换行**
    （「工作区」竖成三行），真机截图才逮到——1048 例源码守卫与 e2e 8/8 全绿也看不见这种事。
    处置：一律禁止换行，放不下由各自省略号收尾，发送钮靠 margin-left:auto 永远钉在右端。 */
-.ctools { display: flex; align-items: center; gap: 8px; overflow: hidden; }
+/* ⚠️ 这里**不能**写 overflow: hidden。
+   曾为防 chip 换行加过，结果把权限档/模型两枚 chip 向上弹出的下拉菜单整个裁掉
+   （菜单 300×248 弹在 .ctools 盒子外 251px 处，而盒子只有 32px 高）——
+   表现就是「点了没反应」。不换行由子元素自己的 nowrap + min-width:0 + 省略号保证，
+   容器不必也不该裁剪，否则任何弹出层都会被闷死在里面。 */
+.ctools { display: flex; align-items: center; gap: 8px; position: relative; }
 .ctools > :deep(.wrap) { flex: 0 1 auto; min-width: 0; }
 /* 336px 里要塞下「＋ 工作区 权限档 模型 发送」，13px/11px 内边距的常规 chip 一共约 244px，
    可用宽只有约 194px——差 50px。故在输入卡这一处收紧到 11px 字号与 8px 内边距（约省 54px）。
@@ -558,6 +563,18 @@ function onSlashTab(e: KeyboardEvent): void {
 }
 .ctools :deep(.mt) { font-size: var(--fs-micro); }
 .send { width: 28px; height: 28px; }
+/* 对话列可窄至 280px，而 PermissionPicker / ModelPicker 的弹层原本
+   `position:absolute; left:0; min-width:240px`（权限档实测 300px 宽）以 chip 为锚向右展开。
+   窄列里弹层右缘会捅出对话列，被 ChatView 根的 overflow:hidden 裁掉——**表现就是「点了没反应」**。
+   MU5 之前对话列是弹性的（八百多 px），放得下，所以这问题是本轮收窄后才显形的。
+
+   处置：把 .wrap 的定位参照让出去，改以 .ctools 为锚、左右对齐铺满，宽度随列宽自适应——
+   窄列不再溢出，宽列也不会拉成一条。用 .ctools 而不是 .composer 作参照，是因为弹层原本的
+   bottom: calc(100% + 6px) 可原样生效，不必去猜输入卡高度（它随输入行数与附件 chip 变）。
+   两个 picker 组件本身一行不改——它们不该为「外面有多宽」负责。 */
+.ctools :deep(.wrap) { position: static; }
+.ctools :deep(.menu) { left: 0; right: 0; min-width: 0; width: auto; }
+
 /* MU5 附件入口：隐藏的原生 file input + 可聚焦的 ＋ 钮（红线 6） */
 .attachinput { display: none; }
 .attach {
