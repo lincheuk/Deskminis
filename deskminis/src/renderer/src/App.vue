@@ -40,14 +40,68 @@ const workbenchOpen = ref(true);
 const settingsOpen = ref(false);
 /** MU2b Task 7：配对管理面模态开关（左栏「设备」/ 设置模态「设备与同步」两入口） */
 const devicesOpen = ref(false);
-const rightTab = ref<'progress' | 'artifacts' | 'files' | 'terminal'>('progress');
-/** 懒挂载 + v-show 保活（首次切到才创建组件，之后切换只隐藏不销毁） */
+/** 工作台面板选择器。MU2b 是四值，MU5 增 browser/screen 两枚（本轮只出壳与空态，
+ *  内容属后端里程碑 M8）。**四个内置面板的 v-show 绑定一字不动**——renderer-artifacts /
+ *  renderer-files-panel / renderer-tasks-panel 三个文件锚在这些绑定上。 */
+type WbPanel = 'progress' | 'artifacts' | 'files' | 'terminal' | 'browser' | 'screen';
+const rightTab = ref<WbPanel>('progress');
+/** 懒挂载 + v-show 保活（首次切到才创建组件，之后切换只隐藏不销毁）——仅四个内置面板需要。 */
 const visited = reactive({ progress: true, artifacts: false, files: false, terminal: false });
-function showTab(tab: 'progress' | 'artifacts' | 'files' | 'terminal'): void {
+function isLazy(t: WbPanel): t is 'progress' | 'artifacts' | 'files' | 'terminal' {
+  return t === 'progress' || t === 'artifacts' || t === 'files' || t === 'terminal';
+}
+
+/** 标签**条**改数组渲染（可关闭、可多开）；标签**体**仍是上面那组 v-show 绑定。
+ *  拆开的理由：多开的本体是文件标签，它们共用 FilesPanel 一个渲染器，只是预览路径不同。 */
+interface WbTab { id: string; label: string; panel: WbPanel; closable: boolean; live?: boolean }
+const BUILTIN_TABS: WbTab[] = [
+  { id: 'progress', label: '进度', panel: 'progress', closable: false },
+  { id: 'artifacts', label: '产物', panel: 'artifacts', closable: false },
+  { id: 'files', label: '文件', panel: 'files', closable: false },
+  { id: 'terminal', label: '终端', panel: 'terminal', closable: false },
+  { id: 'browser', label: '浏览器', panel: 'browser', closable: true },
+  { id: 'screen', label: '屏幕', panel: 'screen', closable: true, live: true },
+];
+const hiddenTabs = ref<string[]>([]);
+const fileTabs = ref<WbTab[]>([]);
+const activeTabId = ref<string>('progress');
+const openTabs = computed<WbTab[]>(() => [
+  ...BUILTIN_TABS.filter(t => !hiddenTabs.value.includes(t.id)),
+  ...fileTabs.value,
+]);
+
+function showTab(tab: WbPanel): void {
   settingsOpen.value = false;
   rightTab.value = tab;
-  visited[tab] = true;
+  if (isLazy(tab)) visited[tab] = true;
+  activeTabId.value = tab;
 }
+function pickTab(t: WbTab): void {
+  showTab(t.panel);
+  activeTabId.value = t.id;
+  // 文件标签复用 MU2b 既有 preview 通路：写 pendingFilePreview，FilesPanel watch 自行取用
+  if (t.id.startsWith('file:')) chat.pendingFilePreview = t.id.slice(5);
+}
+/** 产物卡点击 → 在工作台开一个可关闭的文件标签（同一路径不重复开）。 */
+function openFileTab(p: string): void {
+  const id = `file:${p}`;
+  if (!fileTabs.value.some(t => t.id === id)) {
+    fileTabs.value.push({ id, label: p.split(/[\\/]/).pop() || p, panel: 'files', closable: true });
+  }
+  showTab('files');
+  activeTabId.value = id;
+}
+function closeTab(id: string): void {
+  if (id.startsWith('file:')) fileTabs.value = fileTabs.value.filter(t => t.id !== id);
+  else if (!hiddenTabs.value.includes(id)) hiddenTabs.value.push(id);
+  // 关掉的正是当前标签时，落到剩下的第一枚（关闭不该把工作台留成空白）
+  if (activeTabId.value === id) {
+    const first = openTabs.value[0];
+    if (first) pickTab(first);
+  }
+}
+/** 关闭是隐藏不是销毁：一键把收起来的内置标签放回来，免得关错了没路回。 */
+function restoreTabs(): void { hiddenTabs.value = []; }
 
 /** 对话列宽度：336 默认、280–520 分隔条拖拽（lib/pane/drag 纯逻辑），localStorage 持久化。
  *  分隔条在对话列**右**缘，故右拖增宽（drag.ts 的符号已随之取反）。 */
@@ -95,8 +149,15 @@ const activeTitle = computed(() => chat.sessions.find(s => s.id === chat.activeI
 provide('openSettings', () => { settingsOpen.value = true; });
 // MU2b Task 7：左栏「设备」与设置模态「设备与同步」入口经此开配对管理面；开设备面时收起设置模态避免叠层
 provide('openDevices', () => { settingsOpen.value = false; devicesOpen.value = true; });
-// MU2b Task 3：产物卡点击 → 切右栏 tab（等价 tab 点击，供深层组件调用）
-provide('switchRightTab', (tab: 'progress' | 'artifacts' | 'files' | 'terminal') => { rightOpen.value = true; showTab(tab); });
+// MU2b Task 3：产物卡点击 → 切工作台 tab（等价 tab 点击，供深层组件调用）。
+// MU5 增量：带着待预览文件切到 files 时，额外开一个可关闭的文件标签——
+// ArtifactsPanel / FilesPanel 一行不用改，多开能力从既有通路上长出来。
+provide('switchRightTab', (tab: WbPanel) => {
+  workbenchOpen.value = true;
+  const p = chat.pendingFilePreview;
+  if (tab === 'files' && typeof p === 'string' && p) openFileTab(p);
+  else showTab(tab);
+});
 
 // Ctrl+, 开/关设置模态（设计 §1.1-2；不拦截输入区文本键入）
 function onGlobalKey(e: KeyboardEvent): void {
@@ -113,7 +174,7 @@ onMounted(() => {
   // MU2b Task 5：托盘菜单死通道接通（preload 白名单两订阅；main 侧零改动）
   const bridge = (window as { deskminis?: { onMenuOpenSettings?: (cb: () => void) => void; onMenuToggleRight?: (cb: () => void) => void } }).deskminis;
   bridge?.onMenuOpenSettings?.(() => { settingsOpen.value = true; });
-  bridge?.onMenuToggleRight?.(() => { rightOpen.value = !rightOpen.value; });
+  bridge?.onMenuToggleRight?.(() => { workbenchOpen.value = !workbenchOpen.value; });
   window.addEventListener('keydown', onGlobalKey);
   void chat.init();
 });
@@ -153,16 +214,47 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKey); });
         <div class="cdrag" @mousedown="startCDrag"></div>
       </main>
       <section v-show="workbenchOpen" class="pane-w">
-        <div class="tabs">
-          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'progress', 'dot-warn': chat.pendingPerms.length > 0 }" @click="showTab('progress')">进度</div>
-          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'artifacts' }" @click="showTab('artifacts')">产物</div>
-          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'files' }" @click="showTab('files')">文件</div>
-          <div class="tab" :class="{ on: !settingsOpen && rightTab === 'terminal' }" @click="showTab('terminal')">终端</div>
+        <div class="wtabs">
+          <div
+            v-for="t in openTabs" :key="t.id"
+            class="wtab" :class="{ on: !settingsOpen && activeTabId === t.id, 'dot-warn': t.id === 'progress' && chat.pendingPerms.length > 0 }"
+          >
+            <button class="wtab-main" type="button" @click="pickTab(t)">
+              <span v-if="t.live" class="lv"></span>{{ t.label }}
+            </button>
+            <button v-if="t.closable" class="wtab-x" type="button" :title="`关闭 ${t.label}`" @click="closeTab(t.id)">✕</button>
+          </div>
+          <button v-if="hiddenTabs.length" class="wtab-more" type="button" title="恢复收起的标签" @click="restoreTabs">＋{{ hiddenTabs.length }}</button>
+        </div>
+        <!-- 模式段控 + 动作行：目前只有浏览器标签用得上（来源 AionUi 预览区头部） -->
+        <div v-show="rightTab === 'browser'" class="wctl">
+          <div class="seg">
+            <button type="button" class="on">页面</button>
+            <button type="button">源码</button>
+            <button type="button">分屏</button>
+          </div>
+          <span class="wurl">about:blank</span>
+          <div class="wact">
+            <button type="button">快照</button>
+            <button type="button">历史</button>
+            <button type="button">系统打开</button>
+            <button type="button">下载</button>
+          </div>
         </div>
         <div v-show="rightTab === 'progress'" class="rfill"><ProgressPanel v-if="visited.progress" /></div>
         <div v-show="rightTab === 'artifacts'" class="rfill"><ArtifactsPanel v-if="visited.artifacts" /></div>
         <div v-show="rightTab === 'files'" class="rfill"><FilesPanel v-if="visited.files" /></div>
         <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
+        <!-- 浏览器 / 屏幕：本轮只出壳与空态，内容属后端里程碑（Playwright/CDP 与 computer use）。
+             空态文案说清「为什么现在是空的、要什么才不空」，不做「敬请期待」这类无信息量占位。 -->
+        <div v-show="rightTab === 'browser'" class="rfill wempty">
+          <p class="we-t">浏览器视图尚未启用</p>
+          <p class="we-d">启用后这里会实时显示 agent 正在浏览的页面、点了哪里、填了什么。<br />浏览器能力属独立里程碑，当前版本未包含。</p>
+        </div>
+        <div v-show="rightTab === 'screen'" class="rfill wempty">
+          <p class="we-t">屏幕视图尚未启用</p>
+          <p class="we-d">启用后这里会显示 agent 操作桌面时的实时画面与操作轨迹。<br />computer use 能力属独立里程碑，当前版本未包含。</p>
+        </div>
       </section>
     </div>
     <SettingsModal v-if="settingsOpen" :theme="theme" @set-theme="setTheme" @close="settingsOpen = false" />
@@ -224,17 +316,72 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKey); });
 }
 /* 6px 拖拽热区：跨骑在对话列右缘（border 上），绝对定位不占布局 */
 .cdrag { position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 5; }
-.tabs { display: flex; gap: 2px; padding: 10px; border-bottom: .5px solid var(--separator); }
-.tab {
-  flex: 1; text-align: center; padding: 6px; font-size: 13px; font-weight: 500; color: var(--label-secondary);
-  border-radius: var(--r-control); cursor: pointer; display: flex; align-items: center; justify-content: center;
+/* 工作台标签条：数组渲染、可关闭、可多开（来源 AionUi 预览区的多标签形态）。
+   与 MU2b 的等分四枚不同——标签按内容宽度排，才容得下多开的文件名。 */
+.wtabs {
+  display: flex; align-items: center; gap: 3px; padding: 7px 10px 0;
+  border-bottom: .5px solid var(--separator); overflow-x: auto;
 }
-.tab.on { background: var(--fill-quaternary); color: var(--label); }
-/* 进度 tab 等待批准橙点（审计 H4：pendingPerms>0 显著化） */
-.tab.dot-warn { position: relative; }
-.tab.dot-warn::after {
-  content: ''; position: absolute; top: 4px; right: 8px; width: 6px; height: 6px; border-radius: 50%;
+.wtab {
+  position: relative; flex: 0 0 auto; display: flex; align-items: center;
+  border-radius: var(--r-control) var(--r-control) 0 0; border: 1px solid transparent; border-bottom: none;
+}
+.wtab-main {
+  display: flex; align-items: center; gap: 6px; padding: 5px 4px 5px 10px;
+  border: none; background: none; cursor: pointer;
+  font-size: var(--fs-ui); font-weight: 500; color: var(--label-tertiary); white-space: nowrap;
+}
+.wtab-x {
+  border: none; background: none; cursor: pointer; padding: 5px 8px 5px 2px;
+  font-size: 11px; line-height: 1; color: var(--label-tertiary);
+}
+.wtab-main:focus-visible, .wtab-x:focus-visible, .wtab-more:focus-visible {
+  outline: 2px solid var(--ring); outline-offset: -2px;
+}
+.wtab:hover { background: var(--fill-quaternary); }
+.wtab-x:hover { color: var(--label); }
+.wtab.on { background: var(--surface-1); border-color: var(--separator); }
+.wtab.on .wtab-main { color: var(--label); font-weight: 600; }
+/* 实时标签绿点（屏幕/浏览器这类会持续变化的视图） */
+.lv { width: 6px; height: 6px; border-radius: 50%; background: var(--state-ok); flex: 0 0 auto; }
+.wtab-more {
+  flex: 0 0 auto; margin-left: 2px; padding: 4px 8px; border: .5px solid var(--separator);
+  border-radius: var(--r-control); background: none; cursor: pointer;
+  font-size: var(--fs-micro); color: var(--label-secondary);
+}
+/* 进度标签等待批准橙点（审计 H4：pendingPerms>0 显著化） */
+.wtab.dot-warn::after {
+  content: ''; position: absolute; top: 2px; right: 4px; width: 6px; height: 6px; border-radius: 50%;
   background: var(--state-warn);
 }
+
+/* 模式段控 + 地址 + 右对齐动作行（来源 AionUi 预览区头部） */
+.wctl {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  border-bottom: .5px solid var(--separator); background: var(--surface-1); flex: 0 0 auto;
+}
+.seg { display: flex; border: .5px solid var(--separator); border-radius: var(--r-control); overflow: hidden; }
+.seg button {
+  border: none; background: none; cursor: pointer;
+  padding: 3px 10px; font-size: var(--fs-micro); color: var(--label-secondary);
+}
+.seg button.on { background: var(--action); color: var(--on-action); font-weight: 600; }
+.seg button:focus-visible, .wact button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.wurl {
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-micro);
+  color: var(--label-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 动作行右对齐、低对比——它是随时可用但不该抢戏的一层 */
+.wact { display: flex; gap: 12px; margin-left: auto; flex: 0 0 auto; }
+.wact button {
+  border: none; background: none; cursor: pointer; padding: 2px 0;
+  font-size: var(--fs-micro); color: var(--label-tertiary); white-space: nowrap;
+}
+.wact button:hover { color: var(--label); }
+
+/* 未启用能力的空态：说清「为什么空、要什么才不空」 */
+.wempty { align-items: center; justify-content: center; text-align: center; padding: 0 32px; }
+.we-t { margin: 0 0 8px; font-size: var(--fs-title); font-weight: 600; color: var(--label-secondary); }
+.we-d { margin: 0; font-size: var(--fs-ui); line-height: 1.7; color: var(--label-tertiary); }
 .rfill { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 </style>
