@@ -40,8 +40,15 @@ const sidebarExpanded = ref(false);
  *  左区可以整个隐掉（它是导航，不是内容）。 */
 const chatOpen = ref(true);
 const workbenchOpen = ref(true);
+/** 工作台第三态：折叠为 40px 图标条——与侧栏的 52px 图标轨同一个模式。
+ *  为什么需要：完全隐藏后「开了哪些文件标签、进度上有没有待批准橙点」全都看不见了，
+ *  而侧栏折叠成图标轨时这些信息都还在。折叠是为了省地方，不是为了失明。 */
+const workbenchExpanded = ref(true);
+function collapseWorkbench(): void { workbenchExpanded.value = false; }
 function toggleChat(): void {
   if (chatOpen.value && !workbenchOpen.value) return; // 已是「只剩对话列」，不许再关
+  // 收起对话列时工作台必须回到完整态，否则整屏只剩一条 40px 的窄条
+  if (chatOpen.value) workbenchExpanded.value = true;
   chatOpen.value = !chatOpen.value;
 }
 function toggleWorkbench(): void {
@@ -111,6 +118,11 @@ function closeTab(id: string): void {
     const first = openTabs.value[0];
     if (first) pickTab(first);
   }
+}
+/** 折叠条上点某枚标签：展开工作台并切到它（等价于侧栏图标轨点会话）。 */
+function expandWorkbenchTo(t: WbTab): void {
+  workbenchExpanded.value = true;
+  pickTab(t);
 }
 /** 关闭是隐藏不是销毁：一键把收起来的内置标签放回来，免得关错了没路回。 */
 function restoreTabs(): void { hiddenTabs.value = []; }
@@ -279,11 +291,11 @@ onBeforeUnmount(() => {
       <aside v-show="railOpen && sidebarExpanded" class="pane-l">
         <SessionList @collapse="sidebarExpanded = false" />
       </aside>
-      <main v-show="chatOpen" class="pane-chat" :style="workbenchOpen ? { width: chatW + 'px', flex: '0 0 ' + chatW + 'px' } : {}">
+      <main v-show="chatOpen" class="pane-chat" :style="workbenchOpen && workbenchExpanded ? { width: chatW + 'px', flex: '0 0 ' + chatW + 'px' } : {}">
         <ChatView />
         <div class="cdrag" @mousedown="startCDrag"></div>
       </main>
-      <section v-show="workbenchOpen" class="pane-w">
+      <section v-show="workbenchOpen && workbenchExpanded" class="pane-w">
         <div class="wtabs">
           <div
             v-for="t in openTabs" :key="t.id"
@@ -295,6 +307,7 @@ onBeforeUnmount(() => {
             <button v-if="t.closable" class="wtab-x" type="button" :title="`关闭 ${t.label}`" @click="closeTab(t.id)">✕</button>
           </div>
           <button v-if="hiddenTabs.length" class="wtab-more" type="button" title="恢复收起的标签" @click="restoreTabs">＋{{ hiddenTabs.length }}</button>
+          <button class="wtab-collapse" type="button" title="折叠为图标条" @click="collapseWorkbench">⇥</button>
         </div>
         <!-- 模式段控 + 动作行：目前只有浏览器标签用得上（来源 AionUi 预览区头部） -->
         <div v-show="rightTab === 'browser'" class="wctl">
@@ -326,6 +339,18 @@ onBeforeUnmount(() => {
           <p class="we-d">启用后这里会显示 agent 操作桌面时的实时画面与操作轨迹。<br />computer use 能力属独立里程碑，当前版本未包含。</p>
         </div>
       </section>
+      <!-- 折叠态：40px 图标条（对齐侧栏 52px 图标轨的模式）。
+           标签压成单字，但**徽标与实时点照常显示**——折叠是省地方，不是失明。 -->
+      <nav v-show="workbenchOpen && !workbenchExpanded" class="wbrail">
+        <button
+          v-for="t in openTabs" :key="t.id" type="button"
+          class="wbr" :class="{ on: activeTabId === t.id }" :title="t.label"
+          @click="expandWorkbenchTo(t)"
+        >
+          <span v-if="t.live" class="wbr-live"></span>{{ t.label.slice(0, 1) }}
+          <span v-if="t.id === 'progress' && chat.pendingPerms.length > 0" class="wbr-badge">{{ chat.pendingPerms.length }}</span>
+        </button>
+      </nav>
     </div>
     <SettingsModal v-if="settingsOpen" :theme="theme" @set-theme="setTheme" @close="settingsOpen = false" />
     <DevicesModal v-if="devicesOpen" @close="devicesOpen = false" />
@@ -472,6 +497,42 @@ onBeforeUnmount(() => {
   font-size: var(--fs-micro); color: var(--label-tertiary); white-space: nowrap;
 }
 .wact button:hover { color: var(--label); }
+
+/* 折叠钮：把工作台收成 40px 图标条 */
+.wtab-collapse {
+  flex: 0 0 auto; margin-left: auto; padding: 4px 8px; border: none; background: none;
+  border-radius: var(--r-control); color: var(--label-tertiary); cursor: pointer; font-size: 12px;
+}
+.wtab-collapse:hover { background: var(--fill-quaternary); color: var(--label); }
+.wtab-collapse:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+/* 工作台折叠条（第三态）——与 .rail 同一个模式，只是竖排的是标签不是会话 */
+.wbrail {
+  flex: 0 0 40px; width: 40px; background: var(--bg-secondary);
+  border-left: .5px solid var(--separator);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 0; overflow: hidden;
+}
+.wbr {
+  position: relative; flex: 0 0 auto; width: 28px; height: 28px;
+  border-radius: var(--r-control); border: 1px solid transparent; background: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; color: var(--label-tertiary); cursor: pointer;
+}
+.wbr:hover { background: var(--fill-quaternary); color: var(--label); }
+.wbr:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.wbr.on { background: var(--surface-1); border-color: var(--action); color: var(--action); }
+.wbr-live {
+  position: absolute; top: 2px; left: 2px; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--state-ok);
+}
+/* 折叠态仍要看得见待批准——折叠是省地方，不是失明 */
+.wbr-badge {
+  position: absolute; top: -3px; right: -4px; min-width: 13px; height: 13px; padding: 0 3px;
+  border-radius: var(--r-pill); border: 1.5px solid var(--bg-secondary);
+  background: var(--state-warn); color: var(--on-action);
+  font-size: 9px; font-weight: 700; line-height: 10px; text-align: center;
+}
 
 /* 未启用能力的空态：说清「为什么空、要什么才不空」 */
 .wempty { align-items: center; justify-content: center; text-align: center; padding: 0 32px; }

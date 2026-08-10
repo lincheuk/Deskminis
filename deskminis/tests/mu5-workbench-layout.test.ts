@@ -174,6 +174,27 @@ describe('MU5 列宽放开后正文仍须可读（1 例）', () => {
   });
 });
 
+describe('MU5 工作台补齐「折叠为图标条」中间态（用户 2026-08-10 追加，2 例）', () => {
+  it('工作台三态与侧栏对齐：完整 / 40px 图标条 / 完全隐藏', () => {
+    // 缺口现场：侧栏有三态（隐藏 / 52px 图标轨 / 212px 展开），工作台只有两态。
+    // 一旦隐藏，开了哪些文件标签、进度上有没有待批准橙点，全都看不见了——
+    // 而侧栏折叠成图标轨时这些信息都还在。补齐中间那一档。
+    expect(app).toContain('workbenchExpanded');
+    expect(app).toContain('collapseWorkbench');
+    expect(app).toContain('expandWorkbenchTo');
+    expect(app).toMatch(/\.wbrail\s*\{[^}]*width:\s*40px/);
+    // 折叠条上仍要能看见待批准徽标——这正是「折叠但不失明」的意义
+    expect(app).toMatch(/\.wbr-badge\s*\{/);
+  });
+
+  it('折叠态下对话列不再被定宽约束；收起对话列时工作台强制回完整态', () => {
+    // 折叠条固定 40px，对话列该自然铺满剩余空间，不该再挂 chatW 的内联定宽。
+    expect(app).toContain('workbenchOpen && workbenchExpanded');
+    // 否则会出现「对话列没了 + 工作台只剩 40px 窄条」的空壳
+    expect(app).toMatch(/if \(chatOpen\.value\) workbenchExpanded\.value = true;/);
+  });
+});
+
 describe('MU5 窗口尺寸变化时重新钳制对话列（1 例）', () => {
   it('App.vue 监听 resize 并按可用宽重钳；侧栏展开也触发重钳', () => {
     // 缺陷现场：大屏拖到 520 后把窗口缩到 900、或展开侧栏（多吃 160px），
