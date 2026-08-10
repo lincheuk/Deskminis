@@ -11,6 +11,9 @@ import { sessionBadge, artifactCountOf, type SessionBadge } from '../lib/session
 import { fmtRelative } from '../lib/time/relative';
 import Icon from './Icon.vue';
 
+/** MU5：展开态需要一条回到 52px 图标轨的路（折叠由 App.vue 持有状态，此处只发信号）。 */
+const emit = defineEmits<{ collapse: [] }>();
+
 const chat = useChat();
 // App.vue provide：打开设置独立模态（Task 5 起）
 const openSettings = inject<() => void>('openSettings', () => {});
@@ -68,14 +71,32 @@ const BADGE_VIEW: Record<Exclude<SessionBadge, null>, { cls: string; text: strin
   done: { cls: 'done', text: '✓ 完成' },
 };
 
+/** MU5：状态从「文字徽标」改「色点」后，颜色成了唯一编码——对色觉障碍不可读。
+ *  补偿：把同一状态的文字挂到行的 title 上，hover 与读屏都拿得到。 */
+function badgeText(s: S): string {
+  const b = badgeOf(s);
+  return b ? `${s.title || '新会话'} · ${BADGE_VIEW[b].text}` : (s.title || '新会话');
+}
+
+/** MU5 后端选择器：当前执行端。**只消费既有 chat.devices（remote.status）**，不新接 RPC。
+ *  诚实说明：remote.status 只返回已配对对端列表，**不含本机设备名**——
+ *  计划里写的「本机 · <设备名>」那个名字需要新通道，本轮红线 2 禁止，留给 MU6。 */
+const backendLabel = computed(() => {
+  const n = chat.devices.length;
+  return n > 0 ? `本机 · 已配对 ${n} 台` : '本机';
+});
+
 /** 产物角标：仅活动会话可得（messages 在 chat store）；0 不显示。 */
 const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 </script>
 
 <template>
   <div class="pane">
-    <div class="newbtn" @click="chat.newSession()">
-      <Icon name="plus" :size="16" /><span>新建会话</span>
+    <div class="lhead">
+      <div class="newbtn" @click="chat.newSession()">
+        <Icon name="plus" :size="16" /><span>新建会话</span>
+      </div>
+      <button class="collapse" type="button" title="折叠为图标轨" @click="emit('collapse')">☰</button>
     </div>
     <div class="list">
       <template v-for="grp in grouped" :key="grp.group">
@@ -84,17 +105,20 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
         </div>
         <div
           v-for="s in grp.items" :key="s.id"
-          class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id"
+          class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id" :title="badgeText(s)"
           @click="chat.open(s.id)"
         >
-          <div class="stitle">{{ s.title || '新会话' }}</div>
-          <div class="smeta">
-            <span class="stime">{{ relTime(s) }}</span>
-            <span v-if="badgeOf(s)" class="sbadge" :class="BADGE_VIEW[badgeOf(s)!].cls">{{ BADGE_VIEW[badgeOf(s)!].text }}</span>
-            <span v-if="s.id === chat.activeId && activeArtifactCount > 0" class="scount">◈ {{ activeArtifactCount }}</span>
-          </div>
+          <span class="sdot" :class="badgeOf(s) ? BADGE_VIEW[badgeOf(s)!].cls : 'idle'"></span>
+          <span class="stitle">{{ s.title || '新会话' }}</span>
+          <span v-if="s.id === chat.activeId && activeArtifactCount > 0" class="scount">◈ {{ activeArtifactCount }}</span>
+          <span class="stime">{{ relTime(s) }}</span>
         </div>
       </template>
+    </div>
+    <!-- 后端选择器钉底部（来源 Agent Canvas 侧栏底部 ● Local ⌄）：
+         DeskMinis 有设备与同步能力，却从来没有「当前在哪台机器跑」的常驻入口。 -->
+    <div class="bkrow">
+      <span class="bk-dot"></span><span class="bk-name">{{ backendLabel }}</span>
     </div>
     <div class="lfoot">
       <button class="lfbtn" type="button" @click="openSettings()"><Icon name="gear" :size="14" /><span>设置</span></button>
@@ -105,9 +129,19 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 
 <style scoped>
 .pane { display: flex; flex-direction: column; height: 100%; background: var(--bg); overflow: hidden; }
+/* MU5：新建钮与折叠钮同排（折叠钮把展开态收回 52px 图标轨） */
+.lhead { display: flex; align-items: center; gap: 6px; margin: 12px; flex: 0 0 auto; }
+.collapse {
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: var(--r-md);
+  border: none; background: none; color: var(--label-tertiary); cursor: pointer;
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+}
+.collapse:hover { background: var(--fill-quaternary); color: var(--label); }
+.collapse:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .newbtn {
-  display: flex; align-items: center; gap: 8px; margin: 12px; padding: 9px 12px; border-radius: var(--r-md);
-  background: var(--fill-tertiary); color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer; flex: 0 0 auto;
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: var(--r-md);
+  background: var(--fill-tertiary); color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
 }
 .newbtn:hover { background: var(--fill); }
 /* MU3 §2-5 焦点环 */
@@ -118,24 +152,46 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   position: sticky; top: 0; z-index: 1; padding: 6px 10px; font-size: 12px; font-weight: 600;
   color: var(--label-secondary); background: var(--bg); display: flex; align-items: center; gap: 4px;
 }
-/* 任务卡（变体 A）：标题行 + meta 行（相对时间/状态徽标/产物角标） */
-.scard { padding: 9px 10px; border-radius: var(--r-md); margin-bottom: 2px; cursor: pointer; }
+/* MU5：会话行由「两行任务卡」压成单行「状态点 + 标题 + 右对齐相对时间」
+   （来源 Agent Canvas 侧栏）。MU2b 的两行卡在 212px 宽里占太多竖向空间，
+   而侧栏的职责是「一眼扫完有哪些会话、哪个在跑」，不是展示每个会话的全部元数据。 */
+.scard {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 9px; border-radius: var(--r-md); margin-bottom: 1px; cursor: pointer;
+}
 .scard:hover { background: var(--fill-quaternary); }
 .scard:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .scard.on { background: var(--fill-tertiary); }
+/* 状态点四态：类名与色令牌沿用 MU2b 的 BADGE_VIEW，只是从文字换成色点。
+   色觉障碍补偿见 badgeText()——同一状态的文字挂在行 title 上。 */
+.sdot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--label-quaternary); }
+.sdot.run { background: var(--state-ok); }
+.sdot.wait { background: var(--state-warn); }
+.sdot.fail { background: var(--state-err); }
+.sdot.done { background: var(--label-tertiary); }
+.sdot.idle { background: var(--label-quaternary); }
 .stitle {
-  font-size: var(--fs-ui); font-weight: 600; color: var(--label-strong);
+  flex: 1; min-width: 0;
+  font-size: var(--fs-ui); font-weight: 500; color: var(--label-strong);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.scard.on .stitle { color: var(--action); }
-.smeta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: var(--fs-micro); color: var(--label-tertiary); }
-.stime { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
-.sbadge { flex: 0 0 auto; }
-.sbadge.run { color: var(--state-ok); }
-.sbadge.wait { color: var(--state-warn); }
-.sbadge.fail { color: var(--state-err); }
-.sbadge.done { color: var(--label-tertiary); }
-.scount { flex: 0 0 auto; margin-left: auto; color: var(--label-secondary); font-variant-numeric: tabular-nums; }
+.scard.on .stitle { color: var(--action); font-weight: 600; }
+.scount { flex: 0 0 auto; font-size: var(--fs-micro); color: var(--label-secondary); font-variant-numeric: tabular-nums; }
+/* 时间右对齐：等宽数字让各行的时间列自然对齐，不需要固定宽度 */
+.stime {
+  flex: 0 0 auto; margin-left: auto;
+  font-size: var(--fs-micro); color: var(--label-tertiary); font-variant-numeric: tabular-nums;
+}
+
+/* 后端选择器：常驻的「当前在哪台机器跑」。本轮是纯指示（无交互元素，
+   故不需要 button）——切换执行端的能力尚不存在，不做假的下拉箭头。 */
+.bkrow {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 7px;
+  padding: 7px 14px; border-top: .5px solid var(--separator);
+  font-size: var(--fs-micro); color: var(--label-secondary);
+}
+.bk-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--state-ok); flex: 0 0 auto; }
+.bk-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 底部固定入口：设置（独立模态）/ 设备（DevicesModal，Task 7 已填实） */
 .lfoot {
   flex: 0 0 auto; display: flex; gap: 2px; padding: 8px 10px;

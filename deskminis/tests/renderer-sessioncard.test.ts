@@ -72,7 +72,14 @@ describe('MU2b Task 4 左栏任务卡：lib/time/relative 纯模块（3 例）',
 describe('MU2b Task 4 左栏任务卡：SessionList/App.vue 守卫（2 例）', () => {
   it('SessionList.vue：.scard 卡结构 + .sbadge 四态类（run/wait/fail/done）+ .scount 角标 + datehead 分组保留 + .lfoot 底部两按钮（设置/设备）+ 纯模块引用', () => {
     expect(sessionList).toContain('class="scard"');
-    expect(sessionList).toContain('sbadge');
+    // MU5 重锚（锚失效 + 一处刻意形态变更）：状态由「文字徽标 .sbadge」改「色点 .sdot」，
+    // 依据是拍板稿的会话行「点 + 标题 + 右对齐时间」。四态区分与状态色令牌一个没少，
+    // 变的是编码方式。**丢掉文字标签是真损失**（颜色成了唯一编码，色觉障碍读不到），
+    // 故 badgeText() 把同一状态文字挂到行 title 上——补偿本身也纳入守卫，
+    // 否则将来有人删掉 title，没有任何测试会发现。
+    expect(sessionList).toContain('sdot');
+    expect(sessionList).toContain('badgeText');
+    expect(sessionList).toContain(':title="badgeText(s)"');
     expect(sessionList).toContain('run');
     expect(sessionList).toContain('wait');
     expect(sessionList).toContain('fail');
@@ -92,8 +99,11 @@ describe('MU2b Task 4 左栏任务卡：SessionList/App.vue 守卫（2 例）', 
     expect(sessionList).toContain('var(--state-err)');
   });
 
-  it('App.vue：.pane-l 宽 260px → 232px（设计 §1.2）', () => {
-    expect(app).toContain('width: 232px');
+  /** MU5 重锚：布局 B 把展开态压到 212px，折叠态走 52px 图标轨（计划决策 2-2）。
+   *  上一档 260→232 是 MU2b 的设计 §1.2；本轮 232→212，同一守卫换锚不换意图。 */
+  it('App.vue：.pane-l 展开态宽 232px → 212px（MU5 布局 B；折叠态另走 52px 图标轨）', () => {
+    expect(app).toContain('width: 212px');
     expect(app).not.toContain('width: 260px');
+    expect(app).not.toContain('width: 232px');
   });
 });

@@ -195,8 +195,12 @@
   --ring-danger: var(--focus-ring-error);
 
   /* ===== C 区：DeskMinis 自有令牌（尺度 + 字体栈；主题无关，只写一次） ===== */
-  /* 字体栈例外（MU3 §2-1 申报）：保留现有栈 */
-  --font-ui: -apple-system, "SF Pro Text", "Segoe UI Variable", system-ui, "Microsoft YaHei", sans-serif;
+  /* 字体栈例外（MU3 §2-1 申报）：保留现有栈。
+     MU5：插入 "Noto Sans SC"（思源黑体，用户 2026-08-10 拍板）于 Segoe UI Variable 之后、
+     Microsoft YaHei 之前——拉丁仍走 Segoe，中文逐字符回落思源，雅黑保留作兜底。
+     成本为零：本机 Windows 字体目录已装 NotoSansSC-VF.ttf（16.9MB 可变字体），不打包、不子集化。
+     不子集化的理由：agent 输出的字符集不可预知，子集会掉生僻字且难复现（v4 §5）。 */
+  --font-ui: -apple-system, "SF Pro Text", "Segoe UI Variable", "Noto Sans SC", system-ui, "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
   /* 字号尺度（桌面密度基线 14） */
   --fs-display: 17px;   /* 设置页标题 */

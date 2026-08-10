@@ -216,6 +216,16 @@ function onDrop(e: DragEvent): void {
 }
 function removeAttachment(i: number): void { pendingAttachments.value.splice(i, 1); }
 
+/** MU5：输入卡底部的 ＋ 钮。此前加附件只能粘贴或拖拽——能力有、入口无，
+ *  正是本轮「后端做了但前端没体现」的一个缩影。复用既有 pickImages/saveImages，零新通道。 */
+const attachEl = ref<HTMLInputElement | null>(null);
+function openAttach(): void { attachEl.value?.click(); }
+function onAttachPick(e: Event): void {
+  const el = e.target as HTMLInputElement;
+  void saveImages(pickImages(el.files));
+  el.value = ''; // 清空以允许连续选同一个文件
+}
+
 async function send(): Promise<void> {
   const t = input.value.trim();
   if (!t || chat.running) return;
@@ -408,6 +418,8 @@ function onSlashTab(e: KeyboardEvent): void {
         @dragover.prevent
       ></textarea>
       <div class="ctools">
+        <input ref="attachEl" class="attachinput" type="file" accept="image/*" multiple @change="onAttachPick" />
+        <button class="attach" type="button" title="添加附件" @click="openAttach"><Icon name="plus" :size="15" /></button>
         <div class="cpill static"><Icon name="folder" :size="14" /><span>工作区</span></div>
         <PermissionPicker />
         <ModelPicker />
@@ -420,7 +432,10 @@ function onSlashTab(e: KeyboardEvent): void {
 
 <style scoped>
 .pane-c { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; position: relative; }
-.stream { flex: 1; overflow: auto; padding: 12px 0; }
+/* scrollbar-gutter 对称预留：滚动条 15px 会让正文在「减掉滚动条」的宽里居中，
+   而输入卡在完整宽里居中，两者左缘差 8px（实测）。both-edges 让两边各留一份，
+   正文与输入卡就精确对齐；顺带解决另一个毛病——消息多到撑出滚动条时整列文字横跳 15px。 */
+.stream { flex: 1; overflow: auto; padding: 12px 0; scrollbar-gutter: stable both-edges; }
 
 /* 解除跟随后右下浮出的「回到底部」小圆钮（设计 §2.4） */
 .back-bottom {
@@ -436,7 +451,14 @@ function onSlashTab(e: KeyboardEvent): void {
 .back-bottom:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* 回合容器（设计 v2 §2.1）：回合间 1px 分隔线 + 24px 间距，回合内块间 8px */
-.turn { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
+/* MU5：对话列现在可以拖到可用宽的一半（2560 屏上到 1254px），但**正文不该跟着拉长**——
+   实测 1254px 时每行约 157 字符，远超 45–90 的可读区间。
+   列宽是布局问题，行长是排版问题，两件事：容器随列宽伸展，正文按可读宽度居中。
+   792 = 760 可读宽 + 左右 16px 内边距（box-sizing: border-box）。 */
+.turn {
+  padding: 0 16px; display: flex; flex-direction: column; gap: 8px;
+  max-width: 792px; margin-inline: auto; width: 100%;
+}
 .turn + .turn { border-top: .5px solid var(--separator); margin-top: var(--sp-6); padding-top: var(--sp-6); }
 
 /* 用户消息：无气泡，左对齐标签行「你 · HH:MM」+ hover 复制钮（Codex 式回合归属） */
@@ -458,7 +480,9 @@ function onSlashTab(e: KeyboardEvent): void {
 .ahead { display: flex; align-items: center; gap: 8px; }
 .aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
 .aname { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); }
-.abody { font-size: var(--fs-body); line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+/* MU5：文档式排版——行高 1.55 → 1.72（来源 AionUi 会话视图：助手输出按文档排，不进气泡）。
+   气泡本身 MU2a 就已去掉（.msg-a{padding:0}），本轮补的是「读起来像文档」的那一半。 */
+.abody { font-size: var(--fs-body); line-height: 1.72; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
 .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--label-tertiary); animation: jump 1s infinite ease-in-out; }
@@ -468,8 +492,15 @@ function onSlashTab(e: KeyboardEvent): void {
 
 /* 输入区：浮动容器（MU3：材质退场改实底） */
 .composer {
-  margin: 0 16px 16px; border-radius: var(--r-input); background: var(--surface-1);
+  /* 与正文同宽同轴：窄列时靠 100% - 32px 保住 16px 边距，宽列时封顶 792 并居中。
+     必须写 width 而不是只写 max-width——.composer 是列向 flex 容器里的 flex item，
+     **auto 外边距会关掉 cross 轴的 stretch**，只给 max-width 的话它会退回按内容收缩
+     （实测宽列里只剩 339px）。显式 width 才拿得到该有的宽度。 */
+  width: min(792px, 100% - 32px); margin: 0 auto 16px;
+  border-radius: var(--r-input); background: var(--surface-1);
   border: .5px solid var(--separator);
+  /* MU5：卡片浮起（来源 AionUi 输入区）——此前是平贴的容器，与对话流没有层次差 */
+  box-shadow: var(--shadow-fab);
   padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
   position: relative;
 }
@@ -491,7 +522,8 @@ function onSlashTab(e: KeyboardEvent): void {
 .sname { font-weight: 600; flex: 0 0 auto; color: var(--label-strong); }
 .sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field {
-  background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);
+  /* MU5：卡片本身即边界，输入框自己不再描边——去掉「框中框」 */
+  background: none; border: none; border-radius: var(--r-control);
   padding: 8px 12px; font-size: var(--fs-body); color: var(--label); font-family: var(--font-ui);
   min-height: 36px; max-height: 176px; resize: none; line-height: 20px; width: 100%;
   overflow-y: auto; /* 超 8 行（176px）内滚 */
@@ -511,7 +543,48 @@ function onSlashTab(e: KeyboardEvent): void {
   border: none; background: var(--surface-1); color: var(--label); font-size: 11px; line-height: 1;
   display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
 }
-.ctools { display: flex; align-items: center; gap: 8px; }
+/* MU5：对话列由弹性收成 336 定宽后，底部这排 chip 挤不下会**逐字换行**
+   （「工作区」竖成三行），真机截图才逮到——1048 例源码守卫与 e2e 8/8 全绿也看不见这种事。
+   处置：一律禁止换行，放不下由各自省略号收尾，发送钮靠 margin-left:auto 永远钉在右端。 */
+/* ⚠️ 这里**不能**写 overflow: hidden。
+   曾为防 chip 换行加过，结果把权限档/模型两枚 chip 向上弹出的下拉菜单整个裁掉
+   （菜单 300×248 弹在 .ctools 盒子外 251px 处，而盒子只有 32px 高）——
+   表现就是「点了没反应」。不换行由子元素自己的 nowrap + min-width:0 + 省略号保证，
+   容器不必也不该裁剪，否则任何弹出层都会被闷死在里面。 */
+.ctools { display: flex; align-items: center; gap: 8px; position: relative; }
+.ctools > :deep(.wrap) { flex: 0 1 auto; min-width: 0; }
+/* 336px 里要塞下「＋ 工作区 权限档 模型 发送」，13px/11px 内边距的常规 chip 一共约 244px，
+   可用宽只有约 194px——差 50px。故在输入卡这一处收紧到 11px 字号与 8px 内边距（约省 54px）。
+   只在 .ctools 作用域内收紧，其它地方的 .cpill 不受影响。 */
+.cpill, .ctools :deep(.cpill) {
+  flex: 0 1 auto; min-width: 0;
+  padding: 4px 8px; font-size: var(--fs-micro); gap: 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ctools :deep(.mt) { font-size: var(--fs-micro); }
+.send { width: 28px; height: 28px; }
+/* 对话列可窄至 280px，而 PermissionPicker / ModelPicker 的弹层原本
+   `position:absolute; left:0; min-width:240px`（权限档实测 300px 宽）以 chip 为锚向右展开。
+   窄列里弹层右缘会捅出对话列，被 ChatView 根的 overflow:hidden 裁掉——**表现就是「点了没反应」**。
+   MU5 之前对话列是弹性的（八百多 px），放得下，所以这问题是本轮收窄后才显形的。
+
+   处置：把 .wrap 的定位参照让出去，改以 .ctools 为锚、左右对齐铺满，宽度随列宽自适应——
+   窄列不再溢出，宽列也不会拉成一条。用 .ctools 而不是 .composer 作参照，是因为弹层原本的
+   bottom: calc(100% + 6px) 可原样生效，不必去猜输入卡高度（它随输入行数与附件 chip 变）。
+   两个 picker 组件本身一行不改——它们不该为「外面有多宽」负责。 */
+.ctools :deep(.wrap) { position: static; }
+.ctools :deep(.menu) { left: 0; right: 0; min-width: 0; width: auto; }
+
+/* MU5 附件入口：隐藏的原生 file input + 可聚焦的 ＋ 钮（红线 6） */
+.attachinput { display: none; }
+.attach {
+  flex: 0 0 auto; width: 26px; height: 26px; padding: 0;
+  border-radius: var(--r-control); border: .5px solid var(--separator); background: none;
+  color: var(--label-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.attach:hover { background: var(--fill-quaternary); color: var(--label); }
+.attach:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.attach :deep(svg) { stroke: var(--label-secondary); }
 .cpill {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
   border: .5px solid var(--separator); background: var(--grouped-bg-secondary);

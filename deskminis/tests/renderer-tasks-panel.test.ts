@@ -89,7 +89,11 @@ describe('MU2b Task 2 进度 tab（ProgressPanel 替换 TasksPanel，8 例）', 
     expect(progressPanel).toContain("chat.pendingPerms.length > 0");
     expect(progressPanel).toContain("去处理");
     expect(progressPanel).toContain("chat.permFocusRequestId = ");
-    expect(app).toContain("'dot-warn': chat.pendingPerms.length > 0");
+    // MU5 重锚（锚失效，非真回归）：标签条改数组渲染后，dot-warn 的条件里多了一项
+    // 「限定进度标签」——MU2b 四枚等分 tab 各写各的，位置本身即区分；数组渲染后必须显式判 id。
+    // 行为一字未变：pendingPerms>0 → 进度标签出橙点；MU5 起同一信号还并行出现在图标轨徽标上。
+    expect(app).toMatch(/'dot-warn':[^}]*chat\.pendingPerms\.length > 0/);
+    expect(app).toMatch(/\.wtab\.dot-warn::after/);
     expect(chatView).toContain("chat.permFocusRequestId");
     expect(chatView).toContain("scrollIntoView");
   });
