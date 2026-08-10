@@ -107,6 +107,8 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
   width: 100%;
 }
 .tline:hover { background: var(--fill-quaternary); }
+/* MU3 §2-5 焦点环 */
+.tline:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 /* 状态符号（✓ 绿 / ✕ 红）；类型色退役后唯一的色彩语义 */
 .tmark { width: 15px; text-align: center; font-size: 12px; flex: 0 0 auto; }
 .tmark.ok { color: var(--state-ok); }
@@ -119,7 +121,7 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
 }
 @keyframes tlspin { to { transform: rotate(360deg); } }
 .tico { display: inline-flex; color: var(--label-secondary); flex: 0 0 auto; }
-.ttitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.ttitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; color: var(--label-strong); }
 .tdur { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--label-tertiary); flex: 0 0 auto; }
 .tchev { display: inline-flex; color: var(--label-tertiary); flex: 0 0 auto; }
 .texpand { margin: 2px 0 4px 23px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }

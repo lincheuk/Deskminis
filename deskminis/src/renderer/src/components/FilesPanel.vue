@@ -122,7 +122,7 @@ onMounted(() => {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; border-bottom: .5px solid var(--separator); flex: 0 0 auto;
 }
-.ftitle { font-size: 13px; font-weight: 600; color: var(--label-secondary); }
+.ftitle { font-size: 13px; font-weight: 600; color: var(--label-strong); }
 .fbtn {
   background: none; border: none; color: var(--label-secondary); cursor: pointer;
   display: inline-flex; padding: 4px; border-radius: var(--r-control);

@@ -27,10 +27,12 @@ function readTheme() {
   const cs = getComputedStyle(document.documentElement);
   const v = (name: string) => cs.getPropertyValue(name).trim();
   return {
+    // MU3 兜底值按 Appica 调色板 oklch→srgb 换算（Ottosson 矩阵）：
+    //   oklch(0.446 0.03 256.802)→#4a5565（--label 浅段目标）；oklch(0.928 0.006 264.531)→#e5e7eb（--fill 浅段目标）
     background: v('--bg') || '#ffffff',
-    foreground: v('--label') || '#000000',
-    cursor: v('--label') || '#000000',
-    selectionBackground: v('--fill') || 'rgba(120,120,128,.2)',
+    foreground: v('--label') || '#4a5565',
+    cursor: v('--label') || '#4a5565',
+    selectionBackground: v('--fill') || '#e5e7eb',
   };
 }
 

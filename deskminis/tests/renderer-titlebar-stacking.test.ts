@@ -1,12 +1,21 @@
 /** TitleBar 下拉菜单层级遮盖修复的源文本守卫。
  *
- *  背景（实测取证）：`.titlebar` 的 `backdrop-filter` 会创建层叠上下文，把下拉菜单
+ *  历史背景（实测取证）：`.titlebar` 曾带 `backdrop-filter`，它会创建层叠上下文，把下拉菜单
  *  `.pop { z-index: 40 }` 的层级**困在 titlebar 内部**。若 titlebar 自身是 static/z-auto，
  *  它在根层叠上下文里按「非定位元素」绘制，顺序低于主体中任何定位元素——菜单会被盖住。
  *  CDP 实测（elementFromPoint 网格取样）确认的覆盖者：
  *    - `.datehead`（sticky, z-index:1, 背景不透明）→ 横条遮挡（暗色主题下呈黑杠）
  *    - `.stream` / `.empty`（static 但 DOM 在后）→ 透明但抢走点击命中，菜单项点不动
  *  修法：给 `.titlebar` 自身 `position: relative; z-index: 50`，整棵子树抬到主体之上。
+ *
+ *  MU3 修订（计划 §3-4，自审第 8 处订正）：材质已全退场，「滤镜创建层叠上下文困住 .pop」的
+ *  原始诱因消失，但 `position: relative; z-index: 50` **保留**，理由改写为**防御性层级槽位**：
+ *    - 「主体所有 z-index < 50 < 模态 100/110」的不变量由本文件后三例固化，保留槽位使该
+ *      不变量继续可守卫、可推理；
+ *    - 未来任何浮层/滤镜/transform 重新引入 titlebar 层叠上下文时，陷阱不复发；
+ *    - 保留成本为零（一行既有 CSS 不动）。
+ *  第 1 例的滤镜断言随之**反转**（不是删除——删除会让先红预期落空且留下守卫真空）：
+ *  滤镜不得回潮；一旦回潮，层叠上下文陷阱的前提即复发。
  *
  *  这些断言守的是**层级序不变量**，不是具体数字本身：
  *    主体内所有 z-index  <  标题栏(50)  <  模态(100/110)
@@ -50,8 +59,8 @@ const TITLEBAR_Z = 50;
 describe('TitleBar 层级遮盖修复：源文本守卫', () => {
   it('.titlebar 必须同时有 position 与 z-index（缺任一则层叠上下文陷阱复发）', () => {
     const block = titlebarBlock();
-    // 前提：backdrop-filter 仍在——它正是造成陷阱的原因，若被移除本守卫的理由需重新评估
-    expect(block).toMatch(/backdrop-filter/);
+    // MU3 材质已退场：滤镜不得回潮（反转断言——若重新引入，层叠上下文陷阱的前提即复发）
+    expect(block).not.toMatch(/backdrop-filter/);
     expect(block).toMatch(/position:\s*(relative|sticky|absolute|fixed)/);
     expect(block).toMatch(new RegExp(`z-index:\\s*${TITLEBAR_Z}\\b`));
   });

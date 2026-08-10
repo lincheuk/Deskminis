@@ -99,7 +99,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 
 <style scoped>
 .mask {
-  position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.4);
+  position: fixed; inset: 0; z-index: 100; background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
 }
 .modal {
@@ -111,15 +111,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
   width: 180px; flex: 0 0 180px; padding: 14px 10px; background: var(--grouped-bg-secondary);
   border-right: .5px solid var(--separator); display: flex; flex-direction: column; gap: 2px;
 }
-.shead { font-size: var(--fs-title); font-weight: 700; color: var(--label); padding: 4px 10px 12px; }
+.shead { font-size: var(--fs-title); font-weight: 700; color: var(--label-emphasis); padding: 4px 10px 12px; }
 .sitem {
   padding: 7px 10px; border-radius: var(--r-control); font-size: var(--fs-ui);
   color: var(--label-secondary); cursor: pointer;
 }
 .sitem:hover { background: var(--fill-quaternary); }
 .sitem.on { background: var(--fill-tertiary); color: var(--label); font-weight: 600; }
+/* MU3 §2-5 焦点环 */
+.sitem:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .sbody { flex: 1; min-width: 0; overflow: auto; padding: 18px 20px; }
-.stitle { font-size: var(--fs-display); font-weight: 700; color: var(--label); margin-bottom: 14px; }
+.stitle { font-size: var(--fs-display); font-weight: 700; color: var(--label-intense); margin-bottom: 14px; }
 .opt {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px;
   border: .5px solid var(--separator); border-radius: var(--r-card); cursor: pointer;
@@ -127,6 +129,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 }
 .opt:hover { background: var(--fill-quaternary); }
 .opt.on { border-color: var(--action); }
+.opt:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .otxt { flex: 1; min-width: 0; }
 .olabel { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
 .osub { font-size: var(--fs-caption); color: var(--label-secondary); margin-top: 2px; }
@@ -138,4 +141,5 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
   background: var(--surface-1); color: var(--label); font-size: var(--fs-ui); cursor: pointer;
 }
 .devbtn:hover { background: var(--fill-quaternary); }
+.devbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 </style>

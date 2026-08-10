@@ -53,7 +53,7 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 .cpill {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
   border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
-  font-size: 13px; color: var(--label-secondary); cursor: pointer;
+  font-size: 13px; color: var(--label-strong); cursor: pointer;
 }
 .menu {
   /* 左对齐胶囊（与 PermissionPicker 一致）；right:0 会让弹层从胶囊右缘向左伸出、看着没对齐 */
@@ -64,6 +64,8 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 .mhead { font-size: 12px; color: var(--label-secondary); padding: 8px 10px; }
 .mrow { display: flex; gap: 10px; padding: 9px 10px; border-radius: var(--r-control); cursor: pointer; align-items: center; color: var(--label); }
 .mrow:hover { background: var(--fill-quaternary); }
+/* MU3 §2-5 焦点环 */
+.mrow:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .mrow.off { opacity: .4; cursor: default; }
 .mrow.off:hover { background: transparent; }
 .mtxt { flex: 1; min-width: 0; }

@@ -48,7 +48,7 @@ function openInFiles(path: string): void {
 .acard:hover { background: var(--fill-quaternary); }
 .aicon { flex: 0 0 auto; display: inline-flex; color: var(--label-secondary); }
 .apath {
-  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px;
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; color: var(--label-strong);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .abadge { flex: 0 0 auto; display: inline-flex; gap: 6px; font-size: 11px; font-variant-numeric: tabular-nums; }

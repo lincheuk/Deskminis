@@ -42,6 +42,14 @@
   shell/file 工具 + 权限网关、SQLite 会话存储、OpenMinis 复刻三栏 UI。130/130 测试、
   typecheck、build 全绿。验收：`npm run e2e`（`deskminis/scripts/e2e-acceptance.mjs`，
   可重复回归）5/5 通过，真实 provider=nodetect/grok-4.5。
+- ✅ **M2–M6、MU1/MU2（2026-07-28 ~ 2026-08-09）**：记忆/压缩、技能、Windows 桥、
+  右栏 UI、M3a/b/c 同步与接力、提示层加固、模型目录、安全加固、打包、可观测与控制权；
+  各里程碑完成状态与验收记录见 `docs/plans/` 对应计划文档（checkbox 全勾）。
+- ✅ **MU3 Appica 视觉语言移植（2026-08-09）**：Apple HIG 取值层整体退场，
+  tokens.css 按双层架构重构（Appica raw 层照抄参考文件 + DeskMinis 语义别名重锚），
+  组件 517 处引用零改动；label 4→7 级、material/backdrop-filter 全退场、
+  9 处硬编码收编、10 组件焦点环补齐。设计定稿 → `docs/specs/2026-08-09-ui-design-v3.md`
+  （v2 加取代注记）。1031/1031 测试、typecheck、build 全绿。
 
 ## 关键发现（写进设计的依据）
 
@@ -62,3 +70,15 @@
   上下文压缩/卸载、记忆系统、技能系统（SKILL.md 生态兼容）、windows-* 桥、
   右栏终端/文件/任务面板完整 UI
 - 之后依次 M3（内网同步）、M4（文件同步+打包）
+
+### Backlog（MU3 交付复验发现，独立决策项）
+
+- **三级文字对比度不过 WCAG AA**：`--label-tertiary`/`-quaternary` → `--foreground-subtle`，浅 2.60 / 暗 4.16（AA 需 4.5）。
+  这是**从 Apple 调色板继承的既有缺口**（旧值浅 1.73 / 暗 2.25，MU3 已把它改善 +50%~85%），非 MU3 引入。
+  补齐需把三级上提到 `--foreground-muted`（浅 4.84），代价是与次级同色、压掉一层层次——属独立无障碍决策，
+  实测数据见 [ui-design-v3.md §8](docs/specs/2026-08-09-ui-design-v3.md)。
+- **9 个 div 型控件键盘走不到**：MU3 落地的 26 个 `:focus-visible` 里 17 个生效、9 个空转
+  （TitleBar .tb-ico/.mi/.it、SessionList .scard/.newbtn、SettingsModal .sitem/.opt、PermissionPicker .mrow、ModelPicker .mrow）——
+  它们是 `<div @click>` 无 `tabindex`，Tab 到不了。成因是 MU3 §2-5（补键盘可达性）与 §1.2（禁动 DOM）的内在矛盾，
+  样式层已尽力。补齐需 DOM 层改造（tabindex + Enter/Space + role），属独立无障碍里程碑。
+  详见 [ui-design-v3.md §5-1](docs/specs/2026-08-09-ui-design-v3.md)。

@@ -1,73 +1,203 @@
-/* DeskMinis 设计令牌 —— 唯一颜色/尺寸声明处（设计规格 §2/§3）。
+/* DeskMinis 设计令牌 —— 唯一颜色/尺寸声明处（设计规格 v3）。
  * 组件一律引用变量，绝不写死颜色。
+ *
+ * 双层架构（MU3：Appica 视觉语言移植）：
+ *   A 区 = Appica raw 值层，逐字照抄参考文件（取值唯一来源，禁止凭印象写值）：
+ *     来源 https://unpkg.com/@appica/ui-react@1.0.0/styles.css
+ *     许可 MIT（@appica/ui-react@1.0.0，github.com/appica-dev/appica-ui）
+ *     参考 docs/specs/2026-08-09-appica-tokens-reference.css
+ *   B 区 = DeskMinis 语义别名层（映射总表见 MU3 计划 §2-1），组件只消费别名。
+ *   C 区（仅 :root）= DeskMinis 自有令牌：尺度（--fs/--sp/--ico/--h，Appica 无尺度层）
+ *     与字体栈（--font-ui/--font-mono 置后覆盖 raw 层同族首选——Appica 通用栈缺
+ *     SF Pro Text / Microsoft YaHei / Cascadia Code，中文与 Windows 等宽回退会退化）。
+ *
  * 明暗机制：默认浅色；prefers-color-scheme:dark 自动跟随系统；
- * :root[data-theme="dark"|"light"] 覆盖为强制模式（对应 appearanceMode 0/1/2）。 */
+ * :root[data-theme="dark"|"light"] 覆盖为强制模式（对应 appearanceMode 0/1/2）。
+ * 四段结构：raw 层按段全量重复；主题色别名每段重申；主题无关别名只写一次。 */
 
 :root {
-  /* 字体 */
+  /* ===== A 区：Appica raw 层（照抄参考文件 :root,.light 块，逐字一致） ===== */
+  --foreground: oklch(0.446 0.03 256.802);
+  --foreground-subtle: oklch(0.707 0.022 261.325);
+  --foreground-muted: oklch(0.551 0.027 264.364);
+  --foreground-strong: oklch(0.373 0.034 259.733);
+  --foreground-emphasis: oklch(0.278 0.033 256.848);
+  --foreground-intense: oklch(0.21 0.034 264.665);
+  --foreground-inverse: oklch(1 0 0);
+
+  --background: oklch(1 0 0);
+  --background-subtle: oklch(0.985 0.002 247.839);
+  --background-muted: oklch(0.967 0.003 264.542);
+  --background-strong: oklch(0.928 0.006 264.531);
+  --background-inverse: oklch(0.13 0.028 261.692);
+
+  --border: oklch(0.928 0.006 264.531);
+  --border-muted: oklch(0.967 0.003 264.542);
+  --border-strong: oklch(0.872 0.01 258.338);
+  --border-emphasis: oklch(0.707 0.022 261.325);
+  --border-intense: oklch(0.551 0.027 264.364);
+  --border-inverse: oklch(0.278 0.033 256.848);
+  --border-overlay: oklch(0.967 0.003 264.542);
+
+  --primary: oklch(0.21 0.034 264.665);
+  --primary-subtle: oklch(0.967 0.003 264.542);
+  --primary-soft: oklch(0.928 0.006 264.531);
+  --primary-muted: oklch(0.373 0.034 259.733);
+  --primary-strong: oklch(0.13 0.028 261.692);
+  --primary-foreground: oklch(1 0 0);
+
+  --secondary: oklch(0.809 0.105 251.813);
+  --secondary-subtle: oklch(0.623 0.214 259.815 / 10%);
+  --secondary-soft: oklch(0.623 0.214 259.815 / 20%);
+  --secondary-muted: oklch(0.882 0.059 254.128);
+  --secondary-strong: oklch(0.707 0.165 254.624);
+  --secondary-emphasis: oklch(0.623 0.214 259.815);
+  --secondary-intense: oklch(0.546 0.245 262.881);
+  --secondary-foreground: oklch(0.13 0.028 261.692);
+
+  --error: oklch(0.808 0.114 19.571);
+  --error-subtle: oklch(0.637 0.237 25.331 / 10%);
+  --error-soft: oklch(0.637 0.237 25.331 / 20%);
+  --error-muted: oklch(0.885 0.062 18.334);
+  --error-strong: oklch(0.704 0.191 22.216);
+  --error-emphasis: oklch(0.637 0.237 25.331);
+  --error-intense: oklch(0.577 0.245 27.325);
+  --error-foreground: oklch(0.13 0.028 261.692);
+
+  --success: oklch(0.845 0.143 164.978);
+  --success-subtle: oklch(0.696 0.17 162.48 / 10%);
+  --success-soft: oklch(0.696 0.17 162.48 / 20%);
+  --success-muted: oklch(0.905 0.093 164.15);
+  --success-strong: oklch(0.765 0.177 163.223);
+  --success-emphasis: oklch(0.696 0.17 162.48);
+  --success-intense: oklch(0.596 0.145 163.225);
+  --success-foreground: oklch(0.13 0.028 261.692);
+
+  --warning: oklch(0.837 0.128 66.29);
+  --warning-subtle: oklch(0.705 0.213 47.604 / 10%);
+  --warning-soft: oklch(0.705 0.213 47.604 / 20%);
+  --warning-muted: oklch(0.901 0.076 70.697);
+  --warning-strong: oklch(0.75 0.183 55.934);
+  --warning-emphasis: oklch(0.705 0.213 47.604);
+  --warning-intense: oklch(0.646 0.222 41.116);
+  --warning-foreground: oklch(0.13 0.028 261.692);
+
+  --info: oklch(0.828 0.111 230.318);
+  --info-subtle: oklch(0.685 0.169 237.323 / 10%);
+  --info-soft: oklch(0.685 0.169 237.323 / 20%);
+  --info-muted: oklch(0.901 0.058 230.902);
+  --info-strong: oklch(0.746 0.16 232.661);
+  --info-emphasis: oklch(0.685 0.169 237.323);
+  --info-intense: oklch(0.588 0.158 241.966);
+  --info-foreground: oklch(0.13 0.028 261.692);
+
+  --font-sans:
+    ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  --focus-ring: oklch(0.872 0.01 258.338);
+  --focus-ring-input: oklch(0.928 0.006 264.531);
+  --focus-ring-primary: oklch(0.872 0.01 258.338);
+  --focus-ring-secondary: oklch(0.623 0.214 259.815 / 30%);
+  --focus-ring-error: oklch(0.637 0.237 25.331 / 30%);
+  --focus-ring-success: oklch(0.696 0.17 162.48 / 30%);
+  --focus-ring-warning: oklch(0.705 0.213 47.604 / 30%);
+  --focus-ring-info: oklch(0.685 0.169 237.323 / 30%);
+  --focus-ring-light: oklch(1 0 0 / 25%);
+
+  --border-width: 1px;
+
+  --radius: 0.875rem;
+  --radius-4xs: calc(var(--radius) * 2 / 7);
+  --radius-3xs: calc(var(--radius) * 3 / 7);
+  --radius-2xs: calc(var(--radius) * 4 / 7);
+  --radius-xs: calc(var(--radius) * 5 / 7);
+  --radius-sm: calc(var(--radius) * 6 / 7);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 8 / 7);
+  --radius-xl: calc(var(--radius) * 9 / 7);
+  --radius-2xl: calc(var(--radius) * 12 / 7);
+  --radius-3xl: calc(var(--radius) * 16 / 7);
+  --radius-4xl: calc(var(--radius) * 20 / 7);
+
+  --shadow-color: oklch(0.551 0.027 264.364 / 18%);
+  --selection-color: oklch(0.13 0.028 261.692 / 10%);
+
+  --opacity-disabled: 0.65;
+
+  /* ===== B 区：DeskMinis 语义别名层（浅段；映射总表 MU3 计划 §2-1） ===== */
+  /* 背景 */
+  --bg: var(--background);
+  --bg-secondary: var(--background-muted);
+  --bg-tertiary: var(--background);
+  --grouped-bg: var(--background-muted);
+  --grouped-bg-secondary: var(--background);
+  --grouped-bg-tertiary: var(--background-muted);
+  /* 面板槽（链式不动） */
+  --surface-0: var(--bg);
+  --surface-1: var(--grouped-bg-secondary);
+  --surface-2: var(--grouped-bg-tertiary);
+  /* 文字 7 级 */
+  --label: var(--foreground);
+  --label-secondary: var(--foreground-muted);
+  --label-tertiary: var(--foreground-subtle);
+  --label-quaternary: var(--foreground-subtle); /* 与 tertiary 视觉合并（Appica 弱级仅 2 档） */
+  --label-strong: var(--foreground-strong);
+  --label-emphasis: var(--foreground-emphasis);
+  --label-intense: var(--foreground-intense);
+  /* 分隔线 */
+  --separator: var(--border);
+  --separator-opaque: var(--border-strong);
+  /* 填充 */
+  --fill: var(--background-strong);
+  --fill-tertiary: var(--background-muted);
+  --fill-quaternary: var(--background-subtle);
+  /* 强调 / 行动 */
+  --accent: var(--secondary-emphasis);
+  --action: var(--accent);
+  --on-action: var(--primary-foreground);
+  --link: var(--secondary-emphasis);
+  /* 状态色 */
+  --red: var(--error-emphasis);
+  --green: var(--success-emphasis);
+  --orange: var(--warning-emphasis);
+  --yellow: var(--warning-intense);
+  --blue: var(--info-emphasis);
+  --purple: var(--secondary-intense);
+  --cyan: var(--info-strong);
+  /* 状态槽（Appica 直给 alpha：subtle 10% / soft 20%，比例槽清零） */
+  --state-ok: var(--success-emphasis);
+  --state-err: var(--error-emphasis);
+  --state-warn: var(--warning-emphasis);
+  --state-info: var(--info-emphasis);
+  --state-ok-bg: var(--success-subtle);
+  --state-ok-border: var(--success-soft);
+  --state-err-bg: var(--error-subtle);
+  --state-err-border: var(--error-soft);
+  --state-warn-bg: var(--warning-subtle);
+  --state-warn-border: var(--warning-soft);
+  --state-info-bg: var(--info-subtle);
+  --state-info-border: var(--info-soft);
+  /* 主题无关别名（只写一次） */
+  --assistant-gradient: linear-gradient(135deg, var(--foreground-muted), var(--foreground-subtle));
+  --shadow-fab: 0 4px 8px var(--shadow-color);
+  --shadow-pop: 0 8px 24px var(--shadow-color);
+  --scrim: rgba(0,0,0,.4);
+  --r-control: var(--radius-2xs);
+  --r-md: var(--radius-xs);
+  --r-card: var(--radius-sm);
+  --r-input: var(--radius-lg);
+  --r-bubble: var(--radius-xl);
+  --r-sheet: var(--radius-2xl);
+  --r-pill: 999px;
+  --ring: var(--focus-ring);
+  --ring-input: var(--focus-ring-input);
+  --ring-danger: var(--focus-ring-error);
+
+  /* ===== C 区：DeskMinis 自有令牌（尺度 + 字体栈；主题无关，只写一次） ===== */
+  /* 字体栈例外（MU3 §2-1 申报）：保留现有栈 */
   --font-ui: -apple-system, "SF Pro Text", "Segoe UI Variable", system-ui, "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
-
-  /* 背景 */
-  --bg: #FFFFFF;
-  --bg-secondary: #F2F2F7;
-  --bg-tertiary: #FFFFFF;
-  --grouped-bg: #F2F2F7;
-  --grouped-bg-secondary: #FFFFFF;
-  --grouped-bg-tertiary: #F2F2F7;
-
-  /* 文字 */
-  --label: #000000;
-  --label-secondary: rgba(60, 60, 67, .6);
-  --label-tertiary: rgba(60, 60, 67, .3);
-  --label-quaternary: rgba(60, 60, 67, .18);
-
-  /* 分隔线（0.5px 用） */
-  --separator: rgba(60, 60, 67, .29);
-  --separator-opaque: #C6C6C8;
-
-  /* 填充 */
-  --fill: rgba(120, 120, 128, .2);
-  --fill-tertiary: rgba(118, 118, 128, .12);   /* 用户气泡 */
-  --fill-quaternary: rgba(116, 116, 128, .08);
-
-  /* 强调 */
-  --accent: #3686EE;   /* OpenMinis 自定义蓝：链接、选中、高亮 */
-  --brand: #B7AF96;    /* 暖灰褐：会话选中态 */
-  /* brand 上的前景色随主题翻转：浅色 brand 亮 → 黑字（白字对比度仅 1.9:1，不可读） */
-  --on-brand: #1C1C1E;
-  --link: #007AFF;
-
-  /* 状态（系统动态色） */
-  --red: #FF3B30;
-  --green: #34C759;
-  --orange: #FF9500;
-  --yellow: #FFCC00;
-  --blue: #007AFF;
-  --purple: #AF52DE;   /* 记忆类工具（粉/紫） */
-  --cyan: #32ADE6;
-
-  /* 材质 */
-  --material-tint: rgba(255, 255, 255, .6);
-  /* 材质模糊滤镜（设计 §3）——GPU 不可用时组件以 --material-tint 实底回退 */
-  --material-thin: blur(20px) saturate(180%);
-  --material-regular: blur(30px) saturate(180%);
-  --shadow-fab: 0 4px 8px rgba(0, 0, 0, .2);
-  --shadow-pop: 0 8px 24px rgba(0, 0, 0, .14);
-
-  /* 圆角 */
-  --r-control: 8px;
-  --r-md: 10px;
-  --r-card: 12px;
-  --r-input: 16px;
-  --r-bubble: 18px;
-  --r-sheet: 20px;
-  --r-pill: 999px;
-
-  /* 助手图标暖色渐变 */
-  --assistant-gradient: linear-gradient(135deg, #B8B097, #99998C);
-
-  /* ===== MU2a 追加：§3.1 尺度令牌（主题无关，只写一次） ===== */
   /* 字号尺度（桌面密度基线 14） */
   --fs-display: 17px;   /* 设置页标题 */
   --fs-title:   15px;   /* 面板头、卡片标题 */
@@ -84,79 +214,145 @@
   /* 控件高 */
   --h-control: 32px; --h-input: 36px;
 
-  /* ===== MU2a 追加：§3.2 语义色槽（浅；四段各一份，比例三模式各调） ===== */
-  --surface-0: var(--bg);                     /* 应用底 */
-  --surface-1: var(--grouped-bg-secondary);   /* 卡片 */
-  --surface-2: var(--grouped-bg-tertiary);    /* 卡中槽 */
-  --action: var(--accent);                    /* 唯一主行动色（链接/主按钮/选中） */
-  --on-action: #FFFFFF;                       /* --action 实底上的文字色（两档 accent 蓝均可用白，模式无关只此一份） */
-  --state-ok: var(--green);   --state-err: var(--red);
-  --state-warn: var(--orange); --state-info: var(--link);
-  /* color-mix 比例槽（组件禁写死百分比，§3.3-1） */
-  --state-ok-bg: color-mix(in srgb, var(--green) 10%, transparent);
-  --state-ok-border: color-mix(in srgb, var(--green) 30%, transparent);
-  --state-err-bg: color-mix(in srgb, var(--red) 10%, transparent);
-  --state-err-border: color-mix(in srgb, var(--red) 30%, transparent);
-  --state-warn-bg: color-mix(in srgb, var(--orange) 10%, transparent);
-  --state-warn-border: color-mix(in srgb, var(--orange) 30%, transparent);
-  --state-info-bg: color-mix(in srgb, var(--link) 10%, transparent);
-  --state-info-border: color-mix(in srgb, var(--link) 30%, transparent);
-
   color-scheme: light;
 }
 
 /* 自动跟随系统深色 */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #000000;
-    --bg-secondary: #1C1C1E;
-    --bg-tertiary: #2C2C2E;
-    --grouped-bg: #000000;
-    --grouped-bg-secondary: #1C1C1E;
-    --grouped-bg-tertiary: #2C2C2E;
+    /* ===== A 区：Appica raw 层（照抄参考文件 .dark 块，逐字一致） ===== */
+    --foreground: oklch(0.872 0.01 258.338);
+    --foreground-subtle: oklch(0.551 0.027 264.364);
+    --foreground-muted: oklch(0.707 0.022 261.325);
+    --foreground-strong: oklch(0.928 0.006 264.531);
+    --foreground-emphasis: oklch(0.967 0.003 264.542);
+    --foreground-intense: oklch(1 0 0);
+    --foreground-inverse: oklch(0.21 0.034 264.665);
 
-    --label: #FFFFFF;
-    --label-secondary: rgba(235, 235, 245, .6);
-    --label-tertiary: rgba(235, 235, 245, .3);
-    --label-quaternary: rgba(235, 235, 245, .16);
+    --background: oklch(0.13 0.028 261.692);
+    --background-subtle: oklch(0.551 0.027 264.364 / 8%);
+    --background-muted: oklch(0.21 0.034 264.665);
+    --background-strong: oklch(0.278 0.033 256.848);
+    --background-inverse: oklch(1 0 0);
 
-    --separator: rgba(84, 84, 88, .6);
-    --separator-opaque: #38383A;
+    --border: oklch(0.278 0.033 256.848);
+    --border-muted: oklch(0.21 0.034 264.665);
+    --border-strong: oklch(0.373 0.034 259.733);
+    --border-emphasis: oklch(0.446 0.03 256.802);
+    --border-intense: oklch(0.551 0.027 264.364);
+    --border-inverse: oklch(0.928 0.006 264.531);
+    --border-overlay: oklch(0.278 0.033 256.848);
 
-    --fill: rgba(120, 120, 128, .36);
-    --fill-tertiary: rgba(118, 118, 128, .24);
-    --fill-quaternary: rgba(118, 118, 128, .18);
+    --primary: oklch(1 0 0);
+    --primary-subtle: oklch(0.21 0.034 264.665);
+    --primary-soft: oklch(0.278 0.033 256.848);
+    --primary-muted: oklch(0.928 0.006 264.531);
+    --primary-strong: oklch(1 0 0);
+    --primary-foreground: oklch(0.21 0.034 264.665);
 
-    --accent: #5490E4;
-    --brand: #504C42;
-    --on-brand: #FFFFFF;
-    --link: #0A84FF;
+    --secondary: oklch(0.707 0.165 254.624);
+    --secondary-subtle: oklch(0.623 0.214 259.815 / 10%);
+    --secondary-soft: oklch(0.623 0.214 259.815 / 20%);
+    --secondary-muted: oklch(0.809 0.105 251.813);
+    --secondary-strong: oklch(0.707 0.165 254.624);
+    --secondary-emphasis: oklch(0.623 0.214 259.815);
+    --secondary-intense: oklch(0.546 0.245 262.881);
+    --secondary-foreground: oklch(0.13 0.028 261.692);
 
-    --red: #FF453A;
-    --green: #30D158;
-    --orange: #FF9F0A;
-    --yellow: #FFD60A;
-    --blue: #0A84FF;
-    --purple: #BF5AF2;
-    --cyan: #64D2FF;
+    --error: oklch(0.704 0.191 22.216);
+    --error-subtle: oklch(0.637 0.237 25.331 / 10%);
+    --error-soft: oklch(0.637 0.237 25.331 / 20%);
+    --error-muted: oklch(0.808 0.114 19.571);
+    --error-strong: oklch(0.704 0.191 22.216);
+    --error-emphasis: oklch(0.637 0.237 25.331);
+    --error-intense: oklch(0.577 0.245 27.325);
+    --error-foreground: oklch(0.13 0.028 261.692);
 
-    --material-tint: rgba(30, 30, 30, .6);
+    --success: oklch(0.765 0.177 163.223);
+    --success-subtle: oklch(0.696 0.17 162.48 / 10%);
+    --success-soft: oklch(0.696 0.17 162.48 / 20%);
+    --success-muted: oklch(0.845 0.143 164.978);
+    --success-strong: oklch(0.765 0.177 163.223);
+    --success-emphasis: oklch(0.696 0.17 162.48);
+    --success-intense: oklch(0.596 0.145 163.225);
+    --success-foreground: oklch(0.13 0.028 261.692);
 
-    /* ===== MU2a 追加：§3.2 语义色槽（暗；bg 比例 10%→12%） ===== */
+    --warning: oklch(0.75 0.183 55.934);
+    --warning-subtle: oklch(0.705 0.213 47.604 / 10%);
+    --warning-soft: oklch(0.705 0.213 47.604 / 20%);
+    --warning-muted: oklch(0.837 0.128 66.29);
+    --warning-strong: oklch(0.75 0.183 55.934);
+    --warning-emphasis: oklch(0.705 0.213 47.604);
+    --warning-intense: oklch(0.646 0.222 41.116);
+    --warning-foreground: oklch(0.13 0.028 261.692);
+
+    --info: oklch(0.746 0.16 232.661);
+    --info-subtle: oklch(0.685 0.169 237.323 / 10%);
+    --info-soft: oklch(0.685 0.169 237.323 / 20%);
+    --info-muted: oklch(0.828 0.111 230.318);
+    --info-strong: oklch(0.746 0.16 232.661);
+    --info-emphasis: oklch(0.685 0.169 237.323);
+    --info-intense: oklch(0.588 0.158 241.966);
+    --info-foreground: oklch(0.13 0.028 261.692);
+
+    --focus-ring: oklch(0.373 0.034 259.733);
+    --focus-ring-input: oklch(0.278 0.033 256.848);
+    --focus-ring-primary: oklch(0.373 0.034 259.733);
+    --focus-ring-secondary: oklch(0.623 0.214 259.815 / 50%);
+    --focus-ring-error: oklch(0.637 0.237 25.331 / 50%);
+    --focus-ring-success: oklch(0.696 0.17 162.48 / 50%);
+    --focus-ring-warning: oklch(0.705 0.213 47.604 / 50%);
+    --focus-ring-info: oklch(0.685 0.169 237.323 / 50%);
+    --focus-ring-light: oklch(1 0 0 / 25%);
+
+    --shadow-color: oklch(0 0 0 / 30%);
+    --selection-color: oklch(1 0 0 / 15%);
+
+    /* ===== B 区：DeskMinis 语义别名层（媒体暗段；分叉映射按 §2-1） ===== */
+    --bg: var(--background);
+    --bg-secondary: var(--background-muted);
+    --bg-tertiary: var(--background-strong);
+    --grouped-bg: var(--background);
+    --grouped-bg-secondary: var(--background-muted);
+    --grouped-bg-tertiary: var(--background-strong);
     --surface-0: var(--bg);
     --surface-1: var(--grouped-bg-secondary);
     --surface-2: var(--grouped-bg-tertiary);
+    --label: var(--foreground);
+    --label-secondary: var(--foreground-muted);
+    --label-tertiary: var(--foreground-subtle);
+    --label-quaternary: var(--foreground-subtle);
+    --label-strong: var(--foreground-strong);
+    --label-emphasis: var(--foreground-emphasis);
+    --label-intense: var(--foreground-intense);
+    --separator: var(--border);
+    --separator-opaque: var(--border-strong);
+    --fill: var(--background-strong);
+    --fill-tertiary: var(--background-muted);
+    --fill-quaternary: var(--background-subtle);
+    --accent: var(--secondary-emphasis);
     --action: var(--accent);
-    --state-ok: var(--green);   --state-err: var(--red);
-    --state-warn: var(--orange); --state-info: var(--link);
-    --state-ok-bg: color-mix(in srgb, var(--green) 12%, transparent);
-    --state-ok-border: color-mix(in srgb, var(--green) 30%, transparent);
-    --state-err-bg: color-mix(in srgb, var(--red) 12%, transparent);
-    --state-err-border: color-mix(in srgb, var(--red) 30%, transparent);
-    --state-warn-bg: color-mix(in srgb, var(--orange) 12%, transparent);
-    --state-warn-border: color-mix(in srgb, var(--orange) 30%, transparent);
-    --state-info-bg: color-mix(in srgb, var(--link) 12%, transparent);
-    --state-info-border: color-mix(in srgb, var(--link) 30%, transparent);
+    --on-action: var(--foreground-intense);
+    --link: var(--secondary-emphasis);
+    --red: var(--error-emphasis);
+    --green: var(--success-emphasis);
+    --orange: var(--warning-emphasis);
+    --yellow: var(--warning-intense);
+    --blue: var(--info-emphasis);
+    --purple: var(--secondary-intense);
+    --cyan: var(--info-strong);
+    --state-ok: var(--success-emphasis);
+    --state-err: var(--error-emphasis);
+    --state-warn: var(--warning-emphasis);
+    --state-info: var(--info-emphasis);
+    --state-ok-bg: var(--success-subtle);
+    --state-ok-border: var(--success-soft);
+    --state-err-bg: var(--error-subtle);
+    --state-err-border: var(--error-soft);
+    --state-warn-bg: var(--warning-subtle);
+    --state-warn-border: var(--warning-soft);
+    --state-info-bg: var(--info-subtle);
+    --state-info-border: var(--info-soft);
 
     color-scheme: dark;
   }
@@ -164,110 +360,278 @@
 
 /* 强制深色（视图 → 明暗模式）——优先级高于系统 */
 :root[data-theme="dark"] {
-  --bg: #000000;
-  --bg-secondary: #1C1C1E;
-  --bg-tertiary: #2C2C2E;
-  --grouped-bg: #000000;
-  --grouped-bg-secondary: #1C1C1E;
-  --grouped-bg-tertiary: #2C2C2E;
+  /* ===== A 区：Appica raw 层（照抄参考文件 .dark 块，逐字一致） ===== */
+  --foreground: oklch(0.872 0.01 258.338);
+  --foreground-subtle: oklch(0.551 0.027 264.364);
+  --foreground-muted: oklch(0.707 0.022 261.325);
+  --foreground-strong: oklch(0.928 0.006 264.531);
+  --foreground-emphasis: oklch(0.967 0.003 264.542);
+  --foreground-intense: oklch(1 0 0);
+  --foreground-inverse: oklch(0.21 0.034 264.665);
 
-  --label: #FFFFFF;
-  --label-secondary: rgba(235, 235, 245, .6);
-  --label-tertiary: rgba(235, 235, 245, .3);
-  --label-quaternary: rgba(235, 235, 245, .16);
+  --background: oklch(0.13 0.028 261.692);
+  --background-subtle: oklch(0.551 0.027 264.364 / 8%);
+  --background-muted: oklch(0.21 0.034 264.665);
+  --background-strong: oklch(0.278 0.033 256.848);
+  --background-inverse: oklch(1 0 0);
 
-  --separator: rgba(84, 84, 88, .6);
-  --separator-opaque: #38383A;
+  --border: oklch(0.278 0.033 256.848);
+  --border-muted: oklch(0.21 0.034 264.665);
+  --border-strong: oklch(0.373 0.034 259.733);
+  --border-emphasis: oklch(0.446 0.03 256.802);
+  --border-intense: oklch(0.551 0.027 264.364);
+  --border-inverse: oklch(0.928 0.006 264.531);
+  --border-overlay: oklch(0.278 0.033 256.848);
 
-  --fill: rgba(120, 120, 128, .36);
-  --fill-tertiary: rgba(118, 118, 128, .24);
-  --fill-quaternary: rgba(118, 118, 128, .18);
+  --primary: oklch(1 0 0);
+  --primary-subtle: oklch(0.21 0.034 264.665);
+  --primary-soft: oklch(0.278 0.033 256.848);
+  --primary-muted: oklch(0.928 0.006 264.531);
+  --primary-strong: oklch(1 0 0);
+  --primary-foreground: oklch(0.21 0.034 264.665);
 
-  --accent: #5490E4;
-  --brand: #504C42;
-  --on-brand: #FFFFFF;
-  --link: #0A84FF;
+  --secondary: oklch(0.707 0.165 254.624);
+  --secondary-subtle: oklch(0.623 0.214 259.815 / 10%);
+  --secondary-soft: oklch(0.623 0.214 259.815 / 20%);
+  --secondary-muted: oklch(0.809 0.105 251.813);
+  --secondary-strong: oklch(0.707 0.165 254.624);
+  --secondary-emphasis: oklch(0.623 0.214 259.815);
+  --secondary-intense: oklch(0.546 0.245 262.881);
+  --secondary-foreground: oklch(0.13 0.028 261.692);
 
-  --red: #FF453A;
-  --green: #30D158;
-  --orange: #FF9F0A;
-  --yellow: #FFD60A;
-  --blue: #0A84FF;
-  --purple: #BF5AF2;
-  --cyan: #64D2FF;
+  --error: oklch(0.704 0.191 22.216);
+  --error-subtle: oklch(0.637 0.237 25.331 / 10%);
+  --error-soft: oklch(0.637 0.237 25.331 / 20%);
+  --error-muted: oklch(0.808 0.114 19.571);
+  --error-strong: oklch(0.704 0.191 22.216);
+  --error-emphasis: oklch(0.637 0.237 25.331);
+  --error-intense: oklch(0.577 0.245 27.325);
+  --error-foreground: oklch(0.13 0.028 261.692);
 
-  --material-tint: rgba(30, 30, 30, .6);
+  --success: oklch(0.765 0.177 163.223);
+  --success-subtle: oklch(0.696 0.17 162.48 / 10%);
+  --success-soft: oklch(0.696 0.17 162.48 / 20%);
+  --success-muted: oklch(0.845 0.143 164.978);
+  --success-strong: oklch(0.765 0.177 163.223);
+  --success-emphasis: oklch(0.696 0.17 162.48);
+  --success-intense: oklch(0.596 0.145 163.225);
+  --success-foreground: oklch(0.13 0.028 261.692);
 
-  /* ===== MU2a 追加：§3.2 语义色槽（强制暗，同媒体暗段） ===== */
+  --warning: oklch(0.75 0.183 55.934);
+  --warning-subtle: oklch(0.705 0.213 47.604 / 10%);
+  --warning-soft: oklch(0.705 0.213 47.604 / 20%);
+  --warning-muted: oklch(0.837 0.128 66.29);
+  --warning-strong: oklch(0.75 0.183 55.934);
+  --warning-emphasis: oklch(0.705 0.213 47.604);
+  --warning-intense: oklch(0.646 0.222 41.116);
+  --warning-foreground: oklch(0.13 0.028 261.692);
+
+  --info: oklch(0.746 0.16 232.661);
+  --info-subtle: oklch(0.685 0.169 237.323 / 10%);
+  --info-soft: oklch(0.685 0.169 237.323 / 20%);
+  --info-muted: oklch(0.828 0.111 230.318);
+  --info-strong: oklch(0.746 0.16 232.661);
+  --info-emphasis: oklch(0.685 0.169 237.323);
+  --info-intense: oklch(0.588 0.158 241.966);
+  --info-foreground: oklch(0.13 0.028 261.692);
+
+  --focus-ring: oklch(0.373 0.034 259.733);
+  --focus-ring-input: oklch(0.278 0.033 256.848);
+  --focus-ring-primary: oklch(0.373 0.034 259.733);
+  --focus-ring-secondary: oklch(0.623 0.214 259.815 / 50%);
+  --focus-ring-error: oklch(0.637 0.237 25.331 / 50%);
+  --focus-ring-success: oklch(0.696 0.17 162.48 / 50%);
+  --focus-ring-warning: oklch(0.705 0.213 47.604 / 50%);
+  --focus-ring-info: oklch(0.685 0.169 237.323 / 50%);
+  --focus-ring-light: oklch(1 0 0 / 25%);
+
+  --shadow-color: oklch(0 0 0 / 30%);
+  --selection-color: oklch(1 0 0 / 15%);
+
+  /* ===== B 区：DeskMinis 语义别名层（强制暗段，同媒体暗段） ===== */
+  --bg: var(--background);
+  --bg-secondary: var(--background-muted);
+  --bg-tertiary: var(--background-strong);
+  --grouped-bg: var(--background);
+  --grouped-bg-secondary: var(--background-muted);
+  --grouped-bg-tertiary: var(--background-strong);
   --surface-0: var(--bg);
   --surface-1: var(--grouped-bg-secondary);
   --surface-2: var(--grouped-bg-tertiary);
+  --label: var(--foreground);
+  --label-secondary: var(--foreground-muted);
+  --label-tertiary: var(--foreground-subtle);
+  --label-quaternary: var(--foreground-subtle);
+  --label-strong: var(--foreground-strong);
+  --label-emphasis: var(--foreground-emphasis);
+  --label-intense: var(--foreground-intense);
+  --separator: var(--border);
+  --separator-opaque: var(--border-strong);
+  --fill: var(--background-strong);
+  --fill-tertiary: var(--background-muted);
+  --fill-quaternary: var(--background-subtle);
+  --accent: var(--secondary-emphasis);
   --action: var(--accent);
-  --state-ok: var(--green);   --state-err: var(--red);
-  --state-warn: var(--orange); --state-info: var(--link);
-  --state-ok-bg: color-mix(in srgb, var(--green) 12%, transparent);
-  --state-ok-border: color-mix(in srgb, var(--green) 30%, transparent);
-  --state-err-bg: color-mix(in srgb, var(--red) 12%, transparent);
-  --state-err-border: color-mix(in srgb, var(--red) 30%, transparent);
-  --state-warn-bg: color-mix(in srgb, var(--orange) 12%, transparent);
-  --state-warn-border: color-mix(in srgb, var(--orange) 30%, transparent);
-  --state-info-bg: color-mix(in srgb, var(--link) 12%, transparent);
-  --state-info-border: color-mix(in srgb, var(--link) 30%, transparent);
+  --on-action: var(--foreground-intense);
+  --link: var(--secondary-emphasis);
+  --red: var(--error-emphasis);
+  --green: var(--success-emphasis);
+  --orange: var(--warning-emphasis);
+  --yellow: var(--warning-intense);
+  --blue: var(--info-emphasis);
+  --purple: var(--secondary-intense);
+  --cyan: var(--info-strong);
+  --state-ok: var(--success-emphasis);
+  --state-err: var(--error-emphasis);
+  --state-warn: var(--warning-emphasis);
+  --state-info: var(--info-emphasis);
+  --state-ok-bg: var(--success-subtle);
+  --state-ok-border: var(--success-soft);
+  --state-err-bg: var(--error-subtle);
+  --state-err-border: var(--error-soft);
+  --state-warn-bg: var(--warning-subtle);
+  --state-warn-border: var(--warning-soft);
+  --state-info-bg: var(--info-subtle);
+  --state-info-border: var(--info-soft);
 
   color-scheme: dark;
 }
 
-/* 强制浅色——即便系统是深色也覆盖回浅（重申默认值） */
+/* 强制浅色——即便系统是深色也覆盖回浅（重申默认值；主题无关 raw 只在 :root 写一次） */
 :root[data-theme="light"] {
-  --bg: #FFFFFF;
-  --bg-secondary: #F2F2F7;
-  --bg-tertiary: #FFFFFF;
-  --grouped-bg: #F2F2F7;
-  --grouped-bg-secondary: #FFFFFF;
-  --grouped-bg-tertiary: #F2F2F7;
+  /* ===== A 区：Appica raw 层（照抄参考文件 :root,.light 块，逐字一致） ===== */
+  --foreground: oklch(0.446 0.03 256.802);
+  --foreground-subtle: oklch(0.707 0.022 261.325);
+  --foreground-muted: oklch(0.551 0.027 264.364);
+  --foreground-strong: oklch(0.373 0.034 259.733);
+  --foreground-emphasis: oklch(0.278 0.033 256.848);
+  --foreground-intense: oklch(0.21 0.034 264.665);
+  --foreground-inverse: oklch(1 0 0);
 
-  --label: #000000;
-  --label-secondary: rgba(60, 60, 67, .6);
-  --label-tertiary: rgba(60, 60, 67, .3);
-  --label-quaternary: rgba(60, 60, 67, .18);
+  --background: oklch(1 0 0);
+  --background-subtle: oklch(0.985 0.002 247.839);
+  --background-muted: oklch(0.967 0.003 264.542);
+  --background-strong: oklch(0.928 0.006 264.531);
+  --background-inverse: oklch(0.13 0.028 261.692);
 
-  --separator: rgba(60, 60, 67, .29);
-  --separator-opaque: #C6C6C8;
+  --border: oklch(0.928 0.006 264.531);
+  --border-muted: oklch(0.967 0.003 264.542);
+  --border-strong: oklch(0.872 0.01 258.338);
+  --border-emphasis: oklch(0.707 0.022 261.325);
+  --border-intense: oklch(0.551 0.027 264.364);
+  --border-inverse: oklch(0.278 0.033 256.848);
+  --border-overlay: oklch(0.967 0.003 264.542);
 
-  --fill: rgba(120, 120, 128, .2);
-  --fill-tertiary: rgba(118, 118, 128, .12);
-  --fill-quaternary: rgba(116, 116, 128, .08);
+  --primary: oklch(0.21 0.034 264.665);
+  --primary-subtle: oklch(0.967 0.003 264.542);
+  --primary-soft: oklch(0.928 0.006 264.531);
+  --primary-muted: oklch(0.373 0.034 259.733);
+  --primary-strong: oklch(0.13 0.028 261.692);
+  --primary-foreground: oklch(1 0 0);
 
-  --accent: #3686EE;
-  --brand: #B7AF96;
-  --on-brand: #1C1C1E;
-  --link: #007AFF;
+  --secondary: oklch(0.809 0.105 251.813);
+  --secondary-subtle: oklch(0.623 0.214 259.815 / 10%);
+  --secondary-soft: oklch(0.623 0.214 259.815 / 20%);
+  --secondary-muted: oklch(0.882 0.059 254.128);
+  --secondary-strong: oklch(0.707 0.165 254.624);
+  --secondary-emphasis: oklch(0.623 0.214 259.815);
+  --secondary-intense: oklch(0.546 0.245 262.881);
+  --secondary-foreground: oklch(0.13 0.028 261.692);
 
-  --red: #FF3B30;
-  --green: #34C759;
-  --orange: #FF9500;
-  --yellow: #FFCC00;
-  --blue: #007AFF;
-  --purple: #AF52DE;
-  --cyan: #32ADE6;
+  --error: oklch(0.808 0.114 19.571);
+  --error-subtle: oklch(0.637 0.237 25.331 / 10%);
+  --error-soft: oklch(0.637 0.237 25.331 / 20%);
+  --error-muted: oklch(0.885 0.062 18.334);
+  --error-strong: oklch(0.704 0.191 22.216);
+  --error-emphasis: oklch(0.637 0.237 25.331);
+  --error-intense: oklch(0.577 0.245 27.325);
+  --error-foreground: oklch(0.13 0.028 261.692);
 
-  --material-tint: rgba(255, 255, 255, .6);
+  --success: oklch(0.845 0.143 164.978);
+  --success-subtle: oklch(0.696 0.17 162.48 / 10%);
+  --success-soft: oklch(0.696 0.17 162.48 / 20%);
+  --success-muted: oklch(0.905 0.093 164.15);
+  --success-strong: oklch(0.765 0.177 163.223);
+  --success-emphasis: oklch(0.696 0.17 162.48);
+  --success-intense: oklch(0.596 0.145 163.225);
+  --success-foreground: oklch(0.13 0.028 261.692);
 
-  /* ===== MU2a 追加：§3.2 语义色槽（强制浅，同 :root 段） ===== */
+  --warning: oklch(0.837 0.128 66.29);
+  --warning-subtle: oklch(0.705 0.213 47.604 / 10%);
+  --warning-soft: oklch(0.705 0.213 47.604 / 20%);
+  --warning-muted: oklch(0.901 0.076 70.697);
+  --warning-strong: oklch(0.75 0.183 55.934);
+  --warning-emphasis: oklch(0.705 0.213 47.604);
+  --warning-intense: oklch(0.646 0.222 41.116);
+  --warning-foreground: oklch(0.13 0.028 261.692);
+
+  --info: oklch(0.828 0.111 230.318);
+  --info-subtle: oklch(0.685 0.169 237.323 / 10%);
+  --info-soft: oklch(0.685 0.169 237.323 / 20%);
+  --info-muted: oklch(0.901 0.058 230.902);
+  --info-strong: oklch(0.746 0.16 232.661);
+  --info-emphasis: oklch(0.685 0.169 237.323);
+  --info-intense: oklch(0.588 0.158 241.966);
+  --info-foreground: oklch(0.13 0.028 261.692);
+
+  --focus-ring: oklch(0.872 0.01 258.338);
+  --focus-ring-input: oklch(0.928 0.006 264.531);
+  --focus-ring-primary: oklch(0.872 0.01 258.338);
+  --focus-ring-secondary: oklch(0.623 0.214 259.815 / 30%);
+  --focus-ring-error: oklch(0.637 0.237 25.331 / 30%);
+  --focus-ring-success: oklch(0.696 0.17 162.48 / 30%);
+  --focus-ring-warning: oklch(0.705 0.213 47.604 / 30%);
+  --focus-ring-info: oklch(0.685 0.169 237.323 / 30%);
+  --focus-ring-light: oklch(1 0 0 / 25%);
+
+  --shadow-color: oklch(0.551 0.027 264.364 / 18%);
+  --selection-color: oklch(0.13 0.028 261.692 / 10%);
+
+  /* ===== B 区：DeskMinis 语义别名层（强制浅段，同 :root 段） ===== */
+  --bg: var(--background);
+  --bg-secondary: var(--background-muted);
+  --bg-tertiary: var(--background);
+  --grouped-bg: var(--background-muted);
+  --grouped-bg-secondary: var(--background);
+  --grouped-bg-tertiary: var(--background-muted);
   --surface-0: var(--bg);
   --surface-1: var(--grouped-bg-secondary);
   --surface-2: var(--grouped-bg-tertiary);
+  --label: var(--foreground);
+  --label-secondary: var(--foreground-muted);
+  --label-tertiary: var(--foreground-subtle);
+  --label-quaternary: var(--foreground-subtle);
+  --label-strong: var(--foreground-strong);
+  --label-emphasis: var(--foreground-emphasis);
+  --label-intense: var(--foreground-intense);
+  --separator: var(--border);
+  --separator-opaque: var(--border-strong);
+  --fill: var(--background-strong);
+  --fill-tertiary: var(--background-muted);
+  --fill-quaternary: var(--background-subtle);
+  --accent: var(--secondary-emphasis);
   --action: var(--accent);
-  --state-ok: var(--green);   --state-err: var(--red);
-  --state-warn: var(--orange); --state-info: var(--link);
-  --state-ok-bg: color-mix(in srgb, var(--green) 10%, transparent);
-  --state-ok-border: color-mix(in srgb, var(--green) 30%, transparent);
-  --state-err-bg: color-mix(in srgb, var(--red) 10%, transparent);
-  --state-err-border: color-mix(in srgb, var(--red) 30%, transparent);
-  --state-warn-bg: color-mix(in srgb, var(--orange) 10%, transparent);
-  --state-warn-border: color-mix(in srgb, var(--orange) 30%, transparent);
-  --state-info-bg: color-mix(in srgb, var(--link) 10%, transparent);
-  --state-info-border: color-mix(in srgb, var(--link) 30%, transparent);
+  --on-action: var(--primary-foreground);
+  --link: var(--secondary-emphasis);
+  --red: var(--error-emphasis);
+  --green: var(--success-emphasis);
+  --orange: var(--warning-emphasis);
+  --yellow: var(--warning-intense);
+  --blue: var(--info-emphasis);
+  --purple: var(--secondary-intense);
+  --cyan: var(--info-strong);
+  --state-ok: var(--success-emphasis);
+  --state-err: var(--error-emphasis);
+  --state-warn: var(--warning-emphasis);
+  --state-info: var(--info-emphasis);
+  --state-ok-bg: var(--success-subtle);
+  --state-ok-border: var(--success-soft);
+  --state-err-bg: var(--error-subtle);
+  --state-err-border: var(--error-soft);
+  --state-warn-bg: var(--warning-subtle);
+  --state-warn-border: var(--warning-soft);
+  --state-info-bg: var(--info-subtle);
+  --state-info-border: var(--info-soft);
 
   color-scheme: light;
 }
@@ -283,5 +647,7 @@ body {
   font-variant-numeric: tabular-nums;
   overflow: hidden;
 }
+/* 选区色（MU3：Appica 便宜特性移植，raw 层 --selection-color 两段各调） */
+::selection { background: var(--selection-color); }
 /* 线性图标默认描边样式（对齐预览稿） */
 svg { stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }

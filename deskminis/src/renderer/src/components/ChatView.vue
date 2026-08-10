@@ -427,11 +427,13 @@ function onSlashTab(e: KeyboardEvent): void {
   position: absolute; right: 20px; bottom: 96px; z-index: 20;
   width: 32px; height: 32px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--material-tint); backdrop-filter: var(--material-thin);
+  background: var(--surface-1);
   border: .5px solid var(--separator); color: var(--label-secondary);
-  cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, .14);
+  cursor: pointer; box-shadow: 0 4px 16px var(--shadow-color);
 }
 .back-bottom:hover { color: var(--label); background: var(--fill-tertiary); }
+/* MU3 §2-5 焦点环：键盘 :focus-visible 出环，鼠标点击无环 */
+.back-bottom:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* 回合容器（设计 v2 §2.1）：回合间 1px 分隔线 + 24px 间距，回合内块间 8px */
 .turn { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
@@ -449,12 +451,13 @@ function onSlashTab(e: KeyboardEvent): void {
 }
 .ublock:hover .uops, .uops:focus-visible { opacity: 1; }
 .uops:hover { color: var(--label); background: var(--fill-tertiary); }
+.uops:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .utext { font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 /* 助手消息：无气泡（名称行只留实时回合一处） */
 .msg-a { padding: 0; }
 .ahead { display: flex; align-items: center; gap: 8px; }
 .aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
-.aname { font-size: var(--fs-title); font-weight: 600; }
+.aname { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); }
 .abody { font-size: var(--fs-body); line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
@@ -463,19 +466,19 @@ function onSlashTab(e: KeyboardEvent): void {
 .dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes jump { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
 
-/* 输入区：浮动容器 + 材质 */
+/* 输入区：浮动容器（MU3：材质退场改实底） */
 .composer {
-  margin: 0 16px 16px; border-radius: var(--r-input); background: var(--material-tint);
-  backdrop-filter: var(--material-thin); border: .5px solid var(--separator);
+  margin: 0 16px 16px; border-radius: var(--r-input); background: var(--surface-1);
+  border: .5px solid var(--separator);
   padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
   position: relative;
 }
 .slashmenu {
   position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
   display: flex; flex-direction: column; padding: 6px; gap: 2px; max-height: 260px; overflow: auto;
-  background: var(--material-tint); backdrop-filter: var(--material-thin);
+  background: var(--surface-1);
   border: .5px solid var(--separator); border-radius: var(--r-md);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+  box-shadow: 0 8px 28px var(--shadow-color);
 }
 .slashitem {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: none; background: none;
@@ -483,16 +486,19 @@ function onSlashTab(e: KeyboardEvent): void {
   font-size: var(--fs-body); text-align: left;
 }
 .slashitem.on { background: var(--fill-tertiary); }
+.slashitem:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .slashitem :deep(svg) { stroke: var(--label-secondary); flex: 0 0 auto; }
-.sname { font-weight: 600; flex: 0 0 auto; }
+.sname { font-weight: 600; flex: 0 0 auto; color: var(--label-strong); }
 .sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field {
   background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);
   padding: 8px 12px; font-size: var(--fs-body); color: var(--label); font-family: var(--font-ui);
-  min-height: 36px; max-height: 176px; resize: none; line-height: 20px; outline: none; width: 100%;
+  min-height: 36px; max-height: 176px; resize: none; line-height: 20px; width: 100%;
   overflow-y: auto; /* 超 8 行（176px）内滚 */
 }
 .field::placeholder { color: var(--label-tertiary); }
+/* MU3 §2-5：输入类焦点环 --ring-input（原灭绝默认环写法退场，键盘/鼠标聚焦均有环） */
+.field:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
 /* 附件 chip（设计 §5.5：48px 圆角 --r-control，对齐 OpenMinis AttachmentChip 语义） */
 .achips { display: flex; gap: 8px; flex-wrap: wrap; }
 .achip {
@@ -502,7 +508,7 @@ function onSlashTab(e: KeyboardEvent): void {
 .achip img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .adel {
   position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%;
-  border: none; background: var(--material-tint); color: var(--label); font-size: 11px; line-height: 1;
+  border: none; background: var(--surface-1); color: var(--label); font-size: 11px; line-height: 1;
   display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
 }
 .ctools { display: flex; align-items: center; gap: 8px; }
@@ -518,6 +524,7 @@ function onSlashTab(e: KeyboardEvent): void {
   display: flex; align-items: center; justify-content: center; flex: 0 0 auto; border: none; cursor: pointer; padding: 0;
 }
 .send :deep(svg) { stroke: var(--on-action); }
+.send:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .send:disabled { background: var(--label-quaternary); cursor: default; }
 .send.stop :deep(svg) { stroke: var(--on-action); fill: var(--on-action); }
 /* M3c Task 7：回合区消息设备标（决策 7c）——originDeviceId 映射色点 + 6 字短名 */

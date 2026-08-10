@@ -142,7 +142,7 @@ describe('MU2a Task 7 DiffView 守卫（3 例）', () => {
   it('tokens.css 四段语义槽：--state-ok-bg / --state-err-bg 各 4 处（浅/媒体暗/强制暗/强制浅）', () => {
     expect(tokens.match(/--state-ok-bg:/g)).toHaveLength(4);
     expect(tokens.match(/--state-err-bg:/g)).toHaveLength(4);
-    expect(tokens).toContain('--state-ok-bg: color-mix(in srgb, var(--green) 12%, transparent)'); // 暗色 alpha 12%
-    expect(tokens).toContain('--state-err-bg: color-mix(in srgb, var(--red) 12%, transparent)');
+    expect(tokens).toContain('--state-ok-bg: var(--success-subtle)'); // MU3 §3-3：Appica 直给 alpha，color-mix 清零
+    expect(tokens).toContain('--state-err-bg: var(--error-subtle)');
   });
 });
