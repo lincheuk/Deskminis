@@ -13,7 +13,10 @@ interface UiSkill { id: string; name: string; description: string; isEnabled: bo
 
 export const useChat = defineStore('chat', {
   state: () => ({
-    sessions: [] as { id: string; title: string; updatedAt?: number; pinnedAt?: number }[],
+    // 字段与后端 SessionMeta 对齐：chat.sessions.list 本就返回 memoryEnabled / modelBinding，
+    // 此前本地只声明了四项，导致「有数据但界面读不到」——MU6 会话操作正需要这两项显示当前状态。
+    sessions: [] as { id: string; title: string; updatedAt?: number; pinnedAt?: number;
+                      memoryEnabled?: boolean; modelBinding?: string }[],
     activeId: '' as string,
     messages: [] as UiMessage[],
     streamingText: '' as string,
@@ -113,6 +116,27 @@ export const useChat = defineStore('chat', {
       this.skills = this.activeId
         ? await rpc.call('skills.list', { sessionId: this.activeId })
         : (await rpc.call('skills.list', {})).filter((s: UiSkill) => s.isEnabled);
+    },
+    // ---- MU6 会话操作（消费既有 RPC，不新增方法）----
+    /** 删除会话。后端强制 confirm:true——漏了它会抛错，界面表现为「点了删除没反应」。 */
+    async deleteSession(id: string) {
+      await rpc.call('chat.sessions.delete', { sessionId: id, confirm: true });
+      await this.refreshSessions();
+      // 删掉的正是当前会话时要落到别处，否则界面停在一个已不存在的会话上
+      if (this.activeId === id) {
+        const next = this.sessions[0];
+        if (next) await this.open(next.id);
+        else { this.activeId = ''; this.messages = []; }
+      }
+    },
+    async setSessionMemory(id: string, enabled: boolean) {
+      await rpc.call('chat.sessions.setMemoryEnabled', { sessionId: id, enabled });
+      await this.refreshSessions();
+    },
+    /** binding 传 undefined / 空串即解绑（后端 setModelBinding 的取值约定）。 */
+    async setSessionModelBinding(id: string, binding?: string) {
+      await rpc.call('chat.sessions.setModelBinding', { sessionId: id, binding });
+      await this.refreshSessions();
     },
     async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
     async open(id: string) {
