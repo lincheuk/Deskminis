@@ -92,8 +92,11 @@ describe('MU2b Task 4 左栏任务卡：SessionList/App.vue 守卫（2 例）', 
     expect(sessionList).toContain('var(--state-err)');
   });
 
-  it('App.vue：.pane-l 宽 260px → 232px（设计 §1.2）', () => {
-    expect(app).toContain('width: 232px');
+  /** MU5 重锚：布局 B 把展开态压到 212px，折叠态走 52px 图标轨（计划决策 2-2）。
+   *  上一档 260→232 是 MU2b 的设计 §1.2；本轮 232→212，同一守卫换锚不换意图。 */
+  it('App.vue：.pane-l 展开态宽 232px → 212px（MU5 布局 B；折叠态另走 52px 图标轨）', () => {
+    expect(app).toContain('width: 212px');
     expect(app).not.toContain('width: 260px');
+    expect(app).not.toContain('width: 232px');
   });
 });
