@@ -75,7 +75,7 @@ describe('MU2a Task 4 令牌层演进（8 例）', () => {
     // 别名映射防漂移（brand 轴无锚：--brand/--on-brand 已消亡，由 L79/L81/L83 不存在性断言替代）
     expect(rootLight).toContain('--accent: var(--secondary-emphasis)');
     expect(rootLight).toContain('--green: var(--success-emphasis)');
-    expect(rootLight).toContain('--label: var(--foreground)');
+    expect(rootLight).toContain('--label: var(--foreground-strong)');
     expect(rootLight).toContain('--state-warn-bg: var(--warning-subtle)');
   });
 

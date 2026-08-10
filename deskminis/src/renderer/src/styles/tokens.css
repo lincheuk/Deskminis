@@ -138,15 +138,15 @@
   --surface-1: var(--grouped-bg-secondary);
   --surface-2: var(--grouped-bg-tertiary);
   /* 文字 7 级 */
-  --label: var(--foreground);
+  --label: var(--foreground-strong);
   --label-secondary: var(--foreground-muted);
   --label-tertiary: var(--foreground-subtle);
   --label-quaternary: var(--foreground-subtle); /* 与 tertiary 视觉合并（Appica 弱级仅 2 档） */
-  --label-strong: var(--foreground-strong);
+  --label-strong: var(--foreground-emphasis);
   --label-emphasis: var(--foreground-emphasis);
   --label-intense: var(--foreground-intense);
   /* 分隔线 */
-  --separator: var(--border);
+  --separator: var(--border-strong);
   --separator-opaque: var(--border-strong);
   /* 填充 */
   --fill: var(--background-strong);
@@ -318,14 +318,14 @@
     --surface-0: var(--bg);
     --surface-1: var(--grouped-bg-secondary);
     --surface-2: var(--grouped-bg-tertiary);
-    --label: var(--foreground);
+    --label: var(--foreground-strong);
     --label-secondary: var(--foreground-muted);
     --label-tertiary: var(--foreground-subtle);
     --label-quaternary: var(--foreground-subtle);
-    --label-strong: var(--foreground-strong);
+    --label-strong: var(--foreground-emphasis);
     --label-emphasis: var(--foreground-emphasis);
     --label-intense: var(--foreground-intense);
-    --separator: var(--border);
+    --separator: var(--border-strong);
     --separator-opaque: var(--border-strong);
     --fill: var(--background-strong);
     --fill-tertiary: var(--background-muted);
@@ -458,14 +458,14 @@
   --surface-0: var(--bg);
   --surface-1: var(--grouped-bg-secondary);
   --surface-2: var(--grouped-bg-tertiary);
-  --label: var(--foreground);
+  --label: var(--foreground-strong);
   --label-secondary: var(--foreground-muted);
   --label-tertiary: var(--foreground-subtle);
   --label-quaternary: var(--foreground-subtle);
-  --label-strong: var(--foreground-strong);
+  --label-strong: var(--foreground-emphasis);
   --label-emphasis: var(--foreground-emphasis);
   --label-intense: var(--foreground-intense);
-  --separator: var(--border);
+  --separator: var(--border-strong);
   --separator-opaque: var(--border-strong);
   --fill: var(--background-strong);
   --fill-tertiary: var(--background-muted);
@@ -597,14 +597,14 @@
   --surface-0: var(--bg);
   --surface-1: var(--grouped-bg-secondary);
   --surface-2: var(--grouped-bg-tertiary);
-  --label: var(--foreground);
+  --label: var(--foreground-strong);
   --label-secondary: var(--foreground-muted);
   --label-tertiary: var(--foreground-subtle);
   --label-quaternary: var(--foreground-subtle);
-  --label-strong: var(--foreground-strong);
+  --label-strong: var(--foreground-emphasis);
   --label-emphasis: var(--foreground-emphasis);
   --label-intense: var(--foreground-intense);
-  --separator: var(--border);
+  --separator: var(--border-strong);
   --separator-opaque: var(--border-strong);
   --fill: var(--background-strong);
   --fill-tertiary: var(--background-muted);
