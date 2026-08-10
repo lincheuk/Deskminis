@@ -70,3 +70,10 @@
   上下文压缩/卸载、记忆系统、技能系统（SKILL.md 生态兼容）、windows-* 桥、
   右栏终端/文件/任务面板完整 UI
 - 之后依次 M3（内网同步）、M4（文件同步+打包）
+
+### Backlog（MU3 交付复验发现，独立决策项）
+
+- **三级文字对比度不过 WCAG AA**：`--label-tertiary`/`-quaternary` → `--foreground-subtle`，浅 2.60 / 暗 4.16（AA 需 4.5）。
+  这是**从 Apple 调色板继承的既有缺口**（旧值浅 1.73 / 暗 2.25，MU3 已把它改善 +50%~85%），非 MU3 引入。
+  补齐需把三级上提到 `--foreground-muted`（浅 4.84），代价是与次级同色、压掉一层层次——属独立无障碍决策，
+  实测数据见 [ui-design-v3.md §8](docs/specs/2026-08-09-ui-design-v3.md)。

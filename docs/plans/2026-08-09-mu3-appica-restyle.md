@@ -100,7 +100,7 @@ MU1 拍板「变体 A + Codex/WorkBuddy/OpenMinis 三合一视觉基准」，其
 | --grouped-bg-secondary | --background | --background-muted | 分叉（卡片） |
 | --grouped-bg-tertiary | --background-muted | --background-strong | 分叉（卡中槽） |
 | --surface-0/1/2 | 链式不动（=--bg / grouped-bg-secondary / grouped-bg-tertiary） | | |
-| --label | --foreground | 同 | 基色中灰化是 Appica 签名，正文对比度浅 ≈4.9:1 过 AA |
+| --label | --foreground | 同 | 基色中灰化是 Appica 签名。**交付复验实测订正**：正文对比度浅 **7.56:1**、暗 **13.67:1**（初稿写「≈4.9:1」系拍脑袋估算未实算，实际更好，浅色连 AAA 7:1 都过）。逐级实测表见 [ui-design-v3.md](../specs/2026-08-09-ui-design-v3.md) §对比度实测 |
 | --label-secondary | --foreground-muted | 同 | |
 | --label-tertiary | --foreground-subtle | 同 | |
 | --label-quaternary | --foreground-subtle | 同 | **与 tertiary 视觉合并**（Appica 弱级仅 2 档），申报 |
@@ -361,7 +361,8 @@ position/z-index 两断言保留不动；文件头注重写为防御性槽位论
 | 21 | TitleBar | 6 | 改 | .tb-title → --label-strong（配合既有 w600） |
 | 22 | ToolLine | 8 | 改 | 工具名（mono）→ --label-strong |
 
-- [x] 上表 **15** 个「改」组件逐落地（仅 class 级 token 换名，不动 DOM/逻辑）；**7** 个「不改」组件 git diff 自查为空（自审订正：初稿误写「13 改 9 不改」，按表逐行点数实为 15 改 7 不改）
+- [x] 上表 **15** 个「改」组件逐落地（仅 class 级 token 换名，不动 DOM/逻辑）；**7** 个「不改」组件 **Task 5 零触碰**（自审订正：初稿误写「13 改 9 不改」，按表逐行点数实为 15 改 7 不改）
+  - ⚠️ **口径订正（交付复验发现）**：本行原写「7 个「不改」组件 git diff 自查为空」，按 `vs main` 读为假——**TerminalPanel 有 5+/3- 改动，来自 Task 4 的 xterm 兜底换算**（计划内其他 Task 的授权范围，非 Task 5 越界）。准确表述：**Task 5 未触碰这 7 个**；其中 6 个（EventNote/FadeText/FileTreeNode/Icon/MarkdownInline/MarkdownView）vs main 全零 diff，TerminalPanel 的 diff 经逐行核对仅含 Task 4 那一处换算。守卫例 10 的「7 不改组件零引用新 label 级」仍全绿。
 - [x] 守卫转绿；commit
 
 ### Task 6 — 焦点环应用（转绿：焦点环守卫）
