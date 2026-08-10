@@ -171,18 +171,50 @@ function fmt(n: number): string {
 </template>
 
 <style scoped>
-.ppanel { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+/* 磨砂玻璃（2026-08-10 用户要求）。三条落地要点，缺一条就只是「加了个看不见的 blur」：
+   ① 面板底给极淡渐变——半透明卡片背后得有东西可透，压在纯色上模糊了也等于没模糊；
+   ② 标题做**吸顶**，卡片从它下面滚过去，这才是 backdrop-filter 真正显形的地方；
+   ③ 卡片靠「半透明 + 顶部内高光 + 柔和投影」造厚度，而不是描边——边框是平面语言。 */
+.ppanel {
+  flex: 1; min-height: 0; overflow: auto; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--glass-ground);
+}
 .phint { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 12px; text-align: center; line-height: 1.6; }
-.ptask { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); padding: 2px 4px; line-height: 1.4; }
-.psec { background: var(--surface-1); border-radius: var(--r-card); padding: 10px 12px; }
-.psec.pending { border-left: 3px solid var(--state-warn); }
+/* 吸顶玻璃头：负外边距把它撑到面板边缘，top:0 贴住滚动视口顶。
+   z-index 只在 .ppanel 内部生效——本面板没有弹出层，不会重演 TitleBar 的层叠上下文陷阱。 */
+.ptask {
+  position: sticky; top: 0; z-index: 2;
+  margin: -10px -12px 0; padding: 12px 16px 10px;
+  font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); line-height: 1.4;
+  background: var(--glass-thick);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: .5px solid var(--separator);
+}
+.psec {
+  background: var(--glass-thin);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-sheet);
+  padding: 12px 14px;
+  /* 顶部那道内高光是「有厚度」的关键：比加一圈边框克制，也更像玻璃的受光边 */
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow-fab);
+}
+.psec.pending {
+  border-left: 3px solid var(--state-warn);
+  background: color-mix(in oklch, var(--state-warn-bg) 55%, var(--glass-thin));
+}
 .pending-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pending-text { font-size: var(--fs-ui); color: var(--label); line-height: 1.5; }
 .gobtn {
   flex: 0 0 auto; border: none; border-radius: var(--r-control); padding: 4px 10px; cursor: pointer;
   background: var(--action); color: var(--on-action); font-size: var(--fs-caption); font-weight: 600;
 }
-.phead { font-size: var(--fs-caption); font-weight: 600; color: var(--label-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.phead {
+  font-size: var(--fs-caption); font-weight: 600; color: var(--label-secondary);
+  letter-spacing: .02em; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+}
 .eicon { font-weight: 700; }
 .ebody { font-size: var(--fs-caption); color: var(--label); line-height: 1.5; }
 .pempty { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 2px 0 4px; }
@@ -190,7 +222,11 @@ function fmt(n: number): string {
 .sicon { flex: 0 0 auto; width: 16px; text-align: center; font-size: var(--fs-caption); }
 .sicon.ok { color: var(--state-ok); }
 .sicon.fail { color: var(--state-err); }
-.sicon.run { color: var(--state-warn); animation: pulse 1.2s ease-in-out infinite; }
+/* 进行中的步骤带一点辉光——玻璃质感下，纯闪烁不如「发光」读得出来 */
+.sicon.run {
+  color: var(--state-warn); animation: pulse 1.2s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px var(--state-warn-border));
+}
 .stitle { flex: 1; min-width: 0; color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sdur { flex: 0 0 auto; color: var(--label-tertiary); font-family: var(--font-mono); font-size: var(--fs-mono); font-variant-numeric: tabular-nums; }
 .pbadge { margin-left: auto; font-size: 10px; color: var(--on-action); padding: 1px 6px; border-radius: 999px; }

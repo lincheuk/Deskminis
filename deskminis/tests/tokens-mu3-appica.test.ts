@@ -167,8 +167,22 @@ describe('MU3 Appica 移植守卫（12 例）', () => {
     expect(rootLight).toContain('--label-intense: var(--foreground-intense);');
   });
 
-  it('5. color-mix 清零：tokens.css 全文不含 color-mix（命门 3 选 B：Appica 直给 alpha）', () => {
-    expect(tokens).not.toContain('color-mix');
+  it('5. color-mix 仅限玻璃块：其余全文清零（命门 3 选 B：状态色走 Appica 直给 alpha）', () => {
+    // MU3 命门 3 的论证是**针对状态色**的：Appica raw 层本就提供 -subtle 10% / -soft 20%，
+    // 再用 color-mix 派生既冗余、又绕开了「raw 值是唯一来源」的纪律。
+    // 该论证对玻璃材质不成立——Appica 没有 58%/78% 这两档，而玻璃又必须跟随明暗，
+    // 只能从语义令牌派生。故 2026-08-10（用户要求苹果磨砂风格）把本条收窄为
+    // 「玻璃块内放行、其余仍然清零」，而不是删掉它：状态色那条纪律一点没松。
+    const b = tokens.indexOf('glass:begin');
+    const e = tokens.indexOf('glass:end');
+    expect(b).toBeGreaterThan(-1);
+    expect(e).toBeGreaterThan(b);
+    const outsideGlass = tokens.slice(0, b) + tokens.slice(e);
+    expect(outsideGlass).not.toContain('color-mix');
+    // 玻璃块里的 color-mix 只许拿**语义令牌**当原料，不许直接写 raw 色值
+    const glass = tokens.slice(b, e);
+    expect(glass).not.toMatch(/color-mix\([^)]*oklch\(/);
+    expect(glass).not.toMatch(/color-mix\([^)]*#[0-9a-fA-F]{3,8}/);
   });
 
   it('6. material 清零：tokens.css 全文不含 --material（组件侧滤镜由例 8 守）', () => {
@@ -185,14 +199,28 @@ describe('MU3 Appica 移植守卫（12 例）', () => {
     expect(rootLight).toContain('--r-pill: 999px;');
   });
 
-  it('8. 组件侧 backdrop-filter 清零：walk 全部 .vue 的 <style> 块零命中（§3-4 配套加宽）', () => {
+  it('8. backdrop-filter 白名单制：仅登记组件可用，且带弹出层的组件一律禁止', () => {
+    // MU3 原为「全部 .vue 零命中」。2026-08-10 用户要求苹果磨砂风格，本条由**一刀切**改为
+    // **白名单**——但安全约束一点没松：backdrop-filter 会创建**层叠上下文**，
+    // 凡是身上有下拉菜单/弹层的组件用了它，弹层就会被压在下面。
+    // TitleBar 当年就是这么中招的（renderer-titlebar-stacking 有实测取证），
+    // MU5 §15 又刚因为同族问题（容器裁剪弹层）吃过一次「点了没反应」。
+    const ALLOW = ['ProgressPanel'];
+    // 这些组件自带弹出层/浮层，永久禁用——加进 ALLOW 也不行，下面单独再断言一次
+    const POPUP_OWNERS = ['TitleBar', 'ModelPicker', 'PermissionPicker', 'SettingsModal', 'DevicesModal', 'ChatView', 'SessionList'];
     const offenders: string[] = [];
+    const usedGlass: string[] = [];
     for (const f of vueFiles) {
+      const name = rel(f).replace(/^.*[\/]/, '').replace(/\.vue$/, '');
       styleBlocks(R(f)).forEach((b, i) => {
-        if (b.includes('backdrop-filter')) offenders.push(`${rel(f)} <style>#${i + 1}`);
+        if (!b.includes('backdrop-filter')) return;
+        usedGlass.push(name);
+        if (!ALLOW.includes(name)) offenders.push(`${rel(f)} <style>#${i + 1}`);
       });
     }
     expect(offenders).toEqual([]);
+    // 双保险：白名单将来被人随手加宽时，这条仍会把「给弹层宿主上滤镜」拦下
+    expect(usedGlass.filter(n => POPUP_OWNERS.includes(n))).toEqual([]);
   });
 
   it('9. 组件零硬编码颜色：<style> 块无 hex/rgba；TerminalPanel xterm 兜底值登记白名单', () => {

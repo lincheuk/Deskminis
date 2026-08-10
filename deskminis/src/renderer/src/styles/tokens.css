@@ -202,6 +202,27 @@
      不子集化的理由：agent 输出的字符集不可预知，子集会掉生僻字且难复现（v4 §5）。 */
   --font-ui: -apple-system, "SF Pro Text", "Segoe UI Variable", "Noto Sans SC", system-ui, "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  /* glass:begin —— 切片标记，守卫例 5 靠它把玻璃块单独摘出来 */
+  /* ===== 玻璃材质（2026-08-10，用户要求苹果磨砂风格）=====
+     MU3 曾把材质层整体退场；本组是**按用户要求的定向恢复**，范围受守卫例 8 白名单约束。
+
+     全部用 color-mix 从既有语义令牌调出，因此：
+     ① 不碰 A 区 raw 值；② 自动跟随明暗（surface-1 本身是主题感知的）；
+     ③ 组件里不出现任何 hex/rgba，例 9「零硬编码颜色」继续成立。
+
+     ⚠️ backdrop-filter 会创建**层叠上下文**——凡是身上有弹出层/下拉菜单的容器一律不许用，
+     否则弹层会被压在下面（TitleBar 当年就是这么中招的，见 renderer-titlebar-stacking）。 */
+  --glass-thin: color-mix(in oklch, var(--surface-1) 58%, transparent);
+  --glass-thick: color-mix(in oklch, var(--surface-1) 78%, transparent);
+  --glass-blur: saturate(180%) blur(20px);
+  /* 顶部内高光：玻璃边缘那道细亮线，是「有厚度」的关键，比加边框克制得多 */
+  --glass-edge: color-mix(in oklch, var(--label) 7%, transparent);
+  /* 面板底的极淡渐变——半透明卡片得有东西可透，压在纯色上等于没做 */
+  --glass-ground: linear-gradient(180deg,
+    color-mix(in oklch, var(--bg-secondary) 60%, var(--bg)) 0%,
+    var(--bg) 42%);
+  /* glass:end */
+
   /* 字号尺度（桌面密度基线 14） */
   --fs-display: 17px;   /* 设置页标题 */
   --fs-title:   15px;   /* 面板头、卡片标题 */
