@@ -39,6 +39,12 @@ describe('MU6 会话操作接线：删除 / 记忆开关 / 模型绑定（3 例�
     expect(sessionList).toMatch(/class="smore"/);
     expect(sessionList).toMatch(/<button[^>]*class="smore"/);
     expect(sessionList).toContain('menuFor');
+    // 回归锚（e2e:mu6 真跑起来才逮到的 bug）：会话行与它的行内操作区是**两个兄弟节点**，
+    // v-for 必须挂在包住两者的 <template> 上。若挂在 .scard 自身，s 的作用域只覆盖 .scard，
+    // 操作区里的 s 就是 undefined —— renderList 直接抛错、整个会话列表渲染挂掉（界面上一行都没有）。
+    // 源码文本守卫抓不到（字符串都在），typecheck 也抓不到（.vue 不在覆盖内）。
+    expect(sessionList).toMatch(/<template v-for="s in grp\.items"/);
+    expect(sessionList).not.toMatch(/<div\s+v-for="s in grp\.items"/);
     // 菜单项三枚
     expect(sessionList).toContain('记忆');
     expect(sessionList).toContain('模型');

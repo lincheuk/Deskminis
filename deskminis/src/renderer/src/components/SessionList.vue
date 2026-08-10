@@ -120,8 +120,13 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
         <div class="datehead">
           <Icon v-if="grp.group === '置顶'" name="chevron-up" :size="11" /><span>{{ grp.group }}</span>
         </div>
+        <!-- v-for 必须挂在 template 上：会话行与它的行内操作区是**两个兄弟节点**，
+             若把 v-for 挂在 .scard 上，s 的作用域只覆盖 .scard 自己，
+             下面 .smenu 里的 s 就是 undefined —— renderList 直接抛错、整个列表渲染挂掉。
+             这个错源码文本守卫抓不到（字符串都在），typecheck 也抓不到（.vue 不在覆盖内），
+             是 e2e:mu6 真跑起来才暴露的。 -->
+        <template v-for="s in grp.items" :key="s.id">
         <div
-          v-for="s in grp.items" :key="s.id"
           class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id" :title="badgeText(s)"
           @click="chat.open(s.id)"
         >
@@ -160,6 +165,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
             </div>
           </template>
         </div>
+        </template>
       </template>
     </div>
     <!-- 后端选择器钉底部（来源 Agent Canvas 侧栏底部 ● Local ⌄）：
