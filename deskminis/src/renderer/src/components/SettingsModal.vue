@@ -95,6 +95,26 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
         <template v-else>
           <div class="snote">查看已配对设备、发起新配对。</div>
           <button class="devbtn" type="button" @click="openDevices()">管理设备…</button>
+
+          <!-- MU6：M6 的同步暂停开关。后端完整建成（含审计落盘、13 笔 commit），此前界面上一个开关都没有。 -->
+          <div class="syncbox">
+            <div class="syncrow">
+              <div class="synctxt">
+                <div class="synclabel">设备间同步</div>
+                <div class="syncsub">
+                  {{ chat.syncPaused ? '已暂停：不再与其它设备收发会话与记忆。' : '进行中：会话与记忆在已配对设备之间自动同步。' }}
+                </div>
+              </div>
+              <button
+                class="syncbtn" type="button" :class="{ paused: chat.syncPaused }"
+                @click="chat.setSyncPaused(!chat.syncPaused)"
+              >{{ chat.syncPaused ? '恢复同步' : '暂停同步' }}</button>
+            </div>
+            <div class="syncwarn">
+              暂停的只是<strong>设备间同步</strong>，<strong>不会中断</strong>正在执行的任务——
+              要停下当前回合请用输入框旁的停止按钮。暂停状态会保留到下次启动。
+            </div>
+          </div>
         </template>
       </div>
     </div>
@@ -102,6 +122,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 </template>
 
 <style scoped>
+/* MU6 同步暂停开关 */
+.syncbox {
+  margin-top: 14px; padding: 12px; border-radius: var(--r-card);
+  background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
+}
+.syncrow { display: flex; align-items: center; gap: 12px; }
+.synctxt { flex: 1; min-width: 0; }
+.synclabel { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
+.syncsub { margin-top: 2px; font-size: var(--fs-micro); line-height: 1.6; color: var(--label-secondary); }
+.syncbtn {
+  flex: 0 0 auto; padding: 6px 14px; border-radius: var(--r-control);
+  border: .5px solid var(--separator); background: var(--surface-1);
+  font-size: var(--fs-ui); font-weight: 600; color: var(--label); cursor: pointer; white-space: nowrap;
+}
+.syncbtn.paused { border-color: var(--state-warn); color: var(--state-warn); }
+.syncbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+/* 命门文案：不写清楚的话，用户会以为这个开关能停下正在跑的 agent 回合 */
+.syncwarn { margin-top: 10px; font-size: var(--fs-micro); line-height: 1.7; color: var(--label-tertiary); }
+.syncwarn strong { color: var(--label-secondary); font-weight: 600; }
 .mask {
   position: fixed; inset: 0; z-index: 100; background: var(--scrim);
   display: flex; align-items: center; justify-content: center;

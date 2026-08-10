@@ -67,6 +67,9 @@ export const useChat = defineStore('chat', {
     // M3c Task 7：全局同步状态点三态（TitleBar）——offline 无设备/idle 空闲/syncing 同步中。
     // sync.dirty notify → syncing → 2s 后回 idle（一期简化，无 sync.settled 事件）。
     syncState: 'offline' as 'offline' | 'idle' | 'syncing',
+    /** MU6：M6 的同步暂停开关。**暂停的是设备间同步，不是正在跑的 agent 回合**——
+     *  后者是 chat.cancel（早已接线）。这两件事混淆的代价很实在：用户以为点了能停下任务。 */
+    syncPaused: false,
   }),
   actions: {
     async init() {
@@ -108,6 +111,8 @@ export const useChat = defineStore('chat', {
       await this.refreshSessions();
       await this.refreshProviders();
       await this.refreshAllSkills();
+      // 暂停是持久化设置（settings 表），重启后仍生效——启动就得读回来，否则界面会谎报「同步中」
+      await this.refreshSyncPaused();
       // 技能菜单数据源：开关/删除广播 changed；导入是后台任务不广播 changed，
       // 靠 progress 终态刷新（否则导入完成菜单里看不到）
       rpc.on('skills.changed', () => { void this.refreshSkills(); });
@@ -182,6 +187,16 @@ export const useChat = defineStore('chat', {
       const t = await rpc.call('skills.importStatus', { taskId });
       if (t) this.skillImport = t;
       return t;
+    },
+    // ---- MU6 同步控制（消费 M6 既有 control.* 三方法）----
+    async refreshSyncPaused() {
+      const r = await rpc.call('control.status');
+      this.syncPaused = !!(r && r.syncPaused);
+    },
+    async setSyncPaused(paused: boolean) {
+      // 后端 resume 内部顺序敏感（先清标志再触发收敛），这里只管调，不复制它的逻辑
+      const r = await rpc.call(paused ? 'control.pause' : 'control.resume');
+      this.syncPaused = r && typeof r.syncPaused === 'boolean' ? r.syncPaused : paused;
     },
     async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
     async open(id: string) {

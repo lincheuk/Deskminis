@@ -84,9 +84,13 @@ describe('MU6 技能管理接线：启用停用 / 删除 / 本地目录导入（
 
 describe('MU6 同步控制接线：暂停 / 恢复 / 状态（3 例）', () => {
   it('store 接 control.pause / resume / status 并持有 syncPaused 状态', () => {
-    expect(store).toContain("rpc.call('control.pause')");
-    expect(store).toContain("rpc.call('control.resume')");
-    expect(store).toContain("rpc.call('control.status')");
+    // 锚**意图**不锚调用写法（红线 9）：pause/resume 是一对对称操作，
+    // 写成 `rpc.call(paused ? 'control.pause' : 'control.resume')` 与写成两句是等价的，
+    // 守卫不该逼实现选其中一种。初版就是锚了字面 `rpc.call('control.pause')`——
+    // 这是 MU5 §15 之后第二次犯同一个错，故留此注记。
+    expect(store).toMatch(/rpc\.call\([^)]*'control\.pause'/);
+    expect(store).toMatch(/rpc\.call\([^)]*'control\.resume'/);
+    expect(store).toMatch(/rpc\.call\([^)]*'control\.status'/);
     expect(store).toContain('syncPaused');
   });
 

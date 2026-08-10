@@ -98,7 +98,9 @@ function badgeText(s: S): string {
  *  计划里写的「本机 · <设备名>」那个名字需要新通道，本轮红线 2 禁止，留给 MU6。 */
 const backendLabel = computed(() => {
   const n = chat.devices.length;
-  return n > 0 ? `本机 · 已配对 ${n} 台` : '本机';
+  const base = n > 0 ? `本机 · 已配对 ${n} 台` : '本机';
+  // MU6：同步暂停是个持久化的全局状态，改了却在常驻位上看不见，等于没接
+  return chat.syncPaused ? `${base} · 同步已暂停` : base;
 });
 
 /** 产物角标：仅活动会话可得（messages 在 chat store）；0 不显示。 */
@@ -163,7 +165,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
     <!-- 后端选择器钉底部（来源 Agent Canvas 侧栏底部 ● Local ⌄）：
          DeskMinis 有设备与同步能力，却从来没有「当前在哪台机器跑」的常驻入口。 -->
     <div class="bkrow">
-      <span class="bk-dot"></span><span class="bk-name">{{ backendLabel }}</span>
+      <span class="bk-dot" :class="{ paused: chat.syncPaused }"></span><span class="bk-name">{{ backendLabel }}</span>
     </div>
     <div class="lfoot">
       <button class="lfbtn" type="button" @click="openSettings()"><Icon name="gear" :size="14" /><span>设置</span></button>
@@ -276,6 +278,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   font-size: var(--fs-micro); color: var(--label-secondary);
 }
 .bk-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--state-ok); flex: 0 0 auto; }
+.bk-dot.paused { background: var(--state-warn); }
 .bk-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 底部固定入口：设置（独立模态）/ 设备（DevicesModal，Task 7 已填实） */
 .lfoot {
