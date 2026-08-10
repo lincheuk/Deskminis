@@ -370,6 +370,7 @@ position/z-index 两断言保留不动；文件头注重写为防御性槽位论
 - [x] 按 §2-5 清单 10 组件落地 :focus-visible；3 处 `outline: none` 改造
 - [x] 守卫转绿（例 11，tokens-mu3-appica 12/12）；commit（096eb25）
   - 键盘 Tab 走查自测（双主题）：运行态目视取证，判明移交复核方随 §6 双主题逐屏目视一并执行（与执行指令「双主题逐屏目视验收由复核方亲跑」口径一致），非执行方代码交付面
+  - ⚠️ **走查前必读（交付复验实测）**：26 个 `:focus-visible` 中 **17 个生效、9 个空转**——`.tb-ico/.mi/.it`（TitleBar）、`.scard/.newbtn`（SessionList）、`.sitem/.opt`（SettingsModal）、`.mrow`（PermissionPicker/ModelPicker）是 `<div @click>` 无 `tabindex`，**Tab 到不了属预期，不是实现缺陷**。成因是本计划 §2-5（补键盘可达性）与 §1.2（禁动 DOM/交互逻辑）的内在矛盾——让 div 可聚焦必须加 tabindex + 键盘事件，超出授权。逐项对照表见 [ui-design-v3.md §5-1](../specs/2026-08-09-ui-design-v3.md)，缺口已入 PROJECT_NOTES backlog。
 
 ### Task 7 — 文档
 
