@@ -50,6 +50,15 @@
   组件 517 处引用零改动；label 4→7 级、material/backdrop-filter 全退场、
   9 处硬编码收编、10 组件焦点环补齐。设计定稿 → `docs/specs/2026-08-09-ui-design-v3.md`
   （v2 加取代注记）。1031/1031 测试、typecheck、build 全绿。
+- ✅ **MU5 工作台形态重构（2026-08-10）**：布局 B——**flex 关系反转**为
+  图标轨 52（可展开 212）| 对话列 336 定宽可拖 | 工作台 1fr。变的不是数值，是哪一栏承担弹性。
+  顶部任务条把「当前动作/步数/耗时/上下文水位」摆到常驻位（回应「右栏四标签装的全是结果、
+  过程全程不可见」的诊断）；工作台标签改数组渲染，可关闭、可多开（产物卡点击开出文件标签）；
+  对话去气泡收尾（行高 1.72）+ 输入卡浮起 + ＋ 附件入口；会话行改状态点 + 右对齐时间；
+  中文字体切 Noto Sans SC。**纯 renderer，`src/minisd`/`src/main`/`src/preload` 三目录零改动。**
+  1048/1048 测试、typecheck、build、`e2e:mu2a` 7/7、`e2e:mu2b` 8/8 全绿。
+  设计定稿 → `docs/specs/2026-08-10-ui-design-v4.md`，拍板稿入库 → `docs/prototypes/mu5/layout-b.html`
+  （消费真实 tokens.css，故「换板与否」有图可验；结论：不换）。MU4 废止，其立项依据转 MU6。
 
 ## 关键发现（写进设计的依据）
 
@@ -70,6 +79,20 @@
   上下文压缩/卸载、记忆系统、技能系统（SKILL.md 生态兼容）、windows-* 桥、
   右栏终端/文件/任务面板完整 UI
 - 之后依次 M3（内网同步）、M4（文件同步+打包）
+
+### Backlog（MU5 执行期发现）
+
+- **`.vue` 不在类型检查覆盖内**：`npm run typecheck` 是 `tsc --noEmit`，而 `tsc` 只解析
+  `.ts/.tsx/.d.ts`——`include` 里的 `.vue` 被静默跳过。约 2900 行 SFC 代码零类型保护。
+  MU5 期间就此漏过一个真 bug（托盘回调引用已删除的 `rightOpen`，改名后成悬空引用，
+  测试与 build 都没报）。修法是把 typecheck 换成 `vue-tsc`，但那是新依赖（MU5 红线 3 禁止），
+  故记为独立决策项。
+- **源码文本守卫看不见「难看」**：MU5 有两个缺陷是 1048 例全绿 + e2e 16/16 全过之后
+  靠看真机截图才逮到的（输入卡 chip 逐字换行、Vue scoped CSS 类名撞车致收起工作台后大片死白）。
+  详见 `docs/plans/2026-08-10-mu5-workbench-layout.md` §11。**目视验收不可被测试替代。**
+- **e2e 的 localStorage 不随临时数据根隔离**：renderer 偏好落在 Electron userData 下，
+  跨次残留。MU2b 时默认值与复位值相同看不出来；MU5 换默认值后立刻显形（例 1 读到上一轮的尾巴）。
+  已在 `e2e-mu2b-acceptance.mjs` 开测前显式清键并断言清干净。同类脚本可照此加固。
 
 ### Backlog（MU3 交付复验发现，独立决策项）
 

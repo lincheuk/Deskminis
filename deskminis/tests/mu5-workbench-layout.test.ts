@@ -29,7 +29,10 @@ describe('MU5 三区骨架：图标轨 / 对话列定宽 / 工作台伸展（3 �
   it('flex 关系反转：对话列改定宽 336px，工作台承担弹性 flex:1', () => {
     // 反转前是「.pane-c flex:1 + .pane-r 定宽 360px」，反转后对调。
     // 这是本轮最根本的结构改动——不是改数值，是改哪一栏承担弹性（计划 §1）。
-    expect(app).toMatch(/\.pane-c\s*\{[^}]*width:\s*336px/);
+    // 外壳类名刻意不叫 .pane-c —— ChatView 根正是 .pane-c，Vue 子组件根会带上父 scope id，
+    // 同名会让 App.vue 的 width:336px 泄漏进 ChatView 把它钉死（真机截图逮到）。
+    expect(app).toMatch(/\.pane-chat\s*\{[^}]*width:\s*336px/);
+    expect(app).not.toMatch(/\.pane-c\s*\{[^}]*width:\s*336px/);
     expect(app).toMatch(/\.pane-w\s*\{[^}]*flex:\s*1/);
     // 旧的「右栏定宽 360」必须消失，否则等于两套布局并存
     expect(app).not.toMatch(/\.pane-r\s*\{[^}]*width:\s*360px/);
@@ -156,6 +159,10 @@ describe('MU5 对话列：文档式排版 + 输入卡片形态（2 例）', () =
     expect(chatView).not.toMatch(/\.field\s*\{[^}]*border:\s*1px solid/);
     expect(chatView).toContain('attach');
     expect(chatView).toMatch(/\.send\s*\{[^}]*border-radius:\s*50%/);
+    // 真机截图逮到的缺陷回归锚：对话列收成 336 定宽后，底部 chip 排挤不下会逐字换行。
+    // 源码守卫本身抓不到「难看」，但能守住修复不被回退。
+    expect(chatView).toMatch(/\.ctools\s*\{[^}]*overflow:\s*hidden/);
+    expect(chatView).toMatch(/white-space:\s*nowrap/);
   });
 });
 

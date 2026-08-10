@@ -252,7 +252,7 @@ onBeforeUnmount(() => {
       <aside v-show="railOpen && sidebarExpanded" class="pane-l">
         <SessionList @collapse="sidebarExpanded = false" />
       </aside>
-      <main class="pane-c" :style="workbenchOpen ? { width: chatW + 'px', flex: '0 0 ' + chatW + 'px' } : {}">
+      <main class="pane-chat" :style="workbenchOpen ? { width: chatW + 'px', flex: '0 0 ' + chatW + 'px' } : {}">
         <ChatView />
         <div class="cdrag" @mousedown="startCDrag"></div>
       </main>
@@ -366,9 +366,13 @@ onBeforeUnmount(() => {
   width: 212px; flex: 0 0 212px; background: var(--bg); border-right: .5px solid var(--separator);
   display: flex; flex-direction: column; overflow: hidden;
 }
-/* 对话列：MU5 反转后由它承担定宽与拖拽（工作台拿走弹性）。
+/* 对话列外壳。**类名不能叫 .pane-c**——ChatView 的根元素正是 .pane-c，而 Vue 的
+   子组件根会同时带上父组件的 scope id，App.vue 的 .pane-c 规则会**泄漏进 ChatView 根**。
+   MU2b 时这条规则只有 flex:1，泄漏无害；MU5 给它加了 width:336px，泄漏就把 ChatView
+   钉死在 336px——收起工作台时外壳铺满 1228 而内容仍是 336，右边一大片死白。
+   真机截图逮到，1048 例源码守卫与 e2e 8/8 全绿都看不见（两层同宽时无从分辨）。
    flex 写 1 1 auto 是为工作台收起时能自然铺满；工作台展开时由内联 style 覆写成 0 0 chatW。 */
-.pane-c {
+.pane-chat {
   position: relative;
   width: 336px; flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; background: var(--bg);
 }

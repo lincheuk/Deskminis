@@ -2,7 +2,8 @@
 // 用法：node scripts/e2e-mu2b-acceptance.mjs（dev 实例自启自收，无需先 build；跑前确认 5173/9222 无残留占用）。
 //
 // 覆盖（CDP 驱动真实 dev 实例 DOM 断言，假 provider 脚本化造场景，零真网）：
-//   1) 右栏：默认 360px（getComputedStyle）；tab 四枚且默认「进度」；合成拖拽分隔条到 500 → clamp 480（localStorage 同步）
+//   1) 分栏：MU5 布局 B 反转后改锚**对话列**——默认 336px；工作台标签六枚且默认「进度」；
+//      合成拖拽分隔条右移 200 → 536 → clamp 520（localStorage 键同步换成 deskminis.chatW）
 //   2) 进度 tab：__tool__ file_write（数据根外）回合 → 步骤列表运行中步骤；权限卡触发 → 进度 tab 橙点 + 「去处理」点击滚动定位
 //   3) 产物 tab：file_write（工作区内，自动放行）回合 → 产物卡出现 + 点击切文件 tab 出预览
 //   4) 左栏：任务卡徽标 等待批准 → 完成 切换；底部「设置」开 SettingsModal、「设备」开 DevicesModal
@@ -217,6 +218,16 @@ try {
   await cdp.send('Runtime.enable');
   await cdp.send('Page.enable');
   await waitFor(`!!document.querySelector('textarea.field')`, 60_000, '初始挂载');
+  // —— 测试隔离：清掉跨次残留的分栏宽度偏好 ——
+  // renderer 的 localStorage 落在 Electron userData 下，**不随本脚本的临时数据根隔离**，会跨次残留。
+  // MU2b 时这看不出来（默认 360 与拖后复位值相同）；MU5 默认 336 而 clamp 上限 520，
+  // 上一轮残留的 520 会被例 1 当成「默认宽」读到 —— 用例遂测的是上一轮的尾巴而不是默认值。
+  // 显式清掉并重挂载，让例 1 每次都从真正的默认态起测。
+  await evaluate(`localStorage.removeItem('deskminis.chatW'); location.reload()`);
+  await sleep(600);
+  await waitFor(`!!document.querySelector('textarea.field')`, 60_000, '清偏好后重新挂载');
+  const cleanW = await evaluate(`localStorage.getItem('deskminis.chatW')`);
+  if (cleanW !== null) throw new Error('分栏宽度偏好未清干净：' + cleanW);
   await cdp.send('Page.reload', { ignoreCache: true });
   await sleep(500);
   await waitFor(`!!document.querySelector('textarea.field')`, 60_000, 'reload 后应用挂载');
@@ -240,35 +251,37 @@ try {
   record('6. 空状态三示例卡 + 点击填入 + saveAttachment 桥', emptyOk === true && bridgeOk === true,
     `三示例卡=${emptyOk} 点击填入=OK saveAttachment 桥=${bridgeOk}（申报①：粘贴行为由 main-attachments/attach 单测 + 手工验收背书）`);
 
-  // —— 用例 1：右栏 360 默宽 / 四 tab 默认进度 / 拖拽 clamp 480 ——
-  const paneW0 = await evaluate(`getComputedStyle(document.querySelector('.pane-r')).width`);
+  // —— 用例 1（MU5 重锚）：对话列 336 默宽 / 六标签默认进度 / 拖拽 clamp 520 ——
+  // 守卫价值不变（分栏宽度受控且可拖、面板默认态正确），换的是它挂在哪一栏：
+  // MU2b 是「对话伸展 + 右栏定宽」，布局 B 反转为「对话定宽 + 工作台伸展」。
+  const paneW0 = await evaluate(`getComputedStyle(document.querySelector('.pane-chat')).width`);
   const tabsOk = await evaluate(`(() => {
-    const tabs = [...document.querySelectorAll('.tabs .tab')];
-    const texts = tabs.map(t => t.textContent.trim());
-    return tabs.length === 4 && texts.join(',') === '进度,产物,文件,终端'
+    const tabs = [...document.querySelectorAll('.wtab')];
+    const texts = tabs.map(t => t.querySelector('.wtab-main').textContent.trim());
+    return tabs.length === 6 && texts.join(',') === '进度,产物,文件,终端,浏览器,屏幕'
         && tabs[0].classList.contains('on') && !tabs[1].classList.contains('on');
   })()`);
-  // 合成拖拽：起点 clientX=1000，左移 140px → 期望 360+140=500 → clamp 480
+  // 合成拖拽：边界在对话列**右**缘，故右移增宽——起点 1000，右移 200 → 336+200=536 → clamp 520
   await evaluate(`(() => {
-    const bar = document.querySelector('.rdrag');
+    const bar = document.querySelector('.cdrag');
     bar.dispatchEvent(new MouseEvent('mousedown', { clientX: 1000, bubbles: true }));
-    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 860, bubbles: true }));
-    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 860, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 1200, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 1200, bubbles: true }));
   })()`);
   await sleep(300);
-  const paneW1 = await evaluate(`getComputedStyle(document.querySelector('.pane-r')).width`);
-  const savedW = await evaluate(`localStorage.getItem('deskminis.rightW')`);
-  // 拖回 360 复位（后续截图版面一致）
+  const paneW1 = await evaluate(`getComputedStyle(document.querySelector('.pane-chat')).width`);
+  const savedW = await evaluate(`localStorage.getItem('deskminis.chatW')`);
+  // 拖回 336 复位（后续截图版面一致）：从 520 左移 184
   await evaluate(`(() => {
-    const bar = document.querySelector('.rdrag');
-    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: 860, bubbles: true }));
-    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 980, bubbles: true }));
-    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 980, bubbles: true }));
+    const bar = document.querySelector('.cdrag');
+    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: 1000, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 816, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 816, bubbles: true }));
   })()`);
   await sleep(200);
-  record('1. 右栏 360 默宽 / 四 tab 默认进度 / 拖拽 500→clamp 480',
-    paneW0 === '360px' && tabsOk === true && paneW1 === '480px' && savedW === '480',
-    `默宽=${paneW0} 四tab默认进度=${tabsOk} 拖后=${paneW1}（localStorage=${savedW}），已拖回复位`);
+  record('1. 对话列 336 默宽 / 六标签默认进度 / 右拖 536→clamp 520',
+    paneW0 === '336px' && tabsOk === true && paneW1 === '520px' && savedW === '520',
+    `默宽=${paneW0} 六标签默认进度=${tabsOk} 拖后=${paneW1}（localStorage=${savedW}），已拖回复位`);
 
   // —— 用例 2：进度 tab（__tool__ 回合步骤 + 权限卡橙点 + 去处理定位） ——
   await newSession();
@@ -278,7 +291,7 @@ try {
   await waitFor(`!!document.querySelector('.perm')`, 20_000, '权限卡出现');
   const progressOk = await evaluate(`(() => {
     const step = document.querySelector('.ppanel .step .sicon.run');
-    const dot = document.querySelector('.tabs .tab.dot-warn');
+    const dot = document.querySelector('.wtab.dot-warn');
     const pend = document.querySelector('.ppanel .psec.pending .pending-text');
     const go = document.querySelector('.ppanel .gobtn');
     return !!step && !!dot && dot.textContent.includes('进度')
@@ -306,13 +319,17 @@ try {
   //    悬挂时回合未 turnEnd，running=true，故本会话卡为「进行中」；「等待批准」走全局 pendingPerms
   //    广播 + 非运行活动会话路径验证：新建空会话（open 重置 running=false）→ 其活动卡即等待批准） ——
   const badgeRun = await evaluate(`(() => {
-    const b = document.querySelector('.scard.on .sbadge');
-    return !!b && b.classList.contains('run') && b.textContent.includes('进行中');
+    const b = document.querySelector('.scard.on .sdot');
+    const row = document.querySelector('.scard.on');
+    // MU5：状态由文字徽标改色点，文字搬到行 title（色觉障碍补偿）——语义检查随之改锚 title
+    return !!b && b.classList.contains('run') && !!row && row.title.includes('进行中');
   })()`);
   await evaluate(`document.querySelector('.newbtn').click()`);
   const badgeWait = await waitFor(`(() => {
-    const b = document.querySelector('.scard.on .sbadge');
-    return !!b && b.classList.contains('wait') && b.textContent.includes('等待批准');
+    const b = document.querySelector('.scard.on .sdot');
+    const row = document.querySelector('.scard.on');
+    // MU5：状态由文字徽标改色点，文字搬到行 title（色觉障碍补偿）——语义检查随之改锚 title
+    return !!b && b.classList.contains('wait') && !!row && row.title.includes('等待批准');
   })()`, 8_000, '空会话活动卡「等待批准」').then(() => true).catch(() => false);
   // 切回用例 2 会话答卡（minisd 不自动生成标题，卡标题恒「新会话」——按 data-sid 精确定位）
   await evaluate(`document.querySelector('.scard[data-sid="${sid2}"]').click()`);
@@ -323,8 +340,10 @@ try {
   await waitFor(`!document.querySelector('.perm') && !!document.querySelector('.tline')`, 20_000, '卡消失 + ToolLine 出现');
   await waitTurnSettled(a0c2, 20_000, '用例 2 回合落地');
   const badgeDone = await waitFor(`(() => {
-    const b = document.querySelector('.scard.on .sbadge');
-    return !!b && b.classList.contains('done') && b.textContent.includes('完成');
+    const b = document.querySelector('.scard.on .sdot');
+    const row = document.querySelector('.scard.on');
+    // MU5：状态由文字徽标改色点，文字搬到行 title（色觉障碍补偿）——语义检查随之改锚 title
+    return !!b && b.classList.contains('done') && !!row && row.title.includes('完成');
   })()`, 10_000, '徽标转完成').then(() => true).catch(() => false);
 
   // —— 用例 4b：底部「设置」/「设备」入口 ——
@@ -350,20 +369,25 @@ try {
   const permPopped3 = await sleep(2500).then(() => count('.perm')).then(n => n > 0);
   if (permPopped3) await evaluate(`document.querySelector('.perm .btn.primary').click()`);
   await waitTurnSettled(a0c3, 20_000, '用例 3 回合落地');
-  await evaluate(`[...document.querySelectorAll('.tabs .tab')].find(t => t.textContent.includes('产物')).click()`);
+  await evaluate(`[...document.querySelectorAll('.wtab-main')].find(t => t.textContent.includes('产物')).click()`);
   await waitFor(`!!document.querySelector('.acard')`, 10_000, '产物卡出现');
   const acardOk = await evaluate(`(() => {
     const c = document.querySelector('.acard .apath');
     return !!c && c.textContent.includes('artifact-demo.txt');
   })()`);
   await evaluate(`document.querySelector('.acard').click()`);
-  const previewOk = await waitFor(`(() => {
-    const tabOn = [...document.querySelectorAll('.tabs .tab')].find(t => t.classList.contains('on'));
+  // MU5 重锚：产物卡点击不再只是「切到文件 tab」，而是**在工作台开一个以该文件命名的可关闭标签**。
+  // 两半分开断言——复合断言失败时说不清是标签名变了还是预览真没出来，那正是要避免的诊断黑洞。
+  const bodyOk = await waitFor(`(() => {
     const body = document.querySelector('.fprev .pbody');
-    return !!tabOn && tabOn.textContent.includes('文件') && !!body && body.textContent.includes('mu2b 产物预览验收内容');
-  })()`, 10_000, '文件 tab 预览出现').then(() => true).catch(() => false);
-  record('3. 产物 tab 卡出现 + 点击切文件 tab 预览', acardOk === true && previewOk,
-    `产物卡路径断言=${acardOk} 文件 tab 预览=${previewOk}${permPopped3 ? '（申报：工作区内 file_write 弹卡，已点允许——M1 直放语义需复核）' : '（工作区内直放无弹卡）'}`);
+    return !!body && body.textContent.includes('mu2b 产物预览验收内容');
+  })()`, 10_000, '文件预览正文出现').then(() => true).catch(() => false);
+  const fileTabOk = await evaluate(`(() => {
+    const tabOn = [...document.querySelectorAll('.wtab')].find(t => t.classList.contains('on'));
+    return !!tabOn && tabOn.textContent.includes('artifact-demo.txt') && !!tabOn.querySelector('.wtab-x');
+  })()`);
+  record('3. 产物卡出现 + 点击开出可关闭的文件标签并预览', acardOk === true && bodyOk && fileTabOk === true,
+    `产物卡路径断言=${acardOk} 预览正文=${bodyOk} 文件标签(带关闭钮)=${fileTabOk}${permPopped3 ? '（申报：工作区内 file_write 弹卡，已点允许——M1 直放语义需复核）' : '（工作区内直放无弹卡）'}`);
 
   // —— 用例 5：设置模态（Ctrl+, / Esc / 深色即效 / reload 保留） ——
   await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }))`);
@@ -493,11 +517,11 @@ try {
     shots.push(await shot(`mu2b-${mode}-chat.png`));
     await toggleRightPanel();
     // 右栏进度
-    await evaluate(`[...document.querySelectorAll('.tabs .tab')].find(t => t.textContent.includes('进度')).click()`);
+    await evaluate(`[...document.querySelectorAll('.wtab-main')].find(t => t.textContent.includes('进度')).click()`);
     await sleep(250);
     shots.push(await shot(`mu2b-${mode}-progress.png`));
     // 右栏产物
-    await evaluate(`[...document.querySelectorAll('.tabs .tab')].find(t => t.textContent.includes('产物')).click()`);
+    await evaluate(`[...document.querySelectorAll('.wtab-main')].find(t => t.textContent.includes('产物')).click()`);
     await sleep(250);
     shots.push(await shot(`mu2b-${mode}-artifacts.png`));
     // 设置模态
@@ -515,7 +539,7 @@ try {
     await evaluate(`document.querySelector('.modal[aria-label="设备与同步"] .xbtn').click()`);
     await waitFor(`!document.querySelector('.modal[aria-label="设备与同步"]')`, 5_000, `${mode} DevicesModal 关`);
     // 进度 tab 复位，下一模式版面一致
-    await evaluate(`[...document.querySelectorAll('.tabs .tab')].find(t => t.textContent.includes('进度')).click()`);
+    await evaluate(`[...document.querySelectorAll('.wtab-main')].find(t => t.textContent.includes('进度')).click()`);
   }
   // 还原：清模拟媒体 + 回存储主题（用例 5 已存 dark）
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });

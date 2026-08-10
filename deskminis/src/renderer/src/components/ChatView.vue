@@ -528,7 +528,21 @@ function onSlashTab(e: KeyboardEvent): void {
   border: none; background: var(--surface-1); color: var(--label); font-size: 11px; line-height: 1;
   display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
 }
-.ctools { display: flex; align-items: center; gap: 8px; }
+/* MU5：对话列由弹性收成 336 定宽后，底部这排 chip 挤不下会**逐字换行**
+   （「工作区」竖成三行），真机截图才逮到——1048 例源码守卫与 e2e 8/8 全绿也看不见这种事。
+   处置：一律禁止换行，放不下由各自省略号收尾，发送钮靠 margin-left:auto 永远钉在右端。 */
+.ctools { display: flex; align-items: center; gap: 8px; overflow: hidden; }
+.ctools > :deep(.wrap) { flex: 0 1 auto; min-width: 0; }
+/* 336px 里要塞下「＋ 工作区 权限档 模型 发送」，13px/11px 内边距的常规 chip 一共约 244px，
+   可用宽只有约 194px——差 50px。故在输入卡这一处收紧到 11px 字号与 8px 内边距（约省 54px）。
+   只在 .ctools 作用域内收紧，其它地方的 .cpill 不受影响。 */
+.cpill, .ctools :deep(.cpill) {
+  flex: 0 1 auto; min-width: 0;
+  padding: 4px 8px; font-size: var(--fs-micro); gap: 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ctools :deep(.mt) { font-size: var(--fs-micro); }
+.send { width: 28px; height: 28px; }
 /* MU5 附件入口：隐藏的原生 file input + 可聚焦的 ＋ 钮（红线 6） */
 .attachinput { display: none; }
 .attach {
