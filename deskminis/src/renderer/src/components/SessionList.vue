@@ -20,7 +20,22 @@ const openSettings = inject<() => void>('openSettings', () => {});
 // App.vue provide：打开配对管理面 DevicesModal（MU2b Task 7）
 const openDevices = inject<() => void>('openDevices', () => {});
 
-interface S { id: string; title: string; updatedAt?: number; pinnedAt?: number }
+interface S { id: string; title: string; updatedAt?: number; pinnedAt?: number;
+              memoryEnabled?: boolean; modelBinding?: string }
+
+/** MU6 会话操作：哪一行的操作区展开了；哪一行处在删除二次确认态。
+ *  刻意做成**行内展开**而不是浮层菜单：.list 有 overflow:auto，浮层会被裁掉——
+ *  MU5 §15 刚因为「弹层被容器裁掉」吃过一次「点了没反应」的亏，这里从一开始就绕开。 */
+const menuFor = ref('');
+const confirmDelete = ref('');
+function toggleMenu(id: string): void {
+  menuFor.value = menuFor.value === id ? '' : id;
+  confirmDelete.value = ''; // 换行即清掉确认态，避免「在 A 行点了确认、切到 B 行还悬着」
+}
+async function onDelete(id: string): Promise<void> {
+  await chat.deleteSession(id);
+  menuFor.value = ''; confirmDelete.value = '';
+}
 
 const GROUP_ORDER = ['置顶', '今天', '昨天', '本周', '本月', '更早'];
 
@@ -83,7 +98,9 @@ function badgeText(s: S): string {
  *  计划里写的「本机 · <设备名>」那个名字需要新通道，本轮红线 2 禁止，留给 MU6。 */
 const backendLabel = computed(() => {
   const n = chat.devices.length;
-  return n > 0 ? `本机 · 已配对 ${n} 台` : '本机';
+  const base = n > 0 ? `本机 · 已配对 ${n} 台` : '本机';
+  // MU6：同步暂停是个持久化的全局状态，改了却在常驻位上看不见，等于没接
+  return chat.syncPaused ? `${base} · 同步已暂停` : base;
 });
 
 /** 产物角标：仅活动会话可得（messages 在 chat store）；0 不显示。 */
@@ -103,8 +120,13 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
         <div class="datehead">
           <Icon v-if="grp.group === '置顶'" name="chevron-up" :size="11" /><span>{{ grp.group }}</span>
         </div>
+        <!-- v-for 必须挂在 template 上：会话行与它的行内操作区是**两个兄弟节点**，
+             若把 v-for 挂在 .scard 上，s 的作用域只覆盖 .scard 自己，
+             下面 .smenu 里的 s 就是 undefined —— renderList 直接抛错、整个列表渲染挂掉。
+             这个错源码文本守卫抓不到（字符串都在），typecheck 也抓不到（.vue 不在覆盖内），
+             是 e2e:mu6 真跑起来才暴露的。 -->
+        <template v-for="s in grp.items" :key="s.id">
         <div
-          v-for="s in grp.items" :key="s.id"
           class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id" :title="badgeText(s)"
           @click="chat.open(s.id)"
         >
@@ -112,13 +134,44 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
           <span class="stitle">{{ s.title || '新会话' }}</span>
           <span v-if="s.id === chat.activeId && activeArtifactCount > 0" class="scount">◈ {{ activeArtifactCount }}</span>
           <span class="stime">{{ relTime(s) }}</span>
+          <button
+            class="smore" type="button" :title="`${s.title || '新会话'} 的更多操作`"
+            @click.stop="toggleMenu(s.id)"
+          >⋮</button>
         </div>
+        <!-- 行内操作区（非浮层，见上方注释） -->
+        <div v-if="menuFor === s.id" class="smenu">
+          <button class="smenu-item" type="button" @click.stop="chat.setSessionMemory(s.id, s.memoryEnabled === false)">
+            记忆<span class="smenu-val">{{ s.memoryEnabled === false ? '已关闭' : '已开启' }}</span>
+          </button>
+          <label class="smenu-item smenu-sel">
+            模型
+            <select
+              class="smenu-select" :value="s.modelBinding ?? ''"
+              @click.stop @change="chat.setSessionModelBinding(s.id, ($event.target as HTMLSelectElement).value || undefined)"
+            >
+              <option value="">跟随全局默认</option>
+              <option v-for="p in chat.providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+          </label>
+          <template v-if="confirmDelete !== s.id">
+            <button class="smenu-item smenu-danger" type="button" @click.stop="confirmDelete = s.id">删除会话</button>
+          </template>
+          <template v-else>
+            <div class="smenu-ask">确认删除？此操作不可撤销。</div>
+            <div class="smenu-row">
+              <button class="smenu-item smenu-keep" type="button" @click.stop="confirmDelete = ''">取消</button>
+              <button class="smenu-item smenu-danger" type="button" @click.stop="onDelete(s.id)">删除</button>
+            </div>
+          </template>
+        </div>
+        </template>
       </template>
     </div>
     <!-- 后端选择器钉底部（来源 Agent Canvas 侧栏底部 ● Local ⌄）：
          DeskMinis 有设备与同步能力，却从来没有「当前在哪台机器跑」的常驻入口。 -->
     <div class="bkrow">
-      <span class="bk-dot"></span><span class="bk-name">{{ backendLabel }}</span>
+      <span class="bk-dot" :class="{ paused: chat.syncPaused }"></span><span class="bk-name">{{ backendLabel }}</span>
     </div>
     <div class="lfoot">
       <button class="lfbtn" type="button" @click="openSettings()"><Icon name="gear" :size="14" /><span>设置</span></button>
@@ -183,6 +236,46 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   font-size: var(--fs-micro); color: var(--label-tertiary); font-variant-numeric: tabular-nums;
 }
 
+/* MU6 行尾「⋮」：平时淡出，hover 或键盘聚焦时显形——不抢会话标题的视觉 */
+.smore {
+  flex: 0 0 auto; width: 20px; height: 20px; padding: 0; border: none; background: none;
+  border-radius: var(--r-control); color: var(--label-tertiary); cursor: pointer;
+  font-size: 13px; line-height: 1; opacity: 0; transition: opacity .12s ease-out;
+}
+.scard:hover .smore, .smore:focus-visible { opacity: 1; }
+.smore:hover { background: var(--fill); color: var(--label); }
+.smore:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* 行内操作区：撑在会话行下方，不是浮层——.list 的 overflow:auto 会把浮层裁掉 */
+.smenu {
+  margin: 2px 4px 6px; padding: 4px; border-radius: var(--r-md);
+  background: var(--fill-quaternary); border: .5px solid var(--separator);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.smenu-item {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px; border: none; border-radius: var(--r-control); background: none;
+  font-size: var(--fs-micro); color: var(--label-secondary); cursor: pointer; text-align: left;
+}
+.smenu-item:hover { background: var(--fill-tertiary); color: var(--label); }
+.smenu-item:focus-visible { outline: 2px solid var(--ring); outline-offset: -1px; }
+.smenu-val { margin-left: auto; color: var(--label-tertiary); }
+.smenu-sel { cursor: default; }
+.smenu-select {
+  margin-left: auto; max-width: 108px; border: .5px solid var(--separator);
+  border-radius: var(--r-control); background: var(--surface-1); color: var(--label);
+  font-size: var(--fs-micro); padding: 2px 4px; cursor: pointer;
+}
+.smenu-select:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+/* 危险项：颜色区分 + 二次确认。红线 6 要求默认焦点不落在危险项上——
+   确认态里「取消」排在「删除」左边、且是先出现的可聚焦元素。 */
+.smenu-danger { color: var(--state-err); }
+.smenu-danger:hover { background: var(--state-err-bg); color: var(--state-err); }
+.smenu-ask { padding: 6px 8px; font-size: var(--fs-micro); color: var(--label-secondary); line-height: 1.5; }
+.smenu-row { display: flex; gap: 4px; }
+.smenu-row .smenu-item { flex: 1; justify-content: center; }
+.smenu-keep { background: var(--surface-1); border: .5px solid var(--separator); }
+
 /* 后端选择器：常驻的「当前在哪台机器跑」。本轮是纯指示（无交互元素，
    故不需要 button）——切换执行端的能力尚不存在，不做假的下拉箭头。 */
 .bkrow {
@@ -191,6 +284,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   font-size: var(--fs-micro); color: var(--label-secondary);
 }
 .bk-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--state-ok); flex: 0 0 auto; }
+.bk-dot.paused { background: var(--state-warn); }
 .bk-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 底部固定入口：设置（独立模态）/ 设备（DevicesModal，Task 7 已填实） */
 .lfoot {

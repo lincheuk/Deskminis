@@ -13,7 +13,10 @@ interface UiSkill { id: string; name: string; description: string; isEnabled: bo
 
 export const useChat = defineStore('chat', {
   state: () => ({
-    sessions: [] as { id: string; title: string; updatedAt?: number; pinnedAt?: number }[],
+    // 字段与后端 SessionMeta 对齐：chat.sessions.list 本就返回 memoryEnabled / modelBinding，
+    // 此前本地只声明了四项，导致「有数据但界面读不到」——MU6 会话操作正需要这两项显示当前状态。
+    sessions: [] as { id: string; title: string; updatedAt?: number; pinnedAt?: number;
+                      memoryEnabled?: boolean; modelBinding?: string }[],
     activeId: '' as string,
     messages: [] as UiMessage[],
     streamingText: '' as string,
@@ -25,6 +28,16 @@ export const useChat = defineStore('chat', {
     pendingFilePreview: null as string | null,
     providers: [] as UiProvider[],
     skills: [] as UiSkill[],
+    /** MU6 技能管理页数据源。**与上面的 skills 不是一回事**：那份是斜杠菜单用的，
+     *  带 sessionId 时只返回该会话生效的启用集、不带时还过滤掉了禁用项——
+     *  管理页必须看得见禁用的技能，否则关掉一个就再也找不回来了。 */
+    allSkills: [] as UiSkill[],
+    /** 最近一次导入任务的进度（字段对齐 importer.ts 的 ImportProgress，不自造）。 */
+    skillImport: null as null | {
+      taskId: string; state: 'running' | 'done' | 'failed';
+      total: number; completed: number; succeeded: string[];
+      failures: { name: string; error: string }[]; error?: string;
+    },
     // 循环报错（API Key 错误、provider 故障…）必须看得见，否则界面就是「按了没反应」
     lastError: '' as string,
     // 透明重试期间的提示；下一个 textDelta / turnEnd 清掉
@@ -54,6 +67,9 @@ export const useChat = defineStore('chat', {
     // M3c Task 7：全局同步状态点三态（TitleBar）——offline 无设备/idle 空闲/syncing 同步中。
     // sync.dirty notify → syncing → 2s 后回 idle（一期简化，无 sync.settled 事件）。
     syncState: 'offline' as 'offline' | 'idle' | 'syncing',
+    /** MU6：M6 的同步暂停开关。**暂停的是设备间同步，不是正在跑的 agent 回合**——
+     *  后者是 chat.cancel（早已接线）。这两件事混淆的代价很实在：用户以为点了能停下任务。 */
+    syncPaused: false,
   }),
   actions: {
     async init() {
@@ -94,10 +110,16 @@ export const useChat = defineStore('chat', {
       });
       await this.refreshSessions();
       await this.refreshProviders();
+      await this.refreshAllSkills();
+      // 暂停是持久化设置（settings 表），重启后仍生效——启动就得读回来，否则界面会谎报「同步中」
+      await this.refreshSyncPaused();
       // 技能菜单数据源：开关/删除广播 changed；导入是后台任务不广播 changed，
       // 靠 progress 终态刷新（否则导入完成菜单里看不到）
       rpc.on('skills.changed', () => { void this.refreshSkills(); });
-      rpc.on('skills.import.progress', (t: any) => { if (t && t.state !== 'running') void this.refreshSkills(); });
+      rpc.on('skills.import.progress', (t: any) => {
+        if (t && typeof t.taskId === 'string') this.skillImport = t;
+        if (t && t.state !== 'running') { void this.refreshSkills(); void this.refreshAllSkills(); }
+      });
       await this.refreshSkills();
       // #7：水位动态刷新——每次 turnEnd/重试/压缩/卸载 之后拉一次 chat.contextInfo 存 state.contextInfo（供 TasksPanel 用，不直接写死 200K）
       void this.fetchContextInfo();
@@ -113,6 +135,68 @@ export const useChat = defineStore('chat', {
       this.skills = this.activeId
         ? await rpc.call('skills.list', { sessionId: this.activeId })
         : (await rpc.call('skills.list', {})).filter((s: UiSkill) => s.isEnabled);
+    },
+    // ---- MU6 会话操作（消费既有 RPC，不新增方法）----
+    /** 删除会话。后端强制 confirm:true——漏了它会抛错，界面表现为「点了删除没反应」。 */
+    async deleteSession(id: string) {
+      await rpc.call('chat.sessions.delete', { sessionId: id, confirm: true });
+      await this.refreshSessions();
+      // 删掉的正是当前会话时要落到别处，否则界面停在一个已不存在的会话上
+      if (this.activeId === id) {
+        const next = this.sessions[0];
+        if (next) await this.open(next.id);
+        else { this.activeId = ''; this.messages = []; }
+      }
+    },
+    async setSessionMemory(id: string, enabled: boolean) {
+      await rpc.call('chat.sessions.setMemoryEnabled', { sessionId: id, enabled });
+      await this.refreshSessions();
+    },
+    /** binding 传 undefined / 空串即解绑（后端 setModelBinding 的取值约定）。 */
+    async setSessionModelBinding(id: string, binding?: string) {
+      await rpc.call('chat.sessions.setModelBinding', { sessionId: id, binding });
+      await this.refreshSessions();
+    },
+    // ---- MU6 技能管理（消费既有 RPC，不新增方法）----
+    async refreshAllSkills() { this.allSkills = await rpc.call('skills.list', {}); },
+    /** 本轮只做**全局**启停：不传 sessionId 即写全局开关；传了才是会话覆盖。
+     *  作用范围必须在界面上说清（计划 §6 第一坑）。 */
+    async setSkillEnabled(id: string, enabled: boolean) {
+      await rpc.call('skills.setEnabled', { id, enabled });
+      await this.refreshAllSkills();
+      await this.refreshSkills();
+    },
+    async deleteSkill(id: string) {
+      await rpc.call('skills.delete', { id, confirm: true });
+      await this.refreshAllSkills();
+      await this.refreshSkills();
+    },
+    /** 导入本地技能目录。§2-4 拍板只接 kind:'folder'——原生目录选择器要走主进程 dialog，破红线 1。
+     *  后端立即返回 taskId，真正的进度靠 skills.import.progress 广播喂 skillImport。 */
+    async importSkillFolder(source: string) {
+      this.skillImport = null;
+      const t = await rpc.call('skills.import', { kind: 'folder', source });
+      // 广播可能早于返回，也可能晚于返回：先占位，让界面立刻有「进行中」的反馈
+      if (t && typeof t.taskId === 'string' && !this.skillImport) {
+        this.skillImport = { taskId: t.taskId, state: 'running', total: 0, completed: 0, succeeded: [], failures: [] };
+      }
+      return t;
+    },
+    /** 轮询兜底：广播漏了也能把终态捞回来（导入是脱离 UI 生命周期的后台任务）。 */
+    async pollSkillImport(taskId: string) {
+      const t = await rpc.call('skills.importStatus', { taskId });
+      if (t) this.skillImport = t;
+      return t;
+    },
+    // ---- MU6 同步控制（消费 M6 既有 control.* 三方法）----
+    async refreshSyncPaused() {
+      const r = await rpc.call('control.status');
+      this.syncPaused = !!(r && r.syncPaused);
+    },
+    async setSyncPaused(paused: boolean) {
+      // 后端 resume 内部顺序敏感（先清标志再触发收敛），这里只管调，不复制它的逻辑
+      const r = await rpc.call(paused ? 'control.pause' : 'control.resume');
+      this.syncPaused = r && typeof r.syncPaused === 'boolean' ? r.syncPaused : paused;
     },
     async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
     async open(id: string) {
