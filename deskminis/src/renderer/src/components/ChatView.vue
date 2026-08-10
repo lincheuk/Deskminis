@@ -216,6 +216,16 @@ function onDrop(e: DragEvent): void {
 }
 function removeAttachment(i: number): void { pendingAttachments.value.splice(i, 1); }
 
+/** MU5：输入卡底部的 ＋ 钮。此前加附件只能粘贴或拖拽——能力有、入口无，
+ *  正是本轮「后端做了但前端没体现」的一个缩影。复用既有 pickImages/saveImages，零新通道。 */
+const attachEl = ref<HTMLInputElement | null>(null);
+function openAttach(): void { attachEl.value?.click(); }
+function onAttachPick(e: Event): void {
+  const el = e.target as HTMLInputElement;
+  void saveImages(pickImages(el.files));
+  el.value = ''; // 清空以允许连续选同一个文件
+}
+
 async function send(): Promise<void> {
   const t = input.value.trim();
   if (!t || chat.running) return;
@@ -408,6 +418,8 @@ function onSlashTab(e: KeyboardEvent): void {
         @dragover.prevent
       ></textarea>
       <div class="ctools">
+        <input ref="attachEl" class="attachinput" type="file" accept="image/*" multiple @change="onAttachPick" />
+        <button class="attach" type="button" title="添加附件" @click="openAttach"><Icon name="plus" :size="15" /></button>
         <div class="cpill static"><Icon name="folder" :size="14" /><span>工作区</span></div>
         <PermissionPicker />
         <ModelPicker />
@@ -458,7 +470,9 @@ function onSlashTab(e: KeyboardEvent): void {
 .ahead { display: flex; align-items: center; gap: 8px; }
 .aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
 .aname { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); }
-.abody { font-size: var(--fs-body); line-height: 1.55; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+/* MU5：文档式排版——行高 1.55 → 1.72（来源 AionUi 会话视图：助手输出按文档排，不进气泡）。
+   气泡本身 MU2a 就已去掉（.msg-a{padding:0}），本轮补的是「读起来像文档」的那一半。 */
+.abody { font-size: var(--fs-body); line-height: 1.72; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
 .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--label-tertiary); animation: jump 1s infinite ease-in-out; }
@@ -470,6 +484,8 @@ function onSlashTab(e: KeyboardEvent): void {
 .composer {
   margin: 0 16px 16px; border-radius: var(--r-input); background: var(--surface-1);
   border: .5px solid var(--separator);
+  /* MU5：卡片浮起（来源 AionUi 输入区）——此前是平贴的容器，与对话流没有层次差 */
+  box-shadow: var(--shadow-fab);
   padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
   position: relative;
 }
@@ -491,7 +507,8 @@ function onSlashTab(e: KeyboardEvent): void {
 .sname { font-weight: 600; flex: 0 0 auto; color: var(--label-strong); }
 .sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field {
-  background: var(--bg-tertiary); border: 1px solid var(--separator); border-radius: var(--r-control);
+  /* MU5：卡片本身即边界，输入框自己不再描边——去掉「框中框」 */
+  background: none; border: none; border-radius: var(--r-control);
   padding: 8px 12px; font-size: var(--fs-body); color: var(--label); font-family: var(--font-ui);
   min-height: 36px; max-height: 176px; resize: none; line-height: 20px; width: 100%;
   overflow-y: auto; /* 超 8 行（176px）内滚 */
@@ -512,6 +529,16 @@ function onSlashTab(e: KeyboardEvent): void {
   display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
 }
 .ctools { display: flex; align-items: center; gap: 8px; }
+/* MU5 附件入口：隐藏的原生 file input + 可聚焦的 ＋ 钮（红线 6） */
+.attachinput { display: none; }
+.attach {
+  flex: 0 0 auto; width: 26px; height: 26px; padding: 0;
+  border-radius: var(--r-control); border: .5px solid var(--separator); background: none;
+  color: var(--label-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.attach:hover { background: var(--fill-quaternary); color: var(--label); }
+.attach:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.attach :deep(svg) { stroke: var(--label-secondary); }
 .cpill {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
   border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
