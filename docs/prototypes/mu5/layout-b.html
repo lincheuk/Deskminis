@@ -1,0 +1,386 @@
+<title>DeskMinis 布局 B · 拍板稿（消费真实令牌）</title>
+
+<!-- 真实令牌层：明暗三模式、全部色值均由此文件供给。改这份原型的颜色 = 改产品的颜色。 -->
+<link rel="stylesheet" href="../../../deskminis/src/renderer/src/styles/tokens.css">
+
+<style>
+  /* ── 稿子局部名 → DeskMinis 语义别名 ──────────────────────────────
+     原版稿子在这里硬编码了 13 个 hex（正文 #18202c 等），与产品实际令牌
+     （--label → --foreground-strong → 调档后 #364153）对不上。此处全部换成
+     真令牌引用：稿子长什么样 = 产品长什么样，不再有「稿子好看但实装不同」的缝。
+     body 标记一行未改，只换这一层。 */
+  :root{
+    --pg:    var(--bg-secondary);      /* 页底 / 凹面 */
+    --card:  var(--surface-1);         /* 卡面 / 凸面 */
+    --line:  var(--border);            /* 常规分隔线 */
+    --line2: var(--separator);         /* 强分隔线（MU3 调档后 = --border-strong） */
+    --tx:    var(--label);             /* 正文（MU3 调档后 = --foreground-strong） */
+    --tx2:   var(--label-secondary);
+    --tx3:   var(--label-tertiary);
+    --ac:    var(--action);
+    --ok:    var(--state-ok);
+    --warn:  var(--state-warn);
+    --err:   var(--state-err);
+    --on-ac: var(--on-action);         /* 饱和底色上的文字：明暗两态均解析为纯白 */
+    --mono:  var(--font-mono);
+    /* MU5 Task 7 会把 "Noto Sans SC" 插进 tokens.css 的 --font-ui；原型先按目标态写 */
+    --sans:  -apple-system, "SF Pro Text", "Segoe UI Variable", "Noto Sans SC", system-ui, "Microsoft YaHei", sans-serif;
+  }
+  /* 原版的 @media(dark) 与两个 [data-theme] 块已删除 —— 三模式由 tokens.css 自带 */
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--tx);font-family:var(--sans);line-height:1.6}
+  .wrap{max-width:1120px;margin:0 auto;padding:48px 24px 90px}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin:0 0 12px}
+  h1{font-size:27px;font-weight:600;letter-spacing:-.02em;margin:0 0 12px}
+  .lede{font-size:15.5px;color:var(--tx2);max-width:70ch;margin:0}
+  .lede b{color:var(--tx);font-weight:600}
+  .sc{overflow-x:auto;margin-top:26px}
+
+  /* 主题切换（原型专用，不进产品）——tokens.css 认 :root[data-theme] */
+  .tt{position:fixed;top:14px;right:16px;z-index:9;display:flex;gap:4px;background:var(--card);
+      border:1px solid var(--line2);border-radius:8px;padding:3px}
+  .tt button{font:inherit;font-size:11.5px;padding:3px 10px;border:0;border-radius:6px;background:none;
+             color:var(--tx2);cursor:pointer}
+  .tt button:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+
+  .app{width:1060px;background:var(--card);border:1px solid var(--line2);border-radius:10px;overflow:hidden;font-size:13px}
+  .top{display:flex;align-items:center;gap:10px;height:38px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--pg)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+  .nm{font-weight:600;font-size:12.5px}
+  .st{flex:1;min-width:0;font-family:var(--mono);font-size:11px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .st b{color:var(--ac);font-weight:600}
+  .pend{font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;color:var(--warn);border:1px solid var(--warn);background:var(--state-warn-bg)}
+
+  .body{display:grid;grid-template-columns:52px 336px minmax(0,1fr);height:520px}
+
+  .rail{border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:9px 0;gap:5px;background:var(--pg)}
+  .rl{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:13px;font-weight:600;
+      color:var(--tx3);border:1px solid transparent;position:relative}
+  .rl.ag{background:var(--card);border-color:var(--line2);color:var(--tx2);font-size:11px}
+  .rl.on{background:var(--card);border-color:var(--ac);color:var(--ac)}
+  .rl.on::before{content:"";position:absolute;left:-9px;top:8px;bottom:8px;width:2px;border-radius:2px;background:var(--ac)}
+  .rl .bdg{position:absolute;top:-2px;right:-3px;min-width:14px;height:14px;border-radius:99px;background:var(--warn);
+           color:var(--on-ac);font-size:9px;font-weight:700;display:grid;place-items:center;padding:0 3px;border:1.5px solid var(--pg)}
+  .rsp{flex:1}
+
+  .chat{display:flex;flex-direction:column;border-right:1px solid var(--line);min-width:0}
+  .cscroll{flex:1;padding:16px 18px 0;overflow:hidden}
+  .umsg{font-size:13.5px;color:var(--tx);margin:0 0 4px;font-weight:500}
+  .uwho{font-size:11px;color:var(--tx3);margin:0 0 14px}
+  .doc h4{font-size:14px;font-weight:600;margin:0 0 6px;letter-spacing:-.005em}
+  .doc p{font-size:13.5px;line-height:1.72;color:var(--tx2);margin:0 0 10px}
+  .doc ul{margin:0 0 12px;padding-left:19px}
+  .doc li{font-size:13.5px;line-height:1.72;color:var(--tx2);margin-bottom:3px}
+  .doc li b{color:var(--tx);font-weight:600}
+  .step{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--tx2);padding:2.5px 0}
+  .tk{width:13px;height:13px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;font-size:7.5px;color:var(--on-ac)}
+  .tk.d{background:var(--ok)}.tk.n{background:var(--ac)}.tk.w{background:var(--line2)}
+  .step b{color:var(--tx);font-weight:600}
+  .perm{border:1px solid var(--line2);border-radius:9px;padding:11px 12px;margin-top:12px;background:var(--card);
+        box-shadow:var(--shadow-fab)}
+  .perm .pt{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;margin-bottom:2px}
+  .perm .pp{font-family:var(--mono);font-size:10.5px;color:var(--tx2);margin:0 0 10px;word-break:break-all}
+  .pbs{display:flex;gap:6px}
+  .pb{flex:1;text-align:center;font-size:12px;font-weight:600;padding:6px;border-radius:7px;border:1px solid var(--line2);color:var(--tx2)}
+  .pb.y{background:var(--ac);color:var(--on-ac);border-color:transparent}
+  .pb.n{color:var(--err)}
+  .comp{padding:12px 14px 14px}
+  .cbox{border:1px solid var(--line2);border-radius:12px;background:var(--card);padding:11px 12px 9px;
+        box-shadow:var(--shadow-fab)}
+  .cph{font-size:13px;color:var(--tx3);margin-bottom:11px}
+  .crow{display:flex;align-items:center;gap:7px}
+  .cadd{width:24px;height:24px;border-radius:7px;border:1px solid var(--line2);display:grid;place-items:center;color:var(--tx2);font-size:13px}
+  .chip{font-size:11.5px;padding:3px 10px;border-radius:99px;background:var(--pg);border:1px solid var(--line2);color:var(--tx2)}
+  .csend{margin-left:auto;width:26px;height:26px;border-radius:50%;background:var(--ac);color:var(--on-ac);display:grid;place-items:center;font-size:12px}
+
+  .wb{display:flex;flex-direction:column;min-width:0;background:var(--pg)}
+  .wtabs{display:flex;align-items:center;gap:3px;padding:7px 10px 0;border-bottom:1px solid var(--line)}
+  .wtab{display:flex;align-items:center;gap:6px;font-size:11.5px;padding:5px 10px;border-radius:7px 7px 0 0;color:var(--tx3)}
+  .wtab.on{background:var(--card);color:var(--tx);font-weight:600;border:1px solid var(--line);border-bottom-color:var(--card);margin-bottom:-1px}
+  .wtab .x{font-size:11px;color:var(--tx3)}
+  .wtab .lv{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+  .wctl{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--card);border-bottom:1px solid var(--line)}
+  .seg{display:flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden}
+  .seg span{font-size:11px;padding:3px 10px;color:var(--tx2)}
+  .seg span.on{background:var(--ac);color:var(--on-ac);font-weight:600}
+  .wurl{flex:1;min-width:0;font-family:var(--mono);font-size:10.5px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wact{display:flex;gap:12px}
+  .wact span{font-size:11px;color:var(--tx3);white-space:nowrap}
+
+  /* ── .wview 内部是「被浏览的外部网页」，不是 DeskMinis 的壳 ──────────
+     这里的色值刻意保持字面量：它模拟的是真实网站，不应随产品主题变化。
+     这也正是 v4 §6「默认白壳」的论据——工作台里那块内容本来就是白的。 */
+  .wview{flex:1;margin:10px 12px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:#1a1f2b;overflow:hidden;position:relative}
+  .site{padding:14px 18px;font-size:11.5px}
+  .site h5{margin:0 0 4px;font-size:16px;font-weight:700;color:#111}
+  .site .ld{margin:0 0 11px;color:#5c6470;font-size:11px}
+  .ptab{display:flex;gap:6px;margin-bottom:10px}
+  .ptab span{font-size:10.5px;padding:2px 10px;border-radius:99px;border:1px solid #d5dae2;color:#5c6470}
+  .ptab span.sel{background:#111;color:#fff;border-color:#111}
+  table.pt{width:100%;border-collapse:collapse;font-size:11px}
+  table.pt th{text-align:left;color:#8b93a1;font-weight:500;padding:4px 6px;border-bottom:1px solid #e3e7ec;font-size:10px}
+  table.pt td{padding:5px 6px;border-bottom:1px solid #f0f2f5;color:#2b3140}
+  table.pt td.pz{font-weight:700;color:#111}
+  .cur{position:absolute;width:16px;height:16px;border:2px solid var(--ac);border-radius:50%;box-shadow:0 0 0 3px var(--state-info-bg)}
+
+  .rl.bk{color:var(--ok)}
+  .scr2{margin-top:14px}
+  .pg2{width:1060px;background:var(--card);border:1px solid var(--line2);border-radius:10px;overflow:hidden;font-size:13px}
+  .p2body{display:grid;grid-template-columns:212px minmax(0,1fr);height:520px}
+  .sb{border-right:1px solid var(--line);background:var(--pg);display:flex;flex-direction:column;padding:9px 0}
+  .sbi{display:flex;align-items:center;gap:9px;margin:0 8px;padding:6px 9px;border-radius:8px;font-size:12.5px;color:var(--tx2)}
+  .sbi.on{background:var(--card);color:var(--tx);font-weight:600;border:1px solid var(--line)}
+  .sbh{display:flex;align-items:center;gap:6px;padding:12px 17px 6px;font-size:10.5px;letter-spacing:.08em;color:var(--tx3);text-transform:uppercase}
+  .sbh .ic{margin-left:auto;color:var(--tx3);font-size:11px}
+  .cvr{display:flex;align-items:center;gap:8px;margin:0 8px;padding:5px 9px;border-radius:7px;font-size:12.5px}
+  .cvr .sd{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+  .cvr .sd.idle{background:var(--tx3)}
+  .cvr .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx)}
+  .cvr .tm{font-size:10.5px;color:var(--tx3);font-variant-numeric:tabular-nums}
+  .sbsp{flex:1}
+  .bkrow{display:flex;align-items:center;gap:8px;margin:0 8px;padding:7px 9px;border-top:1px solid var(--line);font-size:12px;color:var(--tx2)}
+  .bkrow .sd{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+  .main2{padding:16px 20px;overflow:hidden;min-width:0}
+  .m2h{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+  .m2h h3{margin:0 0 2px;font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .m2h p{margin:0;font-size:12.5px;color:var(--tx2)}
+  .m2btn{margin-left:auto;font-size:12px;font-weight:600;padding:5px 13px;border-radius:8px;border:1px solid var(--line2);color:var(--tx);white-space:nowrap}
+  .m2s{display:flex;gap:8px;margin-bottom:14px}
+  .m2s .fld{flex:1;border:1px solid var(--line2);border-radius:8px;padding:6px 11px;font-size:12px;color:var(--tx3);background:var(--card)}
+  .m2s .vw{width:30px;border:1px solid var(--line2);border-radius:8px;display:grid;place-items:center;color:var(--tx2);font-size:12px}
+  .grp{display:flex;align-items:center;gap:8px;margin:0 0 9px}
+  .grp h4{margin:0;font-size:13.5px;font-weight:600}
+  .cnt{font-size:10.5px;padding:1px 7px;border-radius:6px;background:var(--pg);border:1px solid var(--line);color:var(--tx2);font-variant-numeric:tabular-nums}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+  .cd{border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:var(--card)}
+  .cd.off{opacity:.62}
+  .cdh{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .cdh .t{font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cdh .run{font-size:11px;color:var(--tx2);white-space:nowrap}
+  .cdh .mm{color:var(--tx3);font-size:13px}
+  .cd p{margin:0 0 9px;font-size:11.5px;color:var(--tx2);line-height:1.55}
+  .chips{display:flex;gap:5px;flex-wrap:wrap}
+  .ch{font-size:10.5px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);color:var(--tx2);background:var(--pg);white-space:nowrap}
+  .ch.need{color:var(--warn);border-color:var(--warn)}
+  .tplh{font-size:12px;color:var(--tx2);margin:0 0 10px;line-height:1.55}
+  .tpl{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:var(--card)}
+  .tpl .ico{width:28px;height:28px;border-radius:7px;background:var(--pg);border:1px solid var(--line);display:grid;place-items:center;font-size:13px;flex:0 0 auto}
+  .tpl .bd{flex:1;min-width:0}
+  .tpl .bd .t{font-size:12.5px;font-weight:600}
+  .tpl .bd .c{font-size:10.5px;color:var(--tx3);margin-bottom:5px}
+  .tpl .plus{color:var(--tx3);font-size:14px}
+  h2{font-size:18px;font-weight:600;margin:40px 0 8px;letter-spacing:-.01em}
+  .ref{width:100%;border-collapse:collapse;font-size:13.5px}
+  .ref th{text-align:left;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--tx3);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line)}
+  .ref td{padding:9px 10px;border-bottom:1px solid var(--line);color:var(--tx2);vertical-align:top}
+  .ref td b{color:var(--tx);font-weight:600}
+  .ref td:first-child{white-space:nowrap;color:var(--tx)}
+  .note{margin-top:30px;border-top:1px solid var(--line);padding-top:18px}
+  .note p{font-size:14.5px;color:var(--tx2);max-width:72ch;margin:0 0 10px}
+  .note b{color:var(--tx);font-weight:600}
+</style>
+
+<div class="tt">
+  <button type="button" data-set="light">浅</button>
+  <button type="button" data-set="dark">深</button>
+  <button type="button" data-set="">跟随系统</button>
+</div>
+
+<div class="wrap">
+  <p class="eyebrow">DeskMinis · 布局 B · 用户 2026-08-10 拍板</p>
+  <h1>按真实产品的设计细节重画</h1>
+  <p class="lede">左侧图标轨、无气泡的文档式对话、工作台的模式切换与动作行、输入框形态，都来自 <b>AionUi 实际界面截图</b>（其工作视图恰好也是布局 B）；定时任务屏来自 <b>Agent Canvas 的 Automations</b>。下方逐条列了哪个细节来自哪里。<b>本页所有壳体色值均取自产品的 tokens.css</b>——稿子长什么样，实装就长什么样。</p>
+
+  <div class="sc"><div class="app">
+    <div class="top">
+      <span class="dot"></span><span class="nm">DeskMinis</span>
+      <span class="st">正在浏览网页 · <b>browser.click</b> · 第 4/7 步 · 01:12 · 上下文 38%</span>
+      <span class="pend">3 项待批准</span>
+    </div>
+    <div class="body">
+      <div class="rail">
+        <div class="rl">＋</div>
+        <div class="rl ag on">抓<span class="bdg">3</span></div>
+        <div class="rl ag">整</div>
+        <div class="rl ag">季</div>
+        <div class="rl ag">周</div>
+        <div class="rsp"></div>
+        <div class="rl bk" title="当前后端">◉</div>
+        <div class="rl">⚙</div>
+      </div>
+
+      <div class="chat">
+        <div class="cscroll">
+          <div class="umsg">把这个页面上的定价表抓下来，存成 xlsx。</div>
+          <div class="uwho">你 · 16:53</div>
+          <div class="doc">
+            <h4>抓取竞品定价</h4>
+            <p>已打开定价页并接受 cookie 弹窗。当前正在展开「年付」标签，随后抽取三列：套餐、席位、价格。</p>
+            <div class="step"><span class="tk d">✓</span><b>打开 pricing 页</b></div>
+            <div class="step"><span class="tk d">✓</span><b>接受 cookie 弹窗</b></div>
+            <div class="step"><span class="tk n"></span><b>展开年付标签</b> · 进行中</div>
+            <div class="step"><span class="tk w"></span>抽取表格 → xlsx</div>
+            <div class="perm">
+              <div class="pt"><span style="color:var(--warn)">◉</span>请求写入文件</div>
+              <p class="pp">D:\工作区\竞品定价-2026Q3.xlsx</p>
+              <div class="pbs"><span class="pb y">允许</span><span class="pb">本会话允许</span><span class="pb n">拒绝</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="comp">
+          <div class="cbox">
+            <div class="cph">让 DeskMinis 做点什么…</div>
+            <div class="crow">
+              <span class="cadd">＋</span>
+              <span class="chip">工作区 · D:\工作区</span>
+              <span class="chip">每次确认</span>
+              <span class="csend">↑</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="wb">
+        <div class="wtabs">
+          <span class="wtab on">浏览器 <span class="x">✕</span></span>
+          <span class="wtab"><span class="lv"></span>屏幕</span>
+          <span class="wtab">竞品定价.xlsx <span class="x">✕</span></span>
+          <span class="wtab">终端</span>
+        </div>
+        <div class="wctl">
+          <div class="seg"><span class="on">页面</span><span>源码</span><span>分屏</span></div>
+          <span class="wurl">https://example.com/pricing</span>
+          <div class="wact"><span>快照</span><span>历史</span><span>系统打开</span><span>下载</span></div>
+        </div>
+        <div class="wview">
+          <div class="site">
+            <h5>定价方案</h5>
+            <p class="ld">选择适合团队规模的套餐 · 年付立省两个月</p>
+            <div class="ptab"><span>月付</span><span class="sel">年付</span></div>
+            <table class="pt">
+              <tr><th>套餐</th><th>席位</th><th>年付价格</th><th>包含</th><th>支持</th></tr>
+              <tr><td>入门</td><td>1–5</td><td class="pz">¥ 99 / 月</td><td>基础功能</td><td>社区</td></tr>
+              <tr><td>团队</td><td>6–50</td><td class="pz">¥ 399 / 月</td><td>协作 · 审计日志</td><td>工单</td></tr>
+              <tr><td>企业</td><td>不限</td><td class="pz">面议</td><td>私有部署 · SSO</td><td>专属</td></tr>
+            </table>
+          </div>
+          <div class="cur" style="left:150px;top:86px"></div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <h2>第二屏：定时任务</h2>
+  <p class="lede" style="margin-bottom:4px">DeskMinis 完全没有这一面，而 Agent Canvas 的 Automations 已经把它设计得很成熟。这屏按它的模式画：<b>按状态分组 + 计数徽标</b>、<b>卡上直接「立即运行」</b>、<b>元数据 chip 一眼看清配置</b>、<b>模板库带前置条件提示</b>。<b>注意：这一屏属 M9（定时任务），不在 MU5 范围内</b>，入库是为了留住设计依据。</p>
+  <div class="sc scr2"><div class="pg2">
+    <div class="top">
+      <span class="dot"></span><span class="nm">DeskMinis</span>
+      <span class="st">2 个任务运行中 · 下次触发 09:00</span>
+    </div>
+    <div class="p2body">
+      <div class="sb">
+        <div class="sbi">＋　新建会话</div>
+        <div class="sbi">技能</div>
+        <div class="sbi on">定时任务</div>
+        <div class="sbi">审计日志</div>
+        <div class="sbh">会话 <span class="ic">⌕ ⇅</span></div>
+        <div class="cvr"><span class="sd"></span><span class="tt">抓取竞品定价</span><span class="tm">1s</span></div>
+        <div class="cvr"><span class="sd"></span><span class="tt">整理下载目录</span><span class="tm">12m</span></div>
+        <div class="cvr"><span class="sd idle"></span><span class="tt">季度报表汇总</span><span class="tm">2h</span></div>
+        <div class="cvr"><span class="sd idle"></span><span class="tt">周报草稿</span><span class="tm">1d</span></div>
+        <div class="sbsp"></div>
+        <div class="bkrow"><span class="sd"></span>本机 · MINIS-PC ⌄　<span style="margin-left:auto">⚙</span></div>
+      </div>
+      <div class="main2">
+        <div class="m2h">
+          <div><h3>定时任务</h3><p>按计划或事件自动触发会话，可随时停用与手动运行。</p></div>
+          <span class="m2btn">新建任务</span>
+        </div>
+        <div class="m2s"><div class="fld">搜索任务…</div><div class="vw">▦</div></div>
+
+        <div class="grp"><h4>运行中</h4><span class="cnt">2</span></div>
+        <div class="cards">
+          <div class="cd">
+            <div class="cdh"><span class="t">每日下载目录整理</span><span class="run">▷ 立即运行</span><span class="mm">⋮</span></div>
+            <p>扫描下载目录，按类型归档并批量重命名，完成后写一份清单。</p>
+            <div class="chips"><span class="ch">▤ D:\下载</span><span class="ch">◷ 每天 09:00</span><span class="ch">✦ 文件整理</span></div>
+          </div>
+          <div class="cd">
+            <div class="cdh"><span class="t">竞品定价周报</span><span class="run">▷ 立即运行</span><span class="mm">⋮</span></div>
+            <p>抓取三家竞品定价页，比对上周差异，生成 xlsx 并附变更摘要。</p>
+            <div class="chips"><span class="ch">▤ D:\工作区</span><span class="ch">◷ 周一 09:00</span><span class="ch">✦ 浏览器</span></div>
+          </div>
+        </div>
+
+        <div class="grp"><h4>已停用</h4><span class="cnt">1</span></div>
+        <div class="cards">
+          <div class="cd off">
+            <div class="cdh"><span class="t">月度备份归档</span><span class="run">▷ 立即运行</span><span class="mm">⋮</span></div>
+            <p>把上月工作区产物打包到备份盘，保留最近六期。</p>
+            <div class="chips"><span class="ch">▤ E:\备份</span><span class="ch">◷ 每月 1 日</span><span class="ch">+1</span></div>
+          </div>
+        </div>
+
+        <div class="grp"><h4>从模板开始</h4><span class="cnt">4</span></div>
+        <p class="tplh">每个模板自带提示词与所需能力。前置条件没连上的会直接标出来，不用点进去才发现跑不了。</p>
+        <div class="cards">
+          <div class="tpl">
+            <span class="ico">◫</span>
+            <div class="bd">
+              <div class="t">剪贴板速记</div>
+              <div class="c">日常</div>
+              <div class="chips"><span class="ch">剪贴板桥</span><span class="ch">✓ 已就绪</span></div>
+            </div>
+            <span class="plus">＋</span>
+          </div>
+          <div class="tpl">
+            <span class="ico">◷</span>
+            <div class="bd">
+              <div class="t">网页监控日报</div>
+              <div class="c">信息收集</div>
+              <div class="chips"><span class="ch">浏览器</span><span class="ch need">需先启用 1 项能力</span></div>
+            </div>
+            <span class="plus">＋</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <h2>逐条借鉴来源</h2>
+  <table class="ref">
+    <tr><th>设计细节</th><th>来源</th><th>原来画错的地方</th></tr>
+    <tr><td><b>52px 图标轨</b></td><td>AionUi 工作视图：进入工作态后会话列表压成纯图标</td><td>画了 250px 带标题的会话列，白占宽度</td></tr>
+    <tr><td><b>会话图标 = 身份</b></td><td>AionUi 每个会话行带所属 agent 的标识</td><td>只用了通用圆点</td></tr>
+    <tr><td><b>无气泡对话</b></td><td>AionUi 助手输出按文档排版，标题/列表/正文直落背景</td><td>用了气泡与卡片块，把内容框死</td></tr>
+    <tr><td><b>模式切换段控</b></td><td>AionUi 预览区 <code>Source / Preview / 分屏</code></td><td>只有标签条，没有同一内容的多视图</td></tr>
+    <tr><td><b>右对齐动作行</b></td><td>AionUi <code>Snapshot / History / Open in system app / Download</code></td><td>完全没有这一层</td></tr>
+    <tr><td><b>工作台标签可关闭</b></td><td>AionUi 文件标签带 ✕，多标签并存</td><td>标签是固定五个，不能开多份</td></tr>
+    <tr><td><b>输入框是带阴影的卡片</b></td><td>AionUi 输入区浮起，底部只留 ＋ 与模型 chip</td><td>摊了一排 pill，视觉噪音大</td></tr>
+    <tr><td><b>色彩只来自内容</b></td><td>AionUi 界面本体近乎无彩，颜色全在 agent/助手图标上</td><td>给壳子上了色（青/琥珀满屏）</td></tr>
+    <tr><td><b>后端选择器钉底部</b></td><td>Agent Canvas 侧栏底部 <code>● Local ⌄</code> + 齿轮</td><td>DeskMinis 有设备与同步，却没有「当前在哪台机器跑」的常驻入口</td></tr>
+    <tr><td><b>会话行 = 点 + 标题 + 相对时间</b></td><td>Agent Canvas 会话列表：绿点表示运行中，时间右对齐</td><td>写的是「刚刚 / 12 分钟前」长句，占宽且不对齐</td></tr>
+    <tr><td><b>按状态分组 + 计数徽标</b></td><td>Agent Canvas <code>Active 3 / Inactive 2</code></td><td>按时间分组（今天），看不出哪些在跑</td></tr>
+    <tr><td><b>卡上直接「立即运行」</b></td><td>Agent Canvas 每张卡带 <code>▶ Run now</code> 与 <code>⋮</code></td><td>把动作都藏进详情</td></tr>
+    <tr><td><b>元数据 chip 行</b></td><td>Agent Canvas 卡片底部：仓库 / 计划 / 配置各一枚 chip，超出显示 +1</td><td>卡片只有标题和描述，配置看不见</td></tr>
+    <tr><td><b>模板带前置条件</b></td><td>Agent Canvas <code>1 MCPs to connect before launch</code></td><td>DeskMinis 的技能要连桥才能跑，界面从不提前说</td></tr>
+  </table>
+
+  <div class="note">
+    <p><b>没照抄的地方，以及为什么：</b>AionUi 把待批准做成侧栏徽标，DeskMinis 的权限卡是内联在对话里的（M2d 已验收的设计），沿用内联；它的顶栏没有任务条，但 DeskMinis 的「过程可见」是本轮核心命题，任务条保留。</p>
+    <p><b>Agent Canvas（原 OpenHands）取证的边界：</b>它已改名，定位从「AI 编码 agent」变成「自托管的编码 agent 控制中心」，前端连多个 Agent Server（本机 / 虚拟机 / 云）。公开截图只拿到 Automations 这一屏——<b>browser / changes / planner 三个工作台标签的视觉设计没拿到，属于没查到而不是不存在</b>。而工作台恰恰是布局 B 的主角，这一块的参考实际只有 AionUi 一家。</p>
+    <p><b>CoPaw 与 OpenWorker 未能核实</b>（全域名不通 / GoDaddy 待售停放域名），不作任何设计依据。</p>
+  </div>
+</div>
+
+<script>
+  // 原型专用：把 data-theme 盖到 :root，tokens.css 的强制明暗两块即生效
+  document.querySelectorAll('.tt button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var v = b.dataset.set;
+      if (v) document.documentElement.setAttribute('data-theme', v);
+      else document.documentElement.removeAttribute('data-theme');
+    });
+  });
+</script>
