@@ -36,7 +36,18 @@ const chat = useChat();
  *  展开时**挤压**对话列而非浮层覆盖——浮层会遮住正在读的内容。 */
 const railOpen = ref(true);
 const sidebarExpanded = ref(false);
+/** 三个分区各自可隐藏，但**对话列与工作台不能同时隐藏**——那会留下一个空壳白屏。
+ *  左区可以整个隐掉（它是导航，不是内容）。 */
+const chatOpen = ref(true);
 const workbenchOpen = ref(true);
+function toggleChat(): void {
+  if (chatOpen.value && !workbenchOpen.value) return; // 已是「只剩对话列」，不许再关
+  chatOpen.value = !chatOpen.value;
+}
+function toggleWorkbench(): void {
+  if (workbenchOpen.value && !chatOpen.value) return; // 已是「只剩工作台」，不许再关
+  workbenchOpen.value = !workbenchOpen.value;
+}
 /** MU2b Task 5：settingsOpen 语义改为设置模态开关（原右栏 settings 分支退场） */
 const settingsOpen = ref(false);
 /** MU2b Task 7：配对管理面模态开关（左栏「设备」/ 设置模态「设备与同步」两入口） */
@@ -217,7 +228,7 @@ onMounted(() => {
   // MU2b Task 5：托盘菜单死通道接通（preload 白名单两订阅；main 侧零改动）
   const bridge = (window as { deskminis?: { onMenuOpenSettings?: (cb: () => void) => void; onMenuToggleRight?: (cb: () => void) => void } }).deskminis;
   bridge?.onMenuOpenSettings?.(() => { settingsOpen.value = true; });
-  bridge?.onMenuToggleRight?.(() => { workbenchOpen.value = !workbenchOpen.value; });
+  bridge?.onMenuToggleRight?.(() => { toggleWorkbench(); });
   taskTick = setInterval(() => { nowMs.value = Date.now(); }, 1000);
   window.addEventListener('resize', onResize);
   window.addEventListener('keydown', onGlobalKey);
@@ -235,7 +246,8 @@ onBeforeUnmount(() => {
     <TitleBar
       :title="activeTitle"
       @toggle-sidebar="railOpen = !railOpen"
-      @toggle-right="workbenchOpen = !workbenchOpen"
+      @toggle-chat="toggleChat"
+      @toggle-right="toggleWorkbench"
       @toggle-theme="cycleTheme"
     />
     <!-- 任务条：状态点 · 当前动作/步数/耗时/上下文水位 · 待批准计数（常驻，不随标签切换消失） -->
@@ -267,7 +279,7 @@ onBeforeUnmount(() => {
       <aside v-show="railOpen && sidebarExpanded" class="pane-l">
         <SessionList @collapse="sidebarExpanded = false" />
       </aside>
-      <main class="pane-chat" :style="workbenchOpen ? { width: chatW + 'px', flex: '0 0 ' + chatW + 'px' } : {}">
+      <main v-show="chatOpen" class="pane-chat" :style="workbenchOpen ? { width: chatW + 'px', flex: '0 0 ' + chatW + 'px' } : {}">
         <ChatView />
         <div class="cdrag" @mousedown="startCDrag"></div>
       </main>

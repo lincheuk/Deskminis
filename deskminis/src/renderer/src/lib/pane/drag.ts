@@ -13,6 +13,8 @@
  *  故上限改为随可用宽收缩，保证工作台不低于 WORKBENCH_MIN。 */
 
 export const PANE_MIN = 280;
+/** 绝对上限，仅用于**不传可用宽**的旧签名（保持 MU2b 起的既有契约不变）。
+ *  传了可用宽就走 maxChatWidth 的比例规则，不再参与。 */
 export const PANE_MAX = 520;
 
 /** 工作台的最小可用宽。低于此值标签条放不下、内容挤成条状，等于把主区饿死。
@@ -24,11 +26,20 @@ export const PANE_MAX = 520;
  *  （动态开出的文件标签超出后照常横滚——那是多开本身的代价，可以接受。） */
 export const WORKBENCH_MIN = 360;
 
+/** 对话列最多占可用宽的比例。
+ *
+ *  为什么不用绝对像素：`PANE_MAX` 520 在 1280 屏上是 40%（合理），到 2560 屏只剩 20.3%——
+ *  用户全屏时想把对话列拉宽根本拉不动，这正是「模块比例无法调整」的真身。
+ *  换成比例后，同一条规则在任何尺寸下都给出「最多一半」，大屏自然放开。 */
+export const CHAT_MAX_RATIO = 0.5;
+
 /** 给定可用宽（视口宽 − 左区宽），求对话列的有效上限。
- *  两头都夹住：既不超过 PANE_MAX（保住可读行长，大屏上对话列不该无限变宽），
- *  也不让工作台跌破 WORKBENCH_MIN；可用宽极小时退回 PANE_MIN，防止区间反转。 */
+ *  两条约束取更紧的那条：① 不超过可用宽的一半；② 不让工作台跌破 WORKBENCH_MIN。
+ *  可用宽极小时退回 PANE_MIN，防止区间反转。 */
 export function maxChatWidth(available: number): number {
-  return Math.max(PANE_MIN, Math.min(PANE_MAX, available - WORKBENCH_MIN));
+  const byRatio = Math.floor(available * CHAT_MAX_RATIO);
+  const byFloor = available - WORKBENCH_MIN;
+  return Math.max(PANE_MIN, Math.min(byRatio, byFloor));
 }
 
 /** 钳制到 [PANE_MIN, 有效上限]。

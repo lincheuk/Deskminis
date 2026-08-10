@@ -24,7 +24,7 @@
 //     store 全局态（permission.request 广播不经 activeId 过滤，stores/chat.ts L58），权限卡渲染于任意会话视图。
 //     场景 = 会话 A（markdown + file_edit diff 历史 + __fail__ error 条）活动 + 会话 B 发起的权限卡（90s 窗口内）。
 //     权限卡在「其所属会话上下文」中的交互正确性由用例 2 单独验证（该用例权限卡与 __tool__ 同会话）。
-//   ③ 主对话屏截图为排除右栏干扰，经标题栏「视图 → 切换右侧面板」收起右栏拍摄，拍后即恢复（应用真实功能路径）。
+//   ③ 主对话屏截图为排除右栏干扰，经标题栏「视图 → 切换工作台」收起右栏拍摄，拍后即恢复（应用真实功能路径）。
 //   ④ FakeProvider 单会话单次 __tool__（parseScript 取历史首条）与 __fail__ 全史毒化两条 minisd 红线不可碰，
 //     故 file_edit（自动放行）与 file_write 权限卡分属会话 A/B 两场景区会话；用例间会话隔离沿用 mu2a 沉淀技法②。
 //   ⑤ 用例 4 徽标：计划 Task 4 单测契约 running 优先级压过 waiting（权限卡悬挂时回合未 turnEnd，
@@ -271,6 +271,14 @@ try {
   await sleep(300);
   const paneW1 = await evaluate(`getComputedStyle(document.querySelector('.pane-chat')).width`);
   const savedW = await evaluate(`localStorage.getItem('deskminis.chatW')`);
+  // MU5 追加：上限已从绝对 520 改为「可用宽的一半，且工作台不低于 360」。
+  // 故此处不再锚魔数，改断言**不变量**——魔数会随窗口尺寸失效，不变量不会。
+  const clampInvariant = await evaluate(`(() => {
+    const chat = document.querySelector('.pane-chat').getBoundingClientRect().width;
+    const wb = document.querySelector('.pane-w').getBoundingClientRect().width;
+    const avail = chat + wb;
+    return chat <= Math.floor(avail * 0.5) + 1 && wb >= 360;
+  })()`);
   // 拖回 336 复位（后续截图版面一致）：从 520 左移 184
   await evaluate(`(() => {
     const bar = document.querySelector('.cdrag');
@@ -279,9 +287,9 @@ try {
     window.dispatchEvent(new MouseEvent('mouseup', { clientX: 816, bubbles: true }));
   })()`);
   await sleep(200);
-  record('1. 对话列 336 默宽 / 六标签默认进度 / 右拖 536→clamp 520',
-    paneW0 === '336px' && tabsOk === true && paneW1 === '520px' && savedW === '520',
-    `默宽=${paneW0} 六标签默认进度=${tabsOk} 拖后=${paneW1}（localStorage=${savedW}），已拖回复位`);
+  record('1. 对话列 336 默宽 / 六标签默认进度 / 右拖到底守住「≤一半 且 工作台≥360」',
+    paneW0 === '336px' && tabsOk === true && clampInvariant === true && savedW !== null,
+    `默宽=${paneW0} 六标签默认进度=${tabsOk} 拖到底=${paneW1}（localStorage=${savedW}）不变量=${clampInvariant}，已拖回复位`);
 
   // —— 用例 2：进度 tab（__tool__ 回合步骤 + 权限卡橙点 + 去处理定位） ——
   await newSession();
@@ -479,11 +487,11 @@ try {
   const sceneOk = sceneDiag.md && sceneDiag.diff && sceneDiag.perm && sceneDiag.err;
   console.log('场景就绪（markdown+diff+权限卡+error条）: ' + sceneOk + ' ' + JSON.stringify(sceneDiag));
 
-  // 标题栏「视图 → 切换右侧面板」收起右栏拍主对话屏（申报③）
+  // 标题栏「视图 → 切换工作台」收起右栏拍主对话屏（申报③）
   async function toggleRightPanel() {
     await evaluate(`[...document.querySelectorAll('.mi')].find(x => x.textContent.trim() === '视图').click()`);
     await sleep(200);
-    await evaluate(`[...document.querySelectorAll('.mpop .it')].find(x => x.textContent.includes('切换右侧面板')).click()`);
+    await evaluate(`[...document.querySelectorAll('.mpop .it')].find(x => x.textContent.includes('切换工作台')).click()`);
     await sleep(300);
   }
   async function shot(name) {

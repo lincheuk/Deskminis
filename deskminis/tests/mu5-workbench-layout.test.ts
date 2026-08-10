@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { clampPaneWidth, nextWidth, maxChatWidth, WORKBENCH_MIN } from '../src/renderer/src/lib/pane/drag';
+import { clampPaneWidth, nextWidth, maxChatWidth, WORKBENCH_MIN, CHAT_MAX_RATIO } from '../src/renderer/src/lib/pane/drag';
 import { fmtElapsed } from '../src/renderer/src/lib/time/elapsed';
 
 const root = path.resolve(__dirname, '..');
@@ -24,6 +24,8 @@ const app = read('src/renderer/src/App.vue');
 const chatView = read('src/renderer/src/components/ChatView.vue');
 const sessionList = read('src/renderer/src/components/SessionList.vue');
 const tokens = read('src/renderer/src/styles/tokens.css');
+const titleBar = read('src/renderer/src/components/TitleBar.vue');
+const PANE_MIN_FOR_TEST = 280;
 
 describe('MU5 三区骨架：图标轨 / 对话列定宽 / 工作台伸展（3 例）', () => {
   it('flex 关系反转：对话列改定宽 336px，工作台承担弹性 flex:1', () => {
@@ -87,9 +89,9 @@ describe('MU5 对话列不得把工作台饿死（真机多尺寸走查发现，
     // 而上限写死 520 → 工作台只剩 168px，标签条要横滚、内容挤成条状。
     // 布局不算「错乱」（无重叠、无页面横向滚动、三区之和恒等于视口），但不可用。
     expect(WORKBENCH_MIN).toBeGreaterThanOrEqual(320);
-    expect(maxChatWidth(2508)).toBe(520);        // 大屏：仍受 PANE_MAX 封顶，保住可读行长
-    expect(maxChatWidth(848)).toBe(848 - WORKBENCH_MIN); // 900 宽 + 图标轨 52 → 488（工作台下限优先于 PANE_MAX）
-    expect(maxChatWidth(688)).toBe(688 - WORKBENCH_MIN); // 900 宽 + 侧栏 212 → 上限收到 328
+    expect(maxChatWidth(2508)).toBe(1254);       // 2560 屏：可拖到一半，不再被 520 锁死在 20%
+    expect(maxChatWidth(848)).toBe(424);         // 900 宽 + 图标轨 52 → 比例规则给 424（两边对半）
+    expect(maxChatWidth(688)).toBe(688 - WORKBENCH_MIN); // 900 宽 + 侧栏 212 → 328（此处工作台下限比比例更紧）
     // 可用宽极小时不得让区间反转（上限跌破下限）
     expect(maxChatWidth(300)).toBe(280);
     expect(maxChatWidth(0)).toBe(280);
@@ -120,6 +122,55 @@ describe('MU5 持久化键换名，防旧值被静默改判语义（1 例）', (
     // 精确到**调用形态**而非裸子串：源码注释里写明「旧键 deskminis.rightW 为何要换」
     // 是有价值的文档，不该被守卫误伤。守卫要拦的是「代码还在读写旧键」。
     expect(app).not.toMatch(/localStorage\.(get|set)Item\(\s*'deskminis\.rightW'/);
+  });
+});
+
+describe('MU5 全屏下比例可调 + 分区可隐藏（用户 2026-08-10 追加，3 例）', () => {
+  it('对话列上限按**比例**而非绝对像素——大屏不再被 520 锁死', () => {
+    // 缺陷现场：520 在 1280 屏上是 40%（合理），到 2560 屏只剩 20.3%，
+    // 用户在全屏下想把对话列拉宽根本拉不动——「模块比例无法调整」的真身。
+    expect(CHAT_MAX_RATIO).toBe(0.5);
+    // 同一条规则在各尺寸下都给出「不超过一半」且「工作台不饿死」
+    for (const av of [688, 848, 1228, 2508, 3800]) {
+      const hi = maxChatWidth(av);
+      expect(hi).toBeLessThanOrEqual(Math.floor(av * CHAT_MAX_RATIO));
+      if (av - WORKBENCH_MIN >= PANE_MIN_FOR_TEST) expect(av - hi).toBeGreaterThanOrEqual(WORKBENCH_MIN);
+    }
+    // 大屏确实放开了：2560 - 52 = 2508 可用 → 上限 1254，而不是 520
+    expect(maxChatWidth(2508)).toBeGreaterThan(520);
+  });
+
+  it('对话列可隐藏，且对话列与工作台不得同时隐藏（至少留一个主区）', () => {
+    expect(app).toContain('chatOpen');
+    expect(app).toContain('toggleChat');
+    expect(app).toContain('toggleWorkbench');
+    // 守卫「不能全隐」的那句判断必须在，否则会出现三区皆空的白屏
+    expect(app).toMatch(/chatOpen\.value\s*&&\s*!workbenchOpen\.value/);
+    expect(app).toMatch(/workbenchOpen\.value\s*&&\s*!chatOpen\.value/);
+    expect(app).toContain('v-show="chatOpen"');
+  });
+
+  it('三个分区开关提到标题栏可见处，且都是原生 button（不再只藏在「视图」菜单里）', () => {
+    // 现状：标题栏只有一个「切换侧栏」图标，工作台开关藏在视图菜单，对话列根本不能隐藏。
+    expect(titleBar).toContain("emit('toggle-sidebar')"); // 既有锚保持
+    expect(titleBar).toContain("emit('toggle-chat')");
+    expect(titleBar).toContain("emit('toggle-right')");
+    expect(titleBar).toMatch(/<button[^>]*class="tb-seg"/);
+    expect(titleBar).toMatch(/\.tb-seg:focus-visible/);
+  });
+});
+
+describe('MU5 列宽放开后正文仍须可读（1 例）', () => {
+  it('正文与输入卡按可读宽封顶并居中；输入卡必须写 width 而非只写 max-width', () => {
+    // 列宽是布局问题，行长是排版问题。对话列现在可拖到可用宽的一半（2560 屏上 1254px），
+    // 若正文跟着拉长，实测每行约 157 字符——远超 45–90 的可读区间。
+    expect(chatView).toMatch(/\.turn\s*\{[^}]*max-width:\s*792px/);
+    expect(chatView).toMatch(/\.turn\s*\{[^}]*margin-inline:\s*auto/);
+    // 输入卡是**列向 flex 容器里的 flex item**，auto 外边距会关掉 cross 轴 stretch，
+    // 只写 max-width 的话它会退回按内容收缩（实测宽列里只剩 339px）。必须写 width。
+    expect(chatView).toMatch(/\.composer\s*\{[^}]*width:\s*min\(792px/);
+    // 滚动条对称预留：否则正文在「减掉滚动条」的宽里居中、输入卡在完整宽里居中，左缘差 8px
+    expect(chatView).toMatch(/scrollbar-gutter:\s*stable both-edges/);
   });
 });
 

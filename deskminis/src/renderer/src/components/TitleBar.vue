@@ -10,6 +10,7 @@ import Icon from './Icon.vue';
 defineProps<{ title: string }>();
 const emit = defineEmits<{
   (e: 'toggle-sidebar'): void;
+  (e: 'toggle-chat'): void;
   (e: 'toggle-right'): void;
   (e: 'toggle-theme'): void;
 }>();
@@ -47,7 +48,8 @@ const menus: Menu[] = [
   ] },
   { id: 'view', label: '视图', items: [
     { label: '切换侧栏', kbd: 'Ctrl+B', act: 'sidebar' },
-    { label: '切换右侧面板', act: 'right' },
+    { label: '切换对话列', act: 'chat' },
+    { label: '切换工作台', act: 'right' },
     { sep: true },
     { label: '明暗模式', act: 'theme' },
     { sep: true },
@@ -66,6 +68,7 @@ function run(item: MenuItem): void {
     case 'new': void chat.newSession(); break;
     case 'quit': window.close(); break;
     case 'sidebar': emit('toggle-sidebar'); break;
+    case 'chat': emit('toggle-chat'); break;
     case 'right': emit('toggle-right'); break;
     case 'theme': emit('toggle-theme'); break;
     case 'reload': window.location.reload(); break;
@@ -89,7 +92,14 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 
 <template>
   <div class="titlebar">
-    <div class="tb-ico" title="切换侧栏" @click="emit('toggle-sidebar')"><Icon name="sidebar" :size="17" /></div>
+    <!-- 三个分区开关。MU5 前只有「切换侧栏」一枚图标，工作台开关藏在「视图」菜单里，
+         对话列根本不能隐藏——想「只留主要模块」做不到。三枚一并提到可见处，
+         且用原生 button（旧的 .tb-ico 是 div @click，Tab 走不到，属 MU3 遗留；其样式已随之删除）。 -->
+    <div class="tb-segs">
+      <button class="tb-seg" type="button" title="切换侧栏（Ctrl+B）" @click="emit('toggle-sidebar')"><Icon name="sidebar" :size="16" /></button>
+      <button class="tb-seg" type="button" title="切换对话列" @click="emit('toggle-chat')">对话</button>
+      <button class="tb-seg" type="button" title="切换工作台" @click="emit('toggle-right')">工作台</button>
+    </div>
     <div class="menubar" @click.stop>
       <div
         v-for="mn in menus" :key="mn.id"
@@ -129,14 +139,18 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
      且未来任何滤镜/transform 重新引入层叠上下文时陷阱不复发；保留成本为零。 */
   position: relative; z-index: 50;
 }
-.tb-ico, .menubar, .mi { -webkit-app-region: no-drag; }
-.tb-ico {
-  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-  border-radius: var(--r-control); color: var(--label-secondary); cursor: pointer;
+.menubar, .mi, .tb-segs { -webkit-app-region: no-drag; }
+/* 分区开关：常驻可见，一眼看出哪些区能收起 */
+.tb-segs { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.tb-seg {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  height: 26px; padding: 0 8px; border: none; border-radius: var(--r-control);
+  background: none; color: var(--label-secondary); cursor: pointer;
+  font-size: var(--fs-micro); white-space: nowrap;
 }
-.tb-ico:hover { background: var(--fill-quaternary); }
-/* MU3 §2-5 焦点环 */
-.tb-ico:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.tb-seg:hover { background: var(--fill-quaternary); color: var(--label); }
+.tb-seg:focus-visible { outline: 2px solid var(--ring); outline-offset: -1px; }
+.tb-seg :deep(svg) { stroke: var(--label-secondary); }
 .menubar { display: flex; gap: 1px; }
 .mi {
   position: relative; font-size: 13px; padding: 5px 10px; border-radius: var(--r-control);

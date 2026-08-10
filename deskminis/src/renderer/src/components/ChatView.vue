@@ -432,7 +432,10 @@ function onSlashTab(e: KeyboardEvent): void {
 
 <style scoped>
 .pane-c { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; position: relative; }
-.stream { flex: 1; overflow: auto; padding: 12px 0; }
+/* scrollbar-gutter 对称预留：滚动条 15px 会让正文在「减掉滚动条」的宽里居中，
+   而输入卡在完整宽里居中，两者左缘差 8px（实测）。both-edges 让两边各留一份，
+   正文与输入卡就精确对齐；顺带解决另一个毛病——消息多到撑出滚动条时整列文字横跳 15px。 */
+.stream { flex: 1; overflow: auto; padding: 12px 0; scrollbar-gutter: stable both-edges; }
 
 /* 解除跟随后右下浮出的「回到底部」小圆钮（设计 §2.4） */
 .back-bottom {
@@ -448,7 +451,14 @@ function onSlashTab(e: KeyboardEvent): void {
 .back-bottom:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* 回合容器（设计 v2 §2.1）：回合间 1px 分隔线 + 24px 间距，回合内块间 8px */
-.turn { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
+/* MU5：对话列现在可以拖到可用宽的一半（2560 屏上到 1254px），但**正文不该跟着拉长**——
+   实测 1254px 时每行约 157 字符，远超 45–90 的可读区间。
+   列宽是布局问题，行长是排版问题，两件事：容器随列宽伸展，正文按可读宽度居中。
+   792 = 760 可读宽 + 左右 16px 内边距（box-sizing: border-box）。 */
+.turn {
+  padding: 0 16px; display: flex; flex-direction: column; gap: 8px;
+  max-width: 792px; margin-inline: auto; width: 100%;
+}
 .turn + .turn { border-top: .5px solid var(--separator); margin-top: var(--sp-6); padding-top: var(--sp-6); }
 
 /* 用户消息：无气泡，左对齐标签行「你 · HH:MM」+ hover 复制钮（Codex 式回合归属） */
@@ -482,7 +492,12 @@ function onSlashTab(e: KeyboardEvent): void {
 
 /* 输入区：浮动容器（MU3：材质退场改实底） */
 .composer {
-  margin: 0 16px 16px; border-radius: var(--r-input); background: var(--surface-1);
+  /* 与正文同宽同轴：窄列时靠 100% - 32px 保住 16px 边距，宽列时封顶 792 并居中。
+     必须写 width 而不是只写 max-width——.composer 是列向 flex 容器里的 flex item，
+     **auto 外边距会关掉 cross 轴的 stretch**，只给 max-width 的话它会退回按内容收缩
+     （实测宽列里只剩 339px）。显式 width 才拿得到该有的宽度。 */
+  width: min(792px, 100% - 32px); margin: 0 auto 16px;
+  border-radius: var(--r-input); background: var(--surface-1);
   border: .5px solid var(--separator);
   /* MU5：卡片浮起（来源 AionUi 输入区）——此前是平贴的容器，与对话流没有层次差 */
   box-shadow: var(--shadow-fab);
