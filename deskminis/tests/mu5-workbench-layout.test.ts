@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { clampPaneWidth, nextWidth } from '../src/renderer/src/lib/pane/drag';
+import { fmtElapsed } from '../src/renderer/src/lib/time/elapsed';
 
 const root = path.resolve(__dirname, '..');
 const read = (p: string): string => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n');
@@ -103,6 +104,20 @@ describe('MU5 顶部任务条：把「过程」摆到常驻位（2 例）', () =
     expect(app).toContain('待批准');
     // 图标轨上的会话图标也要能带徽标（原 .dot-warn 只挂在进度 tab 上）
     expect(app).toMatch(/\.rl-badge\s*\{/);
+  });
+});
+
+describe('MU5 任务条耗时格式化 · lib/time/elapsed 纯模块（1 例）', () => {
+  it('mm:ss，满一小时进位 h:mm:ss；负数与非有限值当 0', () => {
+    expect(fmtElapsed(0)).toBe('0:00');
+    expect(fmtElapsed(9_000)).toBe('0:09');
+    expect(fmtElapsed(72_000)).toBe('1:12');
+    expect(fmtElapsed(3_600_000)).toBe('1:00:00');
+    expect(fmtElapsed(3_672_000)).toBe('1:01:12');
+    // 时钟回拨或 startedAt 未初始化时，常驻位上不该出现「-1:-3」这种东西
+    expect(fmtElapsed(-5_000)).toBe('0:00');
+    expect(fmtElapsed(Number.NaN)).toBe('0:00');
+    expect(fmtElapsed(Number.POSITIVE_INFINITY)).toBe('0:00');
   });
 });
 

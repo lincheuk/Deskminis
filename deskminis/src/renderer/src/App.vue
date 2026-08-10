@@ -13,10 +13,11 @@
  *
  *  MU2b Task 5 遗留：设置独立模态（SettingsModal），右栏 gear 退场；托盘
  *  menu:open-settings/menu:toggle-right 死通道经 preload 两订阅接通；主题偏好持久化。 */
-import { onMounted, onBeforeUnmount, ref, computed, provide, reactive } from 'vue';
+import { onMounted, onBeforeUnmount, ref, computed, provide, reactive, watch } from 'vue';
 import { useChat } from './stores/chat';
 import { clampPaneWidth, nextWidth } from './lib/pane/drag';
 import { loadTheme, saveTheme, type ThemeMode } from './lib/settings/theme';
+import { fmtElapsed } from './lib/time/elapsed';
 import Icon from './components/Icon.vue';
 import TitleBar from './components/TitleBar.vue';
 import SessionList from './components/SessionList.vue';
@@ -119,6 +120,35 @@ function startCDrag(e: MouseEvent): void {
   window.addEventListener('mouseup', onUp);
 }
 
+/** 顶部任务条——把「过程」摆到常驻位。
+ *  诊断根一（v4 §2）：右栏四标签装的全是**结果**（进度/产物/文件/终端都是操作完的产物），
+ *  agent 正在干什么、干到第几步、烧了多少上下文，全程没有一个常驻的地方能看到。
+ *  数据全部取自既有 store 字段（running / toolCards / contextInfo / pendingPerms），零新 RPC。 */
+const runStartedAt = ref(0);
+const nowMs = ref(Date.now());
+let taskTick: ReturnType<typeof setInterval> | null = null;
+watch(() => chat.running, (r) => { if (r) runStartedAt.value = Date.now(); });
+
+/** 上下文水位：contextInfo 缺席时返回 null 而不是编一个 0——
+ *  常驻位上的数字必须要么真、要么不出现（ProgressPanel 同口径）。 */
+const contextPct = computed<number | null>(() => {
+  const ci = chat.contextInfo;
+  if (!ci || ci.windowTokens <= 0) return null;
+  return Math.min(100, Math.round((ci.usedTokens / ci.windowTokens) * 100));
+});
+const taskbarText = computed(() => {
+  const seg: string[] = [];
+  const cards = chat.toolCards;
+  const cur = [...cards].reverse().find(c => c.success === undefined);
+  if (chat.running) seg.push(cur ? (cur.title || cur.name) : '思考中');
+  else seg.push(chat.activeId ? '空闲' : '未开始会话');
+  if (cards.length) seg.push(`第 ${cards.filter(c => c.success !== undefined).length + (cur ? 1 : 0)}/${cards.length} 步`);
+  if (chat.running && runStartedAt.value) seg.push(fmtElapsed(nowMs.value - runStartedAt.value));
+  const pct = contextPct.value;
+  if (pct !== null) seg.push(`上下文 ${pct}%`);
+  return seg.join(' · ');
+});
+
 /** 图标轨上的会话项：标题首字作标识（AionUi 用 agent 图标，DeskMinis 无 agent 概念，
  *  退而用标题首字——比通用圆点可辨认，且零新增资源）。 */
 const railSessions = computed(() => chat.sessions.slice(0, 8) as { id: string; title: string }[]);
@@ -175,10 +205,14 @@ onMounted(() => {
   const bridge = (window as { deskminis?: { onMenuOpenSettings?: (cb: () => void) => void; onMenuToggleRight?: (cb: () => void) => void } }).deskminis;
   bridge?.onMenuOpenSettings?.(() => { settingsOpen.value = true; });
   bridge?.onMenuToggleRight?.(() => { workbenchOpen.value = !workbenchOpen.value; });
+  taskTick = setInterval(() => { nowMs.value = Date.now(); }, 1000);
   window.addEventListener('keydown', onGlobalKey);
   void chat.init();
 });
-onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKey); });
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKey);
+  if (taskTick) clearInterval(taskTick);
+});
 </script>
 
 <template>
@@ -189,6 +223,15 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKey); });
       @toggle-right="workbenchOpen = !workbenchOpen"
       @toggle-theme="cycleTheme"
     />
+    <!-- 任务条：状态点 · 当前动作/步数/耗时/上下文水位 · 待批准计数（常驻，不随标签切换消失） -->
+    <div class="taskbar">
+      <span class="tb-dot" :class="{ live: chat.running }"></span>
+      <span class="tb-text">{{ taskbarText }}</span>
+      <button
+        v-if="chat.pendingPerms.length" class="tb-pend" type="button"
+        title="有权限请求等待批准" @click="showTab('progress')"
+      >{{ chat.pendingPerms.length }} 项待批准</button>
+    </div>
     <div class="win">
       <!-- 折叠态：52px 图标轨（AionUi 工作视图——进入工作态后会话列表压成纯图标） -->
       <nav v-show="railOpen && !sidebarExpanded" class="rail">
@@ -265,6 +308,26 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKey); });
 <style scoped>
 .shell { display: flex; flex-direction: column; height: 100vh; background: var(--bg); }
 .win { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+
+/* 顶部任务条：常驻的「现在在干什么」。两家参考产品都没有这一条——
+   是 DeskMinis 自己的命题（过程可见），故不照抄而是自定（v4 §4-1）。 */
+.taskbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  height: 34px; padding: 0 12px;
+  border-bottom: .5px solid var(--separator); background: var(--bg-secondary);
+}
+.tb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-quaternary); flex: 0 0 auto; }
+.tb-dot.live { background: var(--state-ok); }
+.tb-text {
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-micro);
+  color: var(--label-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tb-pend {
+  flex: 0 0 auto; padding: 2px 9px; border-radius: var(--r-pill);
+  border: .5px solid var(--state-warn); background: var(--state-warn-bg);
+  color: var(--state-warn); font-size: var(--fs-micro); font-weight: 600; cursor: pointer;
+}
+.tb-pend:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* 图标轨（折叠态）——来源 AionUi 工作视图：进入工作态后会话列表压成纯图标 */
 .rail {
