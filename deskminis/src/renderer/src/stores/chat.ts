@@ -28,6 +28,16 @@ export const useChat = defineStore('chat', {
     pendingFilePreview: null as string | null,
     providers: [] as UiProvider[],
     skills: [] as UiSkill[],
+    /** MU6 技能管理页数据源。**与上面的 skills 不是一回事**：那份是斜杠菜单用的，
+     *  带 sessionId 时只返回该会话生效的启用集、不带时还过滤掉了禁用项——
+     *  管理页必须看得见禁用的技能，否则关掉一个就再也找不回来了。 */
+    allSkills: [] as UiSkill[],
+    /** 最近一次导入任务的进度（字段对齐 importer.ts 的 ImportProgress，不自造）。 */
+    skillImport: null as null | {
+      taskId: string; state: 'running' | 'done' | 'failed';
+      total: number; completed: number; succeeded: string[];
+      failures: { name: string; error: string }[]; error?: string;
+    },
     // 循环报错（API Key 错误、provider 故障…）必须看得见，否则界面就是「按了没反应」
     lastError: '' as string,
     // 透明重试期间的提示；下一个 textDelta / turnEnd 清掉
@@ -97,10 +107,14 @@ export const useChat = defineStore('chat', {
       });
       await this.refreshSessions();
       await this.refreshProviders();
+      await this.refreshAllSkills();
       // 技能菜单数据源：开关/删除广播 changed；导入是后台任务不广播 changed，
       // 靠 progress 终态刷新（否则导入完成菜单里看不到）
       rpc.on('skills.changed', () => { void this.refreshSkills(); });
-      rpc.on('skills.import.progress', (t: any) => { if (t && t.state !== 'running') void this.refreshSkills(); });
+      rpc.on('skills.import.progress', (t: any) => {
+        if (t && typeof t.taskId === 'string') this.skillImport = t;
+        if (t && t.state !== 'running') { void this.refreshSkills(); void this.refreshAllSkills(); }
+      });
       await this.refreshSkills();
       // #7：水位动态刷新——每次 turnEnd/重试/压缩/卸载 之后拉一次 chat.contextInfo 存 state.contextInfo（供 TasksPanel 用，不直接写死 200K）
       void this.fetchContextInfo();
@@ -137,6 +151,37 @@ export const useChat = defineStore('chat', {
     async setSessionModelBinding(id: string, binding?: string) {
       await rpc.call('chat.sessions.setModelBinding', { sessionId: id, binding });
       await this.refreshSessions();
+    },
+    // ---- MU6 技能管理（消费既有 RPC，不新增方法）----
+    async refreshAllSkills() { this.allSkills = await rpc.call('skills.list', {}); },
+    /** 本轮只做**全局**启停：不传 sessionId 即写全局开关；传了才是会话覆盖。
+     *  作用范围必须在界面上说清（计划 §6 第一坑）。 */
+    async setSkillEnabled(id: string, enabled: boolean) {
+      await rpc.call('skills.setEnabled', { id, enabled });
+      await this.refreshAllSkills();
+      await this.refreshSkills();
+    },
+    async deleteSkill(id: string) {
+      await rpc.call('skills.delete', { id, confirm: true });
+      await this.refreshAllSkills();
+      await this.refreshSkills();
+    },
+    /** 导入本地技能目录。§2-4 拍板只接 kind:'folder'——原生目录选择器要走主进程 dialog，破红线 1。
+     *  后端立即返回 taskId，真正的进度靠 skills.import.progress 广播喂 skillImport。 */
+    async importSkillFolder(source: string) {
+      this.skillImport = null;
+      const t = await rpc.call('skills.import', { kind: 'folder', source });
+      // 广播可能早于返回，也可能晚于返回：先占位，让界面立刻有「进行中」的反馈
+      if (t && typeof t.taskId === 'string' && !this.skillImport) {
+        this.skillImport = { taskId: t.taskId, state: 'running', total: 0, completed: 0, succeeded: [], failures: [] };
+      }
+      return t;
+    },
+    /** 轮询兜底：广播漏了也能把终态捞回来（导入是脱离 UI 生命周期的后台任务）。 */
+    async pollSkillImport(taskId: string) {
+      const t = await rpc.call('skills.importStatus', { taskId });
+      if (t) this.skillImport = t;
+      return t;
     },
     async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
     async open(id: string) {

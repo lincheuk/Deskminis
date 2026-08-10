@@ -6,6 +6,7 @@
 import { inject, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import ProviderSettings from './ProviderSettings.vue';
+import SkillsSettings from './SkillsSettings.vue';
 import Icon from './Icon.vue';
 import type { ThemeMode } from '../lib/settings/theme';
 
@@ -19,10 +20,11 @@ const chat = useChat();
 // App.vue provide：开配对管理面（App 侧会同时收起本设置模态，避免两模态叠层）
 const openDevices = inject<() => void>('openDevices', () => {});
 
-type Section = 'model' | 'appearance' | 'permission' | 'devices';
+type Section = 'model' | 'skills' | 'appearance' | 'permission' | 'devices';
 const section = ref<Section>('model');
 const NAV: { id: Section; label: string }[] = [
   { id: 'model', label: '模型' },
+  { id: 'skills', label: '技能' },
   { id: 'appearance', label: '外观' },
   { id: 'permission', label: '权限' },
   { id: 'devices', label: '设备与同步' },
@@ -63,6 +65,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
         <div class="stitle">{{ NAV.find(n => n.id === section)!.label }}</div>
 
         <ProviderSettings v-if="section === 'model'" />
+
+        <SkillsSettings v-else-if="section === 'skills'" />
 
         <template v-else-if="section === 'appearance'">
           <div
