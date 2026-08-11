@@ -26,14 +26,14 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 
 <template>
   <div class="wrap" @click.stop>
-    <div class="cpill" @click="open = !open">
+    <div class="cpill" @click="open = !open" tabindex="0" role="button" @keydown.enter.prevent="open = !open" @keydown.space.prevent="open = !open" :aria-expanded="open">
       <span>{{ label }}</span><Icon name="chevron-up" :size="12" />
     </div>
     <div v-if="open" class="menu">
       <div v-if="!chat.providers.length" class="mhead">尚未配置任何模型</div>
       <div
         v-for="p in chat.providers" :key="p.id"
-        class="mrow" :class="{ off: !p.hasApiKey }"
+        class="mrow" :class="{ off: !p.hasApiKey }" tabindex="0" role="option" @keydown.enter.prevent="pick(p.id, p.hasApiKey)" @keydown.space.prevent="pick(p.id, p.hasApiKey)"
         @click="pick(p.id, p.hasApiKey)"
       >
         <div class="mtxt">
@@ -43,7 +43,7 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
         <Icon v-if="p.id === chat.defaultProviderId" class="chk" name="check" :size="16" />
       </div>
       <div class="mdiv"></div>
-      <div class="mrow manage" @click="manage"><div class="mtxt"><div class="mt plain">管理模型…</div></div></div>
+      <div class="mrow manage" @click="manage" tabindex="0" role="button" @keydown.enter.prevent="manage" @keydown.space.prevent="manage"><div class="mtxt"><div class="mt plain">管理模型…</div></div></div>
     </div>
   </div>
 </template>

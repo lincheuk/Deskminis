@@ -103,7 +103,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
     <div class="menubar" @click.stop>
       <div
         v-for="mn in menus" :key="mn.id"
-        class="mi" :class="{ open: openId === mn.id }"
+        class="mi" :class="{ open: openId === mn.id }" tabindex="0" role="button" @keydown.enter.prevent="toggle(mn.id)" @keydown.space.prevent="toggle(mn.id)" :aria-expanded="openId === mn.id"
         @click.stop="toggle(mn.id)" @mouseenter="hover(mn.id)"
       >
         {{ mn.label }}
@@ -111,7 +111,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
           <div class="mpop">
             <template v-for="(it, i) in mn.items" :key="i">
               <div v-if="it.sep" class="sep"></div>
-              <div v-else class="it" :class="{ danger: it.danger }" @click.stop="run(it)">
+              <div v-else class="it" :class="{ danger: it.danger }" @click.stop="run(it)" tabindex="0" role="menuitem" @keydown.enter.prevent="run(it)" @keydown.space.prevent="run(it)">
                 {{ it.label }}<span v-if="it.kbd" class="kbd">{{ it.kbd }}</span>
               </div>
             </template>

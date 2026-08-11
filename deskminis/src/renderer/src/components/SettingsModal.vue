@@ -57,7 +57,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
         <div class="shead">设置</div>
         <div
           v-for="n in NAV" :key="n.id"
-          class="sitem" :class="{ on: section === n.id }"
+          class="sitem" :class="{ on: section === n.id }" tabindex="0" role="tab" @keydown.enter.prevent="section = n.id" @keydown.space.prevent="section = n.id"
           @click="section = n.id"
         >{{ n.label }}</div>
       </nav>
@@ -78,7 +78,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
         <template v-else-if="section === 'appearance'">
           <div
             v-for="r in THEME_ROWS" :key="r.id"
-            class="opt" :class="{ on: props.theme === r.id }"
+            class="opt" :class="{ on: props.theme === r.id }" tabindex="0" role="radio" @keydown.enter.prevent="emit('set-theme', r.id)" @keydown.space.prevent="emit('set-theme', r.id)"
             @click="emit('set-theme', r.id)"
           >
             <div class="otxt"><div class="olabel">{{ r.label }}</div><div class="osub">{{ r.sub }}</div></div>
@@ -90,7 +90,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
         <template v-else-if="section === 'permission'">
           <div
             v-for="r in TIER_ROWS" :key="r.id"
-            class="opt" :class="{ on: chat.permTier === r.id, danger: r.danger }"
+            class="opt" :class="{ on: chat.permTier === r.id, danger: r.danger }" tabindex="0" role="radio" @keydown.enter.prevent="chat.setPermTier(r.id)" @keydown.space.prevent="chat.setPermTier(r.id)"
             @click="chat.setPermTier(r.id)"
           >
             <div class="otxt"><div class="olabel">{{ r.label }}</div><div class="osub">{{ r.sub }}</div></div>

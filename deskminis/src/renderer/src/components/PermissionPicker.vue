@@ -27,14 +27,14 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 
 <template>
   <div class="wrap" @click.stop>
-    <div class="cpill" @click="open = !open">
+    <div class="cpill" @click="open = !open" tabindex="0" role="button" @keydown.enter.prevent="open = !open" @keydown.space.prevent="open = !open" :aria-expanded="open">
       <Icon name="shield" :size="14" /><span>{{ label }}</span>
     </div>
     <div v-if="open" class="menu">
       <div class="mhead">应如何批准 DeskMinis 的操作？</div>
       <div
         v-for="r in ROWS" :key="r.tier"
-        class="mrow" :class="{ danger: r.danger }"
+        class="mrow" :class="{ danger: r.danger }" tabindex="0" role="option" @keydown.enter.prevent="pick(r.tier)" @keydown.space.prevent="pick(r.tier)"
         @click="pick(r.tier)"
       >
         <Icon :name="r.icon" :size="18" />

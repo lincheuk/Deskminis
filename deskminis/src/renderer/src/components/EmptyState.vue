@@ -27,7 +27,7 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
     <p class="sub">让 DeskMinis 帮你读写文件、执行命令、完成任务</p>
 
     <div class="cards">
-      <div v-for="ex in EXAMPLES" :key="ex.title" class="excard" @click="emit('fill', ex.text)">
+      <div v-for="ex in EXAMPLES" :key="ex.title" class="excard" @click="emit('fill', ex.text)" tabindex="0" role="button" @keydown.enter.prevent="emit('fill', ex.text)" @keydown.space.prevent="emit('fill', ex.text)">
         <Icon :name="ex.icon" :size="16" />
         <div class="extxt"><div class="extitle">{{ ex.title }}</div><div class="exsub">{{ ex.text }}</div></div>
       </div>
@@ -37,7 +37,7 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
       <div class="rhead">最近任务</div>
       <div
         v-for="s in recentThree()" :key="s.id"
-        class="ritem"
+        class="ritem" tabindex="0" role="button" @keydown.enter.prevent="chat.open(s.id)" @keydown.space.prevent="chat.open(s.id)"
         @click="chat.open(s.id)"
       >
         <span class="rtitle">{{ s.title || '新会话' }}</span>

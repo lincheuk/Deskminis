@@ -110,7 +110,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 <template>
   <div class="pane">
     <div class="lhead">
-      <div class="newbtn" @click="chat.newSession()">
+      <div class="newbtn" @click="chat.newSession()" tabindex="0" role="button" @keydown.enter.prevent="chat.newSession()" @keydown.space.prevent="chat.newSession()">
         <Icon name="plus" :size="16" /><span>新建会话</span>
       </div>
       <button class="collapse" type="button" title="折叠为图标轨" @click="emit('collapse')">☰</button>
@@ -127,7 +127,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
              是 e2e:mu6 真跑起来才暴露的。 -->
         <template v-for="s in grp.items" :key="s.id">
         <div
-          class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id" :title="badgeText(s)"
+          class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id" :title="badgeText(s)" tabindex="0" role="button" @keydown.enter.prevent="chat.open(s.id)" @keydown.space.prevent="chat.open(s.id)"
           @click="chat.open(s.id)"
         >
           <span class="sdot" :class="badgeOf(s) ? BADGE_VIEW[badgeOf(s)!].cls : 'idle'"></span>
