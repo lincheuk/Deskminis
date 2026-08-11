@@ -17,10 +17,40 @@ const emit = defineEmits<{
 }>();
 
 const chat = useChat();
+
+// ---- 关于与更新（用户 2026-08-11 拍板：GitHub Releases + 启动检查可关）----
+const appVersion = ref('');
+const autoCheck = ref(true);
+const updState = ref<{ status: string; version?: string; error?: string }>({ status: 'idle' });
+const checking = ref(false);
+const UPD_TEXT: Record<string, string> = {
+  idle: '尚未检查', checking: '正在检查…', available: '发现新版本，正在下载…',
+  downloading: '正在下载…', downloaded: '新版本已下载，重启即可安装',
+  latest: '已是最新版本', disabled: '自动检查已关闭',
+  dev: '开发模式不检查更新', error: '检查失败',
+};
+async function loadUpdate(): Promise<void> {
+  const b = (window as any).deskminis;
+  if (!b || typeof b.getUpdatePrefs !== 'function') return;
+  const r = await b.getUpdatePrefs();
+  appVersion.value = r.version; autoCheck.value = r.autoCheck; updState.value = r.state;
+}
+async function toggleAutoCheck(): Promise<void> {
+  const b = (window as any).deskminis;
+  if (!b) return;
+  await b.setUpdateEnabled(!autoCheck.value);
+  await loadUpdate();
+}
+async function checkNow(): Promise<void> {
+  const b = (window as any).deskminis;
+  if (!b) return;
+  checking.value = true;
+  try { updState.value = await b.checkForUpdates(); } finally { checking.value = false; }
+}
 // App.vue provide：开配对管理面（App 侧会同时收起本设置模态，避免两模态叠层）
 const openDevices = inject<() => void>('openDevices', () => {});
 
-type Section = 'model' | 'skills' | 'appearance' | 'permission' | 'devices';
+type Section = 'model' | 'skills' | 'appearance' | 'permission' | 'devices' | 'about';
 const section = ref<Section>('model');
 const NAV: { id: Section; label: string }[] = [
   { id: 'model', label: '模型' },
@@ -28,6 +58,7 @@ const NAV: { id: Section; label: string }[] = [
   { id: 'appearance', label: '外观' },
   { id: 'permission', label: '权限' },
   { id: 'devices', label: '设备与同步' },
+  { id: 'about', label: '关于与更新' },
 ];
 
 const THEME_ROWS: { id: ThemeMode; label: string; sub: string }[] = [
@@ -46,7 +77,10 @@ const TIER_ROWS: { id: Tier; label: string; sub: string; danger?: boolean }[] = 
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') { e.stopPropagation(); emit('close'); }
 }
-onMounted(() => window.addEventListener('keydown', onKey, true));
+onMounted(() => {
+  window.addEventListener('keydown', onKey, true);
+  void loadUpdate();
+});
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 </script>
 
@@ -99,6 +133,36 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
           <div class="snote">危险命令始终拦截；每次确认默认 90 秒未响应自动拒绝。权限档位为渲染端本地偏好，影响权限卡预选高亮。</div>
         </template>
 
+        <template v-else-if="section === 'about'">
+          <div class="snote">
+            DeskMinis <strong>v{{ appVersion || '—' }}</strong> · 本地优先的桌面 Agent 应用。
+            会话与记忆只存在本机与你自己配对的设备之间。
+          </div>
+          <div class="syncbox">
+            <div class="syncrow">
+              <div class="synctxt">
+                <div class="synclabel">启动时检查更新</div>
+                <div class="syncsub">
+                  {{ UPD_TEXT[updState.status] || updState.status }}<template v-if="updState.version"> （{{ updState.version }}）</template>
+                </div>
+              </div>
+              <button class="syncbtn" type="button" :class="{ paused: !autoCheck }" @click="toggleAutoCheck">
+                {{ autoCheck ? '已开启' : '已关闭' }}
+              </button>
+            </div>
+            <div class="syncwarn">
+              这是<strong>唯一</strong>会主动联网的功能，只向 GitHub 查一次版本号；关掉后完全不联网。
+              下载完<strong>不会自动重启</strong>——正在跑的任务不会被打断，何时安装由你决定。
+            </div>
+            <div class="syncrow" style="margin-top: 10px">
+              <button class="devbtn" type="button" :disabled="checking" @click="checkNow">
+                {{ checking ? '检查中…' : '立即检查更新' }}
+              </button>
+            </div>
+            <div v-if="updState.status === 'error'" class="uerr">{{ updState.error }}</div>
+          </div>
+        </template>
+
         <template v-else>
           <div class="snote">查看已配对设备、发起新配对。</div>
           <button class="devbtn" type="button" @click="openDevices()">管理设备…</button>
@@ -129,6 +193,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 </template>
 
 <style scoped>
+.uerr { margin-top: 8px; font-size: var(--fs-micro); color: var(--state-err); line-height: 1.5; }
 /* MU6 同步暂停开关 */
 .syncbox {
   margin-top: 14px; padding: 12px; border-radius: var(--r-card);

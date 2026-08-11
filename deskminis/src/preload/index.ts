@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld('deskminis', {
   minisdInfo: (): Promise<MinisdInfo> => ipcRenderer.invoke('minisd:info'),
   // 工作区目录选择器：取消返回 null（不是空串——空串会被当成「清空工作区」）
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
+  // 自动更新：开关归主进程管（它才是做检查的那一方），渲染端只读写与手动触发
+  getUpdatePrefs: (): Promise<{ autoCheck: boolean; version: string; state: { status: string; version?: string; error?: string } }> =>
+    ipcRenderer.invoke('update:getPrefs'),
+  setUpdateEnabled: (on: boolean): Promise<{ autoCheck: boolean }> => ipcRenderer.invoke('update:setEnabled', on),
+  checkForUpdates: (): Promise<{ status: string; version?: string; error?: string }> => ipcRenderer.invoke('update:check'),
   // MU2b Task 5：托盘菜单死通道接通（main 已在 menu:open-settings / menu:toggle-right 上 send，本 Task 仅追加订阅）。
   // 返回取消订阅函数（removeListener 对称移除同一 listener 引用）。
   onMenuOpenSettings: (cb: () => void): (() => void) => {

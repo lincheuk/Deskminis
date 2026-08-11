@@ -44,3 +44,16 @@ nsis:
   artifactName: 'DeskMinis-${version}-Setup.${ext}'
 portable:
   artifactName: 'DeskMinis-${version}-win-x64-portable.${ext}'
+
+# 自动更新（用户 2026-08-11 拍板：GitHub Releases 全自动 + 启动检查可关）。
+# electron-updater 靠这一段知道去哪查新版本；缺了它 checkForUpdates 直接报「找不到 publish 配置」。
+#
+# ⚠️ 仓库当前是 **private**：私有仓库的 Release 资产需要带 token 才能下载，
+#    electron-updater 对私有源要求把 GH token 打进应用——**那等于把 token 发给每个用户**。
+#    要真正跑通自动更新，二选一：① 仓库转 public；② 装机包换公开托管（另配 generic provider）。
+#    此段先按 public 配置写好，转公开后即刻可用；保持 private 的话检查会 404，
+#    主进程已按「静默吞掉」处理，不会打扰用户（见 src/main/index.ts 的 error 监听）。
+publish:
+  provider: github
+  owner: lincheuk
+  repo: Deskminis

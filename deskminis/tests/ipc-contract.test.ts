@@ -11,11 +11,25 @@ import { dirname, join } from 'node:path';
 // 这里给一组无副作用的桩：whenReady 返回一个永不 resolve 的 Promise，保证不会触发真正
 // 的启动流程；其余方法都是 no-op。它只为让模块可被 import，不改变任何生产行为。
 vi.mock('electron', () => ({
-  app: { whenReady: () => new Promise<void>(() => {}), on: () => {}, quit: () => {} },
+  // 桩必须跟着 index.ts 实际用到的 API 走：2026-08-11 加自动更新后新用了
+  // getPath / getVersion / isPackaged，缺一个就在 import 期 TypeError。
+  app: {
+    whenReady: () => new Promise<void>(() => {}), on: () => {}, quit: () => {},
+    getPath: () => '.', getVersion: () => '0.0.0-test', isPackaged: false,
+  },
   ipcMain: { handle: () => {} },
-  BrowserWindow: class {},
-  dialog: { showErrorBox: () => {} },
+  BrowserWindow: class { static getAllWindows() { return []; } static getFocusedWindow() { return null; } },
+  dialog: { showErrorBox: () => {}, showMessageBox: () => Promise.resolve({ response: 0 }) },
+  Menu: { buildFromTemplate: () => ({}) },
+  nativeImage: { createFromPath: () => ({ isEmpty: () => true }), createEmpty: () => ({}) },
+  Tray: class {},
   utilityProcess: { fork: () => ({}) },
+}));
+// electron-updater 在**模块初始化时**就会读 app.getVersion()/getAppPath()——
+// 它不是本文件的被测对象，给一个无副作用的桩，别让它把 import 拖崩。
+vi.mock('electron-updater', () => ({
+  default: { autoUpdater: { on: () => {}, checkForUpdates: () => Promise.resolve(null), quitAndInstall: () => {},
+    autoDownload: true, autoInstallOnAppQuit: false } },
 }));
 
 // eslint-disable-next-line import/first —— vi.mock 由 vitest 提升到文件顶部，此 import 拿到的已是桩

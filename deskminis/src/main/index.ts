@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityProcess, type UtilityProcess } from 'electron';
+import electronUpdater from 'electron-updater';
 import { dirname, join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { dataRoot } from '../minisd/paths';
 import { attachmentPath, decodeImageDataUrl } from './attachments';
 
@@ -75,6 +76,7 @@ function createTrayMenu(win: BrowserWindow): import('electron').Menu {
     { label: '显示主窗口', click: () => { win.show(); win.focus(); } },
     { label: '切换右栏', click: () => { win.show(); win.webContents.send('menu:toggle-right'); } },
     { label: '打开设置', click: () => { win.show(); win.webContents.send('menu:open-settings'); } },
+    { label: '检查更新…', click: () => { void checkUpdates(true); } },
     { type: 'separator' as const },
     { label: '退出 DeskMinis', click: () => { app.quit(); } },
   ]);
@@ -97,6 +99,76 @@ async function createWindow(): Promise<BrowserWindow> {
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } });
   return win;
 }
+
+// ================== 自动更新（用户 2026-08-11 拍板：GitHub Releases + 启动检查可关）==================
+const { autoUpdater } = electronUpdater;
+
+/** 开关**归主进程管**：做检查的是主进程，配置若只存渲染端 localStorage，
+ *  启动时主进程读不到——「关掉自动检查」会形同虚设。故落在 userData 下的一个小 JSON。 */
+function updatePrefsPath(): string { return join(app.getPath('userData'), 'update-prefs.json'); }
+function readUpdatePrefs(): { autoCheck: boolean } {
+  try {
+    const raw = JSON.parse(readFileSync(updatePrefsPath(), 'utf8')) as { autoCheck?: unknown };
+    return { autoCheck: raw.autoCheck !== false };   // 缺省开启
+  } catch { return { autoCheck: true }; }
+}
+function writeUpdatePrefs(p: { autoCheck: boolean }): void {
+  try { writeFileSync(updatePrefsPath(), JSON.stringify(p, null, 2)); } catch { /* 写不进就下次再说，不打断启动 */ }
+}
+
+/** 最近一次检查结果，供渲染端显示（不做全局状态机，够用即可）。 */
+let updateState: { status: string; version?: string; error?: string } = { status: 'idle' };
+
+function setupUpdater(): void {
+  // 下载完**不自动装**：Agent 应用可能正跑着长任务，自动重启会把用户的活干掉一半。
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on('checking-for-update', () => { updateState = { status: 'checking' }; });
+  autoUpdater.on('update-available', (i) => { updateState = { status: 'available', version: i?.version }; });
+  autoUpdater.on('update-not-available', () => { updateState = { status: 'latest' }; });
+  autoUpdater.on('download-progress', () => { updateState = { status: 'downloading' }; });
+  autoUpdater.on('update-downloaded', (i) => {
+    updateState = { status: 'downloaded', version: i?.version };
+    const w = BrowserWindow.getAllWindows()[0];
+    if (!w) return;
+    // 只提示，装不装由用户点。dialog 是模态但不强制——取消即继续用当前版本。
+    void dialog.showMessageBox(w, {
+      type: 'info',
+      title: '有新版本可用',
+      message: `DeskMinis ${i?.version ?? ''} 已下载完成`,
+      detail: '现在重启即可用上新版本；也可以继续用当前版本，下次启动时再装。',
+      buttons: ['稍后再说', '重启并安装'],
+      defaultId: 0,          // 默认焦点**不在**破坏性/打断性选项上
+      cancelId: 0,
+    }).then(r => { if (r.response === 1) { quitting = true; autoUpdater.quitAndInstall(); } });
+  });
+  // 检查失败是常态（离线、公司网、GitHub 限流、仓库还是 private）——
+  // 静默记录即可，绝不弹窗打扰。更新是便利功能，不是必需路径。
+  autoUpdater.on('error', (e) => { updateState = { status: 'error', error: String(e?.message ?? e) }; });
+}
+
+/** dev 下不检查：electron-updater 在未打包应用里会抛「application is not packed」，
+ *  不拦的话每次 npm run dev 都吐一条错误噪音，久了真错误也没人看了。 */
+async function checkUpdates(manual: boolean): Promise<{ status: string; version?: string; error?: string }> {
+  if (!app.isPackaged) {
+    updateState = { status: 'dev', error: '开发模式不检查更新' };
+    return updateState;
+  }
+  if (!manual && !readUpdatePrefs().autoCheck) {
+    updateState = { status: 'disabled' };
+    return updateState;
+  }
+  try { await autoUpdater.checkForUpdates(); } catch (e) { updateState = { status: 'error', error: String(e) }; }
+  return updateState;
+}
+
+ipcMain.handle('update:getPrefs', () => ({ ...readUpdatePrefs(), version: app.getVersion(), state: updateState }));
+ipcMain.handle('update:setEnabled', (_e, on: unknown) => {
+  writeUpdatePrefs({ autoCheck: on !== false });
+  return readUpdatePrefs();
+});
+ipcMain.handle('update:check', async () => await checkUpdates(true));
 
 // 旧通道保留（无害；渲染层重写后会弃用）：只给端口，连不上带 token 认证的 minisd。
 ipcMain.handle('minisd:port', () => minisdPort);
@@ -130,6 +202,11 @@ ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) =>
 });
 
 app.whenReady().then(async () => {
+  // 启动检查：延迟 8s，让窗口和 minisd 先起来，不和启动抢资源。
+  // 未打包 / 用户关掉开关时 checkUpdates 自己会短路，这里不重复判断。
+  setupUpdater();
+  setTimeout(() => { void checkUpdates(false); }, 8_000);
+
   // 不 catch 的话：minisd 起不来 → 这里抛出 → createWindow 永远不执行 →
   // 应用「启动了但什么都不显示」，用户和开发者都拿不到任何线索。
   try {
