@@ -116,6 +116,21 @@ describe('工作区可选 · 界面（3 例）', () => {
     expect(chatView).toMatch(/恢复默认|回到默认|默认沙箱/);
   });
 
+  it('空态不许静默失败：没有活动会话时先建会话，且按钮文案说明这一点', () => {
+    // 用户 2026-08-11 实测撞到的真 bug：工作区是**每会话**的，空态下 setWorkspace 会带着
+    // 空 sessionId 发出去，后端 UPDATE 匹配不到任何行——**点了什么也不发生，还不报错**。
+    // 这正是最难查的一类：界面看着好好的、按钮也能点。
+    expect(chatView).toMatch(/ensureSession/);
+    expect(chatView).toMatch(/if \(!chat\.activeId\) await chat\.newSession\(\)/);
+    // 不做无声的副作用：没会话时按钮文案必须写明它会新建
+    expect(chatView).toMatch(/新建会话并/);
+    // 占位符里的反斜杠是 HTML 属性字面量：写两个就显示两个（用户截图里看到的正是 D:\projects）。
+    // 断言刻意**不数反斜杠**——用 fromCharCode 拼，免疫多层转义（这轮已在转义上栽过两次）。
+    const BS = String.fromCharCode(92);
+    expect(chatView).toContain(`D:${BS}projects`);
+    expect(chatView).not.toContain(`D:${BS}${BS}projects`);
+  });
+
   it('store 接三个 RPC，且设置后要刷新——工作区变了终端与文件树都得跟着变', () => {
     expect(store).toMatch(/rpc\.call\('workspace\.get'/);
     expect(store).toMatch(/rpc\.call\('workspace\.set'/);

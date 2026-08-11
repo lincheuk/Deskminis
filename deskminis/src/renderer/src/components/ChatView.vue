@@ -38,11 +38,17 @@ const workspaceLabel = computed(() => {
   if (chat.workspaceIsDefault) return '工作区';
   return r.split(/[\\/]/).filter(Boolean).pop() || '工作区';
 });
+/** 工作区是**每会话**的：没有活动会话时 setWorkspace 会带着空 sessionId 发出去，
+ *  后端 UPDATE 匹配不到任何行——**静默什么也不发生**（用户 2026-08-11 实测撞到的正是这个）。
+ *  故先建会话再设；按钮文案已写明「新建会话并…」，不做无声的副作用。 */
+async function ensureSession(): Promise<void> {
+  if (!chat.activeId) await chat.newSession();
+}
 async function applyWs(): Promise<void> {
   const v = wsPath.value.trim();
   if (!v) return;
   wsErr.value = ''; wsBusy.value = true;
-  try { await chat.setWorkspace(v); wsPath.value = ''; wsOpen.value = false; }
+  try { await ensureSession(); await chat.setWorkspace(v); wsPath.value = ''; wsOpen.value = false; }
   catch (e) { wsErr.value = e instanceof Error ? e.message : String(e); }
   finally { wsBusy.value = false; }
 }
@@ -51,6 +57,7 @@ async function pickWs(): Promise<void> {
   try {
     const picked = await chat.pickWorkspaceFolder();
     if (picked === null) return;   // 用户取消——不是空串，不能当「清空」处理
+    await ensureSession();
     await chat.setWorkspace(picked);
     wsOpen.value = false;
   } catch (e) { wsErr.value = e instanceof Error ? e.message : String(e); }
@@ -469,16 +476,21 @@ function onSlashTab(e: KeyboardEvent): void {
       <div v-if="wsOpen" class="wspanel">
         <div class="wsnow">
           <span class="wslabel">当前工作区</span>
-          <span class="wspath" :title="chat.workspaceRoot">{{ chat.workspaceRoot || '（未选择会话）' }}</span>
-          <span v-if="chat.workspaceIsDefault" class="wstag">会话沙箱（默认）</span>
+          <span v-if="chat.activeId" class="wspath" :title="chat.workspaceRoot">{{ chat.workspaceRoot }}</span>
+          <span v-else class="wspath wsnone">尚未选择会话——工作区是每个会话各自的</span>
+          <span v-if="chat.activeId && chat.workspaceIsDefault" class="wstag">会话沙箱（默认）</span>
         </div>
         <div class="wsrow">
-          <button class="wsbtn-main" type="button" :disabled="wsBusy" @click="pickWs">选择目录…</button>
+          <button class="wsbtn-main" type="button" :disabled="wsBusy" @click="pickWs">
+            {{ chat.activeId ? '选择目录…' : '新建会话并选目录…' }}
+          </button>
           <input
-            v-model="wsPath" class="wsinput" type="text" placeholder="或粘贴绝对路径，如 D:\\projects\\my-app"
+            v-model="wsPath" class="wsinput" type="text" placeholder="或粘贴绝对路径，如 D:\projects\my-app"
             @keydown.enter="applyWs"
           />
-          <button class="wsbtn-apply" type="button" :disabled="wsBusy || !wsPath.trim()" @click="applyWs">应用</button>
+          <button class="wsbtn-apply" type="button" :disabled="wsBusy || !wsPath.trim()" @click="applyWs">
+            {{ chat.activeId ? '应用' : '新建并应用' }}
+          </button>
         </div>
         <div class="wsfoot">
           <span class="wshint">shell 命令、终端、相对路径都以这里为基准。</span>
@@ -505,6 +517,7 @@ function onSlashTab(e: KeyboardEvent): void {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
 }
 .wstag { flex: 0 0 auto; color: var(--label-tertiary); }
+.wsnone { color: var(--label-tertiary); font-family: var(--font-ui); direction: ltr; }
 .wsrow { display: flex; gap: 6px; }
 .wsinput {
   flex: 1; min-width: 0; padding: 5px 8px; border-radius: var(--r-control);
