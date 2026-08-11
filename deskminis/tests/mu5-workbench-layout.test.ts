@@ -164,8 +164,11 @@ describe('MU5 列宽放开后正文仍须可读（1 例）', () => {
   it('正文与输入卡按可读宽封顶并居中；输入卡必须写 width 而非只写 max-width', () => {
     // 列宽是布局问题，行长是排版问题。对话列现在可拖到可用宽的一半（2560 屏上 1254px），
     // 若正文跟着拉长，实测每行约 157 字符——远超 45–90 的可读区间。
-    expect(chatView).toMatch(/\.turn\s*\{[^}]*max-width:\s*792px/);
-    expect(chatView).toMatch(/\.turn\s*\{[^}]*margin-inline:\s*auto/);
+    // 锚**意图**不锚写法（红线 9 / MU5 §15 / MU6 同类第三次）：可读宽是**对话列的统一契约**，
+    // 初版只写在 .turn 上，结果空态与事件条不受约束——大屏 + 折叠工作台时空态整块横跨 1877px、
+    // 与 792 居中的输入卡差 59px（用户实测报「比例不对」）。现提升为 .stream 全部直接子元素。
+    expect(chatView).toMatch(/\.stream > \*\s*\{[^}]*max-width:\s*792px/);
+    expect(chatView).toMatch(/\.stream > \*\s*\{[^}]*margin-inline:\s*auto/);
     // 输入卡是**列向 flex 容器里的 flex item**，auto 外边距会关掉 cross 轴 stretch，
     // 只写 max-width 的话它会退回按内容收缩（实测宽列里只剩 339px）。必须写 width。
     expect(chatView).toMatch(/\.composer\s*\{[^}]*width:\s*min\(792px/);

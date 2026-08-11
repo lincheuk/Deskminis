@@ -455,10 +455,12 @@ function onSlashTab(e: KeyboardEvent): void {
    实测 1254px 时每行约 157 字符，远超 45–90 的可读区间。
    列宽是布局问题，行长是排版问题，两件事：容器随列宽伸展，正文按可读宽度居中。
    792 = 760 可读宽 + 左右 16px 内边距（box-sizing: border-box）。 */
-.turn {
-  padding: 0 16px; display: flex; flex-direction: column; gap: 8px;
-  max-width: 792px; margin-inline: auto; width: 100%;
-}
+/* 阅读栏宽度是**对话列的统一契约**，不是「消息」独有的。
+   初版只给了 .turn，结果空态与事件条不受约束——大屏 + 折叠工作台时空态整块横跨 1877px，
+   而输入卡是 792 居中，两者左缘差 59px，看着就是「比例不对」。
+   改成管住 .stream 的全部直接子元素，一处定义、处处对齐。 */
+.stream > * { width: 100%; max-width: 792px; margin-inline: auto; }
+.turn { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
 .turn + .turn { border-top: .5px solid var(--separator); margin-top: var(--sp-6); padding-top: var(--sp-6); }
 
 /* 用户消息：无气泡，左对齐标签行「你 · HH:MM」+ hover 复制钮（Codex 式回合归属） */

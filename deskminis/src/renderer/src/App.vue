@@ -185,11 +185,13 @@ const taskbarText = computed(() => {
   return seg.join(' · ');
 });
 
-/** 图标轨上的会话项：标题首字作标识（AionUi 用 agent 图标，DeskMinis 无 agent 概念，
- *  退而用标题首字——比通用圆点可辨认，且零新增资源）。 */
+/** 图标轨上的会话项。
+ *  初版取标题**首字**，用户实测反馈不可读——两个「E2E 验收」都显示 E，根本分不出是哪个；
+ *  中文首字更糟（「文」是文件还是文本？）。与工作台折叠条同一处置：改**竖排短词**，
+ *  取前 4 字竖着排，40px 宽的轨里读得清、也认得出是哪个会话。 */
 const railSessions = computed(() => chat.sessions.slice(0, 8) as { id: string; title: string }[]);
 function railLabel(s: { title: string }): string {
-  return (s.title || '新').slice(0, 1);
+  return (s.title || '新会话').trim().slice(0, 4);
 }
 
 // 明暗：system 跟随系统 / light 强制浅 / dark 强制深——落到 <html data-theme>；localStorage 持久化（Task 5 前为内存态，重启丢失）
@@ -281,7 +283,7 @@ onBeforeUnmount(() => {
           class="rl ag" :class="{ on: s.id === chat.activeId }" :title="s.title || '新会话'"
           @click="chat.open(s.id)"
         >
-          {{ railLabel(s) }}
+          <span class="rl-txt">{{ railLabel(s) }}</span>
           <span v-if="s.id === chat.activeId && chat.pendingPerms.length > 0" class="rl-badge">{{ chat.pendingPerms.length }}</span>
         </button>
         <span class="rsp"></span>
@@ -401,7 +403,15 @@ onBeforeUnmount(() => {
 /* MU5 §5 红线 6：新增交互元素一律原生 button + :focus-visible 环，不再新增 div @click */
 .rl:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .rl :deep(svg) { stroke: var(--label-secondary); }
-.rl.ag { background: var(--surface-1); border-color: var(--separator); color: var(--label-secondary); font-size: 12px; }
+.rl.ag {
+  background: var(--surface-1); border-color: var(--separator); color: var(--label-secondary);
+  font-size: 11px; height: auto; min-height: 34px; padding: 7px 0;
+}
+/* 竖排短词：与工作台折叠条同一处置——单字缩写在中文里没有意义 */
+.rl-txt {
+  writing-mode: vertical-rl; text-orientation: upright;
+  letter-spacing: .06em; line-height: 1; white-space: nowrap;
+}
 .rl.on { border-color: var(--action); color: var(--action); }
 /* 激活项左侧 2px 竖条（AionUi 的激活标识，比整块反白克制） */
 .rl.on::before {

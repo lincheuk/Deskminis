@@ -410,6 +410,16 @@ try {
     await sleep(300);
     shots.push(await shot(`mu6-${mode}-skills.png`));
 
+    // ③a 侧栏图标轨（竖排会话短词）——初版取标题首字，两个「E2E 验收」都显示 E，分不出来
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await sleep(200);
+    await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find(x => (x.title||'').includes('折叠为图标轨')); if (b) b.click(); })()`);
+    await waitFor(`(() => { const r = document.querySelector('.rail'); return !!r && getComputedStyle(r).display !== 'none'; })()`, 5_000, `${mode} 侧栏图标轨`);
+    await sleep(300);
+    shots.push(await shot(`mu6-${mode}-session-rail.png`));
+    await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find(x => (x.title||'').includes('展开会话列表')); if (b) b.click(); })()`);
+    await sleep(300);
+
     // ③b 工作台折叠条（竖排标签）——这个状态刚因为「截首字看不懂」返工过，留基线防回潮
     await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await sleep(250);
@@ -434,9 +444,9 @@ try {
     await sleep(250);
   }
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
-  const shotsOk = shots.length === 10 && shots.every(s => existsSync(s));
-  record('7. 新界面截图（明暗各 5 张，共 10 张，含工作台折叠条）', shotsOk,
-    `截图=${shots.length}/10，落盘齐全=${shots.every(s => existsSync(s))}`);
+  const shotsOk = shots.length === 12 && shots.every(s => existsSync(s));
+  record('7. 新界面截图（明暗各 6 张，共 12 张，含两条竖排轨）', shotsOk,
+    `截图=${shots.length}/12，落盘齐全=${shots.every(s => existsSync(s))}`);
 
 
 } catch (e) {
