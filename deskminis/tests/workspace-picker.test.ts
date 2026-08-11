@@ -124,6 +124,11 @@ describe('工作区可选 · 界面（3 例）', () => {
     expect(chatView).toMatch(/if \(!chat\.activeId\) await chat\.newSession\(\)/);
     // 不做无声的副作用：没会话时按钮文案必须写明它会新建
     expect(chatView).toMatch(/新建会话并/);
+    // 但该文案很长：与输入框同排会把后者挤没（用户实测截图里只剩「或粘」两字）。
+    // 故主操作**独占一行**，且输入框有 min-width 下限——宁可换行也不要一条缝。
+    expect(chatView).toMatch(/\.wsbtn-main \{[^}]*width:\s*100%/);
+    expect(chatView).toMatch(/\.wsinput \{[\s\S]{0,200}?min-width:\s*140px/);
+    expect(chatView).not.toMatch(/\.wsinput \{[\s\S]{0,200}?min-width:\s*0/);
     // 占位符里的反斜杠是 HTML 属性字面量：写两个就显示两个（用户截图里看到的正是 D:\projects）。
     // 断言刻意**不数反斜杠**——用 fromCharCode 拼，免疫多层转义（这轮已在转义上栽过两次）。
     const BS = String.fromCharCode(92);

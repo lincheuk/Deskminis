@@ -480,20 +480,24 @@ function onSlashTab(e: KeyboardEvent): void {
           <span v-else class="wspath wsnone">尚未选择会话——工作区是每个会话各自的</span>
           <span v-if="chat.activeId && chat.workspaceIsDefault" class="wstag">会话沙箱（默认）</span>
         </div>
+        <!-- 两行而不是三个控件挤一行：336px 的对话列塞不下。
+             挤在一行时输入框会被压到只剩两个字（用户 2026-08-11 实测截图），
+             而恰恰是「没有会话」时按钮文案最长——我上一轮为说清副作用加长了文案，反把它挤坏了。
+             主操作独占一行（文案有地方把副作用说全），粘贴路径退居第二行。 -->
+        <button class="wsbtn-main" type="button" :disabled="wsBusy" @click="pickWs">
+          {{ chat.activeId ? '选择目录…' : '新建会话并选目录…' }}
+        </button>
         <div class="wsrow">
-          <button class="wsbtn-main" type="button" :disabled="wsBusy" @click="pickWs">
-            {{ chat.activeId ? '选择目录…' : '新建会话并选目录…' }}
-          </button>
           <input
             v-model="wsPath" class="wsinput" type="text" placeholder="或粘贴绝对路径，如 D:\projects\my-app"
             @keydown.enter="applyWs"
           />
-          <button class="wsbtn-apply" type="button" :disabled="wsBusy || !wsPath.trim()" @click="applyWs">
-            {{ chat.activeId ? '应用' : '新建并应用' }}
-          </button>
+          <button class="wsbtn-apply" type="button" :disabled="wsBusy || !wsPath.trim()" @click="applyWs">应用</button>
         </div>
         <div class="wsfoot">
-          <span class="wshint">shell 命令、终端、相对路径都以这里为基准。</span>
+          <span class="wshint">
+            shell 命令、终端、相对路径都以这里为基准。<template v-if="!chat.activeId">应用时会先新建一个会话。</template>
+          </span>
           <button v-if="!chat.workspaceIsDefault" class="wsreset" type="button" @click="resetWs">恢复默认沙箱</button>
         </div>
         <div v-if="wsErr" class="wserr">{{ wsErr }}</div>
@@ -520,7 +524,9 @@ function onSlashTab(e: KeyboardEvent): void {
 .wsnone { color: var(--label-tertiary); font-family: var(--font-ui); direction: ltr; }
 .wsrow { display: flex; gap: 6px; }
 .wsinput {
-  flex: 1; min-width: 0; padding: 5px 8px; border-radius: var(--r-control);
+  /* min-width 给下限：flex 默认 min-width:auto 会被兄弟挤到只剩几像素。
+     宁可整行换行，也不要一个压成缝的输入框。 */
+  flex: 1 1 auto; min-width: 140px; padding: 5px 8px; border-radius: var(--r-control);
   border: .5px solid var(--separator); background: var(--surface-1);
   color: var(--label); font-size: var(--fs-micro); font-family: var(--font-mono);
 }
@@ -529,7 +535,9 @@ function onSlashTab(e: KeyboardEvent): void {
   flex: 0 0 auto; padding: 5px 12px; border-radius: var(--r-control);
   font-size: var(--fs-micro); cursor: pointer; white-space: nowrap;
 }
-.wsbtn-main { border: none; background: var(--action); color: var(--on-action); font-weight: 600; }
+/* 主操作独占一行：文案在没有会话时会变长（「新建会话并选目录…」），
+   与输入框同排必然把后者挤没 */
+.wsbtn-main { width: 100%; border: none; background: var(--action); color: var(--on-action); font-weight: 600; }
 .wsbtn-apply { border: .5px solid var(--separator); background: var(--surface-1); color: var(--label); }
 .wsbtn-main:disabled, .wsbtn-apply:disabled { opacity: var(--opacity-disabled); cursor: default; }
 .wsreset { border: .5px solid var(--separator); background: none; color: var(--label-secondary); margin-left: auto; }
