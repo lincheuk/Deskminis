@@ -339,15 +339,18 @@ onBeforeUnmount(() => {
           <p class="we-d">启用后这里会显示 agent 操作桌面时的实时画面与操作轨迹。<br />computer use 能力属独立里程碑，当前版本未包含。</p>
         </div>
       </section>
-      <!-- 折叠态：40px 图标条（对齐侧栏 52px 图标轨的模式）。
-           标签压成单字，但**徽标与实时点照常显示**——折叠是省地方，不是失明。 -->
+      <!-- 折叠态：40px 竖排标签条（对齐侧栏 52px 图标轨的模式）。
+           **不截首字**：初版把标签压成单字（进/产/文/终/浏/屏），用户实测反馈「没人看得懂」——
+           中文单字脱离词就没有意义（「文」是文件还是文本？「产」是什么？），
+           那是照搬拉丁字母缩写的思路，对中文不成立。改竖排完整词：中文竖排本就自然，
+           40px 容得下，歧义归零，也不必新增图标资源。徽标与实时点照常显示。 -->
       <nav v-show="workbenchOpen && !workbenchExpanded" class="wbrail">
         <button
           v-for="t in openTabs" :key="t.id" type="button"
           class="wbr" :class="{ on: activeTabId === t.id }" :title="t.label"
           @click="expandWorkbenchTo(t)"
         >
-          <span v-if="t.live" class="wbr-live"></span>{{ t.label.slice(0, 1) }}
+          <span v-if="t.live" class="wbr-live"></span><span class="wbr-txt">{{ t.label }}</span>
           <span v-if="t.id === 'progress' && chat.pendingPerms.length > 0" class="wbr-badge">{{ chat.pendingPerms.length }}</span>
         </button>
       </nav>
@@ -514,17 +517,26 @@ onBeforeUnmount(() => {
   padding: 8px 0; overflow: hidden;
 }
 .wbr {
-  position: relative; flex: 0 0 auto; width: 28px; height: 28px;
+  position: relative; flex: 0 0 auto; width: 30px; min-height: 28px;
+  padding: 8px 0;
   border-radius: var(--r-control); border: 1px solid transparent; background: none;
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 600; color: var(--label-tertiary); cursor: pointer;
+}
+/* 竖排：中文逐字向下排，读起来跟横排一样自然，且完整词零歧义 */
+.wbr-txt {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  letter-spacing: .08em;
+  line-height: 1;
+  white-space: nowrap;
 }
 .wbr:hover { background: var(--fill-quaternary); color: var(--label); }
 .wbr:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .wbr.on { background: var(--surface-1); border-color: var(--action); color: var(--action); }
 .wbr-live {
-  position: absolute; top: 2px; left: 2px; width: 5px; height: 5px;
-  border-radius: 50%; background: var(--state-ok);
+  position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  width: 5px; height: 5px; border-radius: 50%; background: var(--state-ok);
 }
 /* 折叠态仍要看得见待批准——折叠是省地方，不是失明 */
 .wbr-badge {

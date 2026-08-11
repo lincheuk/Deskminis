@@ -410,7 +410,22 @@ try {
     await sleep(300);
     shots.push(await shot(`mu6-${mode}-skills.png`));
 
+    // ③b 工作台折叠条（竖排标签）——这个状态刚因为「截首字看不懂」返工过，留基线防回潮
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await sleep(250);
+    await evaluate(`(() => { const b = document.querySelector('.wtab-collapse'); if (b) b.click(); })()`);
+    await waitFor(`!!document.querySelector('.wbrail')`, 5_000, `${mode} 工作台折叠条`);
+    await sleep(300);
+    shots.push(await shot(`mu6-${mode}-workbench-rail.png`));
+    // 展开回来，后续用例版面一致
+    await evaluate(`(() => { const b = document.querySelector('.wbr'); if (b) b.click(); })()`);
+    await sleep(300);
+
     // ④ 设置 · 设备与同步（暂停开关 + 命门文案）
+    // 上一步（折叠条）把模态关掉了，这里必须重新打开——原流程是「③ 开着模态直接切导航」，
+    // 中间插了别的步骤就不成立了。
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }))`);
+    await waitFor(`!!document.querySelector('.modal[aria-label="设置"]')`, 5_000, `${mode} 设置模态（设备页）`);
     await evaluate(`[...document.querySelectorAll('.sitem')].find(x => x.textContent.trim() === '设备与同步').click()`);
     await waitFor(`!!document.querySelector('.syncbtn')`, 5_000, `${mode} 同步开关`);
     await sleep(300);
@@ -419,9 +434,9 @@ try {
     await sleep(250);
   }
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
-  const shotsOk = shots.length === 8 && shots.every(s => existsSync(s));
-  record('7. 三组新界面截图（明暗各 4 张，共 8 张）', shotsOk,
-    `截图=${shots.length}/8，落盘齐全=${shots.every(s => existsSync(s))}`);
+  const shotsOk = shots.length === 10 && shots.every(s => existsSync(s));
+  record('7. 新界面截图（明暗各 5 张，共 10 张，含工作台折叠条）', shotsOk,
+    `截图=${shots.length}/10，落盘齐全=${shots.every(s => existsSync(s))}`);
 
 
 } catch (e) {
