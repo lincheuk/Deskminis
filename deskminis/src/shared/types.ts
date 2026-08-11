@@ -30,6 +30,7 @@ export interface RawMessage {
 export interface SessionMeta {
   id: string; title: string; modelBinding?: string;
   memoryEnabled?: boolean;       // 会话级记忆开关，默认 true（db.ts memory_enabled DEFAULT 1）
+  workspaceRoot?: string;        // 会话绑定的真实项目目录；缺省 = 回落沙箱桶 sessions/<id>/workspace
   createdAt: number; updatedAt: number; pinnedAt?: number;
 }
 

@@ -145,7 +145,7 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       const command = String(input.command);
       const decision = await ctx.permissions.check({ kind: 'shell', detail: command, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) });
       if (decision === 'deny') return { output: '命令被用户拒绝（可在设置-权限中调整）', success: false };
-      const cwd = ctx.paths.sessionBucket(ctx.sessionId, 'workspace');
+      const cwd = ctx.paths.workspaceOf(ctx.sessionId);
       const timeoutMs = (typeof input.timeout_seconds === 'number' ? input.timeout_seconds : 120) * 1000;
       const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx));
       let output = r.output;

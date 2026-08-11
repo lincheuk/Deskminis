@@ -23,18 +23,33 @@ export class ChatStore {
   nowEpoch(): number { return Date.now() / 1000; }
   newId(): string { return randomUUID().toUpperCase(); }
 
-  createSession(title = '新会话'): SessionMeta {
+  /** workspaceRoot 由调用方传入（index.ts 读全局「上次用过的」），缺省即回落沙箱桶。 */
+  createSession(title = '新会话', workspaceRoot?: string): SessionMeta {
     const s: SessionMeta = { id: this.newId(), title, createdAt: this.nowEpoch(), updatedAt: this.nowEpoch() };
-    this.db.prepare('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)')
-      .run(s.id, s.title, s.createdAt, s.updatedAt);
+    if (workspaceRoot) s.workspaceRoot = workspaceRoot;
+    this.db.prepare('INSERT INTO sessions (id, title, created_at, updated_at, workspace_root) VALUES (?,?,?,?,?)')
+      .run(s.id, s.title, s.createdAt, s.updatedAt, workspaceRoot ?? null);
     return s;
   }
 
+  /** 写会话工作区；传 undefined/空串即清除（回落沙箱桶）。 */
+  setWorkspaceRoot(sessionId: string, root: string | undefined): void {
+    const val = (typeof root === 'string' && root.trim() !== '') ? root.trim() : null;
+    this.db.prepare('UPDATE sessions SET workspace_root=?, updated_at=? WHERE id=?').run(val, this.nowEpoch(), sessionId);
+    this.onDirty?.(sessionId);
+  }
+
+  /** 同步读取，供 MinisPaths.workspaceOf 的解析器用（热路径：每次路径解析都会调）。 */
+  getWorkspaceRoot(sessionId: string): string | undefined {
+    const r = this.db.prepare('SELECT workspace_root FROM sessions WHERE id=?').get(sessionId) as { workspace_root: string | null } | undefined;
+    return r?.workspace_root ?? undefined;
+  }
+
   getSession(id: string): SessionMeta | undefined {
-    const r = this.db.prepare('SELECT id, title, model_binding, memory_enabled, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
-      { id: string; title: string; model_binding: string | null; memory_enabled: number; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
+    const r = this.db.prepare('SELECT id, title, model_binding, memory_enabled, workspace_root, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
+      { id: string; title: string; model_binding: string | null; memory_enabled: number; workspace_root: string | null; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
     if (!r) return undefined;
-    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, memoryEnabled: r.memory_enabled === 1, createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
+    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, memoryEnabled: r.memory_enabled === 1, workspaceRoot: r.workspace_root ?? undefined, createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
   }
 
   listSessions(): SessionMeta[] {

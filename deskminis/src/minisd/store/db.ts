@@ -85,6 +85,14 @@ const MIGRATIONS: string[] = [
     updated_at REAL NOT NULL
   );
   `,
+  // [5] 工作区可选（用户 2026-08-11「这个点不开，无法使用」）：会话可绑定真实项目目录。
+  //  迁移一经发布不可改：已发布库 user_version=5，runner 只对 v<6 的库跑 MIGRATIONS[5]。
+  //  NULL = 未设置 = 回落到沙箱桶 sessions/<id>/workspace（老会话与新建会话的默认）。
+  //  只存路径不存别的：工作区是「默认工作目录」，不是权限边界——
+  //  resolveGuestPath 对绝对路径本就放行，越界由权限系统把关，这一列不改变那条规则。
+  `
+  ALTER TABLE sessions ADD COLUMN workspace_root TEXT;
+  `,
 ];
 
 export function openDb(filePath: string): Database.Database {

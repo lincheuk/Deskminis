@@ -135,7 +135,7 @@ export class TerminalManager {
     let s = this.sessions.get(sessionId);
     if (!s) {
       const env = this.envFor?.(sessionId) ?? {};
-      s = new TerminalSession(this.paths.sessionBucket(sessionId, 'workspace'), data => this.emit(sessionId, data), env);
+      s = new TerminalSession(this.paths.workspaceOf(sessionId), data => this.emit(sessionId, data), env);
       this.sessions.set(sessionId, s);
     }
     return s;

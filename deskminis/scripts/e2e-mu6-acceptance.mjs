@@ -345,6 +345,42 @@ try {
     st2.syncPaused === st0.syncPaused,
     `再点一次 → 后端 syncPaused 回到 ${st2.syncPaused}（初始为 ${st0.syncPaused}）`);
 
+  // —— 用例 4b：工作区真的设进后端（界面路径 → minisdCall 直接问） ——
+  // 守卫是源码文本的，证明不了「点了后端真收到」——MU6 就吃过这个亏。
+  const wsDir = mkdtempSync(join(tmpdir(), 'dm-ws-'));
+  const wsBefore = await minisdCall('workspace.get', { sessionId: keepId });
+  await evaluate(`document.querySelector('.wsbtn').click()`);
+  await waitFor(`!!document.querySelector('.wspanel')`, 5_000, '工作区面板展开');
+  await evaluate(`(() => { const el = document.querySelector('.wsinput');
+    el.value = ${JSON.stringify(wsDir)}; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await sleep(200);
+  await evaluate(`document.querySelector('.wsbtn-apply').click()`);
+  await sleep(1200);
+  const wsAfter = await minisdCall('workspace.get', { sessionId: keepId });
+  // 非法路径要照实报错，不能静默存下（存下的话 shell 会在不存在的 cwd 里起）
+  await evaluate(`document.querySelector('.wsbtn').click()`);
+  await waitFor(`!!document.querySelector('.wspanel')`, 5_000, '工作区面板再开');
+  await evaluate(`(() => { const el = document.querySelector('.wsinput');
+    el.value = 'D:\\no-such-dir-' + Date.now(); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await sleep(200);
+  await evaluate(`document.querySelector('.wsbtn-apply').click()`);
+  const wsErrShown = await waitFor(`(() => { const e = document.querySelector('.wserr');
+    return !!e && e.textContent.trim().length > 0; })()`, 8_000, '非法工作区报错')
+    .then(() => true).catch(() => false);
+  const wsErrText = wsErrShown ? await evaluate(`document.querySelector('.wserr').textContent.trim()`) : '';
+  // 恢复默认要能把它送回沙箱桶
+  await evaluate(`(() => { const b = document.querySelector('.wsreset'); if (b) b.click(); })()`);
+  await sleep(1000);
+  const wsReset = await minisdCall('workspace.get', { sessionId: keepId });
+  await evaluate(`(() => { const b = document.querySelector('.wsbtn'); if (b && document.querySelector('.wspanel')) b.click(); })()`);
+  record('4b. 工作区真的设进后端（设置 / 非法路径报错 / 恢复默认三条都通）',
+    wsBefore.isDefault === true && wsAfter.root === wsDir && wsAfter.isDefault === false
+      && wsErrShown && wsReset.isDefault === true,
+    `默认 ${wsBefore.isDefault} → 设为临时目录后 root 匹配=${wsAfter.root === wsDir}；`
+      + `非法路径报错=${wsErrShown ? JSON.stringify(String(wsErrText).slice(0, 50)) : '（没报，可能被静默吞了）'}；`
+      + `恢复默认=${wsReset.isDefault}`);
+  try { rmSync(wsDir, { recursive: true, force: true }); } catch { /* 尽力 */ }
+
   // —— 用例 5：技能页可达 + 全局范围写明 + 非法路径的后端错误照实显示 ——
   await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }))`);
   await waitFor(`!!document.querySelector('.modal[aria-label="设置"]')`, 5_000, '设置模态（技能）');

@@ -1,9 +1,12 @@
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
 import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
 import { SettingsStore, SYNC_PAUSE_KEY } from './store/settings';
+
+/** 全局「上次用过的工作区」——新建会话继承它（用户拍板：每会话各自设 + 继承上次）。 */
+const WORKSPACE_LAST_KEY = 'workspace.lastUsed';
 import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { ToolRegistry } from './tools/registry';
@@ -201,6 +204,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const pairingStore = new PairingStore(root, vault);
   const pairingService = new PairingService(pairingStore, vault);
   const chat = new ChatStore(db, pairingService.myFingerprint);
+  // Paths 不认识 DB，故用注入的方式把「会话工作区覆盖值」喂给 workspaceOf。
+  paths.setWorkspaceResolver(id => chat.getWorkspaceRoot(id));
   const providers = new ProviderStore(root, vault);
 
   // 模型能力目录：后台预热 models.dev；失败静默回退磁盘缓存/内置兜底表
@@ -308,8 +313,32 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const controllers = new Map<string, AbortController>();
 
   const methods = {
+    // ---- 工作区可选（用户 2026-08-11 拍板：每会话各自设，新会话继承上次用过的）----
+    // 注意：这不是权限边界。resolveGuestPath 对绝对路径本就放行、越界由权限系统把关；
+    // 这里改的是**默认工作目录**（shell cwd / 终端启动目录 / 相对路径解析的基准）。
+    'workspace.get': (p: { sessionId: string }) => ({
+      root: paths.workspaceOf(p.sessionId),
+      custom: chat.getWorkspaceRoot(p.sessionId),
+      isDefault: !chat.getWorkspaceRoot(p.sessionId),
+      fallback: paths.sessionBucket(p.sessionId, 'workspace'),
+    }),
+    'workspace.set': (p: { sessionId: string; root: string }) => {
+      const root = String(p.root ?? '').trim();
+      if (!root) throw new Error('工作区路径不能为空（要回到默认请用 workspace.reset）');
+      // 命门：目录不存在时必须当场抛错。存下去的话 shell 会在一个不存在的 cwd 里起，
+      // 报错形态是「命令莫名其妙失败」，比「设置时就告诉你路径不对」难查十倍。
+      if (!existsSync(root)) throw new Error(`目录不存在: ${root}`);
+      if (!statSync(root).isDirectory()) throw new Error(`不是目录: ${root}`);
+      chat.setWorkspaceRoot(p.sessionId, root);
+      settings.set(WORKSPACE_LAST_KEY, root);   // 新建会话继承这个
+      return { root: paths.workspaceOf(p.sessionId), isDefault: false };
+    },
+    'workspace.reset': (p: { sessionId: string }) => {
+      chat.setWorkspaceRoot(p.sessionId, undefined);
+      return { root: paths.workspaceOf(p.sessionId), isDefault: true };
+    },
     'chat.sessions.list': () => chat.listSessions(),
-    'chat.sessions.create': (p: { title?: string }) => chat.createSession(p.title),
+    'chat.sessions.create': (p: { title?: string }) => chat.createSession(p.title, settings.get(WORKSPACE_LAST_KEY)),
     'chat.sessions.delete': (p: { sessionId: string; confirm?: boolean }) => {
       const sessionId = assertSessionId(p.sessionId);
       if (p.confirm !== true) throw new Error('删除会话需 confirm:true');

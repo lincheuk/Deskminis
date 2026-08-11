@@ -104,6 +104,19 @@ ipcMain.handle('minisd:port', () => minisdPort);
 // 少了它，渲染层调用命中一个未注册的通道、静默失败、每个 WS 连接被 401，应用连不上 minisd。
 ipcMain.handle('minisd:info', () => ({ port: minisdPort, token: minisdToken }));
 
+  // 工作区目录选择器（用户 2026-08-11 拍板「原生选择器 + 粘贴路径框两者都要」）。
+  // dialog 本就已引入（showErrorBox），invoke 通道模式沿用 minisd:info，无新依赖。
+  ipcMain.handle('dialog:pickFolder', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    const r = win
+      ? await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: '选择工作区目录' })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'], title: '选择工作区目录' });
+    // 命门：取消时必须回 null 而不是空串。空串若被 workspace.set 当成合法值，
+    // 用户点「取消」反而把工作区清了——最难查的那类误操作。
+    if (r.canceled || r.filePaths.length === 0) return null;
+    return r.filePaths[0];
+  });
+
 // MU2b Task 6：渲染端图片粘贴/拖拽 → 落盘会话附件目录（main/preload 白名单：本 Task 仅此一处 handler）。
 // sessionId 经 attachmentPath 内 UUID 正则校验防路径逃逸；dataUrl 非图片/坏 base64 拒绝。
 // 返回会话相对路径 attachments/paste-<ts>.png，渲染端发送时以 [附件] 尾注带给模型。

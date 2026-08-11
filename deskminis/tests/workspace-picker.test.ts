@@ -16,6 +16,10 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { openDb } from '../src/minisd/store/db';
+import { MinisPaths } from '../src/minisd/paths';
 
 const root = path.resolve(__dirname, '..');
 const read = (p: string): string => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n');
@@ -104,7 +108,9 @@ describe('工作区可选 · 界面（3 例）', () => {
   });
 
   it('两种选法都在：原生选择器 + 可粘贴路径框（用户拍板「两者都要」）', () => {
-    expect(chatView).toMatch(/pickFolder/);
+    // 锚**意图**不锚函数名（红线 9 同类）：要证的是「原生选择器从界面可达」，
+    // 叫 pickFolder 还是 pickWorkspaceFolder 是实现自由。
+    expect(chatView).toMatch(/pick(Workspace)?Folder/);
     expect(chatView).toMatch(/<input[^>]*v-model="wsPath"/);
     // 还要能回到默认沙箱桶，否则改错了没路回
     expect(chatView).toMatch(/恢复默认|回到默认|默认沙箱/);
@@ -115,5 +121,101 @@ describe('工作区可选 · 界面（3 例）', () => {
     expect(store).toMatch(/rpc\.call\('workspace\.set'/);
     expect(store).toMatch(/rpc\.call\('workspace\.reset'/);
     expect(store).toContain('workspaceRoot');
+  });
+});
+
+describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
+  it('新建库：sessions 带 workspace_root，默认 NULL（= 回落沙箱桶）', () => {
+    const db = openDb(':memory:');
+    expect(db.pragma('user_version', { simple: true })).toBe(6);
+    const cols = (db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(c => c.name);
+    expect(cols).toContain('workspace_root');
+    const now = Date.now() / 1000;
+    db.prepare('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)').run('S1', 'x', now, now);
+    const r = db.prepare('SELECT workspace_root FROM sessions WHERE id=?').get('S1') as { workspace_root: string | null };
+    expect(r.workspace_root).toBeNull();   // 未设置 = 沙箱桶，老会话与新会话同一默认
+    db.close();
+  });
+
+  it('**M6 用户的库停在 v5**：重开只补跑 [5] 到 6，存量会话不丢、且幂等', () => {
+    // 这条是这次真正的新增路径。上面那个 v4 用例覆盖的是更老的库；
+    // 现网绝大多数库是 v5（M6 之后），它们首次启动才补跑 [5]——不单独覆盖等于没测。
+    const dir = mkdtempSync(path.join(tmpdir(), 'dm-ws-mig-'));
+    const file = path.join(dir, 'test.db');
+    try {
+      let db = openDb(file);
+      // 造出「工作区之前」的库形态：撤掉 [5] 的列并把版本退回 5
+      db.exec('ALTER TABLE sessions DROP COLUMN workspace_root;');
+      db.pragma('user_version = 5');
+      const now = Date.now() / 1000;
+      db.prepare('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)')
+        .run('S_OLD', '升级前的会话', now, now);
+      db.close();
+
+      db = openDb(file);
+      expect(db.pragma('user_version', { simple: true })).toBe(6);
+      const cols = (db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(c => c.name);
+      expect(cols).toContain('workspace_root');
+      // 存量会话完好，且新列对老行是 NULL —— 老会话升级后仍用沙箱桶，行为一字不变
+      const row = db.prepare('SELECT title, workspace_root FROM sessions WHERE id=?').get('S_OLD') as
+        { title: string; workspace_root: string | null };
+      expect(row.title).toBe('升级前的会话');
+      expect(row.workspace_root).toBeNull();
+      db.close();
+
+      // 幂等：再开一次不重跑（重跑会报 duplicate column name）
+      db = openDb(file);
+      expect(db.pragma('user_version', { simple: true })).toBe(6);
+      expect((db.prepare('SELECT title FROM sessions WHERE id=?').get('S_OLD') as { title: string }).title)
+        .toBe('升级前的会话');
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('工作区可选 · MinisPaths 真实解析行为（4 例）', () => {
+  // 期望值一律用 path.join/resolve 推导，不写字面路径——Windows 反斜杠在多层转义里极易被吃掉，
+  // 初版就栽在这上面（断言里的 'C:\projects\my-app' 被 JS 解成 'C:projectsmy-app'）。
+  const ROOT = path.resolve('C:/dm-test-root');
+  const SID = 'S1';
+  const PROJ = path.resolve('C:/projects/my-app');
+
+  it('未注入解析器 / 解析器返回空 → 回落沙箱桶（老会话行为一字不变）', () => {
+    const a = new MinisPaths(ROOT);
+    expect(a.workspaceOf(SID)).toBe(a.sessionBucket(SID, 'workspace'));
+    const b = new MinisPaths(ROOT);
+    b.setWorkspaceResolver(() => undefined);
+    expect(b.workspaceOf(SID)).toBe(b.sessionBucket(SID, 'workspace'));
+    const c = new MinisPaths(ROOT);
+    c.setWorkspaceResolver(() => '   ');   // 空白串也算没设，否则会把 cwd 指到一个空路径
+    expect(c.workspaceOf(SID)).toBe(c.sessionBucket(SID, 'workspace'));
+  });
+
+  it('设了覆盖值：相对路径与 /var/minis/workspace 都落到项目目录', () => {
+    const p = new MinisPaths(ROOT);
+    p.setWorkspaceResolver(() => PROJ);
+    expect(p.workspaceOf(SID)).toBe(PROJ);
+    const want = path.join(PROJ, 'src', 'main.ts');
+    expect(p.resolveGuestPath(SID, 'src/main.ts')).toBe(want);                       // 相对路径分支
+    expect(p.resolveGuestPath(SID, '/var/minis/workspace/src/main.ts')).toBe(want);  // guest 名分支
+  });
+
+  it('穿越保护不因覆盖而失效——限制面只是从沙箱桶换成了项目目录', () => {
+    const p = new MinisPaths(ROOT);
+    p.setWorkspaceResolver(() => PROJ);
+    expect(() => p.resolveGuestPath(SID, '../../../Windows/System32/x')).toThrow(/路径穿越被拒绝/);
+    expect(() => p.resolveGuestPath(SID, '/var/minis/workspace/../../etc')).toThrow(/路径穿越被拒绝/);
+  });
+
+  it('只有 workspace 桶受影响，attachments / offloads / browser 与全局目录不动', () => {
+    const p = new MinisPaths(ROOT);
+    p.setWorkspaceResolver(() => PROJ);
+    // 附件仍落数据根——否则用户换工作区会把历史附件「弄丢」（其实是找错了地方）
+    expect(p.resolveGuestPath(SID, '/var/minis/attachments/a.png'))
+      .toBe(path.join(p.sessionBucket(SID, 'attachments'), 'a.png'));
+    expect(p.resolveGuestPath(SID, '/var/minis/memory/m.md'))
+      .toBe(path.join(p.globalDir('memory'), 'm.md'));
   });
 });

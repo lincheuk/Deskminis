@@ -70,6 +70,10 @@ export const useChat = defineStore('chat', {
     /** MU6：M6 的同步暂停开关。**暂停的是设备间同步，不是正在跑的 agent 回合**——
      *  后者是 chat.cancel（早已接线）。这两件事混淆的代价很实在：用户以为点了能停下任务。 */
     syncPaused: false,
+    /** 当前会话的实际工作目录（后端算好的：设过就是设的，否则是沙箱桶）。 */
+    workspaceRoot: '',
+    /** true = 还没设过，用的是会话沙箱桶。用来决定界面上要不要显示「恢复默认」。 */
+    workspaceIsDefault: true,
   }),
   actions: {
     async init() {
@@ -198,8 +202,32 @@ export const useChat = defineStore('chat', {
       const r = await rpc.call(paused ? 'control.pause' : 'control.resume');
       this.syncPaused = r && typeof r.syncPaused === 'boolean' ? r.syncPaused : paused;
     },
+    // ---- 工作区可选（用户 2026-08-11：「这个点不开，无法使用」）----
+    async refreshWorkspace() {
+      if (!this.activeId) { this.workspaceRoot = ''; this.workspaceIsDefault = true; return; }
+      const r = await rpc.call('workspace.get', { sessionId: this.activeId });
+      this.workspaceRoot = r?.root ?? '';
+      this.workspaceIsDefault = !!r?.isDefault;
+    },
+    async setWorkspace(root: string) {
+      await rpc.call('workspace.set', { sessionId: this.activeId, root });
+      await this.refreshWorkspace();
+      // 工作区变了，终端与文件树都得跟着变——终端已起的会话要重开才会落到新 cwd
+      this.pendingFilePreview = '';
+    },
+    async resetWorkspace() {
+      await rpc.call('workspace.reset', { sessionId: this.activeId });
+      await this.refreshWorkspace();
+    },
+    /** 原生目录选择器（主进程 dialog）。取消返回 null——不能当空串用。 */
+    async pickWorkspaceFolder(): Promise<string | null> {
+      const bridge = (window as any).deskminis;
+      if (!bridge || typeof bridge.pickFolder !== 'function') return null;
+      return await bridge.pickFolder();
+    },
     async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
     async open(id: string) {
+      // 工作区是每会话的，切会话必须重新取——否则 chip 会显示上一个会话的目录
       // 换会话才清错误横幅：turnEnd/error 之后的自刷新调用的也是 open，
       // 在那条路径上清掉的话，刚设置的 lastError 会被立刻抹掉（错误又变成看不见）。
       if (id !== this.activeId) {
@@ -210,6 +238,7 @@ export const useChat = defineStore('chat', {
       }
       this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.toolCards = [];
       void this.refreshSkills(); // 会话覆盖会改变生效启用集，换会话必须重取
+      await this.refreshWorkspace();
     },
     async send(text: string) {
       this.streamingText = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';

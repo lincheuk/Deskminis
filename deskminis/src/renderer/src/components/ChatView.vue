@@ -25,6 +25,41 @@ import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
 const input = ref('');
+
+// ---- 工作区（用户 2026-08-11：「这个点不开，无法使用」）----
+const wsOpen = ref(false);
+const wsPath = ref('');
+const wsErr = ref('');
+const wsBusy = ref(false);
+/** chip 上只显示目录名，全路径挂 title——336px 的输入卡塞不下绝对路径。 */
+const workspaceLabel = computed(() => {
+  const r = chat.workspaceRoot;
+  if (!r) return '工作区';
+  if (chat.workspaceIsDefault) return '工作区';
+  return r.split(/[\\/]/).filter(Boolean).pop() || '工作区';
+});
+async function applyWs(): Promise<void> {
+  const v = wsPath.value.trim();
+  if (!v) return;
+  wsErr.value = ''; wsBusy.value = true;
+  try { await chat.setWorkspace(v); wsPath.value = ''; wsOpen.value = false; }
+  catch (e) { wsErr.value = e instanceof Error ? e.message : String(e); }
+  finally { wsBusy.value = false; }
+}
+async function pickWs(): Promise<void> {
+  wsErr.value = ''; wsBusy.value = true;
+  try {
+    const picked = await chat.pickWorkspaceFolder();
+    if (picked === null) return;   // 用户取消——不是空串，不能当「清空」处理
+    await chat.setWorkspace(picked);
+    wsOpen.value = false;
+  } catch (e) { wsErr.value = e instanceof Error ? e.message : String(e); }
+  finally { wsBusy.value = false; }
+}
+async function resetWs(): Promise<void> {
+  wsErr.value = '';
+  try { await chat.resetWorkspace(); } catch (e) { wsErr.value = e instanceof Error ? e.message : String(e); }
+}
 const streamEl = ref<HTMLElement | null>(null);
 const fieldEl = ref<HTMLTextAreaElement | null>(null);
 
@@ -420,17 +455,75 @@ function onSlashTab(e: KeyboardEvent): void {
       <div class="ctools">
         <input ref="attachEl" class="attachinput" type="file" accept="image/*" multiple @change="onAttachPick" />
         <button class="attach" type="button" title="添加附件" @click="openAttach"><Icon name="plus" :size="15" /></button>
-        <div class="cpill static"><Icon name="folder" :size="14" /><span>工作区</span></div>
+        <button
+          class="cpill wsbtn" type="button" :title="`工作区：${chat.workspaceRoot || '未设置'}`"
+          @click="wsOpen = !wsOpen"
+        ><Icon name="folder" :size="14" /><span>{{ workspaceLabel }}</span></button>
         <PermissionPicker />
         <ModelPicker />
         <button v-if="!chat.running" class="send" :disabled="!canSend" @click="send"><Icon name="send" :size="17" /></button>
         <button v-else class="send stop" title="停止" @click="chat.cancel()"><Icon name="stop" :size="16" /></button>
+      </div>
+      <!-- 工作区面板：**行内展开**而非浮层——.ctools 的 overflow 会把浮层裁掉
+           （MU5 §15 与 MU6 会话菜单都栽在同一处，这里从一开始就绕开）。 -->
+      <div v-if="wsOpen" class="wspanel">
+        <div class="wsnow">
+          <span class="wslabel">当前工作区</span>
+          <span class="wspath" :title="chat.workspaceRoot">{{ chat.workspaceRoot || '（未选择会话）' }}</span>
+          <span v-if="chat.workspaceIsDefault" class="wstag">会话沙箱（默认）</span>
+        </div>
+        <div class="wsrow">
+          <button class="wsbtn-main" type="button" :disabled="wsBusy" @click="pickWs">选择目录…</button>
+          <input
+            v-model="wsPath" class="wsinput" type="text" placeholder="或粘贴绝对路径，如 D:\\projects\\my-app"
+            @keydown.enter="applyWs"
+          />
+          <button class="wsbtn-apply" type="button" :disabled="wsBusy || !wsPath.trim()" @click="applyWs">应用</button>
+        </div>
+        <div class="wsfoot">
+          <span class="wshint">shell 命令、终端、相对路径都以这里为基准。</span>
+          <button v-if="!chat.workspaceIsDefault" class="wsreset" type="button" @click="resetWs">恢复默认沙箱</button>
+        </div>
+        <div v-if="wsErr" class="wserr">{{ wsErr }}</div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* 工作区 chip 与行内面板 */
+.wsbtn { cursor: pointer; }
+.wspanel {
+  margin: 8px 10px 2px; padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--fill-quaternary); border: .5px solid var(--separator);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.wsnow { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: var(--fs-micro); }
+.wslabel { color: var(--label-tertiary); flex: 0 0 auto; }
+.wspath {
+  flex: 1; min-width: 0; color: var(--label); font-family: var(--font-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+}
+.wstag { flex: 0 0 auto; color: var(--label-tertiary); }
+.wsrow { display: flex; gap: 6px; }
+.wsinput {
+  flex: 1; min-width: 0; padding: 5px 8px; border-radius: var(--r-control);
+  border: .5px solid var(--separator); background: var(--surface-1);
+  color: var(--label); font-size: var(--fs-micro); font-family: var(--font-mono);
+}
+.wsinput:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
+.wsbtn-main, .wsbtn-apply, .wsreset {
+  flex: 0 0 auto; padding: 5px 12px; border-radius: var(--r-control);
+  font-size: var(--fs-micro); cursor: pointer; white-space: nowrap;
+}
+.wsbtn-main { border: none; background: var(--action); color: var(--on-action); font-weight: 600; }
+.wsbtn-apply { border: .5px solid var(--separator); background: var(--surface-1); color: var(--label); }
+.wsbtn-main:disabled, .wsbtn-apply:disabled { opacity: var(--opacity-disabled); cursor: default; }
+.wsreset { border: .5px solid var(--separator); background: none; color: var(--label-secondary); margin-left: auto; }
+.wsbtn-main:focus-visible, .wsbtn-apply:focus-visible, .wsreset:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.wsfoot { display: flex; align-items: center; gap: 8px; }
+.wshint { font-size: var(--fs-micro); color: var(--label-tertiary); line-height: 1.5; }
+.wserr { font-size: var(--fs-micro); color: var(--state-err); line-height: 1.5; }
 .pane-c { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; position: relative; }
 /* scrollbar-gutter 对称预留：滚动条 15px 会让正文在「减掉滚动条」的宽里居中，
    而输入卡在完整宽里居中，两者左缘差 8px（实测）。both-edges 让两边各留一份，

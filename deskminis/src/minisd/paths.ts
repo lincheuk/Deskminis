@@ -18,6 +18,19 @@ export class MinisPaths {
   sessionBucket(sessionId: string, bucket: SessionBucket): string {
     return join(this.root, 'sessions', sessionId, bucket);
   }
+
+  /** 每会话工作区覆盖值的解析器。由 index.ts 注入——Paths 不该认识 DB。 */
+  private workspaceResolver?: (sessionId: string) => string | undefined;
+  setWorkspaceResolver(fn: (sessionId: string) => string | undefined): void { this.workspaceResolver = fn; }
+
+  /** 会话的**实际**工作目录：设过就用设的，否则回落沙箱桶。
+   *  shell 的 cwd、终端启动目录、相对路径解析三处必须都走这里——
+   *  只改其中一处的话，文件工具听话了但命令还在沙箱桶里跑，
+   *  表现为「agent 说找不到文件」，而用户以为工作区已经切过去了。 */
+  workspaceOf(sessionId: string): string {
+    const o = this.workspaceResolver?.(sessionId);
+    return (typeof o === 'string' && o.trim() !== '') ? resolve(o) : this.sessionBucket(sessionId, 'workspace');
+  }
   globalDir(name: GlobalDir): string { return join(this.root, name); }
 
   ensureSessionDirs(sessionId: string): void {
@@ -32,13 +45,16 @@ export class MinisPaths {
     const m = guestPath.match(/^\/var\/minis\/([^/]+)(?:\/(.*))?$/);
     if (m) {
       const ns = m[1]; rest = m[2] ?? '';
-      if ((SESSION_BUCKETS as readonly string[]).includes(ns)) base = this.sessionBucket(sessionId, ns as SessionBucket);
+      if ((SESSION_BUCKETS as readonly string[]).includes(ns)) {
+        // /var/minis/workspace 是「工作区」的 guest 名，必须跟着覆盖值走；其余桶不受影响
+        base = ns === 'workspace' ? this.workspaceOf(sessionId) : this.sessionBucket(sessionId, ns as SessionBucket);
+      }
       else if ((GLOBAL_DIRS as readonly string[]).includes(ns)) base = this.globalDir(ns as GlobalDir);
       else throw new Error(`未知 minis 命名空间: ${ns}`);
     } else if (guestPath.startsWith('/')) {
       throw new Error(`不支持的绝对 guest 路径: ${guestPath}`);
     } else {
-      base = this.sessionBucket(sessionId, 'workspace'); rest = guestPath;
+      base = this.workspaceOf(sessionId); rest = guestPath;
     }
     const abs = resolve(base, rest);
     if (abs !== base && !abs.startsWith(base + '\\') && !abs.startsWith(base + '/')) {
