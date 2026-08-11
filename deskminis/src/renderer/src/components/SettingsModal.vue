@@ -62,7 +62,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
         >{{ n.label }}</div>
       </nav>
       <div class="sbody">
-        <div class="stitle">{{ NAV.find(n => n.id === section)!.label }}</div>
+        <div class="stitlerow">
+          <div class="stitle">{{ NAV.find(n => n.id === section)!.label }}</div>
+          <!-- 用户 2026-08-11：「没有一个 X 方便关闭窗口，人不一定知道点外面可以回到主界面」。
+               点遮罩关闭与 Esc 都保留，但它们是**隐性**的——显式出口不能只靠用户猜。 -->
+          <button class="xbtn" type="button" title="关闭设置" aria-label="关闭设置" @click="emit('close')">
+            <Icon name="x" :size="15" />
+          </button>
+        </div>
 
         <ProviderSettings v-if="section === 'model'" />
 
@@ -145,8 +152,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
   position: fixed; inset: 0; z-index: 100; background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
 }
+/* 尺寸从死的 720×480 改为随视口伸展（用户 2026-08-11：「比例很奇怪」「为什么要有上下滑动」）。
+   480px 高在 1080 屏上只占 44%，模型页的「已有 provider + 添加表单」根本装不下，
+   于是每次进来都得滚——而右边还空着一大片。上限设死是为了超宽屏不至于拉成一条。 */
 .modal {
-  width: 720px; max-width: calc(100vw - 64px); height: 480px; max-height: calc(100vh - 64px);
+  width: min(920px, calc(100vw - 96px)); height: min(680px, calc(100vh - 96px));
   background: var(--bg); border-radius: var(--r-sheet); box-shadow: var(--shadow-pop);
   display: flex; overflow: hidden;
 }
@@ -164,6 +174,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 /* MU3 §2-5 焦点环 */
 .sitem:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .sbody { flex: 1; min-width: 0; overflow: auto; padding: 18px 20px; }
+.stitlerow { display: flex; align-items: flex-start; gap: 12px; }
+.stitlerow .stitle { flex: 1; min-width: 0; }
+.xbtn {
+  flex: 0 0 auto; width: 28px; height: 28px; border: none; border-radius: var(--r-control);
+  background: none; color: var(--label-secondary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.xbtn:hover { background: var(--fill-tertiary); color: var(--label); }
+.xbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.xbtn :deep(svg) { stroke: currentColor; }
 .stitle { font-size: var(--fs-display); font-weight: 700; color: var(--label-intense); margin-bottom: 14px; }
 .opt {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px;

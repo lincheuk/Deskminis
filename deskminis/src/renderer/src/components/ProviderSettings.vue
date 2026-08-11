@@ -81,7 +81,7 @@ async function remove(id: string): Promise<void> {
 
 <template>
   <div class="settings">
-    <div class="title3">模型设置</div>
+    <!-- 分区名由 SettingsModal 的 .stitle 统一渲染（「模型」），此处不再重复一遍「模型设置」 -->
 
     <div class="group">
       <div v-if="!chat.providers.length" class="hint">尚未配置任何模型 provider。</div>
