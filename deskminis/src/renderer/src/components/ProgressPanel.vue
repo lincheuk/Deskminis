@@ -176,16 +176,23 @@ function fmt(n: number): string {
    ② 标题做**吸顶**，卡片从它下面滚过去，这才是 backdrop-filter 真正显形的地方；
    ③ 卡片靠「半透明 + 顶部内高光 + 柔和投影」造厚度，而不是描边——边框是平面语言。 */
 .ppanel {
-  flex: 1; min-height: 0; overflow: auto; padding: 10px 12px;
-  display: flex; flex-direction: column; gap: 10px;
+  /* 顶部内边距归零：吸顶标题自带内边距并撑满面板，面板再给上边距只会和它打架。
+     归零后也顺带**去掉了标题的负上边距**——负外边距会参与 flex 的外边距盒计算，
+     把它与首卡之间的间距吃掉（实测 16px 只剩 6px，肉眼即「粘连」）。 */
+  flex: 1; min-height: 0; overflow: auto; padding: 0 12px 16px;
+  display: flex; flex-direction: column; gap: 12px;
   background: var(--glass-ground);
 }
 .phint { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 12px; text-align: center; line-height: 1.6; }
 /* 吸顶玻璃头：负外边距把它撑到面板边缘，top:0 贴住滚动视口顶。
    z-index 只在 .ppanel 内部生效——本面板没有弹出层，不会重演 TitleBar 的层叠上下文陷阱。 */
+/* 左内边距 26 = 面板 12 + 卡片 14：**标题与卡片内文字共用一条左边界**。
+   原来标题是 16、卡片文字是 26，差 10px——整屏看着就是「歪」（用户 2026-08-11 实测指出）。
+   margin-bottom 4 叠在面板 gap 12 上 = 与首卡隔开 16px：卡片化设计的分离感来自间距，
+   而标题带磨砂背景、卡片也带，贴太近两层玻璃会糊成一片（「步骤粘连在新会话」）。 */
 .ptask {
   position: sticky; top: 0; z-index: 2;
-  margin: -10px -12px 0; padding: 12px 16px 10px;
+  margin: 0 -12px 8px; padding: 14px 26px 12px;
   font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); line-height: 1.4;
   background: var(--glass-thick);
   backdrop-filter: var(--glass-blur);
@@ -197,7 +204,9 @@ function fmt(n: number): string {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border-radius: var(--r-sheet);
-  padding: 12px 14px;
+  /* 上下对称：原来是 12/12 但内部末行还带 3~4px 的行内边距，视觉重心偏上
+     （用户：「格子内字体不居中」）。这里收口为「卡片 14 上下 + 内部行零外扩」。 */
+  padding: 14px 14px;
   /* 顶部那道内高光是「有厚度」的关键：比加一圈边框克制，也更像玻璃的受光边 */
   box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow-fab);
 }
@@ -213,12 +222,12 @@ function fmt(n: number): string {
 }
 .phead {
   font-size: var(--fs-caption); font-weight: 600; color: var(--label-secondary);
-  letter-spacing: .02em; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+  letter-spacing: .02em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
 }
 .eicon { font-weight: 700; }
 .ebody { font-size: var(--fs-caption); color: var(--label); line-height: 1.5; }
-.pempty { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 2px 0 4px; }
-.step { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: var(--fs-ui); }
+.pempty { font-size: var(--fs-caption); color: var(--label-tertiary); line-height: 1.6; }
+.step { display: flex; align-items: center; gap: 8px; min-height: 24px; font-size: var(--fs-ui); }
 .sicon { flex: 0 0 auto; width: 16px; text-align: center; font-size: var(--fs-caption); }
 .sicon.ok { color: var(--state-ok); }
 .sicon.fail { color: var(--state-err); }
@@ -230,7 +239,7 @@ function fmt(n: number): string {
 .stitle { flex: 1; min-width: 0; color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sdur { flex: 0 0 auto; color: var(--label-tertiary); font-family: var(--font-mono); font-size: var(--fs-mono); font-variant-numeric: tabular-nums; }
 .pbadge { margin-left: auto; font-size: 10px; color: var(--on-action); padding: 1px 6px; border-radius: 999px; }
-.prow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: var(--fs-ui); }
+.prow { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; font-size: var(--fs-ui); }
 .plabel { color: var(--label-secondary); flex: 0 0 auto; }
 .pval { color: var(--label-strong); display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; text-align: right; }
 .pnote { font-size: var(--fs-caption); color: var(--state-warn); padding: 2px 0 4px; }

@@ -381,6 +381,43 @@ try {
       + `恢复默认=${wsReset.isDefault}`);
   try { rmSync(wsDir, { recursive: true, force: true }); } catch { /* 尽力 */ }
 
+  // —— 用例 4c：进度面板对齐（用户 2026-08-11：「比例有点歪」「步骤粘连在新会话」） ——
+  // 「歪」用眼睛判容易骗人，直接量：吸顶标题与卡片内文字必须共用同一条左边界。
+  // 量之前先滚到顶：.ptask 是 sticky，一旦吸住就会盖在内容上，量出来的间距会偏小
+  await evaluate(`(() => { const p = document.querySelector('.ppanel'); if (p) p.scrollTop = 0; })()`);
+  await sleep(300);
+  const align = await evaluate(`(() => {
+    const t = document.querySelector('.ptask');
+    const head = document.querySelector('.psec .phead');
+    const sec = document.querySelector('.psec');
+    if (!t || !head || !sec) return null;
+    const cs = getComputedStyle(t);
+    const tTextLeft = t.getBoundingClientRect().left + parseFloat(cs.paddingLeft);
+    const headLeft = head.getBoundingClientRect().left;
+    return JSON.stringify({
+      标题文字左缘: Math.round(tTextLeft),
+      卡片文字左缘: Math.round(headLeft),
+      左缘差: Math.round(Math.abs(tTextLeft - headLeft)),
+      标题底与首卡顶的间距: Math.round(sec.getBoundingClientRect().top - t.getBoundingClientRect().bottom),
+      _诊断: {
+        面板gap: getComputedStyle(document.querySelector('.ppanel')).rowGap,
+        标题下外边距: cs.marginBottom,
+        首卡上外边距: getComputedStyle(sec).marginTop,
+        首卡类名: sec.className,
+        标题的父: t.parentElement.className,
+        首卡的父: sec.parentElement.className,
+        面板滚动位置: document.querySelector('.ppanel').scrollTop,
+      },
+    });
+  })()`);
+  const a = align ? JSON.parse(align) : null;
+  record('4c. 进度面板：标题与卡片共用左边界，且与首卡有明确间距',
+    !!a && a.左缘差 <= 1 && a.标题底与首卡顶的间距 >= 12,
+    a ? `标题文字左缘 ${a.标题文字左缘} / 卡片文字左缘 ${a.卡片文字左缘}（差 ${a.左缘差}px）；`
+        + `标题与首卡间距 ${a.标题底与首卡顶的间距}px（粘连判据：<12 即算贴住）`
+      : '（取不到 .ptask / .psec，进度面板未渲染）');
+  if (a && a._诊断) console.log('  [4c 诊断]', JSON.stringify(a._诊断));
+
   // —— 用例 5：技能页可达 + 全局范围写明 + 非法路径的后端错误照实显示 ——
   await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }))`);
   await waitFor(`!!document.querySelector('.modal[aria-label="设置"]')`, 5_000, '设置模态（技能）');
