@@ -72,14 +72,16 @@ function isLazy(t: WbPanel): t is 'progress' | 'artifacts' | 'files' | 'terminal
 
 /** 标签**条**改数组渲染（可关闭、可多开）；标签**体**仍是上面那组 v-show 绑定。
  *  拆开的理由：多开的本体是文件标签，它们共用 FilesPanel 一个渲染器，只是预览路径不同。 */
-interface WbTab { id: string; label: string; panel: WbPanel; closable: boolean; live?: boolean }
+/** icon/short 只服务折叠条：图标给形状记忆，2 字短名消歧义——
+ *  单靠图标会撞（产物与文件都是文件系语义），单靠文字在 56px 里放不下全名。 */
+interface WbTab { id: string; label: string; panel: WbPanel; closable: boolean; live?: boolean; icon?: string; short?: string }
 const BUILTIN_TABS: WbTab[] = [
-  { id: 'progress', label: '进度', panel: 'progress', closable: false },
-  { id: 'artifacts', label: '产物', panel: 'artifacts', closable: false },
-  { id: 'files', label: '文件', panel: 'files', closable: false },
-  { id: 'terminal', label: '终端', panel: 'terminal', closable: false },
-  { id: 'browser', label: '浏览器', panel: 'browser', closable: true },
-  { id: 'screen', label: '屏幕', panel: 'screen', closable: true, live: true },
+  { id: 'progress', label: '进度', panel: 'progress', closable: false, icon: 'clock', short: '进度' },
+  { id: 'artifacts', label: '产物', panel: 'artifacts', closable: false, icon: 'pencil', short: '产物' },
+  { id: 'files', label: '文件', panel: 'files', closable: false, icon: 'folder', short: '文件' },
+  { id: 'terminal', label: '终端', panel: 'terminal', closable: false, icon: 'terminal', short: '终端' },
+  { id: 'browser', label: '浏览器', panel: 'browser', closable: true, icon: 'globe', short: '浏览' },
+  { id: 'screen', label: '屏幕', panel: 'screen', closable: true, live: true, icon: 'monitor', short: '屏幕' },
 ];
 const hiddenTabs = ref<string[]>([]);
 const fileTabs = ref<WbTab[]>([]);
@@ -186,12 +188,12 @@ const taskbarText = computed(() => {
 });
 
 /** 图标轨上的会话项。
- *  初版取标题**首字**，用户实测反馈不可读——两个「E2E 验收」都显示 E，根本分不出是哪个；
- *  中文首字更糟（「文」是文件还是文本？）。与工作台折叠条同一处置：改**竖排短词**，
- *  取前 4 字竖着排，40px 宽的轨里读得清、也认得出是哪个会话。 */
+ *  会话是**实例**不是类别，给它们配图标只会全都一样、毫无信息——所以这里用文字。
+ *  初版取首字不可读（两个「E2E 验收」都显示 E）；竖排可读但难看。
+ *  定形：取前 2 字横排 + 状态点。2 字在 34px 里放得下，也足以区分同前缀的会话。 */
 const railSessions = computed(() => chat.sessions.slice(0, 8) as { id: string; title: string }[]);
 function railLabel(s: { title: string }): string {
-  return (s.title || '新会话').trim().slice(0, 4);
+  return (s.title || '新会话').trim().slice(0, 2);
 }
 
 // 明暗：system 跟随系统 / light 强制浅 / dark 强制深——落到 <html data-theme>；localStorage 持久化（Task 5 前为内存态，重启丢失）
@@ -341,18 +343,22 @@ onBeforeUnmount(() => {
           <p class="we-d">启用后这里会显示 agent 操作桌面时的实时画面与操作轨迹。<br />computer use 能力属独立里程碑，当前版本未包含。</p>
         </div>
       </section>
-      <!-- 折叠态：40px 竖排标签条（对齐侧栏 52px 图标轨的模式）。
-           **不截首字**：初版把标签压成单字（进/产/文/终/浏/屏），用户实测反馈「没人看得懂」——
-           中文单字脱离词就没有意义（「文」是文件还是文本？「产」是什么？），
-           那是照搬拉丁字母缩写的思路，对中文不成立。改竖排完整词：中文竖排本就自然，
-           40px 容得下，歧义归零，也不必新增图标资源。徽标与实时点照常显示。 -->
+      <!-- 折叠态：56px 图标条（对齐侧栏图标轨的模式）。两轮返工的结论：
+           ① 单字缩写（进/产/文/终/浏/屏）不可读——中文单字脱离词没有意义；
+           ② 竖排完整词可读但不好看——窄框里堆成又高又瘦的块、3 字项比 2 字项高一截、
+              激活描边套上去像盖了个印章，且与「苹果磨砂科技感」方向相冲
+              （VS Code / Slack / Discord / AionUi 的边栏全是图标轨，没人竖排）。
+           定形：**图标 + 2 字短名**。图标给形状记忆，短名消歧义——
+           单靠图标会撞（产物与文件都是文件系语义），单靠文字在 56px 里放不下全名。 -->
       <nav v-show="workbenchOpen && !workbenchExpanded" class="wbrail">
         <button
           v-for="t in openTabs" :key="t.id" type="button"
           class="wbr" :class="{ on: activeTabId === t.id }" :title="t.label"
           @click="expandWorkbenchTo(t)"
         >
-          <span v-if="t.live" class="wbr-live"></span><span class="wbr-txt">{{ t.label }}</span>
+          <span v-if="t.live" class="wbr-live"></span>
+          <Icon :name="t.icon || 'file'" :size="17" />
+          <span class="wbr-txt">{{ t.short || t.label.slice(0, 2) }}</span>
           <span v-if="t.id === 'progress' && chat.pendingPerms.length > 0" class="wbr-badge">{{ chat.pendingPerms.length }}</span>
         </button>
       </nav>
@@ -405,13 +411,9 @@ onBeforeUnmount(() => {
 .rl :deep(svg) { stroke: var(--label-secondary); }
 .rl.ag {
   background: var(--surface-1); border-color: var(--separator); color: var(--label-secondary);
-  font-size: 11px; height: auto; min-height: 34px; padding: 7px 0;
+  font-size: 11px; font-weight: 500;
 }
-/* 竖排短词：与工作台折叠条同一处置——单字缩写在中文里没有意义 */
-.rl-txt {
-  writing-mode: vertical-rl; text-orientation: upright;
-  letter-spacing: .06em; line-height: 1; white-space: nowrap;
-}
+.rl-txt { line-height: 1; white-space: nowrap; letter-spacing: .01em; }
 .rl.on { border-color: var(--action); color: var(--action); }
 /* 激活项左侧 2px 竖条（AionUi 的激活标识，比整块反白克制） */
 .rl.on::before {
@@ -521,31 +523,24 @@ onBeforeUnmount(() => {
 
 /* 工作台折叠条（第三态）——与 .rail 同一个模式，只是竖排的是标签不是会话 */
 .wbrail {
-  flex: 0 0 40px; width: 40px; background: var(--bg-secondary);
+  flex: 0 0 56px; width: 56px; background: var(--bg-secondary);
   border-left: .5px solid var(--separator);
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 8px 0; overflow: hidden;
 }
 .wbr {
-  position: relative; flex: 0 0 auto; width: 30px; min-height: 28px;
-  padding: 8px 0;
-  border-radius: var(--r-control); border: 1px solid transparent; background: none;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 600; color: var(--label-tertiary); cursor: pointer;
+  position: relative; flex: 0 0 auto; width: 48px; padding: 7px 0 6px;
+  border-radius: var(--r-md); border: 1px solid transparent; background: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 10px; font-weight: 500; color: var(--label-tertiary); cursor: pointer;
 }
-/* 竖排：中文逐字向下排，读起来跟横排一样自然，且完整词零歧义 */
-.wbr-txt {
-  writing-mode: vertical-rl;
-  text-orientation: upright;
-  letter-spacing: .08em;
-  line-height: 1;
-  white-space: nowrap;
-}
+.wbr :deep(svg) { stroke: currentColor; }
+.wbr-txt { line-height: 1; white-space: nowrap; letter-spacing: .02em; }
 .wbr:hover { background: var(--fill-quaternary); color: var(--label); }
 .wbr:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .wbr.on { background: var(--surface-1); border-color: var(--action); color: var(--action); }
 .wbr-live {
-  position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 4px; right: 8px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--state-ok);
 }
 /* 折叠态仍要看得见待批准——折叠是省地方，不是失明 */

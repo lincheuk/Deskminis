@@ -178,14 +178,19 @@ describe('MU5 列宽放开后正文仍须可读（1 例）', () => {
 });
 
 describe('MU5 工作台补齐「折叠为图标条」中间态（用户 2026-08-10 追加，2 例）', () => {
-  it('工作台三态与侧栏对齐：完整 / 40px 图标条 / 完全隐藏', () => {
+  it('工作台三态与侧栏对齐：完整 / 56px 图标条 / 完全隐藏', () => {
     // 缺口现场：侧栏有三态（隐藏 / 52px 图标轨 / 212px 展开），工作台只有两态。
     // 一旦隐藏，开了哪些文件标签、进度上有没有待批准橙点，全都看不见了——
     // 而侧栏折叠成图标轨时这些信息都还在。补齐中间那一档。
     expect(app).toContain('workbenchExpanded');
     expect(app).toContain('collapseWorkbench');
     expect(app).toContain('expandWorkbenchTo');
-    expect(app).toMatch(/\.wbrail\s*\{[^}]*width:\s*40px/);
+    // 40 → 56：两轮返工后定形为「图标 + 2 字短名」，40px 放不下这两样。
+    // 单字缩写不可读、竖排完整词可读但难看（详见 App.vue 该处注释）。
+    expect(app).toMatch(/\.wbrail\s*\{[^}]*width:\s*56px/);
+    // 图标与短名两者都要在——只留图标会撞（产物/文件同为文件系语义），只留字放不下全名
+    expect(app).toMatch(/<Icon :name="t\.icon/);
+    expect(app).toContain('t.short');
     // 折叠条上仍要能看见待批准徽标——这正是「折叠但不失明」的意义
     expect(app).toMatch(/\.wbr-badge\s*\{/);
   });
