@@ -50,9 +50,18 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
 <style scoped>
 .empty {
   flex: 1; height: 100%; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 8px;
-  /* 底部多留白把内容上提：对话区很高，纯居中会让视觉重心偏低 */
-  padding: 24px 24px calc(24px + 10vh);
+  align-items: center; gap: 8px;
+  /* safe center 而不是 center：**flexbox 的经典陷阱**——内容比容器高时，
+     center 会把内容顶到滚动原点以上，上半截既看不见也滚不到。
+     safe 在溢出时自动退回 start，内容永远从顶部开始、可滚。
+     用户 2026-08-11 实测「开始新的对话怎么顶格了」正是这个：对话列变窄后
+     示例卡从横排变竖排、空态整体变高，把下面那段固定的「上提」偏置挤成了溢出。 */
+  justify-content: safe center;
+  /* 底部多留白把内容上提：对话区很高，纯居中会让视觉重心偏低。
+     偏置封顶 72px——10vh 在高窗口上会到 120px+，内容一高就直接把标题顶到贴边。 */
+  /* 顶部 40 而非 24：safe center 在内容偏高时会退回 start（这是对的——内容比容器高时
+     就该从顶部开始、可滚），此时顶部留白就是唯一的呼吸位，24 太紧。 */
+  padding: 40px 24px calc(24px + min(10vh, 72px));
 }
 .empty h2 { font-size: 22px; font-weight: 700; color: var(--label-emphasis); }
 .sub { font-size: 15px; color: var(--label-secondary); }

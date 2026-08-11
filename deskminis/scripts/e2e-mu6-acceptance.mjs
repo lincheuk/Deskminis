@@ -418,6 +418,31 @@ try {
       : '（取不到 .ptask / .psec，进度面板未渲染）');
   if (a && a._诊断) console.log('  [4c 诊断]', JSON.stringify(a._诊断));
 
+  // —— 用例 4d：空态不许贴顶（用户 2026-08-11：「这个开始新的对话怎么顶格了」） ——
+  // flexbox 陷阱：justify-content:center 在内容溢出时会把内容顶到滚动原点以上，
+  // 上半截既看不见也滚不到。必须用 safe center，并给「上提」偏置封顶。
+  await evaluate(`(() => { const b = [...document.querySelectorAll('.scard')]; if (b.length) return; })()`);
+  await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+  await evaluate(`(() => { const b = document.querySelector('.newbtn'); if (b) b.click(); })()`);
+  await waitFor(`!!document.querySelector('.empty h2')`, 6_000, '空态出现');
+  await sleep(400);
+  const emptyGeo = await evaluate(`(() => {
+    const st = document.querySelector('.stream'), em = document.querySelector('.empty'), h2 = document.querySelector('.empty h2');
+    if (!st || !em || !h2) return null;
+    const sr = st.getBoundingClientRect(), hr = h2.getBoundingClientRect();
+    return JSON.stringify({
+      justify: getComputedStyle(em).justifyContent,
+      标题顶距: Math.round(hr.top - sr.top),
+      溢出: em.scrollHeight > st.clientHeight + 1,
+      滚动位置: st.scrollTop,
+    });
+  })()`);
+  const g = emptyGeo ? JSON.parse(emptyGeo) : null;
+  record('4d. 空态不贴顶：safe center + 标题与顶部有明确留白',
+    !!g && g.justify.includes('safe') && g.标题顶距 >= 40,
+    g ? `justify-content=${g.justify}；标题顶距 ${g.标题顶距}px（贴顶判据 <40）；溢出=${g.溢出}；滚动位置=${g.滚动位置}`
+      : '（取不到 .empty，空态未渲染）');
+
   // —— 用例 5：技能页可达 + 全局范围写明 + 非法路径的后端错误照实显示 ——
   await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }))`);
   await waitFor(`!!document.querySelector('.modal[aria-label="设置"]')`, 5_000, '设置模态（技能）');
