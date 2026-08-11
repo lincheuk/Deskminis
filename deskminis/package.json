@@ -22,7 +22,8 @@
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "gen:tray-icon": "node scripts/gen-tray-icon.mjs",
-    "e2e:mu6": "node scripts/e2e-mu6-acceptance.mjs"
+    "e2e:mu6": "node scripts/e2e-mu6-acceptance.mjs",
+    "audit:clicks": "node scripts/ui-click-audit.mjs"
   },
   "keywords": [],
   "author": "",
