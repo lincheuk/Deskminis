@@ -160,6 +160,24 @@ describe('MU5 全屏下比例可调 + 分区可隐藏（用户 2026-08-10 追加
   });
 });
 
+describe('未建功能不许伪装可用（用户 2026-08-11 指出，2 例）', () => {
+  it('浏览器工具栏那排控件必须 disabled——它们没有任何处理函数', () => {
+    // 面板正文老实写着「当前版本未包含」，但上面那排 页面/源码/分屏/快照/历史/系统打开/下载
+    // 原本是能点的真 button，点了没反应——正是用户在工作区 chip 上指出的同一类问题。
+    const start = app.indexOf('class="wctl"');
+    const seg = app.slice(start, app.indexOf('</div>', app.indexOf('class="wact"')));
+    const buttons = seg.match(/<button[^>]*>/g) ?? [];
+    expect(buttons.length).toBeGreaterThanOrEqual(7);
+    for (const b of buttons) expect(b).toContain('disabled');
+  });
+
+  it('屏幕标签不许写死 live——功能没建却常亮绿点等于谎报', () => {
+    // 常驻位上的状态必须要么真、要么不出现（与 ProgressPanel 上下文水位同口径：
+    // contextInfo 缺席时返回 null 而不是编一个 0）。
+    expect(app).not.toMatch(/id: 'screen'[^}]*live:\s*true/);
+  });
+});
+
 describe('大屏默认比例（用户 2026-08-11 拍板，2 例）', () => {
   it('阈值 1600：大屏默认展开侧栏 + 对话列给可读栏满宽；小屏沿用紧凑默认', () => {
     expect(app).toContain('LARGE_SCREEN_W = 1600');

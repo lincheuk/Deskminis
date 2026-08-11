@@ -87,7 +87,9 @@ const BUILTIN_TABS: WbTab[] = [
   { id: 'files', label: '文件', panel: 'files', closable: false, icon: 'folder', short: '文件' },
   { id: 'terminal', label: '终端', panel: 'terminal', closable: false, icon: 'terminal', short: '终端' },
   { id: 'browser', label: '浏览器', panel: 'browser', closable: true, icon: 'globe', short: '浏览' },
-  { id: 'screen', label: '屏幕', panel: 'screen', closable: true, live: true, icon: 'monitor', short: '屏幕' },
+  // live 曾写死 true——屏幕能力根本没建，却常亮一个绿点让人以为有东西在跑。
+  // 常驻位上的状态必须要么真、要么不出现（与 ProgressPanel 的上下文水位同口径）。
+  { id: 'screen', label: '屏幕', panel: 'screen', closable: true, icon: 'monitor', short: '屏幕' },
 ];
 const hiddenTabs = ref<string[]>([]);
 const fileTabs = ref<WbTab[]>([]);
@@ -326,19 +328,22 @@ onBeforeUnmount(() => {
           <button v-if="hiddenTabs.length" class="wtab-more" type="button" title="恢复收起的标签" @click="restoreTabs">＋{{ hiddenTabs.length }}</button>
           <button class="wtab-collapse" type="button" title="折叠为图标条" @click="collapseWorkbench">⇥</button>
         </div>
-        <!-- 模式段控 + 动作行：目前只有浏览器标签用得上（来源 AionUi 预览区头部） -->
+        <!-- 模式段控 + 动作行：目前只有浏览器标签用得上（来源 AionUi 预览区头部）。
+             **全部 disabled**：浏览器能力属独立里程碑、当前版本未包含（面板正文已写明），
+             但这排控件原本是能点的真 button——点了没反应，正是用户在工作区 chip 上指出的同一类问题。
+             保留可见是为了说清设计意图，disabled + title 说清为什么点不了。 -->
         <div v-show="rightTab === 'browser'" class="wctl">
           <div class="seg">
-            <button type="button" class="on">页面</button>
-            <button type="button">源码</button>
-            <button type="button">分屏</button>
+            <button type="button" class="on" disabled title="浏览器能力尚未启用">页面</button>
+            <button type="button" disabled title="浏览器能力尚未启用">源码</button>
+            <button type="button" disabled title="浏览器能力尚未启用">分屏</button>
           </div>
           <span class="wurl">about:blank</span>
           <div class="wact">
-            <button type="button">快照</button>
-            <button type="button">历史</button>
-            <button type="button">系统打开</button>
-            <button type="button">下载</button>
+            <button type="button" disabled title="浏览器能力尚未启用">快照</button>
+            <button type="button" disabled title="浏览器能力尚未启用">历史</button>
+            <button type="button" disabled title="浏览器能力尚未启用">系统打开</button>
+            <button type="button" disabled title="浏览器能力尚未启用">下载</button>
           </div>
         </div>
         <div v-show="rightTab === 'progress'" class="rfill"><ProgressPanel v-if="visited.progress" /></div>
@@ -507,6 +512,7 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; gap: 10px; padding: 8px 12px;
   border-bottom: .5px solid var(--separator); background: var(--surface-1); flex: 0 0 auto;
 }
+.wctl .seg button:disabled, .wctl .wact button:disabled { opacity: var(--opacity-disabled); cursor: default; }
 .seg { display: flex; border: .5px solid var(--separator); border-radius: var(--r-control); overflow: hidden; }
 .seg button {
   border: none; background: none; cursor: pointer;
