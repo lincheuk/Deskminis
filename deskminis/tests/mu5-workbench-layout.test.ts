@@ -160,6 +160,35 @@ describe('MU5 全屏下比例可调 + 分区可隐藏（用户 2026-08-10 追加
   });
 });
 
+describe('大屏默认比例（用户 2026-08-11 拍板，2 例）', () => {
+  it('阈值 1600：大屏默认展开侧栏 + 对话列给可读栏满宽；小屏沿用紧凑默认', () => {
+    expect(app).toContain('LARGE_SCREEN_W = 1600');
+    expect(app).toMatch(/const isLargeScreen = window\.innerWidth >= LARGE_SCREEN_W/);
+    expect(app).toMatch(/const sidebarExpanded = ref\(isLargeScreen\)/);
+    // 对话列默认宽随屏幕分档，且大屏那档与 ChatView 的可读栏同值
+    expect(app).toContain('CHAT_MEASURE_W = 792');
+    expect(app).toMatch(/ref\(isLargeScreen \? CHAT_MEASURE_W : 336\)/);
+    expect(chatView).toMatch(/max-width:\s*792px/);
+    // 工作台保持完整（用户在两个选项里选的是「完整工作台」，不是隐藏）
+    expect(app).toMatch(/const workbenchOpen = ref\(true\)/);
+    expect(app).toMatch(/const workbenchExpanded = ref\(true\)/);
+  });
+
+  it('大屏默认只作用于首次，不监听 resize；且存过的宽度优先于默认', () => {
+    // 窗口一变大就自动展开侧栏会打断用户手动折叠的意图——比默认不对更烦人。
+    // isLargeScreen 是**读一次的常量**，不是 computed，故不会随 viewportW 变。
+    expect(app).not.toMatch(/computed\(\(\)\s*=>\s*window\.innerWidth >= LARGE_SCREEN_W/);
+    expect(app).not.toMatch(/watch\(viewportW[\s\S]{0,120}sidebarExpanded/);
+    // 存过的值优先，且两条路径都过 clamp（大屏默认 792 在 1600 窗口上会超上限）
+    expect(app).toMatch(/clampPaneWidth\(saved \|\| chatW\.value, availableW\.value\)/);
+    // 1600 窗口 + 侧栏 212 → 可用 1388，上限按比例 694：默认 792 必须被钳下来
+    expect(maxChatWidth(1388)).toBe(694);
+    expect(clampPaneWidth(792, 1388)).toBe(694);
+    // 2000 窗口 + 侧栏 212 → 可用 1788，上限 894：792 原样保留
+    expect(clampPaneWidth(792, 1788)).toBe(792);
+  });
+});
+
 describe('MU5 列宽放开后正文仍须可读（1 例）', () => {
   it('正文与输入卡按可读宽封顶并居中；输入卡必须写 width 而非只写 max-width', () => {
     // 列宽是布局问题，行长是排版问题。对话列现在可拖到可用宽的一半（2560 屏上 1254px），

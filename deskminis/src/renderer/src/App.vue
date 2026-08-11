@@ -35,7 +35,13 @@ const chat = useChat();
  *  52px 图标轨还是 212px 完整列表。默认折叠为图标轨（计划决策 2-2「工作态默认纯图标」），
  *  展开时**挤压**对话列而非浮层覆盖——浮层会遮住正在读的内容。 */
 const railOpen = ref(true);
-const sidebarExpanded = ref(false);
+/** 大屏阈值（用户 2026-08-11 拍板 1600）。**只影响首次默认，不监听 resize**——
+ *  窗口一变大就自动展开侧栏会打断用户手动折叠的意图，那比默认不对更烦人。 */
+const LARGE_SCREEN_W = 1600;
+const isLargeScreen = window.innerWidth >= LARGE_SCREEN_W;
+/** 大屏默认展开会话列表（看得到会话名），小屏仍折为图标轨——
+ *  窄窗口里 212px 侧栏会把对话列和工作台一起挤瘦。 */
+const sidebarExpanded = ref(isLargeScreen);
 /** 三个分区各自可隐藏，但**对话列与工作台不能同时隐藏**——那会留下一个空壳白屏。
  *  左区可以整个隐掉（它是导航，不是内容）。 */
 const chatOpen = ref(true);
@@ -141,7 +147,12 @@ const availableW = computed(() => viewportW.value - leftW.value);
 
 /** 对话列宽度：336 默认、下限 280，上限 min(520, 可用宽 − 工作台最小宽)（lib/pane/drag 纯逻辑），
  *  localStorage 持久化。分隔条在对话列**右**缘，故右拖增宽（drag.ts 的符号已随之取反）。 */
-const chatW = ref(336);
+/** 与 ChatView 的可读栏同值（那边是 CSS 里的 792px）。改一处必须改另一处——
+ *  大屏上对话列若窄于可读栏，文字会提前折行而右侧空着，那不叫比例好。 */
+const CHAT_MEASURE_W = 792;
+/** 默认宽随屏幕分档：大屏给可读栏满宽，小屏沿用 336。
+ *  仅是**默认**——localStorage 里存过的值优先（见 onMounted）。 */
+const chatW = ref(isLargeScreen ? CHAT_MEASURE_W : 336);
 /** 可用宽一变就重钳：窗口缩小、侧栏展开（多吃 160px）都会压缩上限。
  *  没有这条时，在大屏拖到 520 再把窗口缩到 900 并展开侧栏，工作台会只剩 168px。 */
 watch(availableW, (av) => { chatW.value = clampPaneWidth(chatW.value, av); });
@@ -238,8 +249,10 @@ function onGlobalKey(e: KeyboardEvent): void {
 }
 
 onMounted(() => {
+  // 存过的值优先；没存过则用上面按屏幕分档的默认。两条都要过 clamp——
+  // 大屏默认 792 在 1600 窗口上会超过「不占过半 + 工作台不饿死」的上限。
   const saved = Number(localStorage.getItem('deskminis.chatW'));
-  if (saved) chatW.value = clampPaneWidth(saved, availableW.value);
+  chatW.value = clampPaneWidth(saved || chatW.value, availableW.value);
   applyTheme(); // 启动即应用 loadTheme 读回的偏好
   // MU2b Task 5：托盘菜单死通道接通（preload 白名单两订阅；main 侧零改动）
   const bridge = (window as { deskminis?: { onMenuOpenSettings?: (cb: () => void) => void; onMenuToggleRight?: (cb: () => void) => void } }).deskminis;
