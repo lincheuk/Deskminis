@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - 代码基线：**M1 已完成**（130 个测试全绿）。假定其他 M2 子计划（M2a 压缩/卸载、记忆、技能、UI）均未执行；凡引用 M2a 处只声明接口签名
-- 所有代码在 `deskminis/` 子目录（仓库根 `C:\Users\24739\Downloads\openminis1\`）
+- 所有代码在 `deskminis/` 子目录（仓库根 `<repo>\`）
 - TypeScript `strict: true`；测试命令统一 `npm test`（vitest run），单文件 `npm test -- tests/xxx.test.ts`
 - 提交信息用 conventional commits + 中文（如 `feat(m2b): …`）；全文中文
 - Gemini/Ollama 的单测一律用**录制的 SSE 流文本回放**（fake `fetchImpl` 返回 `Response`），禁止真连网络
@@ -183,7 +183,7 @@ Expected: 全部通过（M1 的 130 个测试不受影响——`ProviderError` �
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/providers/types.ts deskminis/tests/provider-errors.test.ts && git commit -m "feat(m2b): ProviderError 增加 fallbackable 错误分类（isRetryable/isFallbackable）"
+cd "<repo>" && git add deskminis/src/minisd/providers/types.ts deskminis/tests/provider-errors.test.ts && git commit -m "feat(m2b): ProviderError 增加 fallbackable 错误分类（isRetryable/isFallbackable）"
 ```
 
 ---
@@ -624,7 +624,7 @@ Expected: 全部通过（M1 测试不回归——`toolCallComplete` 只新增可
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/providers/gemini.ts deskminis/src/shared/types.ts deskminis/src/minisd/agent/loop.ts deskminis/tests/gemini.test.ts deskminis/tests/agent-loop.test.ts && git commit -m "feat(m2b): Gemini Provider——SSE 归一化、函数调用合成 id、thoughtSignature 持久化与回放、无签名历史降级为文本摘要"
+cd "<repo>" && git add deskminis/src/minisd/providers/gemini.ts deskminis/src/shared/types.ts deskminis/src/minisd/agent/loop.ts deskminis/tests/gemini.test.ts deskminis/tests/agent-loop.test.ts && git commit -m "feat(m2b): Gemini Provider——SSE 归一化、函数调用合成 id、thoughtSignature 持久化与回放、无签名历史降级为文本摘要"
 ```
 
 ---
@@ -1011,7 +1011,7 @@ Expected: 全部通过（M1 openai/anthropic 测试不回归——默认 flag �
 - [x] **Step 7: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/providers/openai.ts deskminis/src/minisd/store/provider-store.ts deskminis/src/minisd/index.ts deskminis/tests/ollama.test.ts deskminis/tests/provider-store.test.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2b): Ollama provider（OpenAI 兼容端点 + 无 key 免鉴权头 + 默认 baseUrl + 兼容 flag），provider kind 扩展 gemini/ollama"
+cd "<repo>" && git add deskminis/src/minisd/providers/openai.ts deskminis/src/minisd/store/provider-store.ts deskminis/src/minisd/index.ts deskminis/tests/ollama.test.ts deskminis/tests/provider-store.test.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2b): Ollama provider（OpenAI 兼容端点 + 无 key 免鉴权头 + 默认 baseUrl + 兼容 flag），provider kind 扩展 gemini/ollama"
 ```
 
 ---
@@ -1249,7 +1249,7 @@ Expected: 全部通过（钳制对 M1 测试透明：fake provider 的 modelId='
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/providers/model-catalog.ts deskminis/src/minisd/index.ts deskminis/tests/model-catalog.test.ts && git commit -m "feat(m2b): 模型能力目录——models.dev 拉取 + 磁盘缓存 + 内置兜底表 + ThinkingLevel 按模型族钳制"
+cd "<repo>" && git add deskminis/src/minisd/providers/model-catalog.ts deskminis/src/minisd/index.ts deskminis/tests/model-catalog.test.ts && git commit -m "feat(m2b): 模型能力目录——models.dev 拉取 + 磁盘缓存 + 内置兜底表 + ThinkingLevel 按模型族钳制"
 ```
 
 ---
@@ -1468,7 +1468,7 @@ Expected: 全部通过（M1 测试不回归——ModelGroup 与 setModelBinding 
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/provider-store.ts deskminis/src/minisd/store/chat-store.ts deskminis/tests/provider-store.test.ts deskminis/tests/chat-store.test.ts && git commit -m "feat(m2b): ModelGroup 持久化（CRUD + resolveGroupMembers 跳过已删成员）+ ChatStore.setModelBinding"
+cd "<repo>" && git add deskminis/src/minisd/store/provider-store.ts deskminis/src/minisd/store/chat-store.ts deskminis/tests/provider-store.test.ts deskminis/tests/chat-store.test.ts && git commit -m "feat(m2b): ModelGroup 持久化（CRUD + resolveGroupMembers 跳过已删成员）+ ChatStore.setModelBinding"
 ```
 
 ---
@@ -1834,7 +1834,7 @@ Expected: 全部通过（M1 测试不回归——`fallbackChain` 默认空数组
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/loop.ts deskminis/tests/agent-loop.test.ts && git commit -m "feat(m2b): Agent 循环降级链——fallback 事件 + ProviderSlot 注入 + 空响应两路处理（首轮直接降级 / tool_result 后先 reminder 重试再降级）"
+cd "<repo>" && git add deskminis/src/minisd/agent/loop.ts deskminis/tests/agent-loop.test.ts && git commit -m "feat(m2b): Agent 循环降级链——fallback 事件 + ProviderSlot 注入 + 空响应两路处理（首轮直接降级 / tool_result 后先 reminder 重试再降级）"
 ```
 
 ---
@@ -2093,7 +2093,7 @@ Expected: 全部通过
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/index.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2b): modelgroup.* RPC 面 + chat.prompt 模型组链式解析 + fallback 成功后改写会话绑定"
+cd "<repo>" && git add deskminis/src/minisd/index.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2b): modelgroup.* RPC 面 + chat.prompt 模型组链式解析 + fallback 成功后改写会话绑定"
 ```
 
 ---

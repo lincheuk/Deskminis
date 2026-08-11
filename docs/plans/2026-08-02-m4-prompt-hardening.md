@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 所有代码在 `deskminis/` 子目录（仓库根 `C:\Users\24739\Downloads\openminis1\`，`OpenMinis/` 只读克隆永不修改）
+- 所有代码在 `deskminis/` 子目录（仓库根 `<repo>\`，`OpenMinis/` 只读克隆永不修改）
 - TypeScript `strict: true`；包管理 npm
 - 测试命令 `npm test`（vitest run，electron as node）；单文件 `npm test -- tests/xxx.test.ts`
 - 提交信息 conventional commits + 中文描述（如 `feat(m4): …`）

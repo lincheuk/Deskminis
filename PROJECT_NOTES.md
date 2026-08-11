@@ -1,6 +1,6 @@
 # DeskMinis — 桌面端 Agent 应用（基于 OpenMinis 理念）项目笔记
 
-> 本项目**独立于 bitapi/onerelay**，所有工作只在 `C:\Users\24739\Downloads\openminis1\` 下进行。
+> 本项目**独立于 bitapi/onerelay**，所有工作只在 `<repo>\` 下进行。
 > 建议在本目录单独打开 Claude Code 会话继续此项目。
 
 ## 目标

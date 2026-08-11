@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **基线已升级到 main@c54dac4（M1 + M2b + M2a + M2c + M2e）**，不再假设其它 M2 子计划未执行。所有「完整替换/完整文件」代码块按 c54dac4 实际源码改写为增量清单 + 现状锚点引用；核实后确与 M1 相同的文件保留全文块并加注
-- 所有代码在 `deskminis/` 子目录（仓库根是 `C:\Users\24739\Downloads\openminis1\`，`OpenMinis/` 是只读参考克隆，永不修改）；ChatView.vue 不在本计划修改范围——M2c 斜杠菜单勿碰
+- 所有代码在 `deskminis/` 子目录（仓库根是 `<repo>\`，`OpenMinis/` 是只读参考克隆，永不修改）；ChatView.vue 不在本计划修改范围——M2c 斜杠菜单勿碰
 - TypeScript `strict: true`；时间戳一律 epoch 秒（浮点）；破坏性 RPC 方法要求 `confirm:true`（沿用 M1）
 - 右栏组件一律引用 `tokens.css` 变量（含 xterm 主题从计算样式读取），**不写死颜色**；暗色三模式（跟随系统/强制浅/强制深）都必须成立
 - 文件面板只做**会话工作区**文件树；外部挂载树（设计 §3.5）留给 M2 后续里程碑
@@ -521,7 +521,7 @@ Expected: 全量通过（基线 396 + 8 新 ≈ 404）、typecheck 0 errors
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/terminal.ts deskminis/src/minisd/index.ts deskminis/tests/terminal.test.ts && git commit -m "feat(m2d): minisd 终端会话（独立交互 shell + terminal.attach/input RPC + 滚动缓冲推送）"
+cd "<repo>" && git add deskminis/src/minisd/terminal.ts deskminis/src/minisd/index.ts deskminis/tests/terminal.test.ts && git commit -m "feat(m2d): minisd 终端会话（独立交互 shell + terminal.attach/input RPC + 滚动缓冲推送）"
 ```
 
 ---
@@ -822,7 +822,7 @@ Expected: 全量通过（基线 396 + Task 1 新 8 + Task 2 新 11 ≈ 415）、
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/files.ts deskminis/src/minisd/index.ts deskminis/tests/files-rpc.test.ts && git commit -m "feat(m2d): minisd 工作区文件服务（files.list/read RPC + 限仓防穿越 + 256KB 截断与二进制嗅探）"
+cd "<repo>" && git add deskminis/src/minisd/files.ts deskminis/src/minisd/index.ts deskminis/tests/files-rpc.test.ts && git commit -m "feat(m2d): minisd 工作区文件服务（files.list/read RPC + 限仓防穿越 + 256KB 截断与二进制嗅探）"
 ```
 
 ---
@@ -847,7 +847,7 @@ cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/files.t
 > 1. `npm i @xterm/xterm @xterm/addon-fit`——由 npm 自动写入 dependencies（**追加**，不覆盖现有三条 @napi-rs/keyring + better-sqlite3 + ws + yauzl）
 > 2. `scripts` 对象里手动追加一行：`"gen:tray-icon": "node scripts/gen-tray-icon.mjs"`——**保留**既有 `e2e / e2e:m2b / e2e:m2a / e2e:m2c / e2e:m2e / rebuild / postinstall` 七条脚本，顺序无关
 
-Run: `cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm i @xterm/xterm @xterm/addon-fit`
+Run: `cd "<repo>\deskminis" && npm i @xterm/xterm @xterm/addon-fit`
 Run: `cd deskminis && node -e "const p=require('./package.json'); console.log('@xterm:', !!p.dependencies['@xterm/xterm'], '; gen-tray:', typeof p.scripts['gen:tray-icon'])"`
 Expected: `@xterm: true ; gen-tray: true`（scripts 若未写入 gen-tray-icon 则手动补）
 
@@ -1216,7 +1216,7 @@ Expected（人工确认）：右栏默认终端页出现 `PS <工作区路径>> 
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/package.json deskminis/package-lock.json deskminis/src/renderer/src/rpc.ts deskminis/src/renderer/src/App.vue deskminis/src/renderer/src/components/TerminalPanel.vue && git commit -m "feat(m2d): 右栏终端面板（xterm.js + 滚动缓冲重放 + 主题跟随 tokens）"
+cd "<repo>" && git add deskminis/package.json deskminis/package-lock.json deskminis/src/renderer/src/rpc.ts deskminis/src/renderer/src/App.vue deskminis/src/renderer/src/components/TerminalPanel.vue && git commit -m "feat(m2d): 右栏终端面板（xterm.js + 滚动缓冲重放 + 主题跟随 tokens）"
 ```
 
 ---
@@ -1664,7 +1664,7 @@ Expected（人工确认）：文件页签出现「工作区」树；让 agent �
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/components/Icon.vue deskminis/src/renderer/src/components/FileTreeNode.vue deskminis/src/renderer/src/components/FilesPanel.vue deskminis/src/renderer/src/App.vue && git commit -m "feat(m2d): 右栏文件面板（懒加载文件树 + 文本预览 + 回合结束自动刷新）"
+cd "<repo>" && git add deskminis/src/renderer/src/components/Icon.vue deskminis/src/renderer/src/components/FileTreeNode.vue deskminis/src/renderer/src/components/FilesPanel.vue deskminis/src/renderer/src/App.vue && git commit -m "feat(m2d): 右栏文件面板（懒加载文件树 + 文本预览 + 回合结束自动刷新）"
 ```
 
 ---
@@ -2047,7 +2047,7 @@ Expected（人工确认）：任务页签三段齐全；发一个带工具调用
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/renderer/src/stores/chat.ts deskminis/src/renderer/src/components/TasksPanel.vue deskminis/src/renderer/src/App.vue && git commit -m "feat(m2d): 右栏任务面板（回合进度 + token 用量 + 上下文水位条）"
+cd "<repo>" && git add deskminis/src/renderer/src/stores/chat.ts deskminis/src/renderer/src/components/TasksPanel.vue deskminis/src/renderer/src/App.vue && git commit -m "feat(m2d): 右栏任务面板（回合进度 + token 用量 + 上下文水位条）"
 ```
 
 ---
@@ -2229,7 +2229,7 @@ console.log('written:', out, png.length, 'bytes');
 生成图标并确认第 5 例转绿：
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1\deskminis" && npm run gen:tray-icon
+cd "<repo>\deskminis" && npm run gen:tray-icon
 ```
 
 Run: `cd deskminis && npm test -- tests/tray-lifecycle.test.ts`
@@ -2422,7 +2422,7 @@ Expected（人工确认）：点窗口 × → 窗口消失但进程仍在（任�
 - [x] **Step 7: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/gen-tray-icon.mjs deskminis/resources/tray.png deskminis/src/main/index.ts deskminis/package.json deskminis/tests/tray-lifecycle.test.ts && git commit -m "feat(m2d): 系统托盘常驻（关窗隐藏不杀 minisd + 托盘菜单显窗/退出 + 生命周期源文本守卫）"
+cd "<repo>" && git add deskminis/scripts/gen-tray-icon.mjs deskminis/resources/tray.png deskminis/src/main/index.ts deskminis/package.json deskminis/tests/tray-lifecycle.test.ts && git commit -m "feat(m2d): 系统托盘常驻（关窗隐藏不杀 minisd + 托盘菜单显窗/退出 + 生命周期源文本守卫）"
 ```
 
 ---
@@ -2466,7 +2466,7 @@ cd deskminis && npm run dev
 - [x] **Step 4: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add docs/plans/2026-07-28-m2d-right-panel-ui.md && git commit -m "docs(m2d): 右栏 UI + 系统托盘实施计划（勾选完成项）"
+cd "<repo>" && git add docs/plans/2026-07-28-m2d-right-panel-ui.md && git commit -m "docs(m2d): 右栏 UI + 系统托盘实施计划（勾选完成项）"
 ```
 
 ---

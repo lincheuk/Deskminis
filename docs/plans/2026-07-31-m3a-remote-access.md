@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 所有代码在 `deskminis/` 子目录（仓库根是 `C:\Users\24739\Downloads\openminis1\`，`OpenMinis/` 是只读参考克隆，永不修改）
+- 所有代码在 `deskminis/` 子目录（仓库根是 `<repo>\`，`OpenMinis/` 是只读参考克隆，永不修改）
 - TypeScript `strict: true`；包管理 npm
 - 时间戳一律 **epoch 秒（浮点）**
 - 测试命令统一 `npm test`（vitest run，跑在 electron as node 下）；单文件 `npm test -- tests/xxx.test.ts`
@@ -395,7 +395,7 @@ Expected: 全套回归全绿（基线 432 + Task 1 新增约 12 = 约 444；无 
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/rpc/server.ts deskminis/tests/rpc-server-authmode.test.ts && git commit -m "feat(m3a): RpcServer additionalVerify+authMode分级(local/pairing/remote,老token路径不回归)"
+cd "<repo>" && git add deskminis/src/minisd/rpc/server.ts deskminis/tests/rpc-server-authmode.test.ts && git commit -m "feat(m3a): RpcServer additionalVerify+authMode分级(local/pairing/remote,老token路径不回归)"
 ```
 
 ---
@@ -572,7 +572,7 @@ Expected: 9 passed
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/paseto.ts deskminis/tests/remote-paseto.test.ts deskminis/package.json deskminis/package-lock.json && git commit -m "feat(m3a): PASETO v4.local codec(noble套件,往返/篡改/过脚校验)"
+cd "<repo>" && git add deskminis/src/minisd/remote/paseto.ts deskminis/tests/remote-paseto.test.ts deskminis/package.json deskminis/package-lock.json && git commit -m "feat(m3a): PASETO v4.local codec(noble套件,往返/篡改/过脚校验)"
 ```
 
 ---
@@ -820,7 +820,7 @@ Expected: 8 passed
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/pairing.ts deskminis/tests/remote-pairing.test.ts && git commit -m "feat(m3a): PairingKey(X25519 ECDH+HKDF+指纹+vault持久化,配对码一次性5分钟过期)"
+cd "<repo>" && git add deskminis/src/minisd/remote/pairing.ts deskminis/tests/remote-pairing.test.ts && git commit -m "feat(m3a): PairingKey(X25519 ECDH+HKDF+指纹+vault持久化,配对码一次性5分钟过期)"
 ```
 
 ---
@@ -1096,7 +1096,7 @@ Expected: 全套绿（441 + Task2 9 + Task3 8 + Task4 7 = 465；含 Task2/3 已�
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/index.ts deskminis/src/minisd/index.ts deskminis/tests/remote-rpc.test.ts && git commit -m "feat(m3a): remote.* RPC面(authMode分级守卫)+additionalVerify接PASETO/配对码+MINISD_HOST接线"
+cd "<repo>" && git add deskminis/src/minisd/remote/index.ts deskminis/src/minisd/index.ts deskminis/tests/remote-rpc.test.ts && git commit -m "feat(m3a): remote.* RPC面(authMode分级守卫)+additionalVerify接PASETO/配对码+MINISD_HOST接线"
 ```
 
 ---
@@ -1195,7 +1195,7 @@ Expected: 3 passed
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/remote/noProxyFetch.ts deskminis/tests/remote-noProxyFetch.test.ts deskminis/package.json deskminis/package-lock.json && git commit -m "feat(m3a): undici noProxy出流量隔离(M3专用,provider红线禁用)"
+cd "<repo>" && git add deskminis/src/minisd/remote/noProxyFetch.ts deskminis/tests/remote-noProxyFetch.test.ts deskminis/package.json deskminis/package-lock.json && git commit -m "feat(m3a): undici noProxy出流量隔离(M3专用,provider红线禁用)"
 ```
 
 ---
@@ -1451,7 +1451,7 @@ Expected: 全套绿（465 + Task5 3 + Task6 6 = 474；Task7 e2e 是脚本不计�
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/cli/remote-cli.mjs deskminis/tests/remote-cli.test.ts && git commit -m "feat(m3a): remote-cli零依赖单文件(pair/connect/status/unpair,WS直连minisd)"
+cd "<repo>" && git add deskminis/src/cli/remote-cli.mjs deskminis/tests/remote-cli.test.ts && git commit -m "feat(m3a): remote-cli零依赖单文件(pair/connect/status/unpair,WS直连minisd)"
 ```
 
 ---
@@ -1604,7 +1604,7 @@ Expected: 6/6 passed（begin / complete / paseto / remote.list / broadcast / den
 - [x] **Step 3: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3a-acceptance.mjs deskminis/package.json && git commit -m "test(m3a): e2e验收驱动(配对→PASETO→WS→业务面→广播→权限边界)"
+cd "<repo>" && git add deskminis/scripts/e2e-m3a-acceptance.mjs deskminis/package.json && git commit -m "test(m3a): e2e验收驱动(配对→PASETO→WS→业务面→广播→权限边界)"
 ```
 
 ---

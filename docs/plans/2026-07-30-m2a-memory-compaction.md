@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - 代码基线：**M1 + M2b 已完成**（189 个测试全绿）。假定其他 M2 子计划（M2c 技能、M2d 右栏 UI、M2e windows-* 桥）均未执行
-- 所有代码在 `deskminis/` 子目录（仓库根 `C:\Users\24739\Downloads\openminis1\`）
+- 所有代码在 `deskminis/` 子目录（仓库根 `<repo>\`）
 - TypeScript `strict: true`；测试命令统一 `npm test`（vitest run），单文件 `npm test -- tests/xxx.test.ts`
 - 提交信息用 conventional commits + 中文（如 `feat(m2a): …`）；全文中文
 - 压缩摘要的 LLM 调用一律用**脚本化假 Provider 回放**（复用 `agent-loop.test.ts` 的 `ScriptedProvider` 模式），禁止真连网络
@@ -267,7 +267,7 @@ Expected: 全部通过（M2b 的 189 个测试不受影响——纯新增文件�
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/memory-store.ts deskminis/tests/memory-store.test.ts && git commit -m "feat(m2a): MemoryStore 记忆文件持久化（GLOBAL/SOUL/日志 CRUD + 条目前插 + 原子写）"
+cd "<repo>" && git add deskminis/src/minisd/store/memory-store.ts deskminis/tests/memory-store.test.ts && git commit -m "feat(m2a): MemoryStore 记忆文件持久化（GLOBAL/SOUL/日志 CRUD + 条目前插 + 原子写）"
 ```
 
 ---
@@ -447,7 +447,7 @@ Expected: 全部通过（Task 1 的 memory-store.test.ts + M2b 189 个测试不�
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/memory-injector.ts deskminis/tests/memory-injector.test.ts && git commit -m "feat(m2a): MemoryInjector 系统提示注入记忆（SOUL/GLOBAL/最近3日志 + 措辞框定 + 截断）"
+cd "<repo>" && git add deskminis/src/minisd/store/memory-injector.ts deskminis/tests/memory-injector.test.ts && git commit -m "feat(m2a): MemoryInjector 系统提示注入记忆（SOUL/GLOBAL/最近3日志 + 措辞框定 + 截断）"
 ```
 
 ---
@@ -730,7 +730,7 @@ Expected: 全部通过（Task 1/2 + M2b 189 个测试不受影响）
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/memory.ts deskminis/tests/memory-tools.test.ts && git commit -m "feat(m2a): memory_write/memory_get 工具（关键词+新近度评分检索 + 60条/30KB 上限）"
+cd "<repo>" && git add deskminis/src/minisd/tools/memory.ts deskminis/tests/memory-tools.test.ts && git commit -m "feat(m2a): memory_write/memory_get 工具（关键词+新近度评分检索 + 60条/30KB 上限）"
 ```
 
 ---
@@ -912,7 +912,7 @@ Expected: 全部通过（Task 1-3 + M2b 189 个测试不受影响）
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/context-policy.ts deskminis/tests/context-policy.test.ts && git commit -m "feat(m2a): ContextPolicy 水位分层决策（消费 ModelCatalog 窗口 + token 估算 + 4 档阈值）"
+cd "<repo>" && git add deskminis/src/minisd/agent/context-policy.ts deskminis/tests/context-policy.test.ts && git commit -m "feat(m2a): ContextPolicy 水位分层决策（消费 ModelCatalog 窗口 + token 估算 + 4 档阈值）"
 ```
 
 ---
@@ -1057,7 +1057,7 @@ Expected: 全部通过（Task 1-4 + M2b 189 个测试不受影响）
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/offload.ts deskminis/tests/offload.test.ts && git commit -m "feat(m2a): OffloadEngine 大工具结果卸载（>20k 写 offloads + 桩替换 + 原子写）"
+cd "<repo>" && git add deskminis/src/minisd/agent/offload.ts deskminis/tests/offload.test.ts && git commit -m "feat(m2a): OffloadEngine 大工具结果卸载（>20k 写 offloads + 桩替换 + 原子写）"
 ```
 
 ---
@@ -1484,7 +1484,7 @@ Expected: 全部通过（Task 1-5 + M2b 189 个测试不受影响——chat-stor
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/compact.ts deskminis/src/minisd/store/chat-store.ts deskminis/src/minisd/store/db.ts deskminis/src/shared/types.ts deskminis/tests/compact.test.ts deskminis/tests/chat-store.test.ts && git commit -m "feat(m2a): CompactEngine LLM 压缩摘要 + effectiveAgentHistory 合成（compact_markers CRUD + 锚点自愈 + 保留最近3用户回合）"
+cd "<repo>" && git add deskminis/src/minisd/agent/compact.ts deskminis/src/minisd/store/chat-store.ts deskminis/src/minisd/store/db.ts deskminis/src/shared/types.ts deskminis/tests/compact.test.ts deskminis/tests/chat-store.test.ts && git commit -m "feat(m2a): CompactEngine LLM 压缩摘要 + effectiveAgentHistory 合成（compact_markers CRUD + 锚点自愈 + 保留最近3用户回合）"
 ```
 
 ---
@@ -1909,7 +1909,7 @@ Expected: 全部通过（Task 1-6 新增测试 + M2b 189 个测试不回归—�
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/agent/loop.ts deskminis/src/minisd/index.ts deskminis/src/minisd/store/chat-store.ts deskminis/src/shared/types.ts deskminis/tests/agent-loop.test.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2a): Agent 循环装配压缩/卸载/记忆（水位检查触发压缩 + 大结果卸载落桩 + memory_enabled 开关 + effectiveAgentHistory 合成）"
+cd "<repo>" && git add deskminis/src/minisd/agent/loop.ts deskminis/src/minisd/index.ts deskminis/src/minisd/store/chat-store.ts deskminis/src/shared/types.ts deskminis/tests/agent-loop.test.ts deskminis/tests/rpc.test.ts && git commit -m "feat(m2a): Agent 循环装配压缩/卸载/记忆（水位检查触发压缩 + 大结果卸载落桩 + memory_enabled 开关 + effectiveAgentHistory 合成）"
 ```
 
 ---

@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 所有代码在 `deskminis/` 子目录（仓库根是 `C:\Users\24739\Downloads\openminis1\`，`OpenMinis/` 是只读参考克隆，永不修改）
+- 所有代码在 `deskminis/` 子目录（仓库根是 `<repo>\`，`OpenMinis/` 是只读参考克隆，永不修改）
 - TypeScript `strict: true`；包管理 npm；**本里程碑零新增 npm 依赖**（帧/管道/CLI 全部用 node 内建模块）
 - 时间戳一律 **epoch 秒（浮点）**（信封的 `timestamp` 同样遵守：`Date.now() / 1000`）
 - 测试命令统一 `npm test`（vitest run，跑在 electron as node 下，命名管道可用）；单文件 `npm test -- tests/xxx.test.ts` 或子串 `npm test -- bridge-frame`
@@ -192,7 +192,7 @@ Expected: 7 passed
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/frame.ts deskminis/tests/bridge-frame.test.ts && git commit -m "feat(m2e): 桥线协议长度前缀帧编解码(半包/粘包/16MB上限)"
+cd "<repo>" && git add deskminis/src/minisd/bridge/frame.ts deskminis/tests/bridge-frame.test.ts && git commit -m "feat(m2e): 桥线协议长度前缀帧编解码(半包/粘包/16MB上限)"
 ```
 
 ---
@@ -424,7 +424,7 @@ Expected: 全部 passed（基线既有用例 + 新增 6 个桥用例）
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/tools/types.ts deskminis/src/minisd/tools/permissions.ts deskminis/tests/permissions.test.ts && git commit -m "feat(m2e): 权限网关扩展桥类目(恢复bypass级+六桥askOnce/device放行)"
+cd "<repo>" && git add deskminis/src/minisd/tools/types.ts deskminis/src/minisd/tools/permissions.ts deskminis/tests/permissions.test.ts && git commit -m "feat(m2e): 权限网关扩展桥类目(恢复bypass级+六桥askOnce/device放行)"
 ```
 
 ---
@@ -1043,7 +1043,7 @@ Expected: 全部 passed（分发 11 + handler 9 + runPowerShell 3 + 真实集成
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/handlers.ts deskminis/tests/bridge-handlers.test.ts && git commit -m "feat(m2e): 六桥handler+一次性PowerShell执行器(载荷走stdin JSON零插值)"
+cd "<repo>" && git add deskminis/src/minisd/bridge/handlers.ts deskminis/tests/bridge-handlers.test.ts && git commit -m "feat(m2e): 六桥handler+一次性PowerShell执行器(载荷走stdin JSON零插值)"
 ```
 
 ---
@@ -1402,7 +1402,7 @@ Expected: 全部 passed（bridgePipePath 2 + BridgeServer 7 + makeBridgeEnv 2 + 
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge/server.ts deskminis/src/minisd/bridge-cli.mjs deskminis/tests/bridge-util.ts deskminis/tests/bridge-server.test.ts && git commit -m "feat(m2e): 命名管道桥服务(one-shot帧+占管降级+桥环境变量构造)"
+cd "<repo>" && git add deskminis/src/minisd/bridge/server.ts deskminis/src/minisd/bridge-cli.mjs deskminis/tests/bridge-util.ts deskminis/tests/bridge-server.test.ts && git commit -m "feat(m2e): 命名管道桥服务(one-shot帧+占管降级+桥环境变量构造)"
 ```
 
 ---
@@ -1799,7 +1799,7 @@ Expected: 全套回归全绿（rpc/agent-loop 等基线测试不受签名扩展�
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/index.ts deskminis/src/minisd/tools/shell.ts deskminis/tests/bridge-minisd.test.ts deskminis/tests/shell.test.ts && git commit -m "feat(m2e): minisd装配桥服务+shell注入桥环境变量+系统提示渐进披露"
+cd "<repo>" && git add deskminis/src/minisd/index.ts deskminis/src/minisd/tools/shell.ts deskminis/tests/bridge-minisd.test.ts deskminis/tests/shell.test.ts && git commit -m "feat(m2e): minisd装配桥服务+shell注入桥环境变量+系统提示渐进披露"
 ```
 
 ---
@@ -2385,7 +2385,7 @@ cd deskminis && npm run dev
 - [x] **Step 6: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/bridge-cli.mjs deskminis/tests/bridge-cli.test.ts && git commit -m "feat(m2e): 桥CLI stub(argv/stdin→管道帧→JSON信封,退出码0-4)+端到端测试"
+cd "<repo>" && git add deskminis/src/minisd/bridge-cli.mjs deskminis/tests/bridge-cli.test.ts && git commit -m "feat(m2e): 桥CLI stub(argv/stdin→管道帧→JSON信封,退出码0-4)+端到端测试"
 ```
 
 ---

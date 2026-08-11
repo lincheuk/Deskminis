@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 所有代码在 `deskminis/` 子目录（仓库根是 `C:\Users\24739\Downloads\openminis1\`，`OpenMinis/` 是只读参考克隆，永不修改）
+- 所有代码在 `deskminis/` 子目录（仓库根是 `<repo>\`，`OpenMinis/` 是只读参考克隆，永不修改）
 - TypeScript `strict: true`；包管理 npm
 - 时间戳一律 **epoch 秒（浮点）**——本计划内 `createdLocallyAt` / `lastSyncedAt` / `cursor` 均为 epoch 秒；**唯一例外**：PASETO v4.local 的 `exp` / `iat` 是毫秒（M3a 现状，[`remote/paseto.ts`](file:///c:/Users/24739/Downloads/openminis1/deskminis/src/minisd/remote/paseto.ts) 契约），OM 对接时需注意此单位差异
 - 测试命令统一 `npm test`（vitest run，跑在 electron as node 下）；单文件 `npm test -- tests/xxx.test.ts`
@@ -371,7 +371,7 @@ Expected: 既有 12 用例全绿（526 基线不回归）
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/db.ts deskminis/src/shared/types.ts deskminis/src/minisd/store/chat-store.ts deskminis/tests/sync-schema.test.ts && git commit -m "feat(m3b): schema迁移[3]+RawMessage加originDeviceId/createdLocallyAt(526基线不回归)"
+cd "<repo>" && git add deskminis/src/minisd/store/db.ts deskminis/src/shared/types.ts deskminis/src/minisd/store/chat-store.ts deskminis/tests/sync-schema.test.ts && git commit -m "feat(m3b): schema迁移[3]+RawMessage加originDeviceId/createdLocallyAt(526基线不回归)"
 ```
 
 ---
@@ -720,7 +720,7 @@ Expected: 10 passed
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/wire.ts deskminis/tests/sync-wire.test.ts && git commit -m "feat(m3b): 线格式Wire*对齐OM SyncedTypes+CompactMarker双锚换算(§4.4时序)"
+cd "<repo>" && git add deskminis/src/minisd/sync/wire.ts deskminis/tests/sync-wire.test.ts && git commit -m "feat(m3b): 线格式Wire*对齐OM SyncedTypes+CompactMarker双锚换算(§4.4时序)"
 ```
 
 ---
@@ -1107,7 +1107,7 @@ Expected: 17 passed（14 原有 + k 路归并交错场景 + 跨端平局 + 两�
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/merge.ts deskminis/tests/sync-merge.test.ts && git commit -m "feat(m3b): mergeSession算法(三路去重+k路归并+marker LWW+orphan隔离,§4.4时序,评审命门1/2)"
+cd "<repo>" && git add deskminis/src/minisd/sync/merge.ts deskminis/tests/sync-merge.test.ts && git commit -m "feat(m3b): mergeSession算法(三路去重+k路归并+marker LWW+orphan隔离,§4.4时序,评审命门1/2)"
 ```
 
 ---
@@ -1357,7 +1357,7 @@ Expected: 既有 2 用例全绿（M2a 红线锚点不回归）
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/store/chat-store.ts deskminis/tests/sync-chat-store.test.ts && git commit -m "feat(m3b): ChatStore同步写入接口(mergeRemoteSession INSERT OR IGNORE+sortOrder重排+session LWW)"
+cd "<repo>" && git add deskminis/src/minisd/store/chat-store.ts deskminis/tests/sync-chat-store.test.ts && git commit -m "feat(m3b): ChatStore同步写入接口(mergeRemoteSession INSERT OR IGNORE+sortOrder重排+session LWW)"
 ```
 
 ---
@@ -1575,7 +1575,7 @@ Expected: 12 passed
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/rpc.ts deskminis/src/minisd/sync/index.ts deskminis/tests/sync-rpc.test.ts && git commit -m "feat(m3b): sync.* RPC面(push/pull/cursor/list/ack,authMode local+remote可调,pairing拒)"
+cd "<repo>" && git add deskminis/src/minisd/sync/rpc.ts deskminis/src/minisd/sync/index.ts deskminis/tests/sync-rpc.test.ts && git commit -m "feat(m3b): sync.* RPC面(push/pull/cursor/list/ack,authMode local+remote可调,pairing拒)"
 ```
 
 ---
@@ -1878,7 +1878,7 @@ Expected: 三件套（main/preload/renderer）构建通过
 - [x] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/src/minisd/sync/coordinator.ts deskminis/src/minisd/sync/index.ts deskminis/src/minisd/index.ts deskminis/src/cli/sync-cli.mjs deskminis/tests/sync-coordinator.test.ts deskminis/tests/sync-cli.test.ts && git commit -m "feat(m3b): SyncCoordinator服务端被动(pending去抖+sync.dirty广播)+CLI+index.ts装配(PairingService前移)"
+cd "<repo>" && git add deskminis/src/minisd/sync/coordinator.ts deskminis/src/minisd/sync/index.ts deskminis/src/minisd/index.ts deskminis/src/cli/sync-cli.mjs deskminis/tests/sync-coordinator.test.ts deskminis/tests/sync-cli.test.ts && git commit -m "feat(m3b): SyncCoordinator服务端被动(pending去抖+sync.dirty广播)+CLI+index.ts装配(PairingService前移)"
 ```
 
 ---
@@ -2146,7 +2146,7 @@ Expected: 10/10 passed（begin / complete / A 写入 / A pull / openDb 直落 ma
 - [x] **Step 3: Commit**
 
 ```bash
-cd "C:\Users\24739\Downloads\openminis1" && git add deskminis/scripts/e2e-m3b-acceptance.mjs deskminis/package.json && git commit -m "test(m3b): e2e验收驱动(双实例配对互连+openDb直落marker+PASETO远程sync.pull+usedTokens差值=0+id序列逐位一致)"
+cd "<repo>" && git add deskminis/scripts/e2e-m3b-acceptance.mjs deskminis/package.json && git commit -m "test(m3b): e2e验收驱动(双实例配对互连+openDb直落marker+PASETO远程sync.pull+usedTokens差值=0+id序列逐位一致)"
 ```
 
 ---

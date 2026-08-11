@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 所有代码在 `deskminis/` 子目录（仓库根 `C:\Users\24739\Downloads\openminis1\`，`OpenMinis/` 是只读参考克隆，永不修改）；文档在仓库根 `docs/`（MU1 已归一）
+- 所有代码在 `deskminis/` 子目录（仓库根 `<repo>\`，`OpenMinis/` 是只读参考克隆，永不修改）；文档在仓库根 `docs/`（MU1 已归一）
 - TypeScript `strict: true`；包管理 npm；测试命令统一 `npm test`（vitest run，electron as node）；单文件 `npm test -- tests/xxx.test.ts`
 - 提交信息 conventional commits + 中文描述（`feat(mu2a): …` / `test(mu2a): …` / `feat(mu2b): …` / `docs(mu2): …`）
 - 代码基线 = **main@39f495c**（MU1 定稿提交；M3b 已合并 main@119f5f3，**594 测试 / 55 文件**全绿）。本计划测试估算：MU2a 新增约 132 例 → 完成后约 726；MU2b 新增约 62 例（毛计；MU2b T2 改写退役旧断言 7 例，净增以实际为准）→ 完成后约 788（均相对 594 基线）
