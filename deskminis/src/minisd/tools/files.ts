@@ -44,9 +44,14 @@ export const fileReadTool: ToolExecutor = {
     required: ['path', 'tool_title'],
   },
   async execute(input, ctx) {
+    // 已取消（用户点了停止）：文件操作多为一次性动作，abort 后再去读/写会产出没人消费的副作用
+    if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const abs = ctx.paths.resolveGuestPath(ctx.sessionId, String(input.path));
     const denied = await guardRead(abs, ctx, String(input.tool_title));
     if (denied) return { output: denied, success: false };
+    // 权限等待可长达 90 秒；等待期间的取消不会补发 abort 事件（已 abort 的 signal 挂监听不触发），
+    // 必须在闸后重查一次——否则「批准晚于取消」的操作会照常执行
+    if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     if (statSync(abs).size > MAX_READ) return { output: `文件超过 1MB，请用 shell_execute 分页读取: ${abs}`, success: false };
     const content = readFileSync(abs, 'utf8');
     // 技能 use_count 采集点（M2c）：只有真正读成功才计数；钩子里抛错不应弄砸这次读取
@@ -62,9 +67,13 @@ export const fileWriteTool: ToolExecutor = {
     required: ['path', 'content', 'tool_title'],
   },
   async execute(input, ctx) {
+    // 已取消：写入会真落盘，取消后再写只会留下无人消费的脏文件
+    if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const abs = ctx.paths.resolveGuestPath(ctx.sessionId, String(input.path));
     const denied = await guardWrite(abs, ctx, String(input.tool_title));
     if (denied) return { output: denied, success: false };
+    // 同 file_read：权限闸后重查取消（已 abort 的 signal 不补发事件），防「批准晚于取消」仍写盘
+    if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, String(input.content), 'utf8');
     return { output: `已写入 ${abs}`, success: true };
@@ -78,9 +87,13 @@ export const fileEditTool: ToolExecutor = {
     required: ['path', 'old_string', 'tool_title'],
   },
   async execute(input, ctx) {
+    // 已取消：编辑同样会落盘，取消后再改只留下没人消费的脏文件
+    if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const abs = ctx.paths.resolveGuestPath(ctx.sessionId, String(input.path));
     const denied = await guardWrite(abs, ctx, String(input.tool_title));
     if (denied) return { output: denied, success: false };
+    // 同 file_write：权限闸后重查取消，防「批准晚于取消」仍改盘
+    if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const content = readFileSync(abs, 'utf8');
     const oldStr = String(input.old_string);
     const count = content.split(oldStr).length - 1;

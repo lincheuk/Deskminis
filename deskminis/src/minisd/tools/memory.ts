@@ -64,6 +64,8 @@ export const memoryWriteTool: ToolExecutor = {
     required: ['markdown', 'tool_title'],
   },
   async execute(input, ctx) {
+    // 已取消：记忆写入会落盘进日志，取消后再写只留一条无人消费的记录
+    if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const markdown = String(input.markdown ?? '').trim();
     if (!markdown) return { output: '记忆内容不能为空', success: false };
     const date = String(input.date ?? '').trim() || todayDate();
@@ -85,6 +87,8 @@ export const memoryGetTool: ToolExecutor = {
     required: ['query', 'tool_title'],
   },
   async execute(input, ctx) {
+    // 已取消：检索本身无害，但取消后模型已不打算用这个结果，别再做无谓的读盘
+    if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const query = String(input.query ?? '').trim();
     if (!query) return { output: '查询不能为空', success: false };
     const limit = Math.min(Number(input.limit ?? MAX_ENTRIES), MAX_ENTRIES);

@@ -25,6 +25,9 @@ export interface ToolContext {
   sessionId: string; paths: MinisPaths; permissions: PermissionGateway;
   /** file_read 成功读取后的通知钩子（技能 use_count 采集点，M2c）；失败/被拒/超限不触发。 */
   onFileRead?: (absPath: string) => void;
+  /** 会话级取消信号（chat.cancel 的 controller.signal）。工具收到后应立即中止：
+   *  shell 长命令/文件写入不理会它的话，用户点了停止 UI 已空闲而动作还在跑。 */
+  signal?: AbortSignal;
 }
 
 export interface ToolExecutor {

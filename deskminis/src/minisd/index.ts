@@ -436,6 +436,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
             sessionId, provider, tools,
             toolContext: {
               sessionId, paths, permissions: gateway,
+              // 取消信号透传：chat.cancel 只 abort 循环层不够，正在跑的 shell/文件写必须能立即停下
+              signal: controller.signal,
               // use_count 采集点（Task 4 钩子）：仅恰好命中 <skillsRoot>/<id>/SKILL.md 的成功读取计数
               onFileRead: (abs) => {
                 const id = skillIdFromPath(skillsRoot, abs);

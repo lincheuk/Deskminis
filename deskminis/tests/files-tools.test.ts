@@ -148,4 +148,27 @@ describe('文件工具', () => {
     expect(deny.asked).toHaveLength(1);
     expect(deny.asked[0].kind).toBe('file-read');
   });
+  it('已 abort 的 signal → file_write 返回取消结果且未写盘', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const target = join(root, 'sessions', 'S1', 'workspace', 'cancelled.txt');
+    const r = await reg.execute('file_write', JSON.stringify({ path: 'cancelled.txt', content: 'x', tool_title: '写' }), { ...ctx, signal: controller.signal });
+    expect(r.success).toBe(false);
+    expect(r.output).toContain('已取消');
+    expect(existsSync(target)).toBe(false);
+  });
+  it('权限等待期间取消（批准晚于取消）→ 仍返回取消且未写盘', async () => {
+    // 开头的 aborted 检查过闸后，权限询问可挂最长 90 秒；期间用户点停止，之后卡片才被批准。
+    // 已 abort 的 signal 不会补发 abort 事件——若闸后不重查，这次写入会照常落盘。
+    const controller = new AbortController();
+    const lateAllowGateway = {
+      async check(): Promise<PermissionDecision> { controller.abort(); return 'allow'; },
+      hasBridgeGrant: () => false,
+    };
+    const outside = join(mkdtempSync(join(tmpdir(), 'dm-late-')), 'late.txt'); // 工作区外才会触发权限询问
+    const r = await reg.execute('file_write', JSON.stringify({ path: outside, content: 'x', tool_title: '写' }), { ...ctx, permissions: lateAllowGateway, signal: controller.signal });
+    expect(r.success).toBe(false);
+    expect(r.output).toContain('已取消');
+    expect(existsSync(outside)).toBe(false);
+  });
 });

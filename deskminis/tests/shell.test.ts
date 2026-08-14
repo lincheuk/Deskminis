@@ -40,7 +40,9 @@ describe('PersistentShell (真实 powershell)', () => {
     const r = await s.run('Start-Sleep -Seconds 60', 1500);
     expect(r.exitCode).toBe(124);
     const r2 = await s.run('Write-Output ok');
-    expect(r2.output.trim()).toBe('ok');
+    // 超时杀掉的是整个常驻驱动，会话积累的 cd/环境变量随之丢失：
+    // 重建后的下一条命令必须带重启提示，否则模型还误以为状态跨命令持久（本次修复核心）
+    expect(r2.output.trim()).toBe('[提示：shell 已重启，工作目录与环境变量已复位到初始状态]\nok');
   }, 20000);
   it('spawn 失败被兜住: 返回工具错误而不是杀死进程', async () => {
     const bad = mk('C:\\definitely-not-a-real-dir-xyz\\workspace');
@@ -74,6 +76,27 @@ describe('PersistentShell (真实 powershell)', () => {
     expect(after.exitCode).toBe(130);
     expect(after.output).toContain('已释放');
   }, 20000);
+  it('interrupt 后当前命令以非零码 resolve 不悬挂', async () => {
+    const mgr = new ShellManager();
+    const p = mgr.run('S1', tmpdir(), 'Start-Sleep -Seconds 60', 30000);
+    // 等驱动把命令真正发出去（进入睡眠）再杀，避免打断的是启动阶段
+    await new Promise(r => setTimeout(r, 800));
+    mgr.interrupt('S1'); // 会话级中断：杀进程但不释放会话，下一条命令自动重建
+    const r = await p; // 必须 resolve，不能悬挂
+    expect(r.exitCode).not.toBe(0);
+    mgr.disposeAll();
+  }, 15000);
+  it('interrupt 后重建的 shell 下一条命令输出头部含重启提示', async () => {
+    const s = mk();
+    const p = s.run('Start-Sleep -Seconds 60', 30000);
+    await new Promise(r => setTimeout(r, 800));
+    s.interrupt();
+    await p;
+    const r2 = await s.run('Write-Output ok');
+    // 状态丢失必须让模型知道：cd/环境变量已复位到初始，否则模型带着错误假设继续
+    expect(r2.output.trim()).toMatch(/^\[提示：shell 已重启，工作目录与环境变量已复位到初始状态\]/);
+    expect(r2.output).toContain('ok');
+  }, 15000);
 });
 
 describe('shell_execute 工具', () => {
@@ -87,6 +110,22 @@ describe('shell_execute 工具', () => {
     const r = await tool.execute({ command: 'Write-Output x', tool_title: '测试' }, { sessionId: 'S1', paths, permissions: gateway });
     expect(r.success).toBe(false);
     expect(asked[0]).toMatchObject({ kind: 'shell', detail: 'Write-Output x' });
+    mgr.disposeAll();
+  });
+
+  it('权限等待期间取消（批准晚于取消）→ 返回取消且命令根本不启动', async () => {
+    // 开头 aborted 检查过闸后，权限询问可挂 90 秒；期间点停止、之后卡片才批准。
+    // 已 abort 的 signal 挂 abort 监听不会触发（事件不补发）——闸后必须重查，
+    // 否则命令会原样跑完（重查生效的证据：本用例从头到尾没有 PowerShell 被拉起，瞬时完成）。
+    const controller = new AbortController();
+    const lateAllow = { async check(): Promise<PermissionDecision> { controller.abort(); return 'allow'; }, hasBridgeGrant: () => false };
+    const root = mkdtempSync(join(tmpdir(), 'dm-sh-late-'));
+    const paths = new MinisPaths(root); paths.ensureSessionDirs('S1');
+    const mgr = new ShellManager();
+    const tool = makeShellTool(mgr);
+    const r = await tool.execute({ command: 'Write-Output leaked', tool_title: '测试' }, { sessionId: 'S1', paths, permissions: lateAllow, signal: controller.signal });
+    expect(r.success).toBe(false);
+    expect(r.output).toContain('已取消');
     mgr.disposeAll();
   });
 

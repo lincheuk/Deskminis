@@ -4,6 +4,10 @@ import type { ToolContext, ToolExecutor } from './types';
 
 const MAX_OUTPUT = 100 * 1024;
 
+/** 超时/取消杀掉常驻驱动后，下一条命令必须带上这句——cd/环境变量已复位，
+ *  模型若还按「跨命令持久」的假设继续，会拿着旧状态做错事。 */
+const RESET_HINT = '[提示：shell 已重启，工作目录与环境变量已复位到初始状态]';
+
 const DRIVER_PS = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 while ($true) {
@@ -25,6 +29,9 @@ export class PersistentShell {
   private proc: ChildProcessWithoutNullStreams | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   private disposed = false;
+  /** 上一轮超时/取消把驱动杀掉了，进程内积累的 cd/env 已丢；下一条命令开头要提示模型。
+   *  与 disposed 正交：会话仍是活跃的，只是 shell 状态被复位。 */
+  private wasReset = false;
 
   /** env：会话级环境变量（MINIS_CHAT_SESSION_ID/桥管道等），在 shell 首次创建时捕获——长驻进程出生后无法改环境。 */
   constructor(private cwd: string, private env?: Record<string, string>) {}
@@ -60,6 +67,9 @@ export class PersistentShell {
   private runNow(command: string, timeoutMs: number): Promise<{ output: string; exitCode: number; durationMs: number }> {
     // dispose() 后队列里剩余（或之后新来）的调用不得再 ensure()，否则会复活一个无人跟踪的孤儿进程。
     if (this.disposed) return Promise.resolve({ output: '[shell 已释放]', exitCode: 130, durationMs: 0 });
+    // 上一轮把驱动杀了：本条命令跑在重建后的新进程上，cd/env 已复位，必须让模型知道
+    const resetNote = this.wasReset ? RESET_HINT + '\n' : '';
+    this.wasReset = false; // 只提示一次：紧接着的这条命令
     const proc = this.ensure();
     const marker = randomUUID().slice(0, 8);
     const sentinel = new RegExp(`__MINIS_DONE_${marker}_EXIT_(-?\\d+)__`);
@@ -71,7 +81,7 @@ export class PersistentShell {
         const m = out.match(sentinel);
         if (m) {
           cleanup();
-          const output = out.slice(0, out.indexOf(m[0])).replace(/\r\n/g, '\n').trimEnd();
+          const output = resetNote + out.slice(0, out.indexOf(m[0])).replace(/\r\n/g, '\n').trimEnd();
           resolve({ output, exitCode: Number(m[1]), durationMs: Date.now() - started });
         }
       };
@@ -86,7 +96,7 @@ export class PersistentShell {
       };
       const timer = setTimeout(() => {
         cleanup();
-        proc.kill('SIGKILL'); // 死壳，下次 ensure() 重建
+        this.interrupt(); // 杀掉整个常驻驱动（cd/env 会丢），并标记 wasReset 供下条命令提示
         resolve({ output: out.replace(/\r\n/g, '\n') + '\n[命令超时被终止]', exitCode: 124, durationMs: Date.now() - started });
       }, timeoutMs);
       const cleanup = () => {
@@ -108,6 +118,15 @@ export class PersistentShell {
     });
   }
 
+  /** 取消/超时导致的进程中断：杀当前驱动但不释放会话（disposed 保持 false），
+   *  下次 ensure() 重建；同时标记 wasReset，让下一条命令开头向模型说明状态已复位。
+   *  与 dispose() 的语义差异正是关键：dispose 是会话不再需要 shell，interrupt 是状态丢了但会话还活着。 */
+  interrupt(): void {
+    this.proc?.kill('SIGKILL');
+    this.proc = undefined; // 让下次 ensure() 重建，而不是复用已死的进程
+    this.wasReset = true;
+  }
+
   dispose(): void { this.disposed = true; this.proc?.kill('SIGKILL'); this.proc = undefined; }
 }
 
@@ -122,6 +141,11 @@ export class ShellManager {
 
   run(sessionId: string, cwd: string, command: string, timeoutMs?: number, env?: Record<string, string>): Promise<{ output: string; exitCode: number; durationMs: number }> {
     return this.getShell(sessionId, cwd, env).run(command, timeoutMs);
+  }
+
+  /** 会话级中断（取消时由 shell 工具的 abort 监听触发）：杀该会话当前驱动，下条命令自动重建。 */
+  interrupt(sessionId: string): void {
+    this.shells.get(sessionId)?.interrupt();
   }
 
   disposeAll(): void { for (const s of this.shells.values()) s.dispose(); this.shells.clear(); }
@@ -142,15 +166,29 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       required: ['command', 'tool_title'],
     },
     async execute(input, ctx) {
+      // 已取消（用户点了停止）：立即收场，不再发起权限询问、不再启动命令
+      if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
       const command = String(input.command);
       const decision = await ctx.permissions.check({ kind: 'shell', detail: command, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) });
       if (decision === 'deny') return { output: '命令被用户拒绝（可在设置-权限中调整）', success: false };
+      // 权限等待可长达 90 秒；等待期间点了停止的话，已 abort 的 signal 之后挂监听不会再触发
+      // （abort 事件不补发）——必须在闸后重查一次，否则「批准晚于取消」的命令会原样跑完。
+      if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
       const cwd = ctx.paths.workspaceOf(ctx.sessionId);
       const timeoutMs = (typeof input.timeout_seconds === 'number' ? input.timeout_seconds : 120) * 1000;
-      const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx));
-      let output = r.output;
-      if (output.length > MAX_OUTPUT) output = output.slice(0, MAX_OUTPUT) + `\n[输出超过 100KB 被截断]`;
-      return { output: `${output}\n[exit=${r.exitCode}, ${r.durationMs}ms]`, success: r.exitCode === 0 };
+      // 执行期间监听取消：abort → 杀当前命令所在驱动。杀掉后会话积累的 cd/env 会丢，
+      // 由 PersistentShell.wasReset 在下条命令开头给模型补说明。
+      const onAbort = () => manager.interrupt(ctx.sessionId);
+      ctx.signal?.addEventListener('abort', onAbort);
+      try {
+        const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx));
+        let output = r.output;
+        if (output.length > MAX_OUTPUT) output = output.slice(0, MAX_OUTPUT) + `\n[输出超过 100KB 被截断]`;
+        return { output: `${output}\n[exit=${r.exitCode}, ${r.durationMs}ms]`, success: r.exitCode === 0 };
+      } finally {
+        // 清理监听器：signal 是会话级长生命周期对象，不摘会随每次工具调用累积
+        ctx.signal?.removeEventListener('abort', onAbort);
+      }
     },
   };
 }

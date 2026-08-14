@@ -314,6 +314,8 @@ export const useChat = defineStore('chat', {
       // M2d · #10：四种未消费事件（M2b 降级 / M2a 压缩 / M2a 卸载 / retry）——retry 分支已有，仅补其余三种并在任务面板挂状态。
       // 字段严格对齐 loop.ts 的 LoopEvent 联合类型，禁止用 ?? 0 / ?? '' 静默兜底掩盖缺失。
       else if (e.kind === 'fallback') {
+        // 循环会切到备选模型重播，已缓冲的半截正文是过期的（不清就会和重播后的正文拼在一起）
+        this.streamingText = '';
         // loop.ts L19: { kind: 'fallback'; from: string; to: string; reason: string }
         this.fallbackState = { from: String(e.from), to: String(e.to), reason: String(e.reason) };
         this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'fallback', ts: Date.now(), detail: `${String(e.from)} → ${String(e.to)}（${String(e.reason)}）` }];
