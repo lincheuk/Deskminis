@@ -30,7 +30,11 @@ export interface SystemPromptCtx { modelId: string; sessionId: string }
 export interface RunOptions {
   sessionId: string; provider: AgentProvider; tools: ToolRegistry; toolContext: ToolContext;
   /** 系统提示——传 string 时每轮原样用（向后兼容）；传工厂函数时每轮用当前 activeSlot.provider.modelId 调工厂（降级/桥授权当轮生效）。 */
-  systemPrompt: string | ((ctx: SystemPromptCtx) => string); maxTokens?: number; thinkingLevel?: ThinkingLevel; maxTurns?: number;
+  systemPrompt: string | ((ctx: SystemPromptCtx) => string);
+  /** 输出上限——传 number 时全程固定（向后兼容）；传工厂函数时每次 slot 切换按当前 modelId 重算。
+   *  必须随 slot 重算的原因：主模型 64K 上限、备胎是只认 16K 的兼容端点时，固定值会让降级请求
+   *  连环 400 烧穿整条链（与 systemPrompt 工厂同款问题、同款解法）。 */
+  maxTokens?: number | ((ctx: { modelId: string }) => number); thinkingLevel?: ThinkingLevel; maxTurns?: number;
   signal?: AbortSignal; retryDelaysMs?: number[];
   fallbackChain?: ProviderSlot[];
   contextPolicy?: ContextPolicy;       // 上下文水位分层决策（Task 4）
@@ -154,7 +158,9 @@ function safeToolInput(input: string): string {
 export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGenerator<LoopEvent> {
   const maxTurns = opts.maxTurns ?? 200;
   const retryLadder = opts.retryDelaysMs ?? DEFAULT_RETRY;
-  const maxTokens = opts.maxTokens ?? 4096;
+  /** 按当前 slot 的 modelId 解析输出上限：number 原样（向后兼容），工厂按 modelId 求值。 */
+  const resolveMaxTokens = (modelId: string): number =>
+    typeof opts.maxTokens === 'function' ? opts.maxTokens({ modelId }) : (opts.maxTokens ?? 4096);
   const thinkingLevel: ThinkingLevel = opts.thinkingLevel ?? 'off';
   const clock = new MonotonicClock(store);
   const fallbackChain = opts.fallbackChain ?? [];
@@ -223,9 +229,10 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     const req: StreamRequest = {
       // 发送前在 provider 边界配对 tool_use/tool_result（修中断后会话永久损坏），不改存储
       messages: pairToolResults(effectiveHistory),
-      // systemPrompt 占位——下方 while 循环内按当前 activeSlot 重算（降级切换后当轮生效）
+      // systemPrompt/maxTokens 占位——下方 while 循环内按当前 activeSlot 重算（降级切换后当轮生效）
       systemPrompt: '',
-      tools: toolDefs, maxTokens, thinkingLevel,
+      maxTokens: 0,
+      tools: toolDefs, thinkingLevel,
     };
     // 上一轮 maxTokens 截断：在请求侧 messages 末尾追加合成 user 提示，让模型从截断处继续。
     // 只出现在请求里、绝不落库——与 pairToolResults 同属请求构建边界，raw history 保持不动。
@@ -250,6 +257,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
       req.systemPrompt = typeof opts.systemPrompt === 'function'
         ? opts.systemPrompt({ modelId: currentProvider.modelId, sessionId: opts.sessionId })
         : opts.systemPrompt;
+      // maxTokens 同款按 slot 重算：降级到小输出上限的端点时，沿用主模型的大值会被对方 400 拒收，
+      // 降级链会因此连环失败（「所有模型均不可用」的假象）。thinking 预算随 req.maxTokens 自然回正。
+      req.maxTokens = resolveMaxTokens(currentProvider.modelId);
 
       // 透明重试：仅对 retryable 错误（M1 逻辑不变）
       let attemptSucceeded = false;

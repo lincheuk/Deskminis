@@ -446,7 +446,9 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
             // maxTokens 取模型目录的输出上限（手动 > models.dev > BUILTIN），目录无数据时兜底 8192。
             // 兜底不选更大：部分 OpenAI 兼容端点对超大 max_tokens 直接 400，宁低勿高（比 M1 固定 4096 宽裕，
             // 又不会因超限被拒——长文截断由 loop 的 maxTokens 自动续写兜底，见 agent/loop.ts CONTINUE_HINT）。
-            maxTokens: catalog.getModelMaxOutput(provider.modelId) ?? 8192,
+            // 工厂而非定值：降级切换 slot 后按新 modelId 重算——主模型 64K、备胎端点只认 16K 时，
+            // 定值会让降级请求连环 400 烧穿整条链（与 systemPrompt 工厂同因同解）。
+            maxTokens: ({ modelId }) => catalog.getModelMaxOutput(modelId) ?? 8192,
             signal: controller.signal,
             fallbackChain,
             contextPolicy, compactEngine, offloadEngine, excludedToolNames,

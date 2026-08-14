@@ -28,7 +28,9 @@ class ScriptedProvider implements AgentProvider {
   constructor(private scripts: Script[], private onCall?: (n: number) => void) {}
   async *streamAgentMessage(req: StreamRequest): AsyncIterable<AgentStreamEvent> {
     const n = this.calls++;
-    this.seen.push(req);
+    // 浅拷贝快照：loop 在 slot 间复用同一个 req 对象并就地改写 systemPrompt/maxTokens，
+    // 存引用的话，后续 slot 的改写会污染先前 slot 的快照（标量字段断言会看到最后一次的值）
+    this.seen.push({ ...req });
     this.onCall?.(n);
     const s = this.scripts[n];
     if (s instanceof ProviderError) throw s;
@@ -338,6 +340,34 @@ describe('runAgentLoop', () => {
     expect(hasContinuationHint(provider.seen[2])).toBe(true);
     // 达到续写上限后正常 turnEnd（stopReason 仍为 maxTokens）
     expect(events.at(-1)).toEqual({ kind: 'turnEnd', stopReason: 'maxTokens' });
+  });
+
+  // ── maxTokens 按 slot 重算（A4b）──
+
+  it('maxTokens 传定值：请求原样携带（向后兼容）', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([[ { kind: 'textDelta', text: 'ok' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', maxTokens: 1234 }));
+    expect(provider.seen[0].maxTokens).toBe(1234);
+  });
+
+  it('maxTokens 传工厂：降级切换 slot 后按新 modelId 重算', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const main = new ScriptedProvider([ new ProviderError('限流', { status: 429 }) ]);
+    const backup = new ScriptedProvider([[ { kind: 'textDelta', text: 'ok' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    // ScriptedProvider 的 modelId 固定 'fake'：测试里用 defineProperty 区分主/备模型名
+    Object.defineProperty(main, 'modelId', { value: 'big-model' });
+    Object.defineProperty(backup, 'modelId', { value: 'small-model' });
+    await collect(runAgentLoop(store, {
+      sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
+      // 主模型大输出上限、备胎小上限——降级后请求必须换用备胎的值，否则会被小端点 400 拒收
+      maxTokens: ({ modelId }) => (modelId === 'big-model' ? 64000 : 8192),
+      fallbackChain: [{ provider: backup, label: 'backup-1' }],
+    }));
+    expect(main.seen[0].maxTokens).toBe(64000);
+    expect(backup.seen[0].maxTokens).toBe(8192);
   });
 
   // ── M2b 降级链 ──

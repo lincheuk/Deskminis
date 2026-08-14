@@ -181,9 +181,14 @@ describe('minisd JSON-RPC', () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     const s = (await c.call('chat.sessions.create', {})).result;
-    const first = await c.call('chat.prompt', { sessionId: s.id, text: '第一条', providerId: '__fake__' });
+    // 两条背靠背发出、不等首个响应：此前「await 第一条再发第二条」之间隔一个 WS 往返，
+    // 机器高负载时该间隙可超过假 provider 的 30ms 回合时长——第一轮先跑完、锁已释放，
+    // 第二条就不再被拒（本用例曾因此偶发失败）。管道化后两帧在服务端相邻宏任务里处理，
+    // inFlight 占位在 chat.prompt 处理器内同步完成，间隙缩到亚毫秒级。
+    const firstP = c.call('chat.prompt', { sessionId: s.id, text: '第一条', providerId: '__fake__' });
+    const secondP = c.call('chat.prompt', { sessionId: s.id, text: '第二条', providerId: '__fake__' });
+    const [first, second] = await Promise.all([firstP, secondP]);
     expect(first.result).toEqual({ ok: true });
-    const second = await c.call('chat.prompt', { sessionId: s.id, text: '第二条', providerId: '__fake__' });
     expect(second.error).toBeTruthy();
     expect(second.error.message).toContain('运行中');
     await new Promise(r => setTimeout(r, 300)); // 等第一轮跑完，锁释放
