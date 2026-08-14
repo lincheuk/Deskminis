@@ -171,4 +171,54 @@ describe('文件工具', () => {
     expect(r.output).toContain('已取消');
     expect(existsSync(outside)).toBe(false);
   });
+
+  // 审批前变更预览：file_write/file_edit 触发权限门时 check 请求带 preview，
+  // 权限卡据此渲染差分（把 ToolLine 执行后的 diff 能力前移到批准时刻，写文件不再盲批）。
+  describe('权限卡变更预览', () => {
+    it('file_write 工作区外：preview.oldText 是原文件内容, newText 是待写内容', async () => {
+      const deny = new DenyAllGateway();
+      const outside = join(mkdtempSync(join(tmpdir(), 'dm-preview-')), 'exist.txt');
+      writeFileSync(outside, 'OLD-BODY');
+      const r = await reg.execute('file_write', JSON.stringify({ path: outside, content: 'NEW-BODY', tool_title: '写' }), { ...ctx, permissions: deny });
+      expect(r.success).toBe(false);
+      expect(deny.asked[0].preview).toEqual({ oldText: 'OLD-BODY', newText: 'NEW-BODY' });
+    });
+    it('file_write 目标文件不存在：oldText 为空串（新建文件场景显示全新增）', async () => {
+      const deny = new DenyAllGateway();
+      const outside = join(mkdtempSync(join(tmpdir(), 'dm-preview-')), 'fresh.txt');
+      const r = await reg.execute('file_write', JSON.stringify({ path: outside, content: 'BODY', tool_title: '写' }), { ...ctx, permissions: deny });
+      expect(r.success).toBe(false);
+      expect(deny.asked[0].preview).toEqual({ oldText: '', newText: 'BODY' });
+    });
+    it('超长内容：oldText/newText 各截断到 20000 字符并尾标「…[截断]」', async () => {
+      const deny = new DenyAllGateway();
+      const outside = join(mkdtempSync(join(tmpdir(), 'dm-preview-')), 'big.txt');
+      const oldBig = 'A'.repeat(20001);
+      const newBig = 'B'.repeat(25000);
+      writeFileSync(outside, oldBig);
+      const r = await reg.execute('file_write', JSON.stringify({ path: outside, content: newBig, tool_title: '写' }), { ...ctx, permissions: deny });
+      expect(r.success).toBe(false);
+      const p = deny.asked[0].preview!;
+      expect(p.oldText.length).toBe(20000 + '…[截断]'.length);
+      expect(p.oldText.endsWith('…[截断]')).toBe(true);
+      expect(p.oldText.slice(0, 20000)).toBe('A'.repeat(20000));
+      expect(p.newText.length).toBe(20000 + '…[截断]'.length);
+      expect(p.newText.endsWith('…[截断]')).toBe(true);
+      expect(p.newText.slice(0, 20000)).toBe('B'.repeat(20000));
+    });
+    it('file_edit 工作区外：preview 直接取 old_string/new_string（编辑差分本身就是预览正文）', async () => {
+      const deny = new DenyAllGateway();
+      const outside = join(mkdtempSync(join(tmpdir(), 'dm-preview-')), 'edit.txt');
+      writeFileSync(outside, 'aa bb aa');
+      const r = await reg.execute('file_edit', JSON.stringify({ path: outside, old_string: 'bb', new_string: 'cc', tool_title: '改' }), { ...ctx, permissions: deny });
+      expect(r.success).toBe(false);
+      expect(deny.asked[0].preview).toEqual({ oldText: 'bb', newText: 'cc' });
+    });
+    it('工作区内写入不触发权限门, 也就不构造 preview（readFileSync 不白读）', async () => {
+      const deny = new DenyAllGateway();
+      const r = await reg.execute('file_write', JSON.stringify({ path: 'inside.txt', content: 'x', tool_title: '写' }), { ...ctx, permissions: deny });
+      expect(r.success).toBe(true);
+      expect(deny.asked).toEqual([]);
+    });
+  });
 });

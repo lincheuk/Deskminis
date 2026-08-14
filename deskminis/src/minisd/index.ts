@@ -263,8 +263,11 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     }, permTimeoutMs);
     timer.unref?.();
     pendingPerms.set(requestId, { resolve, timer, req, bridgeTriggers });
+    // 广播带 preview 全文（权限卡渲染差分的唯一数据源）；审计则剔除全文只记 hasPreview 布尔——
+    // preview 单条最多 2×20000 字符，写文件类请求频繁时审计库会膨胀成文件内容副本，违背审计只记元数据的定位
     rpc.broadcast('permission.request', { requestId, req, meta });
-    audit.append('permission.request', { requestId, req, meta }, { sessionId: req.sessionId });
+    const { preview, ...reqNoPreview } = req;
+    audit.append('permission.request', { requestId, req: reqNoPreview, hasPreview: preview !== undefined, meta }, { sessionId: req.sessionId });
   });
   const gateway = new PermissionGatewayImpl(prompt, undefined, permTimeoutMs);
   // 权限档位持久化（permission.preset）：启动读回并应用，否则用户上次选的「完全访问」重启后就失效。

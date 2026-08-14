@@ -13,7 +13,12 @@ export type BridgePermissionKind =
   | 'bridge-screenshot'
   | 'bridge-device';
 
-export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string }
+/** 审批前变更预览（仅 file-write 类请求携带）：把 ToolLine 执行后的 diff 能力前移到批准时刻，
+ *  写文件不再是盲批。可选字段：shell/桥类请求的信息已由 detail 完整表达，不构造 preview。
+ *  注意：preview 只进权限卡广播，不进审计落盘（审计只记有无布尔，见 minisd/index.ts）。 */
+export interface PermPreview { oldText: string; newText: string }
+
+export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview }
 export type PermissionDecision = 'allow' | 'deny';
 export interface PermissionGateway {
   check(req: PermissionRequest): Promise<PermissionDecision>;

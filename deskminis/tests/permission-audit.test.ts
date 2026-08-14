@@ -111,6 +111,34 @@ describe('M6 Task 3：权限决议落库', () => {
     c.close();
   }, 30000);
 
+  it('permission.request 审计剔除 preview 全文（只记 hasPreview 布尔）', async () => {
+    const { port, authToken, dataDir } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    const outside = join(mkdtempSync(join(tmpdir(), 'dm-perm-audit-')), 'pv.txt');
+    // 正文打独特标记：若 preview 全文泄入审计落盘，此断言即失败
+    const marker = 'PREVIEW-SECRET-BODY-9f2e';
+    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('file_write', { path: outside, content: marker, tool_title: '写' }) });
+    await waitFor('permission.request', () => c.notifications.some(n => n.method === 'permission.request'));
+    // 广播侧要带全文（权限卡渲染差分的唯一数据源）
+    const broadcast = c.notifications.find(n => n.method === 'permission.request')!;
+    expect(broadcast.params.req.preview).toEqual({ oldText: '', newText: marker });
+    const requestId = broadcast.params.requestId;
+    await c.call('permission.respond', { requestId, decision: 'deny' });
+    await waitFor('permission.resolved(answered)', () => c.notifications.some(n => n.method === 'permission.resolved' && n.params.requestId === requestId));
+    await new Promise(r => setTimeout(r, 200));
+
+    const rows = readAudit(dataDir);
+    const reqRow = rows.find(r => r.eventType === 'permission.request');
+    expect(reqRow).toBeTruthy();
+    // 审计不落 preview 全文：文件内容副本会让审计库膨胀（单条最多 2×20000 字符）
+    expect(reqRow!.payloadJson).not.toContain(marker);
+    const reqPayload = JSON.parse(reqRow!.payloadJson);
+    expect(reqPayload.req.preview).toBeUndefined();
+    expect(reqPayload.hasPreview).toBe(true);
+    c.close();
+  }, 30000);
+
   it('audit.list RPC：可查、过滤生效、payload 防御性再脱敏', async () => {
     const { port, authToken, dataDir } = await boot();
     const c = rpcClient(port, authToken); await c.ready;

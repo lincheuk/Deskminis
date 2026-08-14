@@ -6,7 +6,7 @@ let localSeq = 0;
 let _syncDirtyTimer: ReturnType<typeof setTimeout> | undefined;
 
 interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number }; originDeviceId?: string; reasoningContent?: string }
-interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number }
+interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string } }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
@@ -106,6 +106,8 @@ export const useChat = defineStore('chat', {
       rpc.on('permission.request', ({ requestId, req, meta }: any) => this.pendingPerms.push({
         requestId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle,
         timeoutMs: meta?.timeoutMs, riskClass: meta?.riskClass, bridgeTriggers: meta?.bridgeTriggers,
+        // 审批前变更预览（file_write/file_edit 才有）：权限卡据此渲染差分，写文件不再盲批
+        preview: req.preview,
         deadlineMs: typeof meta?.timeoutMs === 'number' ? Date.now() + meta.timeoutMs : undefined,
       }));
       // 询问超时（90s）或别的窗口已答复时 minisd 广播 resolved：不摘掉卡片就会永远挂在界面上。

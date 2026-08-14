@@ -123,3 +123,24 @@ describe('MU2a Task 10 chat.ts 守卫', () => {
     expect(beforeTimeoutCheck).not.toContain('已超时'); // timeout 判定前的摘卡段无留条文案
   });
 });
+
+// 审批前变更预览：file_write/file_edit 权限卡带 preview 时在路径行下方渲染差分区
+// （复用 ToolLine 同款 DiffView + diffLines/countAddDel），写文件审批不再是盲批。
+describe('变更预览（审批前差分）守卫', () => {
+  it('PermissionCard：perm.preview 存在时渲染 DiffView（diffLines/countAddDel 驱动 +N/−N）', () => {
+    expect(permCard).toContain('perm.preview');
+    expect(permCard).toContain('DiffView');
+    expect(permCard).toContain('diffLines(');
+    expect(permCard).toContain('countAddDel(');
+    // 差分区在模板里位于路径行（.args）之后（脚本段 props.perm.preview 不算，只看 <template> 内）
+    const tpl = permCard.split('<template>')[1] ?? '';
+    const argsIdx = tpl.indexOf('class="args"');
+    const previewIdx = tpl.indexOf('perm.preview');
+    expect(argsIdx).toBeGreaterThan(-1);
+    expect(previewIdx).toBeGreaterThan(argsIdx);
+  });
+  it('chat.ts：PendingPerm 透传 preview（req.preview → push 字段）', () => {
+    expect(chatTs).toContain('preview?: { oldText: string; newText: string }');
+    expect(chatTs).toContain('preview: req.preview');
+  });
+});

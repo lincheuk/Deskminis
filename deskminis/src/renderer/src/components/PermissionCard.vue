@@ -6,10 +6,12 @@
 import { computed, onUnmounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import Icon from './Icon.vue';
+import DiffView from './DiffView.vue';
 import { permTitle, permTriggerLabel } from '../lib/perm/copy';
 import { remainSeconds, countdownTone } from '../lib/perm/countdown';
+import { diffLines, countAddDel } from '../lib/diff/lcs';
 
-const props = defineProps<{ perm: { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number } }>();
+const props = defineProps<{ perm: { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string } } }>();
 const chat = useChat();
 
 const title = computed(() => permTitle(props.perm.kind));
@@ -29,6 +31,11 @@ const tone = computed(() => countdownTone(remain.value));
 const preselect = computed<'allow-once' | 'allow-session'>(() =>
   chat.permTier === 'ask' ? 'allow-once' : 'allow-session',
 );
+
+// 审批前变更预览：与 ToolLine 的 file_edit 展开区同款管线（diffLines/countAddDel/DiffView），
+// 把执行后才能看到的差分前移到批准时刻——路径行上方已逐字显示路径，差分头不再重复放 path
+const previewLines = computed(() => (props.perm.preview ? diffLines(props.perm.preview.oldText, props.perm.preview.newText) : []));
+const previewCounts = computed(() => countAddDel(previewLines.value));
 </script>
 
 <template>
@@ -45,6 +52,8 @@ const preselect = computed<'allow-once' | 'allow-session'>(() =>
       <div class="k">{{ keyLabel }}</div>
       <div class="v">{{ perm.detail }}</div>
     </div>
+    <!-- 变更预览（仅 file_write/file_edit 请求带 preview）：批准前可见将要写什么，差分体沿 DiffView 的 240px 内滚 -->
+    <DiffView v-if="perm.preview" :path="''" :add-count="previewCounts.add" :del-count="previewCounts.del" :lines="previewLines" />
     <!-- 双段告知（审计 H3）：shell 卡识别到桥命令时列出将触发的桥权限，一次批准同时放行 shell 与桥类目 -->
     <div v-if="perm.bridgeTriggers?.length" class="triggers">
       <div class="tk">此命令将触发：</div>

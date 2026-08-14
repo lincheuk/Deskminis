@@ -1,8 +1,16 @@
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
-import type { ToolExecutor } from './types';
+import type { PermPreview, ToolExecutor } from './types';
 
 const MAX_READ = 1024 * 1024; // 1MB
+
+/** 权限预览体积防线：preview 随 permission.request 广播给前端，超长文件的全文差分没人看得完
+ *  还会撑大广播与权限卡内存，统一截到上限并尾标「…[截断]」——用户能看出被截，差分统计以截断后文本为准。 */
+const PREVIEW_MAX_CHARS = 20000;
+function previewClamp(text: string): string {
+  if (text.length <= PREVIEW_MAX_CHARS) return text;
+  return text.slice(0, PREVIEW_MAX_CHARS) + '…[截断]';
+}
 
 const TOOL_TITLE = { type: 'string' as const, description: '这次调用的 5-10 字用户语言摘要' };
 
@@ -12,10 +20,12 @@ function isInsideRoot(absPath: string, root: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !/^[A-Za-z]:/.test(rel));
 }
 
-/** 数据根之外的绝对宿主路径写入需过权限网关。 */
-async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string): Promise<string | undefined> {
+/** 数据根之外的绝对宿主路径写入需过权限网关。
+ *  buildPreview 惰性构造：工作区内的写入（绝大多数）根本不过网关，提前读原文件构造差分纯属白读；
+ *  只在确认要弹权限卡时才求值。 */
+async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string, buildPreview?: () => PermPreview): Promise<string | undefined> {
   if (!isInsideRoot(absPath, ctx.paths.root) && !isInsideRoot(absPath, ctx.paths.workspaceOf(ctx.sessionId))) {
-    const d = await ctx.permissions.check({ kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle });
+    const d = await ctx.permissions.check({ kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle, preview: buildPreview?.() });
     if (d === 'deny') return `写入被用户拒绝: ${absPath}（可在设置-权限中调整）`;
   }
   return undefined;
@@ -70,7 +80,13 @@ export const fileWriteTool: ToolExecutor = {
     // 已取消：写入会真落盘，取消后再写只会留下无人消费的脏文件
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const abs = ctx.paths.resolveGuestPath(ctx.sessionId, String(input.path));
-    const denied = await guardWrite(abs, ctx, String(input.tool_title));
+    // 审批前预览：把现有内容 vs 待写内容的差分随权限请求带给权限卡（用户批准前能看到将要写什么）。
+    // 读取失败（不存在/权限/编码错）一律按空串——预览失败不能反过来阻塞审批，门本身只依赖路径判定。
+    const denied = await guardWrite(abs, ctx, String(input.tool_title), () => {
+      let oldText = '';
+      try { oldText = readFileSync(abs, 'utf8'); } catch { /* 读不到按新建文件：差分显示全新增 */ }
+      return { oldText: previewClamp(oldText), newText: previewClamp(String(input.content)) };
+    });
     if (denied) return { output: denied, success: false };
     // 同 file_read：权限闸后重查取消（已 abort 的 signal 不补发事件），防「批准晚于取消」仍写盘
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
@@ -90,7 +106,11 @@ export const fileEditTool: ToolExecutor = {
     // 已取消：编辑同样会落盘，取消后再改只留下没人消费的脏文件
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const abs = ctx.paths.resolveGuestPath(ctx.sessionId, String(input.path));
-    const denied = await guardWrite(abs, ctx, String(input.tool_title));
+    // 编辑的差分正文就是 old_string/new_string 本身，无需回读文件
+    const denied = await guardWrite(abs, ctx, String(input.tool_title), () => ({
+      oldText: previewClamp(String(input.old_string)),
+      newText: previewClamp(String(input.new_string ?? '')),
+    }));
     if (denied) return { output: denied, success: false };
     // 同 file_write：权限闸后重查取消，防「批准晚于取消」仍改盘
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
