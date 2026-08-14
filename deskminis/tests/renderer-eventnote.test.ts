@@ -57,6 +57,12 @@ describe('MU2a Task 8 eventCopy/humanizeError（6 例）', () => {
     // 多行/多空白折叠成单行
     expect(humanizeError('line1\n\n  line2')).toBe('line1 line2');
   });
+
+  it('pruned：info 语调 + 修剪短句（修剪事件是「零成本减压」提示，不打扰）', () => {
+    const c = eventCopy('pruned', '已修剪 2 条历史工具结果');
+    expect(c.tone).toBe('info');
+    expect(c.short).toContain('修剪');
+  });
 });
 
 describe('MU2a Task 8 守卫（4 例）', () => {
@@ -106,5 +112,10 @@ describe('MU2a Task 8 守卫（4 例）', () => {
     expect(chatTs).toMatch(/async send\(text: string\)[\s\S]*?this\.lastError = ''[\s\S]*?this\.eventNotes = \[\]/);
     // open 换会话清零仍含 lastError/retryNote
     expect(chatTs).toMatch(/if \(id !== this\.activeId\) \{[\s\S]*?this\.lastError = ''; this\.retryNote = ''/);
+  });
+
+  it('chat.ts：pruned 事件 → eventNotes 提示「已修剪 N 条历史工具结果」（守卫修剪接线）', () => {
+    expect(chatTs).toContain("'fallback'|'compacted'|'offloaded'|'retry'|'error'|'synced'|'pruned'");
+    expect(chatTs).toMatch(/e\.kind === 'pruned'[\s\S]*?已修剪[\s\S]*?条历史工具结果/);
   });
 });

@@ -93,6 +93,46 @@ describe('CompactEngine.summarize', () => {
     // 第一条是 summaryPrompt（user），后两条是 U0(user)、A0(assistant)
   });
 
+  it('双轨锚定：1 个用户回合 + 40 条工具消息 → 按消息数锚定，保留最近 14 条原文', async () => {
+    const store = new ChatStore(openDb(':memory:'));
+    const sid = store.createSession().id;
+    // 1 个真用户回合 + 40 条 toolResult 消息 = 41 条 ≥ 30 → 走消息数锚定
+    const history: RawMessage[] = [mkMsg(sid, 'user', '重构这个项目', 'U0', 1)];
+    for (let i = 0; i < 40; i++) {
+      history.push(mkMsg(sid, 'user', '', `TR${i}`, i + 2, [{ type: 'toolResult', value: { toolUseId: `T${i}`, output: 'o'.repeat(200), success: true, status: 'success' } }]));
+    }
+    const provider = new SummaryProvider('单回合摘要');
+    const engine = new CompactEngine(store);
+    const marker = await engine.summarize(history, sid, provider);
+    expect(marker).toBeDefined();
+    // 锚点 = history[len-15] = history[41-15] = history[26] = TR25
+    expect(marker!.lastCompactedMessageId).toBe('TR25');
+    // buildEffectiveHistory：摘要 + 最近 14 条原文（TR26..TR39）
+    const eff = engine.buildEffectiveHistory(history, marker);
+    expect(eff).toHaveLength(15);
+    expect(eff[0].parts[0]).toEqual({ type: 'text', value: '[对话摘要] 单回合摘要' });
+    expect(eff[1].role).toBe('user');
+    expect(eff.at(-1)!.parts[0]).toEqual({ type: 'toolResult', value: { toolUseId: 'T39', output: 'o'.repeat(200), success: true, status: 'success' } });
+    // toSummarize 含锚点及之前全部（27 条）+ 摘要提示 = 28
+    expect(provider.received[0].messages).toHaveLength(28);
+  });
+
+  it('双轨锚定：1 个用户回合 + 20 条消息（< 30）→ 仍返回 undefined', async () => {
+    const store = new ChatStore(openDb(':memory:'));
+    const sid = store.createSession().id;
+    // 21 条 < 30：小会话没有压缩价值，毒 marker 防御保留
+    const history: RawMessage[] = [mkMsg(sid, 'user', '重构', 'U0', 1)];
+    for (let i = 0; i < 20; i++) {
+      history.push(mkMsg(sid, 'user', '', `TR${i}`, i + 2, [{ type: 'toolResult', value: { toolUseId: `T${i}`, output: 'ok', success: true, status: 'success' } }]));
+    }
+    const provider = new SummaryProvider('不该被调用');
+    const engine = new CompactEngine(store);
+    const marker = await engine.summarize(history, sid, provider);
+    expect(marker).toBeUndefined();
+    expect(provider.received).toHaveLength(0);
+    expect(store.getLatestCompactMarker(sid)).toBeUndefined();
+  });
+
   it('provider 抛错时 summarize 透传错误且不写 marker', async () => {
     const store = new ChatStore(openDb(':memory:'));
     const sid = store.createSession().id;

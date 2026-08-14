@@ -7,6 +7,7 @@ import type { ToolContext } from '../tools/types';
 import type { ContextPolicy } from './context-policy';
 import type { OffloadEngine } from './offload';
 import type { CompactEngine } from './compact';
+import { pruneOldToolResults } from './prune';
 import { sanitizeMultiline } from './sanitize';
 
 export type LoopEvent =
@@ -20,6 +21,7 @@ export type LoopEvent =
   | { kind: 'fallback'; from: string; to: string; reason: string }
   | { kind: 'compacted'; markerId: string; summary: string }
   | { kind: 'offloaded'; toolUseId: string; relativePath: string }
+  | { kind: 'pruned'; count: number }
   | { kind: 'error'; message: string };
 
 export interface ProviderSlot { provider: AgentProvider; label: string }
@@ -189,8 +191,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
 
     // 推理时合成 effectiveAgentHistory（设计 §4.2「推理时合成」）
     // raw history 永不改写；effectiveHistory 是水位估算与请求构建的唯一输入。
+    // 用 let：offload 档修剪后要就地换成修剪版历史（只影响本轮请求）。
     const curMarker = opts.compactEngine ? store.getLatestCompactMarker(opts.sessionId) : undefined;
-    const effectiveHistory = opts.compactEngine
+    let effectiveHistory = opts.compactEngine
       ? opts.compactEngine.buildEffectiveHistory(history, curMarker)
       : toAgentMessages(history);
 
@@ -212,13 +215,22 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
             turn--; // 压缩轮不消耗 turn 额度
             continue; // 重新取 history + effectiveHistory（含新 marker，水位下降）
           }
-          // summarize 返回 undefined（不足 3 个真正用户回合）：
+          // summarize 返回 undefined（不足 3 个真正用户回合且消息数 < 30）：
           //  不发 compacted 事件、不 turn--、不 continue——直接落到下面的 req 构建，
           //  用现有 effectiveHistory 继续流式请求。
           //  关键：绝不能因 undefined 而 continue 重试，否则 history 不变 → 水位不变 →
           //  再次 compact → 再次 undefined → 死循环。落下去发请求才是正路。
         } catch {
           // 压缩失败（provider 抛错）不杀对话：跳过本次压缩，继续流式请求
+        }
+      } else if (action === 'offload') {
+        // offload 档是比压缩更便宜的减压手段：把旧的大工具结果换成单行桩，让本轮请求变小。
+        // 修剪只发生在请求侧合成数组上，raw history 与存储永不改写（与 compact 的
+        // 「推理时合成」同一哲学）——否则修剪成了持久化行为，模型永远拿不回原文。
+        const { pruned, history: prunedHistory } = pruneOldToolResults(effectiveHistory);
+        if (pruned > 0) {
+          yield { kind: 'pruned', count: pruned };
+          effectiveHistory = prunedHistory;
         }
       }
     }

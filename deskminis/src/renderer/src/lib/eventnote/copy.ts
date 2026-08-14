@@ -27,6 +27,7 @@ export function eventCopy(kind: string, detail?: string): EventCopy {
     case 'fallback': return { icon: 'alert', short: '已切换到备选模型', tone: 'warn' };
     case 'compacted': return { icon: 'refresh', short: '上下文已压缩', tone: 'info' };
     case 'offloaded': return { icon: 'folder', short: '大段输出已存入文件', tone: 'info' };
+    case 'pruned': return { icon: 'info', short: '已修剪旧工具结果', tone: 'info' };
     case 'retry': return { icon: 'clock', short: '网络波动，正在重试', tone: 'warn' };
     case 'error': return { icon: 'alert', short: humanizeError(detail ?? ''), tone: 'err' };
     default: return { icon: 'info', short: detail ?? '', tone: 'info' };

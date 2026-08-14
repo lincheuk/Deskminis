@@ -37,9 +37,13 @@ export class CompactEngine {
    * 调用 provider 生成摘要并写入 compact_markers。
    * lastCompactedMessageId 锚定到「保留最近 3 个用户回合」之前的最后一条消息。
    *
-   * 不足 3 个真正的用户回合时返回 undefined、不写任何 marker、不调 provider——
-   * 否则写一个锚点=最后一条消息的「跳过 marker」会让下一轮 effectiveHistory
-   * 只剩摘要占位符、整个对话上下文被抹掉（毒 marker）。
+   * 双轨锚定：常规路径数最近 3 个真正的用户回合；不足 3 回合时（单回合长任务如
+   * 「帮我重构这个项目」永远到不了三回合门槛，旧实现直接返回 undefined = 永远无法压缩），
+   * 改为按消息数锚定——只要消息足够长（≥30 条）就按「保留最近 14 条消息原文」压缩。
+   * 为什么按消息数而非回合数：单回合长任务里「最近的工具轨迹」是模型继续工作的必需品，
+   * 保留条数按消息算才有意义；回合数会被单个长任务稀释成 1，等于永远不压缩。
+   * 消息不足 30 条仍返回 undefined——小会话没有压缩价值，且毒 marker 防御必须保留
+   * （否则写个锚点=最后一条的 marker，下一轮 effectiveHistory 只剩摘要占位、整个对话被抹掉）。
    */
   async summarize(history: RawMessage[], sessionId: string, provider: AgentProvider): Promise<CompactMarker | undefined> {
     // 从后往前数 3 个「真正的用户回合」
@@ -48,12 +52,22 @@ export class CompactEngine {
       if (isRealUserTurn(history[i])) userIdxs.push(i);
       if (userIdxs.length >= RECENT_USER_TURNS) break;
     }
-    if (userIdxs.length < RECENT_USER_TURNS) return undefined; // 不写毒 marker
 
-    // 锚点 = 第 3 个用户回合之前的那条消息
-    const anchorIdx = userIdxs[userIdxs.length - 1] - 1;
-    const anchorMsg = anchorIdx >= 0 ? history[anchorIdx] : history[0];
-    const toSummarize = anchorIdx >= 0 ? history.slice(0, anchorIdx + 1) : [];
+    let anchorMsg: RawMessage;
+    let toSummarize: RawMessage[];
+    if (userIdxs.length >= RECENT_USER_TURNS) {
+      // 常规路径：锚点 = 第 3 个用户回合之前的那条消息
+      const anchorIdx = userIdxs[userIdxs.length - 1] - 1;
+      anchorMsg = anchorIdx >= 0 ? history[anchorIdx] : history[0];
+      toSummarize = anchorIdx >= 0 ? history.slice(0, anchorIdx + 1) : [];
+    } else if (history.length >= 30) {
+      // 双轨锚定：不足 3 回合但消息足够长 → 锚点取倒数第 15 条，保留最近 14 条原文
+      const anchorIdx = history.length - 15;
+      anchorMsg = history[anchorIdx];
+      toSummarize = history.slice(0, anchorIdx + 1);
+    } else {
+      return undefined; // 不写毒 marker
+    }
 
     // 调 provider 生成摘要（出口侧消毒：toSummarize 的 parts 过 sanitizeMultiline——送给压缩 provider 的出口侧）
     const summaryPrompt = '请用不超过 500 字总结以下对话的关键信息（用户意图、已做决策、关键文件路径、待办事项）。只输出摘要正文，不要额外格式：\n\n';

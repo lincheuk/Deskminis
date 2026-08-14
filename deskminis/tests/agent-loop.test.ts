@@ -643,6 +643,36 @@ describe('runAgentLoop + 压缩/卸载装配', () => {
     expect(store.getLatestCompactMarker(sessionId)?.summary).toBe('对话摘要');
   });
 
+  it('offload 档触发修剪：请求里旧大 toolResult 变桩、store 原文未动、发 pruned 事件', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    const big = 'B'.repeat(150_000);
+    // 15 条历史：U0(真用户回合) A0(toolUse T0) TR0(旧大 toolResult, idx 2) + 12 条最近消息
+    // len=15 → 修剪范围 idx 0..2（len-12=3），TR0 在范围内被修剪；最近 12 条原样。
+    // 水位：150000 字符 → ~37500 token，ratio 0.586 ∈ [0.5,0.7) → offload 档。
+    store.appendMessage({ id: 'U0', sessionId, role: 'user', parts: [{ type: 'text', value: '请重构' }], createdAt: 1, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'A0', sessionId, role: 'assistant', parts: [{ type: 'toolUse', value: { toolUseId: 'T0', name: 'echo', input: '{"text":"x","tool_title":"t"}' } }], createdAt: 2, streamInterruptCount: 0 });
+    store.appendMessage({ id: 'TR0', sessionId, role: 'user', parts: [{ type: 'toolResult', value: { toolUseId: 'T0', output: big, success: true, status: 'success' } }], createdAt: 3, streamInterruptCount: 0 });
+    for (let i = 0; i < 12; i++) {
+      store.appendMessage({ id: `R${i}`, sessionId, role: 'user', parts: [{ type: 'text', value: `最近 ${i}` }], createdAt: 4 + i, streamInterruptCount: 0 });
+    }
+    const policy = new ContextPolicy({ getModelContextWindow: () => 64_000 });
+    const compact = new CompactEngine(store);
+    const provider = new ScriptedProvider([[ { kind: 'textDelta', text: '开始重构' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', contextPolicy: policy, compactEngine: compact }));
+    // pruned 事件
+    expect(events.some(e => e.kind === 'pruned')).toBe(true);
+    // 请求消息里旧大 toolResult 已是桩文本（修剪只影响请求侧合成，与 compact 同哲学）
+    const req = provider.seen[0];
+    const trPart = req.messages.flatMap(m => m.parts).find(p => p.type === 'toolResult') as { value: { output: string } };
+    expect(trPart.value.output).toContain('已修剪');
+    expect(trPart.value.output).toContain('原 150000 字符');
+    // store 原文未动（修剪永不改写存储）
+    const stored = store.listMessages(sessionId);
+    const storedTr = stored.find(m => m.id === 'TR0')!;
+    expect(storedTr.parts[0]).toEqual({ type: 'toolResult', value: { toolUseId: 'T0', output: big, success: true, status: 'success' } });
+    expect(events.at(-1)?.kind).toBe('turnEnd');
+  });
+
   it('excludedToolNames: 过滤工具定义', async () => {
     const { store, tools, toolContext, sessionId } = mkCtx();
     const hiddenTool: ToolExecutor = {
