@@ -93,7 +93,9 @@
 
   --font-sans:
     ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  /* 本行是 A 区唯一申报偏离（见守卫 RAW_FONT_MONO_OVERRIDE）：等宽族无中文字形，
+     不补 CJK 回退的话 mono 语境（代码块/权限卡路径）里的中文会掉进宋体 */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', "Noto Sans SC", "Microsoft YaHei", monospace;
 
   --focus-ring: oklch(0.872 0.01 258.338);
   --focus-ring-input: oklch(0.928 0.006 264.531);
@@ -201,7 +203,9 @@
      成本为零：本机 Windows 字体目录已装 NotoSansSC-VF.ttf（16.9MB 可变字体），不打包、不子集化。
      不子集化的理由：agent 输出的字符集不可预知，子集会掉生僻字且难复现（v4 §5）。 */
   --font-ui: -apple-system, "SF Pro Text", "Segoe UI Variable", "Noto Sans SC", system-ui, "Microsoft YaHei", sans-serif;
-  --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  /* mono 栈同款补 CJK 回退（置于 monospace 泛型之前才会生效）：拉丁走 Cascadia/Consolas，
+     中文逐字符回落思源黑体，雅黑兜底——与 --font-ui 的选型一致 */
+  --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, "Noto Sans SC", "Microsoft YaHei", monospace;
   /* glass:begin —— 切片标记，守卫例 5 靠它把玻璃块单独摘出来 */
   /* ===== 玻璃材质（2026-08-10，用户要求苹果磨砂风格）=====
      MU3 曾把材质层整体退场；本组是**按用户要求的定向恢复**，范围受守卫例 8 白名单约束。

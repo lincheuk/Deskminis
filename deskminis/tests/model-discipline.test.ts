@@ -19,8 +19,19 @@ describe('buildDisciplineBlock 按模型族分派', () => {
     expect(r).toContain('工具');
   });
 
-  it('未知模型 → 空纪律块（不注入）', () => {
-    expect(buildDisciplineBlock('unknown-model', { toolUseEnforcement: true })).toBe('');
+  it('未知模型 → 回落通用纪律块（与 OpenAI 系同文），不再返回空串', () => {
+    // 返回空串等于对最常被用的国产/自建模型完全不设防；通用措辞对任何模型无害
+    const r = buildDisciplineBlock('unknown-model', { toolUseEnforcement: true });
+    expect(r).toBe(buildDisciplineBlock('gpt-5', { toolUseEnforcement: true }));
+    expect(r.length).toBeGreaterThan(20);
+  });
+
+  it('qwen/deepseek/glm/kimi 等国产模型 → 命中纪律块', () => {
+    for (const m of ['qwen3-max', 'deepseek-chat', 'glm-4.5', 'kimi-k2', 'minimax-m2', 'doubao-seed', 'hunyuan-turbo', 'ernie-4.5', 'moonshot-v1-auto']) {
+      const r = buildDisciplineBlock(m, { toolUseEnforcement: true });
+      expect(r).toContain('工具');
+      expect(r.length).toBeGreaterThan(20);
+    }
   });
 
   it('配置关闭 → 空纪律块', () => {

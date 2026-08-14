@@ -95,6 +95,12 @@ describe('MU2a Task 10 PermissionCard.vue 守卫', () => {
     expect(permCard).toContain('chat.respondPerm(perm.requestId');
     expect(permCard).toContain('word-break: break-all');
   });
+  it('按钮不折字：.btn nowrap + min-width、.btns flex-wrap（窄列下按钮整颗换行而非文字断行）', () => {
+    // 「本会话允许」在 336px 对话列里曾被折成「本会话允/许」两行——文字断行比按钮换行难看得多
+    expect(permCard).toMatch(/\.btn\s*\{[^}]*white-space:\s*nowrap/);
+    expect(permCard).toMatch(/\.btn\s*\{[^}]*min-width:/);
+    expect(permCard).toMatch(/\.btns\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
 });
 
 describe('MU2a Task 10 chat.ts 守卫', () => {

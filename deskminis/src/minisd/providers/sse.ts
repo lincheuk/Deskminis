@@ -1,10 +1,18 @@
-export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event?: string; data: string }> {
+import { ProviderError } from './types';
+
+export async function* parseSse(
+  body: ReadableStream<Uint8Array>,
+  // 停滞看门狗：流挂死（连接不关闭也不再发任何字节）时 read() 永不 resolve，
+  // 不设超时用户只能手动取消。默认 60s——thinking 长思考也会持续发 delta 帧，
+  // 60s 无任何字节即可安全判停滞。三个 provider 调用处不传此参，默认值生效。
+  idleTimeoutMs = 60000,
+): AsyncGenerator<{ event?: string; data: string }> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithStallWatchdog(reader, idleTimeoutMs);
       if (done) break;
       buf += decoder.decode(value, { stream: true });
       // SSE 规范允许 CRLF / 裸 CR 行尾，代理也可能把 LF 归一成 CRLF：只按 '\n\n' 找帧边界的话
@@ -22,6 +30,29 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
     }
   } finally {
     reader.releaseLock();
+  }
+}
+
+/** read() 与停滞超时竞速：超时先 cancel 底层流再抛 retryable ProviderError（走既有重试梯——
+ *  挂死多为网关/代理半开连接，重试通常可自愈）。必须先 cancel：外层 finally 的
+ *  releaseLock 会因 read() 仍挂起而抛 TypeError，把真正的超时错误吞掉；cancel 会让
+ *  挂起的 read 以 {done:true} 落定，锁得以正常释放，连接也不至于一直挂着。 */
+async function readWithStallWatchdog(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  idleTimeoutMs: number,
+) {
+  const stall = new ProviderError('SSE 流停滞超时', { retryable: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(stall), idleTimeoutMs); }),
+    ]);
+  } catch (e) {
+    if (e === stall) await reader.cancel().catch(() => {});
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

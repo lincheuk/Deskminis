@@ -445,13 +445,42 @@ describe('runAgentLoop', () => {
       sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
       fallbackChain: [{ provider: backup, label: 'backup-1' }],
     }));
-    // 历史里应出现 system-reminder 文本（作为 user 消息注入）
+    // 提醒不再落库：store 里不出现 [系统提醒: 文本（持久化历史不被机器留言污染）
     const msgs = store.listMessages(sessionId);
-    const reminderMsg = msgs.find(m => m.parts.some(p => p.type === 'text' && (p.value as string).includes('系统提醒')));
-    expect(reminderMsg).toBeTruthy();
+    expect(msgs.some(m => m.parts.some(p => p.type === 'text' && (p.value as string).includes('[系统提醒:')))).toBe(false);
+    // 但出现在 reminder 重试那一轮的请求 messages 末尾（仅请求侧合成 user 消息）
+    const retryReq = main.seen[2];
+    expect(retryReq.messages.at(-1)).toMatchObject({ role: 'user', parts: [{ type: 'text', value: '[系统提醒: 上一次工具调用后你返回了空响应，请继续]' }] });
     // 最终降级到 backup
     expect(events.some(e => e.kind === 'fallback')).toBe(true);
     expect(events.some(e => e.kind === 'textDelta' && e.text === 'backup')).toBe(true);
+  });
+
+  it('用户正文含「系统提醒」四字不再误判 → 照常注入仅请求侧提醒并恢复', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'do' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    // 第 1 次调用进行中往 store 追加一条正文恰含「系统提醒」的 user 消息（模拟远端/另一入口
+    // 在回合进行中插话）——必须赶在第 2 轮顶部 listMessages 快照之前落库，它才会成为
+    // 「最后一条 user 消息」；createdAt+1 保证排在工具结果载体之后。旧实现按「最后一条
+    // user 消息含系统提醒」判重，会把这条用户正文误认成已注入的提醒，跳过恢复机会
+    // 直接报「模型返回了空响应」。
+    const main = new ScriptedProvider([
+      [ { kind: 'toolCallComplete', toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' }, { kind: 'done', stopReason: 'toolUse' } ],
+      [ { kind: 'done', stopReason: 'endTurn' } ], // tool_result 后空响应
+      [ { kind: 'textDelta', text: '好的' }, { kind: 'done', stopReason: 'endTurn' } ], // 提醒后恢复
+    ], (n) => {
+      if (n === 0) {
+        store.appendMessage({ id: 'U-remote', sessionId, role: 'user', parts: [{ type: 'text', value: '顺便讲讲系统提醒是什么意思' }], createdAt: store.nowEpoch() + 1, streamInterruptCount: 0 });
+      }
+    });
+    const events = await collect(runAgentLoop(store, { sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0] }));
+    // 恢复而非报错（旧实现此处 ends with error「模型返回了空响应」）
+    expect(events.at(-1)).toMatchObject({ kind: 'turnEnd', stopReason: 'endTurn' });
+    expect(events.some(e => e.kind === 'textDelta' && e.text === '好的')).toBe(true);
+    // store 里含「[系统提醒:」的消息一条都没有：插话是用户自己的，提醒是请求侧合成的
+    expect(store.listMessages(sessionId).some(m => m.parts.some(p => p.type === 'text' && (p.value as string).includes('[系统提醒:')))).toBe(false);
+    // 第 3 次请求（提醒重试轮）末尾带上了合成提醒
+    expect(main.seen[2].messages.at(-1)).toMatchObject({ role: 'user', parts: [{ type: 'text', value: '[系统提醒: 上一次工具调用后你返回了空响应，请继续]' }] });
   });
 
   it('retryable 错误走重试梯不走降级（M1 行为不变）', async () => {

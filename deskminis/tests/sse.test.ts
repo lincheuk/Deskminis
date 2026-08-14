@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseSse } from '../src/minisd/providers/sse';
+import { ProviderError } from '../src/minisd/providers/types';
 
 function streamOf(text: string): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -56,5 +57,25 @@ describe('parseSse', () => {
       { event: 'message_start', data: '{"a":1}' },
       { event: undefined, data: 'line1\nline2' },
     ]);
+  });
+
+  it('流停滞(连接不关闭也不发数据) → idleTimeoutMs 后 cancel 流并抛 retryable 错误', async () => {
+    let cancelCalled = false;
+    const encoder = new TextEncoder();
+    // 吐一帧后既不 close 也不再 enqueue：reader.read() 将永久挂起
+    const stalled = new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(encoder.encode('data: {"a":1}\n\n')); },
+      cancel() { cancelCalled = true; },
+    });
+    const frames: unknown[] = [];
+    let caught: unknown;
+    try { for await (const f of parseSse(stalled, 50)) frames.push(f); } catch (e) { caught = e; }
+    // 停滞前的那一帧正常吐出
+    expect(frames).toEqual([{ event: undefined, data: '{"a":1}' }]);
+    expect(caught).toBeInstanceOf(ProviderError);
+    const err = caught as ProviderError;
+    expect(err.message).toBe('SSE 流停滞超时');
+    expect(err.retryable).toBe(true); // retryable 才能走既有重试梯，否则用户只能手动取消
+    expect(cancelCalled).toBe(true);  // 底层连接必须被释放，不能只抛错任由 socket 挂着
   });
 });

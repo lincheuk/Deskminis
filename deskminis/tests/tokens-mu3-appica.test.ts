@@ -52,6 +52,10 @@ const refLight = decls(blockOf(REF, ':root,'));
 const refDark = decls(blockOf(REF, '.dark {'));
 /** 主题无关 raw（只在 :root 写一次，与参考文件一致；.dark 块本就不含这些族） */
 const THEME_INDEPENDENT = /^--(font-sans|font-mono|radius|border-width|opacity-disabled)/;
+/** A 区唯一申报偏离：--font-mono 在栈尾 monospace 泛型前补了 CJK 回退
+ *  （等宽栈无中文字形，代码块/权限卡里的中文会掉进宋体）。raw 层同样被组件直接
+ *  消费，只修 C 区别名修不干净，故两处都补、该键退出逐行一致比对，内容由例 13 单独守。 */
+const RAW_FONT_MONO_OVERRIDE = /^--font-mono\s*:/;
 
 /** 递归收集 src/renderer/src 下全部 .vue（含 App.vue） */
 const RENDERER_SRC = resolve(__dirname, '../src/renderer/src');
@@ -71,7 +75,7 @@ function styleBlocks(src: string): string[] {
 const rel = (p: string) => relative(RENDERER_SRC, p).replace(/\\/g, '/');
 const C = (n: string) => R(`../src/renderer/src/components/${n}.vue`);
 
-describe('MU3 Appica 移植守卫（12 例）', () => {
+describe('MU3 Appica 移植守卫（13 例）', () => {
   it('1. tokens.css 头部 MIT 归属四要素（来源 URL / 版本 / 许可证 / 参考文件路径）', () => {
     expect(tokens).toContain('https://unpkg.com/@appica/ui-react@1.0.0/styles.css');
     expect(tokens).toContain('@appica/ui-react@1.0.0');
@@ -82,7 +86,7 @@ describe('MU3 Appica 移植守卫（12 例）', () => {
   it('2. A 区与参考文件逐行一致：四段 raw 层 == 参考 :root,.light / .dark 声明体（有序比对）', () => {
     expect(refLight.length).toBeGreaterThan(0); // 提取器自检：空表会让 toEqual 假绿
     expect(refDark.length).toBeGreaterThan(0);
-    expect(decls(areaA(rootLight))).toEqual(refLight);
+    expect(decls(areaA(rootLight)).filter(d => !RAW_FONT_MONO_OVERRIDE.test(d))).toEqual(refLight.filter(d => !RAW_FONT_MONO_OVERRIDE.test(d)));
     expect(decls(areaA(mediaDark))).toEqual(refDark);
     expect(decls(areaA(darkForced))).toEqual(refDark);
     // 主题无关 raw（--font-*/--radius-*/--border-width/--opacity-disabled）只在 :root 写一次
@@ -266,5 +270,18 @@ describe('MU3 Appica 移植守卫（12 例）', () => {
     expect(tokens.split('--scrim:').length - 1).toBe(1); // 唯一声明处
     expect(C('DevicesModal')).toContain('var(--scrim)');
     expect(C('SettingsModal')).toContain('var(--scrim)');
+  });
+
+  it('13. mono 栈 CJK 回退：两处 --font-mono 均在 monospace 泛型前含 "Noto Sans SC"', () => {
+    const monoDecls = [...tokens.matchAll(/--font-mono\s*:[^;]+;/g)].map(m => m[0].replace(/\s+/g, ' '));
+    // 恰好两处：A 区 raw 一处 + C 区 DeskMinis 别名一处（见 RAW_FONT_MONO_OVERRIDE 申报）
+    expect(monoDecls).toHaveLength(2);
+    for (const d of monoDecls) {
+      expect(d).toContain('"Noto Sans SC"');
+      expect(d).toContain('"Microsoft YaHei"');
+      // 必须排在栈尾 monospace 泛型之前，否则泛型兜底先命中、CJK 回退永不生效
+      // （用 'monospace;' 定位泛型——'ui-monospace' 不以分号结尾，不会误匹配）
+      expect(d.indexOf('"Noto Sans SC"')).toBeLessThan(d.indexOf('monospace;'));
+    }
   });
 });

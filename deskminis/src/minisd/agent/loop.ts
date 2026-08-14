@@ -52,6 +52,9 @@ const CONCURRENCY = 10;
 const MAX_CONTINUATIONS = 2;
 /** 续写合成提示：仅追加在请求侧 messages 末尾、绝不落库（与 pairToolResults 同属请求构建边界）。 */
 const CONTINUE_HINT = '[系统提示：上一条输出因长度上限被截断，请从截断处继续输出剩余内容，不要重复已输出的部分]';
+/** 空响应提醒（文案沿用旧版原文）：tool_result 后模型空手而归时，仅请求侧合成 user 消息催它继续。
+ *  绝不落库——落库会污染持久化历史，同步/导出时用户会看到这条机器留言。 */
+const EMPTY_RESPONSE_REMINDER = '[系统提醒: 上一次工具调用后你返回了空响应，请继续]';
 
 /** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}。出口侧消毒：toolResult.output 过 sanitizeMultiline（存储不动）。 */
 export function toAgentMessages(history: RawMessage[]): AgentMessage[] {
@@ -181,6 +184,8 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   }
 
   let hadToolCallInPrevTurn = false; // 上一轮是否有工具调用（用于空响应两路处理判定）
+  let remindedEmptyResponse = false; // 本循环是否已提醒过一次空响应（判重；替代旧的「查历史文本」法）
+  let pendingEmptyReminder = false; // 下一轮请求是否要注入仅请求侧的空响应提醒（注入一次即清）
   let compactCount = 0; // 本循环已压缩次数（上限 3，设计 §4.2）
   let continueCount = 0; // 本循环已注入的 maxTokens 续写次数（上限 MAX_CONTINUATIONS，防无限空转）
 
@@ -250,6 +255,13 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     // 只出现在请求里、绝不落库——与 pairToolResults 同属请求构建边界，raw history 保持不动。
     if (continueCount > 0) {
       req.messages.push({ role: 'user', parts: [{ type: 'text', value: CONTINUE_HINT }] });
+    }
+    // 空响应提醒同款注入（CONTINUE_HINT 模式）：上一轮 tool_result 后模型空手而归，
+    // 这里追加一次性合成 user 消息催它继续。注入一次即清——模型恢复后的后续请求
+    // 不再携带；判重状态由 remindedEmptyResponse 持有，与本标志分离。
+    if (pendingEmptyReminder) {
+      req.messages.push({ role: 'user', parts: [{ type: 'text', value: EMPTY_RESPONSE_REMINDER }] });
+      pendingEmptyReminder = false;
     }
 
     let text = ''; let reasoning = ''; let usage: TokenUsage | undefined; let stopReason: StopReason = 'endTurn';
@@ -368,17 +380,14 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
         turn--; // 不消耗 turn 额度，重试这一轮
         continue;
       }
-      // tool_result 后空响应：先注入一次 system-reminder 重试
-      // 检查是否已经注入过 reminder（避免无限循环）
-      const lastUserMsg = history.filter(m => m.role === 'user').at(-1);
-      const alreadyReminded = lastUserMsg?.parts.some(p => p.type === 'text' && (p.value as string).includes('系统提醒')) ?? false;
-      if (!alreadyReminded) {
-        // 注入 system-reminder 作为 user 消息
-        store.appendMessage({
-          id: store.newId(), sessionId: opts.sessionId, role: 'user',
-          parts: [{ type: 'text', value: '[系统提醒: 上一次工具调用后你返回了空响应，请继续]' }],
-          createdAt: clock.next(), streamInterruptCount: 0,
-        });
+      // tool_result 后空响应：先注入一次 system-reminder 重试。
+      // 判重靠循环内存标志而非检查最后一条 user 消息是否含「系统提醒」——
+      // 提醒已不落库（见 EMPTY_RESPONSE_REMINDER），历史里本就没有它可查；
+      // 且按文本判重会把恰好含这四个字的用户正文误认成已注入的提醒，
+      // 直接跳过恢复机会报「模型返回了空响应」。
+      if (!remindedEmptyResponse) {
+        remindedEmptyResponse = true;
+        pendingEmptyReminder = true; // 下一轮请求构建时注入（见 req 构建处）
         turn--; // 不消耗 turn 额度，重试这一轮
         continue;
       }

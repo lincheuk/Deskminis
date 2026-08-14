@@ -60,6 +60,16 @@ describe('thinking 渲染链路守卫', () => {
     expect(chatView.split('<ThinkingBlock').length - 1).toBe(2);
   });
 
+  it('dots 跳动点排除纯思考阶段：v-if 条件含 !chat.streamingThinking', () => {
+    const chatView = readSrc('src/renderer/src/components/ChatView.vue');
+    const dotsLine = chatView.split('\n').find(l => l.includes('class="dots"'));
+    expect(dotsLine).toBeTruthy();
+    // 纯思考阶段（running + 只有 thinkingDelta）已由 ThinkingBlock 的「思考中…」占位，
+    // dots 不排除 streamingThinking 会与思考块同屏——两套「正在干活」指示叠在一起
+    expect(dotsLine).toContain('!chat.streamingText');
+    expect(dotsLine).toContain('!chat.streamingThinking');
+  });
+
   it('ThinkingBlock.vue：折叠交互 + 文案分支 + 流式收起态末两行 + 次级色/--fs-micro；无 v-html', () => {
     const block = readSrc('src/renderer/src/components/ThinkingBlock.vue');
     // 折叠交互与 ToolLine 同构：button + aria-expanded + chevron 切换

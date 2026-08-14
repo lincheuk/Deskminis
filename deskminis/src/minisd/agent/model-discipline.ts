@@ -1,7 +1,10 @@
 // 按模型族操作纪律块（M4 Task 3）：按 modelId 正则分派不同纪律块，防止模型声称完成却不调工具。
 // 降级切换 provider 后，systemPrompt 工厂轮内用新 modelId 调本函数 → stable 缓存 miss 重建（Task 2 已保证）。
 
-const OPENAI_FAMILY = /^(gpt-|codex-|grok-|o\d)/i;
+// 国产模型族（qwen/deepseek/glm/kimi 等）多走 OpenAI 兼容端点，行为短板同属一家：
+// 同样会「声称完成却不调工具」，并入 OPENAI_FAMILY 共用同一份通用纪律块——
+// 措辞分族并无收益，只会让最常用的模型拿不到任何纪律约束。
+const OPENAI_FAMILY = /^(gpt-|codex-|grok-|o\d|qwen|deepseek|glm|kimi|minimax|doubao|hunyuan|ernie|moonshot)/i;
 const GOOGLE_FAMILY = /^(gemini-|gemma)/i;
 const ANTHROPIC_FAMILY = /^claude-/i;
 
@@ -13,12 +16,15 @@ const ANTHROPIC_DISCIPLINE = `操作纪律：使用工具完成任务，工具�
  * 按 modelId 分派操作纪律块。
  * @param modelId 当前 activeSlot.provider.modelId（降级切换后传新 modelId）
  * @param config 提示层配置（discipline.toolUseEnforcement === false 时关闭）
- * @returns 纪律块文本（未知模型或配置关闭时返回空串）
+ * @returns 纪律块文本（配置关闭时返回空串；未知模型回落 OPENAI_DISCIPLINE）
  */
 export function buildDisciplineBlock(modelId: string, config: { toolUseEnforcement?: boolean }): string {
   if (config.toolUseEnforcement === false) return '';
   if (OPENAI_FAMILY.test(modelId)) return OPENAI_DISCIPLINE;
   if (GOOGLE_FAMILY.test(modelId)) return GOOGLE_DISCIPLINE;
   if (ANTHROPIC_FAMILY.test(modelId)) return ANTHROPIC_DISCIPLINE;
-  return '';
+  // 未知模型族回落通用块而非空串：目标用户大量使用国产/自建模型，返回空串等于对
+  // 最需要纪律约束的模型完全不设防；OPENAI_DISCIPLINE 措辞通用（「必须调工具、
+  // 别只描述计划」），对任何模型都无害——最坏情况是多一段无关痛痒的提示，远好过漏防。
+  return OPENAI_DISCIPLINE;
 }

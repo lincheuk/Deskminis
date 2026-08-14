@@ -95,11 +95,14 @@ const previewCounts = computed(() => countAddDel(previewLines.value));
 .tk { font-size: 12.5px; font-weight: 600; color: var(--state-warn); }
 .tv { font-size: 12.5px; color: var(--label); }
 .tv::before { content: '· '; color: var(--state-warn); }
-.btns { display: flex; gap: 8px; }
+/* 窄列折行治理：nowrap 禁止按钮文字折断（「本会话允/许」这种断法比按钮换行难看得多），
+   flex-wrap 让放不下的按钮整颗换到下一行；min-width 抬高换行判定基准——flex:1 的
+   basis 是 0，没有最小宽约束时三颗按钮永远「挤得下」，wrap 永远不触发。 */
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn {
-  flex: 1; padding: 10px; border-radius: var(--r-control); border: .5px solid var(--separator);
+  flex: 1; min-width: 96px; padding: 10px; border-radius: var(--r-control); border: .5px solid var(--separator);
   background: var(--surface-1); color: var(--label); font-family: var(--font-ui);
-  font-size: 15px; font-weight: 600; cursor: pointer;
+  font-size: 15px; font-weight: 600; cursor: pointer; white-space: nowrap;
 }
 .btn:hover { background: var(--fill-quaternary); }
 /* MU3 §2-5 焦点环：允许/会话允许走 --ring；拒绝钮走 --ring-danger */

@@ -415,7 +415,9 @@ function onSlashTab(e: KeyboardEvent): void {
               />
             </template>
             <PermissionCard v-for="p in chat.pendingPerms" :key="p.requestId" :perm="p" :data-req="p.requestId" />
-            <div v-if="chat.running && !chat.streamingText && !chat.toolCards.length && !chat.pendingPerms.length && !chat.retryNote" class="dots"><i></i><i></i><i></i></div>
+            <!-- dots 排除 streamingThinking：纯思考阶段已由上方 ThinkingBlock 的「思考中…」占位，
+                 不排除的话两套「正在干活」指示会同屏叠着 -->
+            <div v-if="chat.running && !chat.streamingText && !chat.streamingThinking && !chat.toolCards.length && !chat.pendingPerms.length && !chat.retryNote" class="dots"><i></i><i></i><i></i></div>
           </div>
         </section>
 
