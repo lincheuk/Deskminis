@@ -5,6 +5,9 @@ export class RpcClient {
   private idc = 0;
   private pending = new Map<number, (v: any) => void>();
   private handlers = new Map<string, Set<Handler>>();
+  /** 握手完成信号：connect() 一开始就赋值。组件 onMounted 的首批 call 可能赶在
+   *  握手完成前触发，不排队直接 send 会撞 CONNECTING 态抛 InvalidStateError（真机冒烟逮到）。 */
+  private ready: Promise<void> | undefined;
 
   async connect(): Promise<void> {
     const bridge = (window as any).deskminis;
@@ -22,7 +25,7 @@ export class RpcClient {
     const url = token
       ? `ws://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`
       : `ws://127.0.0.1:${port}`;
-    await new Promise<void>((resolve, reject) => {
+    this.ready = new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(url);
       this.ws.onopen = () => resolve();
       this.ws.onerror = () => reject(new Error('WebSocket 连接失败'));
@@ -32,14 +35,19 @@ export class RpcClient {
         else if (msg.method) for (const h of this.handlers.get(msg.method) ?? []) h(msg.params);
       };
     });
+    await this.ready;
   }
 
   call<T = any>(method: string, params?: unknown): Promise<T> {
-    const id = ++this.idc;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, msg => msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result));
-      this.ws!.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
-    });
+    const sendNow = (): Promise<T> => {
+      const id = ++this.idc;
+      return new Promise((resolve, reject) => {
+        this.pending.set(id, msg => msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result));
+        this.ws!.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+      });
+    };
+    // 握手期间到达的调用排队等 open 再发；未 connect 过则维持原行为（ws! 抛错，暴露编程错误）
+    return this.ready ? this.ready.then(sendNow) : sendNow();
   }
 
   on(method: string, h: Handler): void {
