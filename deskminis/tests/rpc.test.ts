@@ -256,7 +256,8 @@ describe('minisd JSON-RPC', () => {
     const { port, authToken } = await boot(); // 不传 permTimeoutMs → 默认路径
     const c = rpcClient(port, authToken); await c.ready;
     const s = (await c.call('chat.sessions.create', {})).result;
-    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('shell_execute', { command: 'dir', tool_title: '列目录' }) });
+    // 'dir' 已是 readonly 免批不再弹卡；这里要验的是 gated 命令的 meta 广播，换成始终 gated 的 npm install
+    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('shell_execute', { command: 'npm install', tool_title: '装依赖' }) });
     await waitFor('permission.request', () => c.notifications.some(n => n.method === 'permission.request'));
     const n = c.notifications.find(x => x.method === 'permission.request')!;
     expect(n.params.meta.timeoutMs).toBe(90000);

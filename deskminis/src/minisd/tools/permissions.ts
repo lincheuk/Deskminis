@@ -1,7 +1,7 @@
 import type { BridgePermissionKind, PermissionDecision, PermissionGateway, PermissionRequest } from './types';
 
 /** 危险层保留：这些命令即使用户想批准也硬拦截（不可逆/系统级/影子命名原语）。 */
-export type CommandClass = 'danger' | 'gated';
+export type CommandClass = 'danger' | 'readonly' | 'gated';
 export type PermissionLevel = 'bypass' | 'askOnce' | 'notAllowed';
 export type PermissionPrompt = (req: PermissionRequest) => Promise<'allow-once' | 'allow-session' | 'deny'>;
 /** 权限选择器三档预设：'ask'/'session' 网关行为相同（差异只在前端预选高亮），'full' 放行除 danger 外全部。 */
@@ -33,10 +33,104 @@ const DANGER_AT_COMMAND_POSITION = [
   /(^|[;|&(]\s*)(rm|ri|del|erase|rd|rmdir)\b/i,
 ];
 
+/** 只读免批白名单（保守子集）：首 token 小写精确命中才可能免批。
+ *  Measure-Object / Where-Object 刻意不收：二者脱离管道没有独立语义（而管道已被结构过滤拒绝），
+ *  收进来只扩大免批面、不带来任何收益；裸 where（Where-Object 的别名）同理不收，只收 where.exe。 */
+const READONLY_ALLOWLIST = new Set([
+  'get-childitem', 'gci', 'ls', 'dir',
+  'get-content', 'gc', 'cat', 'type',
+  'get-item', 'get-itemproperty', 'get-location', 'pwd',
+  'get-process', 'gps', 'ps',
+  'get-service', 'get-date', 'get-host',
+  'get-command', 'gcm', 'get-member', 'gm', 'get-help', 'help',
+  'select-string', 'sls', 'test-path', 'resolve-path',
+  'rg', 'findstr', 'tree', 'whoami', 'hostname', 'systeminfo', 'where.exe',
+  // 这四个是多段命令：首 token 命中后还要过第二 token 规则表
+  'git', 'npm', 'node', 'python',
+]);
+
+/** 二段式规则表：git/npm/node/python 的子命令/旗标约束，数据化便于后续扩展。
+ *  sub 形态：第二个 token 精确命中即放行（third 可选：还要求第三个 token 精确等于，如 git config --get；
+ *  restFlagsOnly 可选：其后所有 token 必须取自旗标集——branch/remote 这类「列表读 / 建删写」同名双形态
+ *  的子命令，放行列表态、把一切带非旗标参数的写形态挡回 gated）；
+ *  flagsOnly 形态：其后所有 token 只能取自旗标集——node/python 若只查第二 token，
+ *  "node --version -e 代码" 这类混入执行旗标的形态就会漏进免批。 */
+type SecondTokenRule = { sub: string; third?: string; restFlagsOnly?: string[] } | { flagsOnly: string[] };
+const READONLY_SECOND_TOKEN_RULES: Record<string, SecondTokenRule[]> = {
+  git: [
+    { sub: 'status' }, { sub: 'log' }, { sub: 'diff' }, { sub: 'show' },
+    // branch/remote 是同名双形态命令：裸/带列表旗标是读（高频，免批），带任何非旗标参数是写
+    // （git branch xxx 建分支、-D 删分支、git remote add 写 .git/config）——写形态回落 gated
+    { sub: 'branch', restFlagsOnly: ['-a', '--all', '-r', '--remotes', '-v', '-vv', '--verbose', '--list', '--show-current'] },
+    { sub: 'remote', restFlagsOnly: ['-v', '--verbose'] },
+    { sub: 'ls-files' }, { sub: 'blame' },
+    { sub: 'config', third: '--get' }, // 不带 --get 的 git config 是写形态（可改仓库配置），回落 gated
+  ],
+  npm: [
+    { sub: 'ls' }, { sub: 'view' }, { sub: 'outdated' },
+    { sub: 'config', third: 'get' }, // npm config set 写配置，只放行 get 形态
+  ],
+  node: [{ flagsOnly: ['--version', '-v'] }], // -e/--eval 执行任意代码，绝不放行
+  python: [{ flagsOnly: ['--version', '-v'] }], // -c/-m 执行代码，同理排除
+};
+
+/** 结构过滤拒绝的字符：覆盖管道/复合/子表达式/重定向/脚本块/splatting/换行。
+ *  裸括号也一并拒：(...) 是表达式求值，(Set-Content …) 会在参数位静默执行写操作；
+ *  $(/@( 与 ${ 无非是括号/花括号族成员，按单字符拒绝即全覆盖。 */
+const READONLY_FORBIDDEN_CHARS = [';', '|', '&', '`', '(', ')', '<', '>', '{', '}', '\n', '\r'];
+
+/** 引号必须配对，且引号内不得出现 $ 与反引号（防字符串内展开）。
+ *  PS 单引号串本是字面量（$ 不展开），这里仍一并拒绝：少依赖一层语言语义，判定只看字符结构。 */
+function readonlyQuotesSafe(c: string): boolean {
+  let quote: '"' | "'" | undefined;
+  for (const ch of c) {
+    if (quote !== undefined) {
+      if (ch === quote) quote = undefined;
+      else if (ch === '$' || ch === '`') return false;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    }
+  }
+  return quote === undefined; // 扫描结束仍在引号内 = 未配对，结构不明不收
+}
+
+/** 只读免批判定：全部条件满足才 true，任何一处存疑一律 false 回落 gated。
+ *  免批判定被绕过等于静默放行，所以宁可漏放（该问的多问一次）、不可错放（不该放的被静默执行）。 */
+export function isReadonlyCommand(command: string): boolean {
+  const c = command.trim();
+  if (c === '') return false;
+  if (READONLY_FORBIDDEN_CHARS.some(ch => c.includes(ch))) return false;
+  if (!readonlyQuotesSafe(c)) return false;
+  const tokens = c.split(/\s+/);
+  // --output 是 git 家族把只读查询结果写进文件的后门（diff/show/log 通用旗标），
+  // 白名单内没有命令合法使用该前缀，全局按 token 前缀拒绝
+  if (tokens.some(t => t.toLowerCase().startsWith('--output'))) return false;
+  // 结构过滤已拒绝一切 &，这里再剥一次调用符前缀是防御性兜底：两道闸少一道也不至于漏
+  const head = tokens[0].replace(/^&/, '').toLowerCase();
+  if (!READONLY_ALLOWLIST.has(head)) return false;
+  const rules = READONLY_SECOND_TOKEN_RULES[head];
+  if (rules === undefined) return true; // 白名单直收命令（dir/rg/…），参数不再限制
+  const rest = tokens.slice(1).map(t => t.toLowerCase());
+  if (rest.length === 0) return false; // 裸 git/npm/node 是交互态或无只读语义，回落 gated
+  for (const rule of rules) {
+    if ('flagsOnly' in rule) {
+      if (rest.every(t => rule.flagsOnly.includes(t))) return true;
+    } else if (rest[0] === rule.sub) {
+      // restFlagsOnly：子命令后只许旗标集内成员（含空）——branch foo / -D foo / remote add 全被挡回 gated
+      if (rule.restFlagsOnly !== undefined) {
+        if (rest.slice(1).every(t => rule.restFlagsOnly!.includes(t))) return true;
+      } else if (rule.third === undefined || rest[1] === rule.third) return true;
+    }
+  }
+  return false;
+}
+
 export function classifyShellCommand(command: string): CommandClass {
   const c = command.trim();
+  // 危险层两个表原样先行：readonly 判定绝不允许越过 danger（Remove-Item 开头必是 danger）
   if (DANGER_ANYWHERE.some(r => r.test(c))) return 'danger';
   if (DANGER_AT_COMMAND_POSITION.some(r => r.test(c))) return 'danger';
+  if (isReadonlyCommand(c)) return 'readonly';
   return 'gated';
 }
 
@@ -44,7 +138,10 @@ export function classifyShellCommand(command: string): CommandClass {
 export type PermissionClass = CommandClass | 'file-write' | 'file-read' | BridgePermissionKind;
 
 const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
-  danger: 'notAllowed', gated: 'askOnce', 'file-write': 'askOnce', 'file-read': 'askOnce',
+  danger: 'notAllowed',
+  // 只读免批：保守子集判定通过即静默放行——查目录/看 git status 这类高频只读不再打断用户
+  readonly: 'bypass',
+  gated: 'askOnce', 'file-write': 'askOnce', 'file-read': 'askOnce',
   // 桥（设计 §4.5 + M2e 计划"架构决策 3"）：device 只读系统信息放行；剪贴板读/截图隐私敏感确认；
   // 剪贴板写覆盖用户既有内容确认；notify/open/speak 可被打扰性滥用确认。
   'bridge-device': 'bypass',
@@ -85,7 +182,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
     if (preset === 'full') {
       this.levels = {
         danger: 'notAllowed', // 不可逆/系统级操作不随「完全访问」放行——文案里「不可逆的系统操作仍拦截」是承诺，不是摆设
-        gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
+        readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
         'bridge-device': 'bypass', 'bridge-notify': 'bypass',
         'bridge-clipboard-read': 'bypass', 'bridge-clipboard-write': 'bypass',
         'bridge-open': 'bypass', 'bridge-speak': 'bypass', 'bridge-screenshot': 'bypass',
