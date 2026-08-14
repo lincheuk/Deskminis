@@ -11,17 +11,27 @@ const FALLBACK_WINDOW = 128_000;
  *
  * 注意：estimateTokens 的入参是 AgentMessage[]（不是 RawMessage[]）——
  * 水位检查在 loop.ts 里发生在 buildEffectiveHistory 之后，此时只剩 { role, parts }，
- * reasoningContent 已被丢弃，故估算只算 parts JSON 字符数 / 4。
+ * reasoningContent 已被丢弃，故估算只算 parts JSON 的字符数。
  */
 export class ContextPolicy {
   constructor(private catalog: { getModelContextWindow(modelId: string): number | undefined }) {}
 
-  /** 粗估 token 数：parts JSON 字符数 / 4。
-   *  英文 ~4 字符/token；中文偏保守（实际 2 字符/token，这里高估触发更早，安全侧）。 */
+  /** 粗估 token 数：对 parts JSON 分段估算——CJK 字符按 /1.6，其余字符按 /4。
+   *  换算依据：英文约 4 字符/token，中文约 1.5–2 字符/token。
+   *  旧实现整体 /4，把中文按英文密度折算，得真实值的一半（低估）→ 水位显示偏低、
+   *  压缩触发过晚，中文密集的长会话会直接撞上下文上限；故 CJK 必须用更小的除数
+   *  （1.6）单独折算，使其贴近真实值。CJK 范围沿用 tools/memory.ts 的 [\u4e00-\u9fa5]。 */
   estimateTokens(history: AgentMessage[]): number {
-    let chars = 0;
-    for (const m of history) chars += JSON.stringify(m.parts).length;
-    return Math.ceil(chars / 4);
+    let cjk = 0;
+    let total = 0;
+    for (const m of history) {
+      const s = JSON.stringify(m.parts);
+      total += s.length;
+      // 逐字符统计 CJK（shell 与英文/数字/标点都计入 total 但不算 cjk，
+      // 这样它们各自用各自密度折算，避免把 JSON 壳误当 CJK）
+      cjk += (s.match(/[\u4e00-\u9fa5]/g) ?? []).length;
+    }
+    return Math.ceil(cjk / 1.6 + (total - cjk) / 4);
   }
 
   /** 按窗口分层决策（设计 §4.2 阈值表）。

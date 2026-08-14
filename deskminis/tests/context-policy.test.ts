@@ -33,6 +33,26 @@ describe('ContextPolicy.estimateTokens', () => {
     const t = p.estimateTokens(history);
     expect(t).toBe(Math.ceil(JSON.stringify(history[0].parts).length / 4));
   });
+
+  it('纯英文历史：不含 CJK 时估算值与旧公式（字符数 / 4）完全一致', () => {
+    // 回归防线：分段估算对纯 ASCII 历史必须退化为旧公式，不能改变英文长会话的水位行为。
+    const p = new ContextPolicy(fakeCatalog(200_000));
+    const history: AgentMessage[] = [msg('a'.repeat(400))];
+    const t = p.estimateTokens(history);
+    expect(t).toBe(Math.ceil(JSON.stringify(history[0].parts).length / 4));
+  });
+
+  it('纯中文历史：估算值约为旧公式的 2.5 倍（1/1.6 vs 1/4）', () => {
+    // 旧公式把中文按 /4 估，得到真实值一半（低估）→ 水位偏低、压缩触发过晚；
+    // 新公式 CJK 按 /1.6，除数比 4/1.6 = 2.5，故纯中文估算应约为旧公式的 2.5 倍。
+    const p = new ContextPolicy(fakeCatalog(200_000));
+    const history: AgentMessage[] = [msg('测'.repeat(4000))];
+    const old = Math.ceil(JSON.stringify(history[0].parts).length / 4);
+    const t = p.estimateTokens(history);
+    // 4000 个汉字 + 固定 JSON 壳：壳字符占比趋近 0，比值应贴近 2.5，留 [2.3, 2.7] 带宽
+    expect(t).toBeGreaterThan(old * 2.3);
+    expect(t).toBeLessThan(old * 2.7);
+  });
 });
 
 describe('ContextPolicy.decide', () => {
