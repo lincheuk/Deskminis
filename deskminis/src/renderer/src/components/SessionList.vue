@@ -31,10 +31,30 @@ const confirmDelete = ref('');
 function toggleMenu(id: string): void {
   menuFor.value = menuFor.value === id ? '' : id;
   confirmDelete.value = ''; // 换行即清掉确认态，避免「在 A 行点了确认、切到 B 行还悬着」
+  closeRename();
 }
 async function onDelete(id: string): Promise<void> {
   await chat.deleteSession(id);
   menuFor.value = ''; confirmDelete.value = '';
+}
+
+/** B1 重命名：哪一行在改名、改成什么、上一次为什么没改成。
+ *  后端会拒空标题与超 50 字，错误必须落在菜单里——吞掉就成了「点了确认没反应」。 */
+const renameFor = ref('');
+const renameText = ref('');
+const renameErr = ref('');
+function closeRename(): void { renameFor.value = ''; renameText.value = ''; renameErr.value = ''; }
+function startRename(s: S): void {
+  renameFor.value = s.id;
+  renameText.value = s.title || '';  // 预填现有标题：改名多半是微调而不是重写
+  renameErr.value = '';
+}
+async function submitRename(id: string): Promise<void> {
+  try {
+    await chat.renameSession(id, renameText.value);
+    closeRename();
+    menuFor.value = '';
+  } catch (e) { renameErr.value = e instanceof Error ? e.message : String(e); }
 }
 
 const GROUP_ORDER = ['置顶', '今天', '昨天', '本周', '本月', '更早'];
@@ -154,6 +174,20 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
               <option v-for="p in chat.providers" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
           </label>
+          <template v-if="renameFor !== s.id">
+            <button class="smenu-item" type="button" @click.stop="startRename(s)">重命名</button>
+          </template>
+          <template v-else>
+            <div class="smenu-row">
+              <input
+                class="smenu-input" type="text" placeholder="会话标题" :value="renameText"
+                @click.stop @input="renameText = ($event.target as HTMLInputElement).value"
+                @keydown.enter="submitRename(s.id)"
+              >
+              <button class="smenu-item smenu-keep smenu-ok" type="button" @click.stop="submitRename(s.id)">确认</button>
+            </div>
+            <div v-if="renameErr" class="smenu-err">{{ renameErr }}</div>
+          </template>
           <template v-if="confirmDelete !== s.id">
             <button class="smenu-item smenu-danger" type="button" @click.stop="confirmDelete = s.id">删除会话</button>
           </template>
@@ -272,6 +306,18 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .smenu-danger { color: var(--state-err); }
 .smenu-danger:hover { background: var(--state-err-bg); color: var(--state-err); }
 .smenu-ask { padding: 6px 8px; font-size: var(--fs-micro); color: var(--label-secondary); line-height: 1.5; }
+/* 重命名输入行：与 .smenu-select 同一套外观令牌，免得菜单里两种输入控件长得不像一家 */
+.smenu-input {
+  flex: 1; min-width: 0; padding: 4px 6px;
+  border: .5px solid var(--separator); border-radius: var(--r-control);
+  background: var(--surface-1); color: var(--label); font-size: var(--fs-micro);
+}
+.smenu-input:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+/* 选择器要带 .smenu-row：上面 `.smenu-row .smenu-item{flex:1}` 特指度更高，
+   单写 .smenu-ok 压不过它，确认钮会被拉成和输入框一样宽 */
+.smenu-row .smenu-ok { flex: 0 0 auto; }
+/* 后端拒了要说清为什么（空标题 / 超 50 字），不然确认按钮看着像失灵 */
+.smenu-err { padding: 4px 8px 2px; font-size: var(--fs-micro); color: var(--state-err); line-height: 1.5; }
 .smenu-row { display: flex; gap: 4px; }
 .smenu-row .smenu-item { flex: 1; justify-content: center; }
 .smenu-keep { background: var(--surface-1); border: .5px solid var(--separator); }

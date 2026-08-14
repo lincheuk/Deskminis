@@ -125,6 +125,9 @@ export const useChat = defineStore('chat', {
       // 技能菜单数据源：开关/删除广播 changed；导入是后台任务不广播 changed，
       // 靠 progress 终态刷新（否则导入完成菜单里看不到）
       rpc.on('skills.changed', () => { void this.refreshSkills(); });
+      // 会话标题会被后端自己改（首回合结束的自动命名），不是每次都由本窗口发起——
+      // 不订阅这条广播的话，取好的名字要等到下次手动刷新列表才看得见。
+      rpc.on('chat.sessions.changed', () => { void this.refreshSessions(); });
       rpc.on('skills.import.progress', (t: any) => {
         if (t && typeof t.taskId === 'string') this.skillImport = t;
         if (t && t.state !== 'running') { void this.refreshSkills(); void this.refreshAllSkills(); }
@@ -156,6 +159,14 @@ export const useChat = defineStore('chat', {
         if (next) await this.open(next.id);
         else { this.activeId = ''; this.messages = []; }
       }
+    },
+    /** 重命名会话。后端会拒空标题与超 50 字，错误原样抛给调用方——
+     *  菜单里要把这句话显示出来，静默吞掉就成了「点了确认没反应」。 */
+    async renameSession(id: string, title: string) {
+      await rpc.call('chat.sessions.rename', { sessionId: id, title });
+      // 后端也会广播 sessions.changed，但那条是异步到达的；这里补一次
+      // 让「点完确认列表立刻是新名字」成为确定行为（与同组其他 action 一致）
+      await this.refreshSessions();
     },
     async setSessionMemory(id: string, enabled: boolean) {
       await rpc.call('chat.sessions.setMemoryEnabled', { sessionId: id, enabled });

@@ -92,6 +92,29 @@ describe('minisd JSON-RPC', () => {
     expect(resp.error).toBeTruthy();
     c.close();
   });
+  it('会话重命名：落库前 trim + 广播 chat.sessions.changed（别的窗口靠这条广播同步左栏）', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    const resp = await c.call('chat.sessions.rename', { sessionId: s.id, title: '  重构登录模块  ' });
+    expect(resp.result).toEqual({ ok: true });
+    const list = (await c.call('chat.sessions.list')).result;
+    expect(list[0].title).toBe('重构登录模块');
+    await waitFor('chat.sessions.changed 广播', () => c.notifications.some(n => n.method === 'chat.sessions.changed'));
+    c.close();
+  });
+  it('会话重命名：空白标题与超 50 字都拒收，旧标题不动（空标题让左栏出现无名行，超长把单行卡撑变形）', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', { title: '原名' })).result;
+    expect((await c.call('chat.sessions.rename', { sessionId: s.id, title: '   ' })).error).toBeTruthy();
+    expect((await c.call('chat.sessions.rename', { sessionId: s.id, title: '标'.repeat(51) })).error).toBeTruthy();
+    expect((await c.call('chat.sessions.list')).result[0].title).toBe('原名'); // 两次拒收都没写库
+    // 边界内侧放行：50 字整正好是允许的
+    expect((await c.call('chat.sessions.rename', { sessionId: s.id, title: '标'.repeat(50) })).result).toEqual({ ok: true });
+    expect((await c.call('chat.sessions.list')).result[0].title).toBe('标'.repeat(50));
+    c.close();
+  });
   it('chat.prompt 用假 provider 跑通并广播 chat.event', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;

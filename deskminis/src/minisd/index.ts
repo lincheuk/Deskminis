@@ -30,6 +30,7 @@ import { OffloadEngine } from './agent/offload';
 import { CompactEngine } from './agent/compact';
 import { createStableCache } from './agent/system-prompt';
 import { buildDisciplineBlock } from './agent/model-discipline';
+import { buildTitleRequest, cleanTitle } from './agent/auto-title';
 import { createDiagnosticsMethods } from './diagnostics';
 import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
@@ -53,6 +54,14 @@ function assertSessionId(id: unknown): string {
 
 /** 权限询问未响应的兜底时限：与 PermissionGatewayImpl 的 askTimeoutMs 保持一致。 */
 const PERM_TIMEOUT_MS = 90000;
+
+/** 手动重命名的标题上限。比自动命名的 20 字宽松——用户自己起的名字该由用户说了算，
+ *  这里只拦「贴了一整段进来」这种把列表撑坏的输入。 */
+const SESSION_TITLE_MAX = 50;
+
+/** createSession 的默认标题。自动命名只在标题还是这个值时才动手——
+ *  用户手动改过名（或从别的设备同步来了名字）就不该再被模型覆盖。 */
+const DEFAULT_SESSION_TITLE = '新会话';
 
 /** M3c Task 4：端口持久化文件名（必改 4b）。 */
 const PORT_FILE = 'minisd-port.json';
@@ -315,6 +324,35 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
    *  交错落库出 Anthropic 直接 400 的消息序列（tool_use 没有配对的 tool_result）。 */
   const inFlight = new Set<string>();
   const controllers = new Map<string, AbortController>();
+  /** 正在自动命名的会话。命名是 fire-and-forget 的，没有这道闸，
+   *  同一会话前后两轮的命名请求会并发跑、互相覆盖标题。 */
+  const titling = new Set<string>();
+
+  /**
+   * 首回合跑完后给还叫「新会话」的会话取个名——否则左栏一排一模一样的卡，
+   * 用户只能靠时间和位置猜哪个是哪个。
+   * 刻意 fire-and-forget + 全程静默：取名是锦上添花，失败不值得打断用户，
+   * 更不该让它把已经成功跑完的这一轮染成 error。失败的表现就是标题还叫「新会话」。
+   */
+  async function autoTitle(sessionId: string, userText: string, provider: AgentProvider): Promise<void> {
+    if (titling.has(sessionId)) return;
+    titling.add(sessionId);
+    // 整段包在 try 里（而非只包网络调用）：这是个没人 await 的 promise，
+    // 漏出去的异常会变成 unhandledRejection——进程关停后 DB/连接已销毁，读库本身就会抛。
+    try {
+      if (chat.getSession(sessionId)?.title !== DEFAULT_SESSION_TITLE) return;
+      let out = '';
+      for await (const ev of provider.streamAgentMessage(buildTitleRequest(userText))) {
+        if (ev.kind === 'textDelta') out += ev.text;
+      }
+      const title = cleanTitle(out);
+      // 再查一次：这一趟网络往返期间用户可能已经手动改名了，别把人家起的名字盖回去
+      if (!title || chat.getSession(sessionId)?.title !== DEFAULT_SESSION_TITLE) return;
+      chat.updateSessionTitle(sessionId, title);
+      rpc.broadcast('chat.sessions.changed', {});
+    } catch { /* 静默：标题留在「新会话」，用户随时可以手动改 */ }
+    finally { titling.delete(sessionId); }
+  }
 
   const methods = {
     // ---- 工作区可选（用户 2026-08-11 拍板：每会话各自设，新会话继承上次用过的）----
@@ -348,6 +386,17 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       if (p.confirm !== true) throw new Error('删除会话需 confirm:true');
       terminals.dispose(sessionId);
       chat.deleteSession(sessionId); return { ok: true };
+    },
+    'chat.sessions.rename': (p: { sessionId: string; title: string }) => {
+      const sessionId = assertSessionId(p.sessionId);
+      const title = (typeof p.title === 'string' ? p.title : '').trim();
+      // 空标题会让左栏出现一行没有名字的卡（点得到但认不出）；超长把 212px 的单行卡撑变形
+      if (!title) throw new Error('会话标题不能为空');
+      if (title.length > SESSION_TITLE_MAX) throw new Error(`会话标题不能超过 ${SESSION_TITLE_MAX} 个字`);
+      chat.updateSessionTitle(sessionId, title);
+      // 多窗口/多设备下别的界面不知道标题变了，靠这条广播各自重拉列表
+      rpc.broadcast('chat.sessions.changed', {});
+      return { ok: true };
     },
     'chat.sessions.setModelBinding': (p: { sessionId: string; binding?: string }) => {
       const sessionId = assertSessionId(p.sessionId);
@@ -431,6 +480,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       void (async () => {
         let pendingRebind: string | undefined; // 降级候选 instanceId，等 turnEnd 才落库
         let rebound = false; // 是否已改写绑定（只改一次）
+        // 自动命名要发给「这轮最后真正在跑的那个 provider」：降级换过 slot 后仍拿初始 provider，
+        // 等于把命名请求投给刚刚已经失败的端点，必然再失败一次。
+        // 与 pendingRebind 分开记：那个只认第一次降级（绑定只改一次），这个得跟到最后一跳。
+        let activeProvider = provider;
         try {
           for await (const event of runAgentLoop(chat, {
             sessionId, provider, tools,
@@ -460,12 +513,18 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
               const target = fallbackChain.find(s => s.label === event.to) as (ProviderSlot & { instanceId?: string }) | undefined;
               if (target?.instanceId) pendingRebind = target.instanceId;
             }
+            if (event.kind === 'fallback') {
+              const slot = fallbackChain.find(s => s.label === event.to);
+              if (slot) activeProvider = slot.provider;
+            }
             // turnEnd：该 slot 真正跑通，执行推迟的改写
             if (event.kind === 'turnEnd' && !rebound && pendingRebind) {
               rebound = true;
               chat.setModelBinding(sessionId, `provider:${pendingRebind}`);
               pendingRebind = undefined;
             }
+            // 首回合结束即取名（内部自查标题是否仍是默认值，多轮会话不会重复发请求）
+            if (event.kind === 'turnEnd') void autoTitle(sessionId, p.text, activeProvider);
             rpc.broadcast('chat.event', { sessionId, event });
           }
         } catch (e) { rpc.broadcast('chat.event', { sessionId, event: { kind: 'error', message: String(e) } }); }
