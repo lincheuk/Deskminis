@@ -6,6 +6,9 @@ export type ContentPart =
   | { type: 'toolUse'; value: { toolUseId: string; name: string; input: string; description?: string; thoughtSignature?: string } }
   | { type: 'toolResult'; value: { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' } }
   | { type: 'mediaRef'; value: { id: string; relativePath: string; mimeType: string; originalFileName?: string; linuxPath?: string } }
+  // Anthropic 思考块：signature 是回放必需的校验签名；redactedData 对应供应商已脱敏的
+  // redacted_thinking 块（无签名，只能原样回放脱敏串）。两者都缺=无签名历史块，回放时丢弃。
+  | { type: 'thinking'; value: { text: string; signature?: string; redactedData?: string } }
   | { type: string; value: unknown };
 
 export interface TokenUsage { inputTokens: number; outputTokens: number }
@@ -42,6 +45,8 @@ export type AgentStreamEvent =
   | { kind: 'thinkingDelta'; text: string }
   | { kind: 'toolInputDelta'; toolUseId: string; name: string; accumulatedJson: string }
   | { kind: 'toolCallComplete'; toolUseId: string; name: string; input: string; thoughtSignature?: string }
+  // 一个 thinking 块收尾时发出（含完整文本与回放必需签名），供 loop 持久化
+  | { kind: 'thinkingComplete'; text: string; signature?: string; redactedData?: string }
   | { kind: 'usage'; usage: TokenUsage }
   | { kind: 'done'; stopReason: StopReason };
 

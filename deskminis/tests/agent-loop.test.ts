@@ -146,6 +146,38 @@ describe('runAgentLoop', () => {
     expect(store.listMessages(sessionId)).toHaveLength(1);
   });
 
+  it('thinking-only 响应视作空响应 → 走降级路径且不落库', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    // 只有思考、无正文无工具调用：A1 后 thinking part 会前置进 assistantParts，若按 parts 长度判定
+    // 会绕过空响应两路、落库一条用户看不见内容的 thinking-only 消息。现在应走空响应降级。
+    const main = new ScriptedProvider([[ { kind: 'thinkingComplete', text: '思考过程', signature: 'sig-1' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    const backup = new ScriptedProvider([[ { kind: 'textDelta', text: 'ok' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider: main, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0],
+      fallbackChain: [{ provider: backup, label: 'backup-1' }],
+    }));
+    // 走空响应降级路径：fallback 到 backup，backup 正常回复
+    expect(events.some(e => e.kind === 'fallback')).toBe(true);
+    expect(events.some(e => e.kind === 'textDelta' && e.text === 'ok')).toBe(true);
+    // 不落库 thinking-only assistant 消息：只剩原始 user + backup 的 assistant(text)
+    const msgs = store.listMessages(sessionId);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1].parts).toEqual([{ type: 'text', value: 'ok' }]);
+  });
+
+  it('thinking-only 响应且无降级链 → 报「模型返回了空响应」且不落库', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([[ { kind: 'thinkingComplete', text: '思考过程', signature: 'sig-1' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', retryDelaysMs: [0] }));
+    const last = events.at(-1);
+    expect(last).toMatchObject({ kind: 'error' });
+    if (last?.kind === 'error') expect(last.message).toContain('空响应');
+    // 不落库 thinking-only assistant 消息
+    expect(store.listMessages(sessionId)).toHaveLength(1);
+  });
+
   it('中断后不再变砖: 中间孤儿 tool_use 在发送前配对(不改存储)', async () => {
     const { store, tools, toolContext, sessionId } = mkCtx();
     const t0 = store.nowEpoch();
@@ -240,6 +272,25 @@ describe('runAgentLoop', () => {
     await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
     const msgs = store.listMessages(sessionId);
     expect(msgs[1].parts[0]).toEqual({ type: 'toolUse', value: { toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}', thoughtSignature: 'sig-1' } });
+  });
+
+  it('thinkingComplete + toolCallComplete → 落库消息 parts 里 thinking 在最前', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'do it' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([
+      [
+        { kind: 'thinkingComplete', text: '思考过程', signature: 'sig-1' },
+        { kind: 'toolCallComplete', toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' },
+        { kind: 'done', stopReason: 'toolUse' },
+      ],
+      [ { kind: 'textDelta', text: '完成' }, { kind: 'done', stopReason: 'endTurn' } ],
+    ]);
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    const msgs = store.listMessages(sessionId);
+    const assistant = msgs[1];
+    // Anthropic 块序要求：thinking 必须先于 text 与 toolUse
+    expect(assistant.parts[0]).toEqual({ type: 'thinking', value: { text: '思考过程', signature: 'sig-1' } });
+    expect(assistant.parts[1]).toEqual({ type: 'toolUse', value: { toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' } });
   });
 
   // ── M2b 降级链 ──

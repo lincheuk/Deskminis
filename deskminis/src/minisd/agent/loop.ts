@@ -224,13 +224,15 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
 
     let text = ''; let reasoning = ''; let usage: TokenUsage | undefined; let stopReason: StopReason = 'endTurn';
     let calls: AccumulatedCall[] = [];
+    // thinking 块按到达顺序累积：Anthropic 要求回放时 thinking 排在最前，故单独收集、落库前置
+    let thinking: { text: string; signature?: string; redactedData?: string }[] = [];
     let streamOk = false;
     let lastError: ProviderError | undefined;
 
     // 降级循环：主 slot → fallbackChain[0] → [1] → …
     // 每次 slot 切换后重置累加器，从头流式请求
     while (true) {
-      text = ''; reasoning = ''; usage = undefined; stopReason = 'endTurn'; calls = [];
+      text = ''; reasoning = ''; usage = undefined; stopReason = 'endTurn'; calls = []; thinking = [];
       const currentProvider = activeSlot.provider;
       // systemPrompt 工厂：每次 slot 切换后用当前 activeSlot.provider.modelId 重算（决策点 3 方案 a：降级当轮生效）；
       // 传 string 时原样透传（向后兼容——等价于改前行为）
@@ -243,12 +245,13 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
       for (let attempt = 0; attempt <= retryLadder.length; attempt++) {
         // 每次尝试都必须清空累加器：第 1 次流出半截文本再失败时，若不清空，
         // 第 2 次会往同一个累加器上追加，落库的 assistant 文本会重复一遍（工具调用同理）。
-        text = ''; reasoning = ''; usage = undefined; stopReason = 'endTurn'; calls = [];
+        text = ''; reasoning = ''; usage = undefined; stopReason = 'endTurn'; calls = []; thinking = [];
         try {
           for await (const ev of currentProvider.streamAgentMessage(req, opts.signal)) {
             switch (ev.kind) {
               case 'textDelta': text += ev.text; yield ev; break;
               case 'thinkingDelta': reasoning += ev.text; yield ev; break;
+              case 'thinkingComplete': thinking.push({ text: ev.text, ...(ev.signature !== undefined ? { signature: ev.signature } : {}), ...(ev.redactedData !== undefined ? { redactedData: ev.redactedData } : {}) }); break;
               case 'toolCallComplete': calls.push({ toolUseId: ev.toolUseId, name: ev.name, input: ev.input, ...(ev.thoughtSignature !== undefined ? { thoughtSignature: ev.thoughtSignature } : {}) }); break;
               case 'usage': usage = ev.usage; break;
               case 'done': stopReason = ev.stopReason; break;
@@ -302,8 +305,12 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
 
     if (!streamOk) { yield { kind: 'error', message: '流式请求失败' }; return; }
 
-    // 持久化 assistant 消息（text + toolUse）
+    // 持久化 assistant 消息（thinking + text + toolUse）
     const assistantParts: ContentPart[] = [];
+    // thinking 必须排在最前（Anthropic 块序要求：thinking 先于 text 与 tool_use）
+    for (const t of thinking) {
+      assistantParts.push({ type: 'thinking', value: { text: t.text, ...(t.signature !== undefined ? { signature: t.signature } : {}), ...(t.redactedData !== undefined ? { redactedData: t.redactedData } : {}) } });
+    }
     if (text) assistantParts.push({ type: 'text', value: text });
     for (const c of calls) {
       // 就地归一：落库/toolStart 事件/工具执行三处看到的入参必须是同一个值
@@ -312,7 +319,12 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     }
 
     // 空响应处理（设计 §4.2 空响应两路）
-    if (assistantParts.length === 0) {
+    // 判定看「无正文且无工具调用」而非 assistantParts 是否为空：A1 把 thinking 块前置进了
+    // assistantParts，thinking-only（有思考、无正文无工具）的响应此时 parts 非空，若按长度判
+    // 定会绕过空响应两路恢复、落库一条用户看不见任何内容的 thinking-only 消息后直接 turnEnd。
+    // 改为 text 为空且 calls 为空即视作空响应 → 不落库、走既有降级/reminder 两路；同时保证
+    // thinking-only 这一新消息形态永远不会进入历史。
+    if (!text && calls.length === 0) {
       if (!hadToolCallInPrevTurn) {
         // 首轮空响应：直接降级，不注入 system-reminder
         const nextSlot = tryFallback();
