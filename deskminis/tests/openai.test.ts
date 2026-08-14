@@ -76,4 +76,33 @@ describe('OpenAIProvider 流归一化', () => {
     expect(events).toContainEqual({ kind: 'toolCallComplete', toolUseId: 'C9', name: 'file_read', input: '{"path":"a"}' });
     expect(events.at(-1)).toEqual({ kind: 'done', stopReason: 'toolUse' });
   });
+
+  it('delta.reasoning_content 非空字符串 → thinkingDelta 事件（DeepSeek/Kimi/GLM 推理模型走此字段）', async () => {
+    const p = new OpenAIProvider({ apiKey: 'k', modelId: 'm', baseUrl: 'http://x/v1', fetchImpl: async () => sseResponse([
+      { choices: [{ index: 0, delta: { reasoning_content: '先分析' } }] },
+      // 空字符串不应产出事件（与 content 的空值判断同规：空帧只是心跳/占位）
+      { choices: [{ index: 0, delta: { reasoning_content: '' } }] },
+      { choices: [{ index: 0, delta: { reasoning_content: '再作答' } }] },
+      { choices: [{ index: 0, delta: { content: '答案' } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    ]) });
+    const events: AgentStreamEvent[] = [];
+    for await (const e of p.streamAgentMessage(REQ)) events.push(e);
+    expect(events).toContainEqual({ kind: 'thinkingDelta', text: '先分析' });
+    expect(events).toContainEqual({ kind: 'thinkingDelta', text: '再作答' });
+    expect(events.filter(e => e.kind === 'thinkingDelta').length).toBe(2);
+    expect(events).toContainEqual({ kind: 'textDelta', text: '答案' });
+    expect(events.at(-1)).toEqual({ kind: 'done', stopReason: 'endTurn' });
+  });
+
+  it('delta 无 reasoning_content 字段时不产出 thinkingDelta（既有行为不变）', async () => {
+    const p = new OpenAIProvider({ apiKey: 'k', modelId: 'm', baseUrl: 'http://x/v1', fetchImpl: async () => sseResponse([
+      { choices: [{ index: 0, delta: { content: '嗯' } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    ]) });
+    const events: AgentStreamEvent[] = [];
+    for await (const e of p.streamAgentMessage(REQ)) events.push(e);
+    expect(events.some(e => e.kind === 'thinkingDelta')).toBe(false);
+    expect(events).toContainEqual({ kind: 'textDelta', text: '嗯' });
+  });
 });

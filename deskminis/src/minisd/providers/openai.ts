@@ -94,6 +94,10 @@ export class OpenAIProvider implements AgentProvider {
       if (!choice) continue;
       const delta = choice.delta ?? {};
       if (typeof delta.content === 'string' && delta.content) yield { kind: 'textDelta', text: delta.content };
+      // DeepSeek/Kimi/GLM 的推理模型走 OpenAI 兼容层时，思考内容在 delta.reasoning_content
+      // 而非 content。不读它的话 loop 侧的 reasoningContent 永远为空——用户付了推理
+      // token 的钱，界面上却什么都看不到。空串跳过：与 content 同规，空帧只是占位。
+      if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) yield { kind: 'thinkingDelta', text: delta.reasoning_content };
       for (const tc of delta.tool_calls ?? []) {
         const cur = calls.get(tc.index) ?? { id: '', name: '', args: '' };
         if (tc.id) cur.id = tc.id;

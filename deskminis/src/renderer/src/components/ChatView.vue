@@ -11,6 +11,7 @@ import ModelPicker from './ModelPicker.vue';
 import PermissionPicker from './PermissionPicker.vue';
 import Icon from './Icon.vue';
 import EventNote from './EventNote.vue';
+import ThinkingBlock from './ThinkingBlock.vue';
 import MarkdownView from './MarkdownView.vue';
 import FadeText from './FadeText.vue';
 import { MarkdownCache } from '../lib/markdown/cache';
@@ -287,9 +288,11 @@ function onScroll(): void {
   if (!el) return;
   following.value = shouldFollow(el.scrollTop, el.scrollHeight, el.clientHeight, following.value);
 }
-// 新内容到达时贴底滚动（仅在跟随态；解除后不抢回）
+// 新内容到达时贴底滚动（仅在跟随态；解除后不抢回）。
+// streamingThinking 必须在依赖里：推理模型先想后答，纯思考阶段没有 textDelta，
+// 少了它思考块会静默长高、滚动条不跟——「窗口感」直接破产。
 watch(
-  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.retryNote, chat.pendingPerms.length, chat.eventNotes.length] as const,
+  () => [chat.messages.length, chat.streamingText, chat.streamingThinking, chat.toolCards.length, chat.retryNote, chat.pendingPerms.length, chat.eventNotes.length] as const,
   () => {
     if (!following.value) return;
     void nextTick(() => { const el = streamEl.value; if (el) el.scrollTop = el.scrollHeight; });
@@ -368,6 +371,8 @@ function onSlashTab(e: KeyboardEvent): void {
           <div v-for="m in t.assistants" :key="m.id" class="msg-a">
             <div class="abody">
               <div v-if="m.originDeviceId" class="devmark-line"><span class="devdot" :style="{ background: deviceColor(m.originDeviceId) }"></span><span class="devname" :style="{ color: deviceColor(m.originDeviceId) }">{{ deviceShortName(m.originDeviceId) }}</span></div>
+              <!-- 历史思考块：reasoningContent 落库字段，默认收起（「已思考」），置正文前 -->
+              <ThinkingBlock v-if="m.reasoningContent" :text="m.reasoningContent" />
               <template v-for="(p, i) in (Array.isArray(m.parts) ? m.parts : [])" :key="i">
                 <MarkdownView v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" :nodes="mdOf(`${m.id}:${i}`)" />
                 <ToolLine
@@ -387,6 +392,8 @@ function onSlashTab(e: KeyboardEvent): void {
         <section v-if="hasLive" class="turn live">
           <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
           <div class="abody">
+            <!-- 实时思考块：流式正文上方，收起态露末两行（思考还在滚动的窗口感） -->
+            <ThinkingBlock v-if="chat.streamingThinking" :text="chat.streamingThinking" streaming />
             <MarkdownView v-if="streamStable.length" :nodes="streamStable" />
             <FadeText v-if="streamTailText" :text="streamTailText" />
             <!-- 实时工具行：连续 ≥3 同型成组（组头展开嵌子行， ToolLine 默认插槽覆写） -->

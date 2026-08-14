@@ -5,7 +5,7 @@ let localSeq = 0;
 // M3c Task 7：sync.dirty → syncing → 2s 回 idle 的回退定时器（模块级非响应式，单 store 实例）
 let _syncDirtyTimer: ReturnType<typeof setTimeout> | undefined;
 
-interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number }; originDeviceId?: string }
+interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number }; originDeviceId?: string; reasoningContent?: string }
 interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
@@ -20,6 +20,10 @@ export const useChat = defineStore('chat', {
     activeId: '' as string,
     messages: [] as UiMessage[],
     streamingText: '' as string,
+    // 流式思考缓冲（loop 早已广播 thinkingDelta，此前 onEvent 无分支消费，推理 token 白烧）。
+    // 生命周期与 streamingText 一致：send/重试/降级/turnEnd/error/换会话时同步清空——
+    // 回合落库后历史侧由消息的 reasoningContent 接管渲染，缓冲若残留会与历史块并存重复。
+    streamingThinking: '' as string,
     toolCards: [] as { toolUseId: string; name: string; title: string; output?: string; success?: boolean; startedAt?: number; endedAt?: number; input?: string }[],
     pendingPerms: [] as PendingPerm[],
     // MU2b Task 2：进度面板「去处理」点击写入目标权限卡 requestId，ChatView watch 后滚动定位并清空
@@ -252,12 +256,12 @@ export const useChat = defineStore('chat', {
         this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
         this.contextInfo = null;
       }
-      this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.toolCards = [];
+      this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.streamingThinking = ''; this.toolCards = [];
       void this.refreshSkills(); // 会话覆盖会改变生效启用集，换会话必须重取
       await this.refreshWorkspace();
     },
     async send(text: string) {
-      this.streamingText = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';
+      this.streamingText = ''; this.streamingThinking = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';
       this.lastStopReason = ''; this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
       // 乐观消息用唯一 id：一次会话内连发多条时 'local' 会造成 :key 重复
       const optimisticId = `local-${++localSeq}`;
@@ -298,17 +302,25 @@ export const useChat = defineStore('chat', {
     },
     onEvent(e: any) {
       if (e.kind === 'textDelta') { this.retryNote = ''; this.streamingText += e.text; }
+      // 思考流与正文分开累积：ThinkingBlock 折叠块渲染它，不进 Markdown 正文。
+      // 不清 retryNote——retryNote 的既有契约是「下一个 textDelta / turnEnd 清掉」，不扩界。
+      else if (e.kind === 'thinkingDelta') this.streamingThinking += e.text;
       else if (e.kind === 'toolStart') this.toolCards.push({ toolUseId: e.toolUseId, name: e.name, title: e.title, startedAt: Date.now(), input: e.input });
       else if (e.kind === 'toolEnd') { const c = this.toolCards.find(x => x.toolUseId === e.toolUseId); if (c) { c.output = e.output; c.success = e.success; c.endedAt = Date.now(); } }
       else if (e.kind === 'retry') {
         // 循环会整回合重来，已缓冲的半截文本是过期的（不清就会和重试后的正文拼在一起）
         this.streamingText = '';
+        // 思考缓冲同理：重试会重新推理，旧半截思考留着会拼进新思考
+        this.streamingThinking = '';
         this.retryNote = `正在重试…（第 ${e.attempt} 次，${Math.round((e.delayMs ?? 0) / 1000)}s 后）`;
         // MU2a Task 8：retryNote 同时流转为 eventNotes 一条（kind retry）——双写过渡，MU2b Task 2 收口
         this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'retry', ts: Date.now(), detail: `第 ${e.attempt} 次，${Math.round((e.delayMs ?? 0) / 1000)}s 后` }];
       }
       else if (e.kind === 'turnEnd') {
         this.retryNote = ''; this.running = false;
+        // 思考已随消息落库（reasoningContent），历史块会接管渲染；
+        // 这里同步清缓冲——open() 重取是异步的，残值会与历史块短暂并存
+        this.streamingThinking = '';
         if (e.stopReason) this.lastStopReason = String(e.stopReason);
         void this.open(this.activeId);
         void this.fetchContextInfo();
@@ -317,6 +329,7 @@ export const useChat = defineStore('chat', {
         // 先记错误再刷新：open 在同会话路径上不动 lastError，横幅得以留在界面上
         this.lastError = String(e.message ?? '未知错误');
         this.retryNote = '';
+        this.streamingThinking = ''; // 回合已败，半截思考没有下文，留着只会悬在界面上
         this.running = false;
         // MU2a Task 8：错误进对话流内联（EventNote 短句 + 详情折叠 + 重试钮），errbar 横幅退场
         this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail: String(e.message ?? '未知错误'), retryable: true }];
@@ -327,6 +340,8 @@ export const useChat = defineStore('chat', {
       else if (e.kind === 'fallback') {
         // 循环会切到备选模型重播，已缓冲的半截正文是过期的（不清就会和重播后的正文拼在一起）
         this.streamingText = '';
+        // 与正文同款防拼接：备选模型重新推理，旧思考残值必须丢弃
+        this.streamingThinking = '';
         // loop.ts L19: { kind: 'fallback'; from: string; to: string; reason: string }
         this.fallbackState = { from: String(e.from), to: String(e.to), reason: String(e.reason) };
         this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'fallback', ts: Date.now(), detail: `${String(e.from)} → ${String(e.to)}（${String(e.reason)}）` }];
