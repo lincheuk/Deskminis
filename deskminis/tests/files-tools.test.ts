@@ -115,4 +115,37 @@ describe('文件工具', () => {
     expect(r.success).toBe(false);
     expect(seen).toEqual([]);
   });
+  // 绑定真实项目目录后，工作区内文件应同数据根内一样免询问：
+  // 绑定动作本身就是授权语义，无需每次路径都过权限门。
+  it('绑定自定义工作区后 file_read 工作区内文件不需过权限门', async () => {
+    const deny = new DenyAllGateway();
+    const ws = mkdtempSync(join(tmpdir(), 'dm-ws-'));
+    writeFileSync(join(ws, 'proj.txt'), '项目源码');
+    ctx.paths.setWorkspaceResolver(() => ws);
+    const r = await reg.execute('file_read', JSON.stringify({ path: 'proj.txt', tool_title: '读' }), { ...ctx, permissions: deny });
+    expect(r.success).toBe(true);
+    expect(r.output).toBe('项目源码');
+    expect(deny.asked).toEqual([]);
+  });
+  it('绑定自定义工作区后 file_write 工作区内文件不需过权限门', async () => {
+    const deny = new DenyAllGateway();
+    const ws = mkdtempSync(join(tmpdir(), 'dm-ws-'));
+    const target = join(ws, 'out.txt');
+    ctx.paths.setWorkspaceResolver(() => ws);
+    const r = await reg.execute('file_write', JSON.stringify({ path: target, content: '新内容', tool_title: '写' }), { ...ctx, permissions: deny });
+    expect(r.success).toBe(true);
+    expect(readFileSync(target, 'utf8')).toBe('新内容');
+    expect(deny.asked).toEqual([]);
+  });
+  it('绑定自定义工作区后读取工作区之外路径仍触发权限门', async () => {
+    const deny = new DenyAllGateway();
+    const ws = mkdtempSync(join(tmpdir(), 'dm-ws-'));
+    const outside = join(mkdtempSync(join(tmpdir(), 'dm-out-')), 'secret.txt');
+    writeFileSync(outside, '外部机密');
+    ctx.paths.setWorkspaceResolver(() => ws);
+    const r = await reg.execute('file_read', JSON.stringify({ path: outside, tool_title: '读' }), { ...ctx, permissions: deny });
+    expect(r.success).toBe(false);
+    expect(deny.asked).toHaveLength(1);
+    expect(deny.asked[0].kind).toBe('file-read');
+  });
 });

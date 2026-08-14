@@ -14,7 +14,7 @@ function isInsideRoot(absPath: string, root: string): boolean {
 
 /** 数据根之外的绝对宿主路径写入需过权限网关。 */
 async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string): Promise<string | undefined> {
-  if (!isInsideRoot(absPath, ctx.paths.root)) {
+  if (!isInsideRoot(absPath, ctx.paths.root) && !isInsideRoot(absPath, ctx.paths.workspaceOf(ctx.sessionId))) {
     const d = await ctx.permissions.check({ kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle });
     if (d === 'deny') return `写入被用户拒绝: ${absPath}（可在设置-权限中调整）`;
   }
@@ -25,9 +25,12 @@ async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute
  * 数据根之外的读取同样需过权限网关：静默 shell 只读层已取消后，
  * 无门的 file_read 会成为唯一的静默外泄通道（~/.ssh/id_rsa、浏览器 cookie 库、minis.db 本身）。
  * 数据根之内是 agent 自己的工作区，保持免打扰。
+ * 用户显式绑定为工作区的真实项目目录（workspaceOf）也算免询问：绑定动作本身就是授权语义，
+ * 否则会话绑定项目后每个新文件路径都会触发一次权限确认，确认沦为噪音。
+ * 未绑定会话时 workspaceOf 回落沙箱桶（在数据根内），上面的数据根判断已覆盖，行为不变。
  */
 async function guardRead(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string): Promise<string | undefined> {
-  if (!isInsideRoot(absPath, ctx.paths.root)) {
+  if (!isInsideRoot(absPath, ctx.paths.root) && !isInsideRoot(absPath, ctx.paths.workspaceOf(ctx.sessionId))) {
     const d = await ctx.permissions.check({ kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle });
     if (d === 'deny') return `读取被用户拒绝: ${absPath}（可在设置-权限中调整）`;
   }
