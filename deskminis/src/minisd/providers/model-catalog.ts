@@ -123,23 +123,25 @@ export function createProxyFetch(): FetchLike | undefined {
 
 /** 内置兜底表：models.dev 与磁盘缓存都不可用时仍可用。按模型族前缀正则，先中先赢。 */
 const BUILTIN: [RegExp, ModelCatalogEntry][] = [
-  [/^claude-/i, { contextWindow: 200_000, thinking: true }],
-  [/^gpt-5/i, { contextWindow: 400_000, thinking: true }],
-  [/^gpt-4/i, { contextWindow: 128_000, thinking: false }],
-  [/^gemini-/i, { contextWindow: 1_000_000, thinking: true }],
-  [/^qwen3/i, { contextWindow: 128_000, thinking: true }],
-  [/^deepseek-r1/i, { contextWindow: 128_000, thinking: true }],
-  [/^deepseek-v/i, { contextWindow: 128_000, thinking: false }],
-  [/^llama/i, { contextWindow: 128_000, thinking: false }],
-  [/^mistral/i, { contextWindow: 128_000, thinking: false }],
+  [/^claude-/i, { contextWindow: 200_000, maxOutputTokens: 64_000, thinking: true }],
+  [/^gpt-5/i, { contextWindow: 400_000, maxOutputTokens: 16_384, thinking: true }],
+  [/^gpt-4/i, { contextWindow: 128_000, maxOutputTokens: 16_384, thinking: false }],
+  [/^gemini-/i, { contextWindow: 1_000_000, maxOutputTokens: 8_192, thinking: true }],
+  [/^qwen3/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: true }],
+  [/^deepseek-r1/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: true }],
+  [/^deepseek-v/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: false }],
+  [/^llama/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: false }],
+  [/^mistral/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: false }],
   // M4.5 Task 2：国内中转站主力模型族（models.dev 全量 6043 条按族聚合的一手数据，非二手报道）。
   // contextWindow 取当代主力型号下界且不低于 128K；thinking 按该族 reasoning 占比判定。
   // 顺序约束：^qwen 必须在 ^qwen3 之后——qwen3 仍优先匹配 thinking:true（先中先赢）。
-  [/^glm/i, { contextWindow: 128_000, thinking: true }],
-  [/^grok/i, { contextWindow: 128_000, thinking: true }],
-  [/^kimi/i, { contextWindow: 128_000, thinking: true }],
-  [/^minimax/i, { contextWindow: 128_000, thinking: true }], // reasoning 占 182/202
-  [/^qwen/i, { contextWindow: 128_000, thinking: false }],
+  // maxOutputTokens 取保守下界：只作离线兜底，在线时被 models.dev 佐证值覆盖；
+  // 宁低勿高——偏高会让 openai-compat 端点对超大 max_tokens 直接 400（与 chat.prompt 8192 兜底同理）。
+  [/^glm/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: true }],
+  [/^grok/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: true }],
+  [/^kimi/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: true }],
+  [/^minimax/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: true }], // reasoning 占 182/202
+  [/^qwen/i, { contextWindow: 128_000, maxOutputTokens: 8_192, thinking: false }],
 ];
 
 /**
@@ -209,6 +211,9 @@ export class ModelCatalog {
   private fetchImpl: FetchLike;
   /** M4.5 Task 3：手动 contextWindow 覆盖表（modelId → 窗口值）。查询优先级最高。 */
   private manualOverrides: Map<string, number> = new Map();
+  /** maxOutput 手动覆盖表：与 manualOverrides 独立——窗口值≠输出上限，
+   *  复用了会把「手动 128K 窗口」误当「128K 输出」发给端点（超大 max_tokens 部分端点 400）。 */
+  private maxOutputOverrides: Map<string, number> = new Map();
 
   constructor(private cacheFile: string, fetchImpl?: FetchLike) {
     this.fetchImpl = fetchImpl ?? fetch;
@@ -312,12 +317,27 @@ export class ModelCatalog {
     else this.manualOverrides.set(modelId, window);
   }
 
+  /** 设置手动 maxOutput 覆盖（modelId → 输出上限；undefined 清除覆盖）。 */
+  setMaxOutputOverride(modelId: string, output: number | undefined): void {
+    if (output === undefined) this.maxOutputOverrides.delete(modelId);
+    else this.maxOutputOverrides.set(modelId, output);
+  }
+
   /** M2a ContextPolicy 的窗口查询入口；未知模型返回 undefined（M2a 回退其内置映射）。
    *  M4.5 Task 3：优先级为「手动值 > models.dev 缓存/BUILTIN（lookup）> undefined」。 */
   getModelContextWindow(modelId: string): number | undefined {
     const manual = this.manualOverrides.get(modelId);
     if (manual !== undefined) return manual;
     return this.lookup(modelId)?.contextWindow;
+  }
+
+  /** 模型输出上限查询：优先级「手动 maxOutput 覆盖 > models.dev 缓存/BUILTIN（lookup）> undefined」。
+   *  走与 getModelContextWindow 相同的三级结构；手动表独立（见 maxOutputOverrides 注释）。
+   *  chat.prompt 拿不到值（undefined）时兜底 8192。 */
+  getModelMaxOutput(modelId: string): number | undefined {
+    const manual = this.maxOutputOverrides.get(modelId);
+    if (manual !== undefined) return manual;
+    return this.lookup(modelId)?.maxOutputTokens;
   }
 
   /** 按模型族钳制 thinking 档位：目录/内置表判定不支持推理的模型一律钳到 off（设计 §4.1）。

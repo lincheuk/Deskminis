@@ -293,6 +293,53 @@ describe('runAgentLoop', () => {
     expect(assistant.parts[1]).toEqual({ type: 'toolUse', value: { toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' } });
   });
 
+  // ── maxTokens 截断自动续写 ──
+
+  /** 断言请求 messages 末尾是否带合成续写提示（仅请求侧、不落库）。 */
+  const hasContinuationHint = (req: StreamRequest): boolean => {
+    const last = req.messages.at(-1)!;
+    const t = last.parts.find(p => p.type === 'text');
+    return t !== undefined && (t.value as string).includes('因长度上限被截断');
+  };
+
+  it('maxTokens 截断自动续写：不 turnEnd，下一轮注入合成提示且不落库', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '写长文' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([
+      // 第一轮：输出到一半撞上 maxTokens（无工具调用）
+      [ { kind: 'textDelta', text: '前半段' }, { kind: 'done', stopReason: 'maxTokens' } ],
+      // 第二轮：续写完成
+      [ { kind: 'textDelta', text: '后半段' }, { kind: 'done', stopReason: 'endTurn' } ],
+    ]);
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    // 第一轮 maxTokens 不 turnEnd，续写一轮后以 endTurn 收尾
+    expect(events.at(-1)).toEqual({ kind: 'turnEnd', stopReason: 'endTurn' });
+    // 第二轮请求的 messages 末尾是合成续写提示（role=user、text 含「因长度上限被截断」）
+    expect(hasContinuationHint(provider.seen[1])).toBe(true);
+    // 落库两条 assistant 消息；合成提示绝不落库
+    const msgs = store.listMessages(sessionId);
+    expect(msgs.filter(m => m.role === 'assistant')).toHaveLength(2);
+    expect(msgs.some(m => m.parts.some(p => p.type === 'text' && (p.value as string).includes('因长度上限被截断')))).toBe(false);
+  });
+
+  it('连续三轮 maxTokens：续写只发生 2 次后正常 turnEnd', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '写超长' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const provider = new ScriptedProvider([
+      [ { kind: 'textDelta', text: '第一段' }, { kind: 'done', stopReason: 'maxTokens' } ],
+      [ { kind: 'textDelta', text: '第二段' }, { kind: 'done', stopReason: 'maxTokens' } ],
+      [ { kind: 'textDelta', text: '第三段' }, { kind: 'done', stopReason: 'maxTokens' } ],
+    ]);
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    // 恰好 3 次请求；第 1 次无提示，第 2、3 次带提示（续写恰好发生 2 次）
+    expect(provider.calls).toBe(3);
+    expect(hasContinuationHint(provider.seen[0])).toBe(false);
+    expect(hasContinuationHint(provider.seen[1])).toBe(true);
+    expect(hasContinuationHint(provider.seen[2])).toBe(true);
+    // 达到续写上限后正常 turnEnd（stopReason 仍为 maxTokens）
+    expect(events.at(-1)).toEqual({ kind: 'turnEnd', stopReason: 'maxTokens' });
+  });
+
   // ── M2b 降级链 ──
 
   it('fallbackable 错误触发降级到 fallbackChain 下一 slot', async () => {

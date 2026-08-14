@@ -148,6 +148,45 @@ describe('getModelContextWindow 优先级链 (M4.5 Task 3)', () => {
   });
 });
 
+describe('getModelMaxOutput 三级优先级（手动 > models.dev 缓存 > BUILTIN）', () => {
+  it('models.dev 缓存命中（provider/model 形式按最后一段匹配）', async () => {
+    const c = new ModelCatalog(cacheFile, fakeFetch());
+    await c.refresh(true);
+    expect(c.getModelMaxOutput('claude-sonnet-5')).toBe(64000);
+    expect(c.getModelMaxOutput('google/gemini-2.5-flash')).toBe(65536);
+  });
+
+  it('无缓存时回落 BUILTIN 兜底表', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelMaxOutput('claude-future-9')).toBe(64_000); // BUILTIN claude 族
+    expect(c.getModelMaxOutput('glm-4.5')).toBe(8_192);          // BUILTIN glm 族
+  });
+
+  it('手动覆盖 > models.dev 缓存：覆盖后取手动值，清空回落缓存', async () => {
+    const c = new ModelCatalog(cacheFile, fakeFetch()); // gemini-2.5-flash: 65536
+    await c.refresh(true);
+    expect(c.getModelMaxOutput('gemini-2.5-flash')).toBe(65536); // models.dev 缓存
+    c.setMaxOutputOverride('gemini-2.5-flash', 100_000);
+    expect(c.getModelMaxOutput('gemini-2.5-flash')).toBe(100_000); // 手动优先
+    c.setMaxOutputOverride('gemini-2.5-flash', undefined);
+    expect(c.getModelMaxOutput('gemini-2.5-flash')).toBe(65536); // 回落缓存
+  });
+
+  it('手动覆盖对未知模型也生效', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelMaxOutput('mystery-1')).toBeUndefined(); // 未知模型无数据
+    c.setMaxOutputOverride('mystery-1', 12_000);
+    expect(c.getModelMaxOutput('mystery-1')).toBe(12_000); // 手动值生效
+    c.setMaxOutputOverride('mystery-1', undefined);
+    expect(c.getModelMaxOutput('mystery-1')).toBeUndefined(); // 清空回落 undefined
+  });
+
+  it('完全无数据返回 undefined（chat.prompt 据此兜底 8192）', async () => {
+    const c = new ModelCatalog(cacheFile, async () => { throw new Error('offline'); });
+    expect(c.getModelMaxOutput('totally-unknown')).toBeUndefined();
+  });
+});
+
 /**
  * models.dev 主源多 vendor 同名冲突消解。
  *

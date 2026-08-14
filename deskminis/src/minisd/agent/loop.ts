@@ -42,6 +42,11 @@ export interface RunOptions {
 const DEFAULT_RETRY = [3000, 5000, 10000, 15000, 30000];
 const CONCURRENCY = 10;
 
+/** maxTokens 截断续写次数上限：只追续 2 次，防止「每次都差一点」的模型无限空转烧 token。 */
+const MAX_CONTINUATIONS = 2;
+/** 续写合成提示：仅追加在请求侧 messages 末尾、绝不落库（与 pairToolResults 同属请求构建边界）。 */
+const CONTINUE_HINT = '[系统提示：上一条输出因长度上限被截断，请从截断处继续输出剩余内容，不要重复已输出的部分]';
+
 /** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}。出口侧消毒：toolResult.output 过 sanitizeMultiline（存储不动）。 */
 export function toAgentMessages(history: RawMessage[]): AgentMessage[] {
   return history.map(m => ({
@@ -169,6 +174,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
 
   let hadToolCallInPrevTurn = false; // 上一轮是否有工具调用（用于空响应两路处理判定）
   let compactCount = 0; // 本循环已压缩次数（上限 3，设计 §4.2）
+  let continueCount = 0; // 本循环已注入的 maxTokens 续写次数（上限 MAX_CONTINUATIONS，防无限空转）
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
@@ -221,6 +227,11 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
       systemPrompt: '',
       tools: toolDefs, maxTokens, thinkingLevel,
     };
+    // 上一轮 maxTokens 截断：在请求侧 messages 末尾追加合成 user 提示，让模型从截断处继续。
+    // 只出现在请求里、绝不落库——与 pairToolResults 同属请求构建边界，raw history 保持不动。
+    if (continueCount > 0) {
+      req.messages.push({ role: 'user', parts: [{ type: 'text', value: CONTINUE_HINT }] });
+    }
 
     let text = ''; let reasoning = ''; let usage: TokenUsage | undefined; let stopReason: StopReason = 'endTurn';
     let calls: AccumulatedCall[] = [];
@@ -370,7 +381,21 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
 
     hadToolCallInPrevTurn = calls.length > 0;
 
-    if (calls.length === 0) { yield { kind: 'turnEnd', stopReason }; return; }
+    if (calls.length === 0) {
+      // maxTokens 截断自动续写：本轮无工具调用且未到续写上限时，不 turnEnd，
+      // 下一轮请求构建时注入 CONTINUE_HINT（见 req 构建处），让模型从截断处继续。
+      // 只对 maxTokens 生效——endTurn/refusal 是模型的正常/拒绝收尾，不该被追续。
+      if (stopReason === 'maxTokens' && continueCount < MAX_CONTINUATIONS) {
+        continueCount++;
+        continue;
+      }
+      yield { kind: 'turnEnd', stopReason };
+      return;
+    }
+
+    // 本轮发了工具调用 = 模型转入工具流程而非继续输出：续写状态作废。
+    // 不清空的话，下一轮（工具结果后）还会误注入「上一条被截断」的提示，而那条早已不是被截断的输出。
+    continueCount = 0;
 
     // 并发执行工具（上限 10），结果按原顺序拼回
     for (const c of calls) yield { kind: 'toolStart', toolUseId: c.toolUseId, name: c.name, title: extractTitle(c.input), input: c.input };
