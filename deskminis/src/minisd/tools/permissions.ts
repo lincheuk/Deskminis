@@ -4,6 +4,8 @@ import type { BridgePermissionKind, PermissionDecision, PermissionGateway, Permi
 export type CommandClass = 'danger' | 'gated';
 export type PermissionLevel = 'bypass' | 'askOnce' | 'notAllowed';
 export type PermissionPrompt = (req: PermissionRequest) => Promise<'allow-once' | 'allow-session' | 'deny'>;
+/** 权限选择器三档预设：'ask'/'session' 网关行为相同（差异只在前端预选高亮），'full' 放行除 danger 外全部。 */
+export type PermissionPreset = 'ask' | 'session' | 'full';
 
 /** 危险：不可逆或系统级操作，顺序无关。 */
 const DANGER_ANYWHERE = [
@@ -73,6 +75,24 @@ export class PermissionGatewayImpl implements PermissionGateway {
     private now: () => number = Date.now, // 可注入时钟（TTL 测试用）；生产默认 Date.now
   ) {
     this.levels = { ...DEFAULT_LEVELS, ...levels };
+  }
+
+  /** 应用权限预设档位。'ask'/'session' 都把 levels 恢复为 DEFAULT_LEVELS——
+   *  这两档的差异只在前端预选高亮，网关行为本就相同；'full' 把 danger 以外全部放行。
+   *  只改 levels，不动 sessionGrants/bridgeOnce：切档不清掉既有的会话级/一次性授权，
+   *  否则用户切一下档位就把已批准的记忆全丢了。 */
+  applyPreset(preset: PermissionPreset): void {
+    if (preset === 'full') {
+      this.levels = {
+        danger: 'notAllowed', // 不可逆/系统级操作不随「完全访问」放行——文案里「不可逆的系统操作仍拦截」是承诺，不是摆设
+        gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
+        'bridge-device': 'bypass', 'bridge-notify': 'bypass',
+        'bridge-clipboard-read': 'bypass', 'bridge-clipboard-write': 'bypass',
+        'bridge-open': 'bypass', 'bridge-speak': 'bypass', 'bridge-screenshot': 'bypass',
+      };
+    } else {
+      this.levels = { ...DEFAULT_LEVELS };
+    }
   }
 
   /** 决策 4c：shell 卡「本会话允许」时对该命令探测到的每个桥 kind 做会话级授权。 */

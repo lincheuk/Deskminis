@@ -4,6 +4,9 @@ import type Database from 'better-sqlite3';
 // 现唯一用途是 R2 暂停标志 sync.paused；后续全局设置可复用同一表。
 
 export const SYNC_PAUSE_KEY = 'sync.paused';
+// 权限选择器档位（'ask'|'session'|'full'）持久化键：落 settings 表，重启后仍生效。
+// 与 SYNC_PAUSE_KEY 同表同机制，不新增 schema。
+export const PERMISSION_PRESET_KEY = 'permission.preset';
 
 export class SettingsStore {
   constructor(private db: Database.Database) {}

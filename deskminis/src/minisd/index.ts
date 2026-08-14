@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
 import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
-import { SettingsStore, SYNC_PAUSE_KEY } from './store/settings';
+import { SettingsStore, SYNC_PAUSE_KEY, PERMISSION_PRESET_KEY } from './store/settings';
 
 /** 全局「上次用过的工作区」——新建会话继承它（用户拍板：每会话各自设 + 继承上次）。 */
 const WORKSPACE_LAST_KEY = 'workspace.lastUsed';
@@ -258,6 +258,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     audit.append('permission.request', { requestId, req, meta }, { sessionId: req.sessionId });
   });
   const gateway = new PermissionGatewayImpl(prompt, undefined, permTimeoutMs);
+  // 权限档位持久化（permission.preset）：启动读回并应用，否则用户上次选的「完全访问」重启后就失效。
+  // 白名单校验：库里的脏值/旧值一律忽略，落到默认档（gateway 构造即默认 ask）。
+  const savedPreset = settings.get(PERMISSION_PRESET_KEY);
+  if (savedPreset === 'ask' || savedPreset === 'session' || savedPreset === 'full') gateway.applyPreset(savedPreset);
 
   // windows-* 桥：命名管道服务。占管（同数据根双实例）等失败只降级，不拖垮 minisd（架构决策 8）。
   // 装配位置说明：放在 shells/tools 之前（gateway 之后）而非 skills 装配段之后，是为了让下方
@@ -543,6 +547,20 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         audit.append('permission.resolved', { requestId: p.requestId, reason: 'answered', decision: p.decision }, { sessionId: entry.req.sessionId });
       }
       return { ok: true };
+    },
+    // ---- 权限档位预设（permission.preset）：三档真实作用于权限网关 ----
+    'permission.getPreset': () => ({ preset: settings.get(PERMISSION_PRESET_KEY) ?? 'ask' }),
+    'permission.setPreset': (p: { preset: string }) => {
+      const preset = String(p?.preset ?? '');
+      // 白名单校验：非三档一律拒绝。非法值若落库，重启时启动读回会把它兜到默认档，
+      // 但当场不应静默接受——界面高亮与网关行为必须一致，说不清的档位不如直接报错。
+      if (preset !== 'ask' && preset !== 'session' && preset !== 'full') throw new Error(`非法权限档位: ${preset}`);
+      const prev = settings.get(PERMISSION_PRESET_KEY) ?? 'ask';
+      gateway.applyPreset(preset);
+      settings.set(PERMISSION_PRESET_KEY, preset);
+      // 审计带新旧值：切到「完全访问」是高风险动作，未来排查「谁放行了什么」要有据可查
+      audit.append('permission.preset', { preset, prev });
+      return { ok: true, preset };
     },
     // ---- M2d: terminal.* + files.* + chat.contextInfo（水位条小型 RPC）----
     'terminal.attach': (p: { sessionId: string }) => ({ scrollback: terminals.attach(assertSessionId(p.sessionId)) }),

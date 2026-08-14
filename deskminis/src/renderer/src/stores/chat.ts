@@ -47,7 +47,8 @@ export const useChat = defineStore('chat', {
     // 后端没有暴露「读取默认 provider」的 RPC；渲染端本地镜像当前选择（模型胶囊显示 + 打勾）。
     // 初值置为首个 provider —— 后端 create() 也把首个建的 provider 设为默认。
     defaultProviderId: '' as string,
-    // 权限档位为 M1 渲染端本地偏好（后端网关一次性构造、无对应设置）：只影响权限卡里预选高亮哪个按钮。
+    // 权限档位：现已持久化在后端 settings 表（permission.preset）并真实作用于权限网关；
+    // 这里只是本地镜像，供权限卡预选高亮。初值 'ask'，init() 从后端读回覆盖。
     permTier: 'ask' as PermTier,
     // M2d · Task 5：上回合停止原因（turnEnd.stopReason）
     lastStopReason: '' as string,
@@ -117,6 +118,10 @@ export const useChat = defineStore('chat', {
       await this.refreshAllSkills();
       // 暂停是持久化设置（settings 表），重启后仍生效——启动就得读回来，否则界面会谎报「同步中」
       await this.refreshSyncPaused();
+      // 权限档位同样持久化在后端；启动读回，否则重启后界面高亮回落到默认而网关仍保留旧档，
+      // 两者不一致会让用户误以为「完全访问」没生效（或反过来高亮骗人说关了却没关）。
+      const preset = await rpc.call('permission.getPreset');
+      if (preset && (preset.preset === 'ask' || preset.preset === 'session' || preset.preset === 'full')) this.permTier = preset.preset;
       // 技能菜单数据源：开关/删除广播 changed；导入是后台任务不广播 changed，
       // 靠 progress 终态刷新（否则导入完成菜单里看不到）
       rpc.on('skills.changed', () => { void this.refreshSkills(); });
@@ -267,7 +272,12 @@ export const useChat = defineStore('chat', {
       await rpc.call('provider.setDefault', { id });
       this.defaultProviderId = id;
     },
-    setPermTier(tier: PermTier) { this.permTier = tier; },
+    async setPermTier(tier: PermTier) {
+      // 真正写后端并持久化；成功后更新本地镜像。rpc 失败会抛错，本地值保持原样——
+      // 界面高亮不得谎报「已切换」，否则用户以为关了「完全访问」其实网关还开着。
+      const r = await rpc.call('permission.setPreset', { preset: tier });
+      if (r && r.ok) this.permTier = tier;
+    },
     async createProvider(p: any) { await rpc.call('provider.instances.create', p); await this.refreshProviders(); },
     async updateProvider(id: string, p: any) { await rpc.call('provider.instances.update', { id, ...p }); await this.refreshProviders(); },
     async deleteProvider(id: string) { await rpc.call('provider.instances.delete', { id, confirm: true }); await this.refreshProviders(); },

@@ -202,3 +202,49 @@ describe('桥类目（M2e 扩展）', () => {
     expect(asked).toBe(2);
   });
 });
+
+describe('applyPreset（权限选择器三档真实作用于网关）', () => {
+  it("'full' 放行 gated/file-read/file-write 与全部 bridge-*，且从不询问", async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    g.applyPreset('full');
+    expect(await g.check(req('dir'))).toBe('allow'); // gated
+    expect(await g.check({ kind: 'file-read', detail: 'C:\\a.txt', sessionId: 'S1', toolTitle: 't' })).toBe('allow');
+    expect(await g.check({ kind: 'file-write', detail: 'C:\\b.txt', sessionId: 'S1', toolTitle: 't' })).toBe('allow');
+    // 桥七类全部放行
+    const bridgeKinds: PermissionRequest['kind'][] = [
+      'bridge-notify', 'bridge-clipboard-read', 'bridge-clipboard-write',
+      'bridge-open', 'bridge-speak', 'bridge-screenshot', 'bridge-device',
+    ];
+    for (const kind of bridgeKinds) expect(await g.check({ kind, detail: `detail-${kind}`, sessionId: 'S1', toolTitle: 't' })).toBe('allow');
+    expect(asked).toBe(0);
+  });
+
+  it("'full' 下 danger 仍 deny（不可逆系统操作拦截）且从不询问", async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
+    g.applyPreset('full');
+    expect(await g.check(req('Remove-Item -Recurse C:\\'))).toBe('deny');
+    expect(asked).toBe(0);
+  });
+
+  it("'full' 切回 'ask'：恢复询问（gated 不再静默放行）", async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    g.applyPreset('full');
+    expect(await g.check(req('dir'))).toBe('allow');
+    expect(asked).toBe(0);
+    g.applyPreset('ask');
+    expect(await g.check(req('dir'))).toBe('deny');
+    expect(asked).toBe(1); // 恢复询问
+  });
+
+  it("'session' 与 'ask' 网关行为一致（都恢复 DEFAULT_LEVELS）", async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    g.applyPreset('full');
+    g.applyPreset('session');
+    expect(await g.check(req('dir'))).toBe('deny');
+    expect(asked).toBe(1);
+  });
+});

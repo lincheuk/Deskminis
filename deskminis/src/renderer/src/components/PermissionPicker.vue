@@ -19,7 +19,10 @@ const ROWS: Row[] = [
 const label = computed(() => ROWS.find(r => r.tier === chat.permTier)?.title ?? '每次确认');
 
 const open = ref(false);
-function pick(t: Tier): void { chat.setPermTier(t); open.value = false; }
+async function pick(t: Tier): Promise<void> {
+  open.value = false; // 先关菜单：切换失败也不把用户锁在弹层里
+  try { await chat.setPermTier(t); } catch { /* 后端写入失败：store 保持原值，高亮不谎报已切换 */ }
+}
 function close(): void { open.value = false; }
 onMounted(() => document.addEventListener('click', close));
 onBeforeUnmount(() => document.removeEventListener('click', close));
