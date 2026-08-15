@@ -12,10 +12,11 @@ Windows 桌面端的通用 Agent 应用。让模型在你自己的机器上读�
 
 | 能力 | 状态 |
 |---|---|
-| Agent 循环 + 工具调用 | ✅ `shell_execute` / `file_read` / `file_write` / `file_edit` / `memory_get` / `memory_write` |
-| 模型接入 | ✅ OpenAI 兼容端点 / Anthropic 原生 / Gemini 原生 / Ollama 本地 |
-| 权限网关 | ✅ 三档（每次确认 / 本会话沿用 / 完全访问），工作区内文件直接放行 |
-| 持久记忆 + 上下文压缩 | ✅ Markdown 记忆库、自动压缩与卸载 |
+| Agent 循环 + 工具调用 | ✅ `shell_execute` / `file_read` / `file_write` / `file_edit` / `memory_get` / `memory_write`；输出截断自动续写、点停止即时中断正在跑的工具 |
+| 模型接入 | ✅ OpenAI 兼容端点 / Anthropic 原生 / Gemini 原生 / Ollama 本地；思考过程可见（Anthropic/Gemini 原生思考与 DeepSeek 类 `reasoning_content` 都渲染） |
+| 权限网关 | ✅ 三档（每次确认 / 本会话沿用 / 完全访问）真实作用于后端并跨重启持久；常见只读命令免询问；工作区内（含绑定的项目目录）文件直接放行；写文件审批带 diff 预览 |
+| 会话 | ✅ 首回合后自动命名，菜单可重命名 / 删除 / 绑定模型 |
+| 持久记忆 + 上下文压缩 | ✅ Markdown 记忆库、自动压缩与卸载；单指令长任务也能压缩，陈旧的大工具结果自动修剪 |
 | 技能系统 | ✅ `SKILL.md` 生态兼容，设置里可启停/删除/导入 |
 | 工作区 | ✅ 每会话绑定真实项目目录（原生选择器或粘贴路径） |
 | 设备同步与接力 | ✅ 内网直连配对，会话与记忆双向同步，可暂停 |
@@ -43,7 +44,7 @@ Windows 桌面端的通用 Agent 应用。让模型在你自己的机器上读�
 ```bash
 cd deskminis && npm install
 npm run dev          # 开发模式（自动起 minisd 与渲染进程）
-npm test             # 1100 例
+npm test             # 1200+ 例
 npm run typecheck
 npm run dist         # 出安装包到 deskminis/dist/
 ```
