@@ -83,12 +83,27 @@
   在 `journal_mode = WAL` 处即报 `disk I/O error`。e2e 验收/未来 --headless 调试前须
   先退出应用；不影响产品形态（minisd 本就是每应用一个的 utilityProcess）。
 
+- ✅ **2026-08 修复波（与 Claude 全面审查协作，A1–A7 + A4b + B1–B5 + 冒烟，共 22 commit）**：
+  P0 修复包——Anthropic thinking 块存储回放（开思考+工具不再 400）、权限三档接真
+  （preset RPC + 持久化，「完全访问」不再是装饰）、绑定工作区文件读写放行、maxTokens
+  按模型目录动态化 + 截断自动续写（降级链随 slot 重算）、CJK 水位估算修正（/1.6 分段）、
+  压缩解锁（工具结果修剪 + 锚定双轨，单指令长任务可压缩）、中断三修（取消透传工具层 +
+  shell 重启告知 + 权限闸后重查取消）。体验波——会话自动命名/重命名、思考过程可见
+  （含 reasoning_content 采集）、只读命令免批（结构过滤 + 白名单 + 二段规则，宁漏勿错）、
+  审批卡 diff 预览（惰性构造，审计只记布尔）、六件小修（mono 中文回退/权限卡按钮/纪律块
+  覆盖国产模型/空响应提醒不落库/SSE 停滞看门狗/思考期 dots）。测试 1105 → **1223 例**全绿。
+  新增 `e2e-smoke-wavea.mjs`（A 组行为冒烟 6 案）。真模型验收通过（nodetect/grok-4.5，
+  全链路 README 任务 + 自动命名 + 工作区零弹卡实测）。审查记录与 12 步提示词手册存于
+  Claude 会话产物（体检报告 + 修复工作流手册两份 Artifact）。
+
 ## 进行中 / 下一步
 
-- **写 M2 实施计划**（沿用 M1 的 TDD 计划格式）：Gemini/Ollama Provider、模型组降级、
-  上下文压缩/卸载、记忆系统、技能系统（SKILL.md 生态兼容）、windows-* 桥、
-  右栏终端/文件/任务面板完整 UI
-- 之后依次 M3（内网同步）、M4（文件同步+打包）
+- **中期波候选（体检报告§9 + 真模型冒烟观察项）**：C1 provider 模型列表拉取（GET /models
+  填下拉，方案已定）、file_grep/glob/list 原生工具、web_fetch/web_search、后台作业、
+  卸载桩带摘要、GBK 编码兜底、多模态图片输入、MCP 最小面（客户端 only/工具 only/
+  stdio+streamable-http）；观察项：只读免批的安全管道组合、tool_title 强制中文、
+  403 余额类文案细分。
+- 遗留既有路线：浏览器/屏幕里程碑（建议单工具 CLI 语法）、模型组 UI 入口（MU7）。
 
 ### Backlog（MU6 执行期再次兑现代价）
 
