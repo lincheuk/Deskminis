@@ -259,11 +259,54 @@ Start-Sleep -Milliseconds 3500
 $form.Dispose()
 `;
 
+// 剪贴板读写走原生 Win32 而非 WinForms/OLE：监听剪贴板的软件（网易UU远程、夸克浏览器）会在
+// 剪贴板变更后立刻抢开剪贴板，OLE 内部仅 10×100ms 重试、实测持续失败于 CLIPBRD_E_CANT_OPEN；
+// 原生 OpenClipboard 配自控 30×100ms 重试窗口（约 3 秒）实测能穿过监听器的持有间隙，
+// 且 runPowerShell 的 30s 超时余量充足。
 const CLIPBOARD_GET_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Add-Type -AssemblyName System.Windows.Forms
-[Console]::Out.Write([System.Windows.Forms.Clipboard]::GetText())
+# 空语义与 WinForms GetText 保持一致：无 CF_UNICODETEXT 或空内容 → 输出空串、exit 0（桥协议不变），
+# 唯一的失败是 OpenClipboard 重试耗尽。
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class NativeClipGet {
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool OpenClipboard(IntPtr hWndNewOwner);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool CloseClipboard();
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool IsClipboardFormatAvailable(uint uFormat);
+  [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr GetClipboardData(uint uFormat);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr GlobalLock(IntPtr hMem);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool GlobalUnlock(IntPtr hMem);
+}
+'@
+$out = ''
+$opened = $false
+for ($i = 0; $i -lt 30; $i++) {
+  if ([NativeClipGet]::OpenClipboard([IntPtr]::Zero)) { $opened = $true; break }
+  Start-Sleep -Milliseconds 100
+}
+if (-not $opened) {
+  $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  [Console]::Error.WriteLine("OpenClipboard 30x100ms 重试耗尽，GetLastWin32Error=$err")
+  exit 1
+}
+try {
+  if ([NativeClipGet]::IsClipboardFormatAvailable(13)) {
+    $h = [NativeClipGet]::GetClipboardData(13)
+    if ($h -ne [IntPtr]::Zero) {
+      $ptr = [NativeClipGet]::GlobalLock($h)
+      if ($ptr -ne [IntPtr]::Zero) {
+        # PtrToStringUni 按终止零定长：剪贴板全局内存不带长度字段，真实长度只有终止零知道
+        $out = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($ptr)
+        [void][NativeClipGet]::GlobalUnlock($h)
+      }
+    }
+  }
+} finally {
+  [void][NativeClipGet]::CloseClipboard()
+}
+[Console]::Out.Write($out)
 `;
 
 const CLIPBOARD_SET_SCRIPT = `
@@ -271,8 +314,61 @@ $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $p = [Console]::In.ReadToEnd() | ConvertFrom-Json
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Clipboard]::SetText($p.text)
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class NativeClipSet {
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool OpenClipboard(IntPtr hWndNewOwner);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool EmptyClipboard();
+  [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool CloseClipboard();
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr GlobalLock(IntPtr hMem);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool GlobalUnlock(IntPtr hMem);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr GlobalFree(IntPtr hMem);
+}
+'@
+$text = [string]$p.text
+# 尾部 +2 字节留给 UTF-16 终止零；0x0042 = GMEM_MOVEABLE|GMEM_ZEROINIT（即 GHND）：
+# MOVEABLE 是 SetClipboardData 接受内存块的硬性要求，ZEROINIT 保证终止零无需手写。
+$bytes = New-Object byte[] ([System.Text.Encoding]::Unicode.GetByteCount($text) + 2)
+[void][System.Text.Encoding]::Unicode.GetBytes($text, 0, $text.Length, $bytes, 0)
+$mem = [NativeClipSet]::GlobalAlloc(0x0042, [UIntPtr][uint64]$bytes.Length)
+if ($mem -eq [IntPtr]::Zero) { throw "GlobalAlloc 失败" }
+$ptr = [NativeClipSet]::GlobalLock($mem)
+if ($ptr -eq [IntPtr]::Zero) { [void][NativeClipSet]::GlobalFree($mem); throw "GlobalLock 失败" }
+[void][System.Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)
+[void][NativeClipSet]::GlobalUnlock($mem)
+$opened = $false
+for ($i = 0; $i -lt 30; $i++) {
+  if ([NativeClipSet]::OpenClipboard([IntPtr]::Zero)) { $opened = $true; break }
+  Start-Sleep -Milliseconds 100
+}
+if (-not $opened) {
+  # 先取错误码再 GlobalFree：GlobalFree 自身是 SetLastError 的 P/Invoke，先 free 会把 OpenClipboard 的错误码冲掉
+  $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  [void][NativeClipSet]::GlobalFree($mem)
+  [Console]::Error.WriteLine("OpenClipboard 30x100ms 重试耗尽，GetLastWin32Error=$err")
+  exit 1
+}
+try {
+  if (-not [NativeClipSet]::EmptyClipboard()) {
+    $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    [void][NativeClipSet]::GlobalFree($mem)
+    [Console]::Error.WriteLine("EmptyClipboard 失败，GetLastWin32Error=$err")
+    exit 1
+  }
+  if ([NativeClipSet]::SetClipboardData(13, $mem) -eq [IntPtr]::Zero) {
+    $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    [void][NativeClipSet]::GlobalFree($mem)
+    [Console]::Error.WriteLine("SetClipboardData 失败，GetLastWin32Error=$err")
+    exit 1
+  }
+  # 成功后不得 GlobalFree：内存所有权已移交剪贴板系统，再 free 会直接破坏剪贴板数据；
+  # 失败路径（上方两个分支）则必须 GlobalFree——所有权未转移，不 free 就泄漏。弄反任何一个都会出事故。
+} finally {
+  [void][NativeClipSet]::CloseClipboard()
+}
 `;
 
 const OPEN_SCRIPT = `
