@@ -20,6 +20,10 @@ describe('MU2a Task 10 permTitle（8 例）', () => {
   it('bridge-speak → 请求语音播报', () => { expect(permTitle('bridge-speak')).toBe('请求语音播报'); });
   it('bridge-screenshot → 请求截屏', () => { expect(permTitle('bridge-screenshot')).toBe('请求截屏'); });
   it('bridge-device → 请求读取设备信息', () => { expect(permTitle('bridge-device')).toBe('请求读取设备信息'); });
+  it('web-fetch → 请求访问网络（perm/copy.ts 两处文案守卫：标题 + 触发短标）', () => {
+    expect(permTitle('web-fetch')).toBe('请求访问网络');
+    expect(permTriggerLabel('web-fetch')).toBe('访问网络权限');
+  });
   it('既有三类保留 + 未知 kind 兜底「请求权限」', () => {
     expect(permTitle('shell')).toBe('请求执行命令');
     expect(permTitle('file-write')).toBe('请求写入文件');

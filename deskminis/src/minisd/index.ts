@@ -26,6 +26,7 @@ import { ModelCatalog, createProxyFetch } from './providers/model-catalog';
 import { MemoryStore } from './store/memory-store';
 import { MemoryInjector } from './store/memory-injector';
 import { memoryWriteTool, memoryGetTool, MEMORY_TOOL_NAMES } from './tools/memory';
+import { makeWebFetchTool } from './tools/web';
 import { ContextPolicy } from './agent/context-policy';
 import { OffloadEngine } from './agent/offload';
 import { CompactEngine } from './agent/compact';
@@ -305,6 +306,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   tools.register(fileListTool); tools.register(fileGlobTool); tools.register(fileGrepTool);
   tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, bridgeNode)));
   tools.register(memoryWriteTool); tools.register(memoryGetTool);
+  tools.register(makeWebFetchTool());
 
   // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）
   const memoryStore = new MemoryStore(paths.globalDir('memory'));

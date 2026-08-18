@@ -5,6 +5,7 @@ const TITLES: Record<string, string> = {
   'shell': '请求执行命令',
   'file-write': '请求写入文件',
   'file-read': '请求读取文件',
+  'web-fetch': '请求访问网络',
   'bridge-notify': '请求发送通知',
   'bridge-clipboard-read': '请求读取剪贴板',
   'bridge-clipboard-write': '请求写入剪贴板',
@@ -15,6 +16,7 @@ const TITLES: Record<string, string> = {
 };
 
 const TRIGGER_LABELS: Record<string, string> = {
+  'web-fetch': '访问网络权限',
   'bridge-notify': '通知权限',
   'bridge-clipboard-read': '读取剪贴板权限',
   'bridge-clipboard-write': '写入剪贴板权限',

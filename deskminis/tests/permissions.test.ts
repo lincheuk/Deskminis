@@ -286,6 +286,42 @@ describe('桥类目（M2e 扩展）', () => {
   });
 });
 
+describe('web-fetch 类目', () => {
+  const wf = (detail: string): PermissionRequest => ({ kind: 'web-fetch', detail, sessionId: 'S1', toolTitle: 't' });
+
+  it('默认 askOnce：先问，allow 后放行', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
+    expect(await g.check(wf('https://example.com/a'))).toBe('allow');
+    expect(asked).toBe(1);
+  });
+
+  it("applyPreset('full') 后 bypass：放行且从不询问", async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    g.applyPreset('full');
+    expect(await g.check(wf('https://example.com/a'))).toBe('allow');
+    expect(asked).toBe(0);
+  });
+
+  it("applyPreset('ask') 从 full 恢复默认询问", async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
+    g.applyPreset('full');
+    g.applyPreset('ask');
+    expect(await g.check(wf('https://example.com/a'))).toBe('deny');
+    expect(asked).toBe(1);
+  });
+
+  it('web-fetch 的 detail 是 URL，不走 shell 分类器（含危险词的 URL 仍只是询问）', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
+    // 'shutdown' 作为 shell 命令是 danger → 若误路由到分类器会静默 deny 且从不询问
+    expect(await g.check(wf('https://example.com/?q=shutdown+servers'))).toBe('allow');
+    expect(asked).toBe(1);
+  });
+});
+
 describe('applyPreset（权限选择器三档真实作用于网关）', () => {
   it("'full' 放行 gated/file-read/file-write 与全部 bridge-*，且从不询问", async () => {
     let asked = 0;
