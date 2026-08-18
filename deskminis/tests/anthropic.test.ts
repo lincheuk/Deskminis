@@ -100,6 +100,23 @@ describe('buildAnthropicBody', () => {
     const body = buildAnthropicBody(req, 'm') as any;
     expect(body.thinking).toBeUndefined();
   });
+  it('imageData part → image 块（source.base64 + media_type）', () => {
+    const req: StreamRequest = {
+      ...REQ,
+      messages: [
+        { role: 'user', parts: [
+          { type: 'text', value: '看图' },
+          { type: 'imageData', value: { mimeType: 'image/png', base64: 'iVBORw0KGgo=' } },
+        ] },
+      ],
+    };
+    const body = buildAnthropicBody(req, 'm') as any;
+    // toMatchObject：该块作为末条 user 消息的最后一块会被打上 cache_control（既有缓存断点行为，不是映射错误）
+    expect(body.messages[0].content[1]).toMatchObject({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' },
+    });
+  });
   it('夹含 mediaRef-only 的 user 消息 → 整条剔除，缓存断点仍落在真实存在的最后两条 user 消息上', () => {
     const req: StreamRequest = {
       ...THINKING_REQ,

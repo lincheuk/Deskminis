@@ -6,6 +6,9 @@ export type ContentPart =
   | { type: 'toolUse'; value: { toolUseId: string; name: string; input: string; description?: string; thoughtSignature?: string } }
   | { type: 'toolResult'; value: { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' } }
   | { type: 'mediaRef'; value: { id: string; relativePath: string; mimeType: string; originalFileName?: string; linuxPath?: string } }
+  // 仅请求侧合成、绝不落库：loop 在构建 provider 请求时把 user 消息里的 mediaRef 就地替换成
+  // 本形态（读附件桶文件 → base64）。落库它会把图片字节冗余进 parts_json，同步/导出全量放大。
+  | { type: 'imageData'; value: { mimeType: string; base64: string } }
   // Anthropic 思考块：signature 是回放必需的校验签名；redactedData 对应供应商已脱敏的
   // redacted_thinking 块（无签名，只能原样回放脱敏串）。两者都缺=无签名历史块，回放时丢弃。
   | { type: 'thinking'; value: { text: string; signature?: string; redactedData?: string } }

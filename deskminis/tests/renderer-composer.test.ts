@@ -1,11 +1,12 @@
 /** MU2b Task 6：空状态任务起点页 + Composer v2——lib/composer 纯模块单测
  *  + EmptyState/ChatView/main/preload 源文本守卫。
- *  main/preload 白名单：本 Task 仅 main 一处 attachments:save handler + preload 一个 saveAttachment 方法。 */
+ *  main/preload 白名单：本 Task 仅 main 一处 attachments:save handler + preload 一个 saveAttachment 方法。
+ *  附件进模型改走 chat.prompt attachments 参数后，attachNote 尾注路径退役——
+ *  原 lib/composer/attach 纯模块用例随之移除（锚定的是被替换行为，接棒见 renderer-attachments.test.ts）。 */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { rowsFor } from '../src/renderer/src/lib/composer/autogrow';
-import { attachNote } from '../src/renderer/src/lib/composer/attach';
 
 const root = path.resolve(__dirname, '..');
 const emptyState = fs.readFileSync(path.join(root, 'src/renderer/src/components/EmptyState.vue'), 'utf8');
@@ -33,17 +34,6 @@ describe('MU2b Task 6 Composer v2：lib/composer/autogrow 纯模块（3 例）',
     expect(rowsFor(Array.from({ length: 20 }, (_, i) => String(i)).join('\n'))).toBe(8);
     expect(rowsFor('a\nb\nc\nd\ne', 3)).toBe(3);
     expect(rowsFor('a\nb', 3)).toBe(2);
-  });
-});
-
-describe('MU2b Task 6 Composer v2：lib/composer/attach 纯模块（2 例）', () => {
-  it('空数组 → 空串（无尾注）', () => {
-    expect(attachNote([])).toBe('');
-  });
-
-  it('多路径 → 每行一条 [附件] 前缀尾注', () => {
-    expect(attachNote(['attachments/paste-1.png', 'attachments/paste-2.png']))
-      .toBe('\n[附件] attachments/paste-1.png\n[附件] attachments/paste-2.png');
   });
 });
 

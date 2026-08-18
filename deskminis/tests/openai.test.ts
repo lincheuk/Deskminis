@@ -27,6 +27,25 @@ describe('buildOpenAIBody', () => {
   it('thinking high → reasoning_effort', () => {
     expect((buildOpenAIBody({ ...REQ, thinkingLevel: 'high' }, 'm') as any).reasoning_effort).toBe('high');
   });
+  it('user 消息含 imageData → content 数组形态（text 块 + image_url data: URL）', () => {
+    const req: StreamRequest = {
+      ...REQ,
+      messages: [{ role: 'user', parts: [
+        { type: 'text', value: '看图' },
+        { type: 'imageData', value: { mimeType: 'image/png', base64: 'iVBORw0KGgo=' } },
+      ] }],
+    };
+    const b = buildOpenAIBody(req, 'gpt-x') as any;
+    const msg = b.messages[1]; // [0] 是 system
+    expect(Array.isArray(msg.content)).toBe(true);
+    expect(msg.content[0]).toEqual({ type: 'text', text: '看图' });
+    expect(msg.content[1]).toEqual({ type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } });
+  });
+  it('无图 user 消息 → content 仍是 string（老端点兼容回归例）', () => {
+    const b = buildOpenAIBody(REQ, 'gpt-x') as any;
+    // REQ 的首条 user 消息无 imageData：content 必须保持纯文本 string，不能悄悄变数组
+    expect(b.messages[1].content).toBe('hi');
+  });
   it('损坏的 toolUse.input 回退成 {}，合法 input 原样透传', () => {
     const bad = buildOpenAIBody({
       ...REQ, systemPrompt: undefined,

@@ -84,6 +84,19 @@ describe('buildGeminiBody', () => {
     const body = buildGeminiBody(req, 'm') as any;
     expect(body.contents[0].parts[0]).toEqual({ functionCall: { name: 'shell_execute', args: {} }, thoughtSignature: 's' });
   });
+
+  it('imageData part → inlineData 块（mimeType + base64 data）', () => {
+    const req: StreamRequest = {
+      ...BASE,
+      messages: [{ role: 'user', parts: [
+        { type: 'text', value: '看图' },
+        { type: 'imageData', value: { mimeType: 'image/png', base64: 'iVBORw0KGgo=' } },
+      ] }],
+    };
+    const body = buildGeminiBody(req, 'm') as any;
+    expect(body.contents[0].parts[0]).toEqual({ text: '看图' });
+    expect(body.contents[0].parts[1]).toEqual({ inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } });
+  });
 });
 
 function sseResponse(frames: string): Response {

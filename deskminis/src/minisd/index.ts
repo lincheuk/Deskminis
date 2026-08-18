@@ -21,7 +21,8 @@ import { ProviderError, type AgentProvider, type StreamRequest } from './provide
 import { PairingStore, PairingService } from './remote/pairing';
 import { createRemoteMethods, createAdditionalVerify, guardBusinessMethod } from './remote';
 import { SyncCoordinator, createSyncMethods, OutboundClient } from './sync';
-import type { AgentStreamEvent } from '../shared/types';
+import type { AgentStreamEvent, ContentPart } from '../shared/types';
+import { mimeFromPath } from '../shared/parts';
 import { ModelCatalog, createProxyFetch } from './providers/model-catalog';
 import { MemoryStore } from './store/memory-store';
 import { MemoryInjector } from './store/memory-injector';
@@ -53,6 +54,14 @@ function assertSessionId(id: unknown): string {
   if (typeof id !== 'string' || !SESSION_ID_RE.test(id)) throw new Error('非法 sessionId');
   return id;
 }
+
+/** chat.prompt 附件路径白名单：会话相对、attachments 桶下单层文件名、扩展名四类图片。
+ *  正则本身就是路径穿越防线——`../`、绝对路径、子目录形态全都不匹配，无需再拼接后判界。 */
+const ATTACHMENT_REL_RE = /^attachments\/[A-Za-z0-9._-]+\.(png|jpe?g|gif|webp)$/i;
+/** 单条消息附件上限与单文件大小上限：早失败、响亮报错——放进 loop 才发现超限，
+ *  用户消息已落库、回合已起跑，只能靠用户自己察觉模型「看不清图」。 */
+const ATTACHMENTS_MAX = 8;
+const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 
 /** 权限询问未响应的兜底时限：与 PermissionGatewayImpl 的 askTimeoutMs 保持一致。 */
 const PERM_TIMEOUT_MS = 90000;
@@ -416,10 +425,23 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       return { ok: true };
     },
     'chat.messages.list': (p: { sessionId: string }) => chat.listMessages(assertSessionId(p.sessionId)),
-    'chat.prompt': (p: { sessionId: string; text: string; providerId?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high'; modelGroupId?: string }) => {
+    'chat.prompt': (p: { sessionId: string; text: string; providerId?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high'; modelGroupId?: string; attachments?: string[] }) => {
       const sessionId = assertSessionId(p.sessionId);
-      // 纯空白的 text block 会被 Anthropic 以 400 拒收，而消息此时已落库 ⇒ 该会话此后每次请求都失败（永久变砖）
-      if (typeof p.text !== 'string' || p.text.trim() === '') throw new Error('消息内容不能为空');
+      // 附件校验（先于空文本判定：文本+附件任一非空即放行，两者皆空才拒）
+      const attachments = Array.isArray(p.attachments) ? p.attachments : [];
+      if (attachments.length > ATTACHMENTS_MAX) throw new Error(`附件数量不能超过 ${ATTACHMENTS_MAX} 个`);
+      const attDir = paths.sessionBucket(sessionId, 'attachments');
+      for (const rel of attachments) {
+        if (typeof rel !== 'string' || !ATTACHMENT_REL_RE.test(rel)) throw new Error(`非法附件路径: ${String(rel)}`);
+        let size: number;
+        try { size = statSync(join(attDir, rel.slice('attachments/'.length))).size; }
+        catch { throw new Error(`附件不存在: ${rel}`); }
+        if (size > ATTACHMENT_MAX_BYTES) throw new Error(`附件超过 5MB 上限: ${rel}`);
+      }
+      const text = typeof p.text === 'string' ? p.text : '';
+      // 纯空白的 text block 会被 Anthropic 以 400 拒收，而消息此时已落库 ⇒ 该会话此后每次请求都失败（永久变砖）。
+      // 有附件时允许空文本：图片本身就是消息内容，mediaRef part 不会变成空 text block。
+      if (text.trim() === '' && attachments.length === 0) throw new Error('消息内容不能为空');
       if (inFlight.has(sessionId)) throw new Error('该会话正在运行中，请等待完成或取消');
 
       // ── 链式解析 provider + fallbackChain ──
@@ -482,7 +504,15 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       inFlight.add(sessionId);
       const controller = new AbortController();
       controllers.set(sessionId, controller);
-      chat.appendMessage({ id: chat.newId(), sessionId, role: 'user', parts: [{ type: 'text', value: p.text }], createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
+      // 落库 user 消息：文本非空才落 text part（空文本+附件时不产空 text block），
+      // 每个附件一枚 mediaRef part（文件本体留在附件桶，请求侧由 loop 合成 base64，永不落库）
+      const userParts: ContentPart[] = [];
+      if (text.trim() !== '') userParts.push({ type: 'text', value: text });
+      for (const rel of attachments) {
+        // 校验正则白名单已保证扩展名可映射；兜底 octet-stream 只是防类型收窄，实际到不了
+        userParts.push({ type: 'mediaRef', value: { id: chat.newId(), relativePath: rel, mimeType: mimeFromPath(rel) ?? 'application/octet-stream' } });
+      }
+      chat.appendMessage({ id: chat.newId(), sessionId, role: 'user', parts: userParts, createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
       paths.ensureSessionDirs(sessionId);
       void (async () => {
         let pendingRebind: string | undefined; // 降级候选 instanceId，等 turnEnd 才落库

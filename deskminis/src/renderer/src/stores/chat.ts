@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { rpc } from '../rpc';
+import { mimeFromPath } from '@shared/parts';
 
 let localSeq = 0;
 // M3c Task 7：sync.dirty → syncing → 2s 回 idle 的回退定时器（模块级非响应式，单 store 实例）
@@ -262,18 +263,34 @@ export const useChat = defineStore('chat', {
       void this.refreshSkills(); // 会话覆盖会改变生效启用集，换会话必须重取
       await this.refreshWorkspace();
     },
-    async send(text: string) {
+    async send(text: string, attachments?: string[]) {
       this.streamingText = ''; this.streamingThinking = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';
       this.lastStopReason = ''; this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
       // 乐观消息用唯一 id：一次会话内连发多条时 'local' 会造成 :key 重复
       const optimisticId = `local-${++localSeq}`;
-      this.messages.push({ id: optimisticId, role: 'user', parts: [{ type: 'text', value: text }], createdAt: Date.now() / 1000 });
+      // 乐观消息与后端落库形态同构：文本 + 每附件一枚 mediaRef（chip 渲染靠它；
+      // turnEnd 后 open() 重取的消息会带后端生成的正式 mediaRef 把乐观版换掉）
+      const atts = attachments ?? [];
+      const parts: any[] = [];
+      if (text.trim() !== '') parts.push({ type: 'text', value: text });
+      for (const rel of atts) {
+        parts.push({
+          type: 'mediaRef',
+          value: {
+            id: crypto.randomUUID().toUpperCase(),
+            relativePath: rel,
+            mimeType: mimeFromPath(rel) ?? 'application/octet-stream',
+            originalFileName: rel.split('/').pop(),
+          },
+        });
+      }
+      this.messages.push({ id: optimisticId, role: 'user', parts, createdAt: Date.now() / 1000 });
       this.running = true;
       // chat.prompt 会同步拒绝（未配置 provider / 空文本 / 会话运行中 / 非法 sessionId）。
       // 不 catch 的话是一次未处理拒绝：用户只看到「按了没反应」。捕获后写进 lastError 让它可见，
       // 并摘掉这条从未落库的乐观消息（否则会留下一个假的「已发送」气泡）。
       try {
-        await rpc.call('chat.prompt', { sessionId: this.activeId, text });
+        await rpc.call('chat.prompt', { sessionId: this.activeId, text, attachments: atts });
       } catch (e) {
         this.lastError = e instanceof Error ? e.message : String(e);
         this.messages = this.messages.filter(m => m.id !== optimisticId);

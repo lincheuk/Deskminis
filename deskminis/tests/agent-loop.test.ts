@@ -9,7 +9,7 @@ import { ProviderError, type AgentProvider, type StreamRequest } from '../src/mi
 import type { AgentStreamEvent } from '../src/shared/types';
 import type { ToolContext, ToolExecutor } from '../src/minisd/tools/types';
 import { MinisPaths } from '../src/minisd/paths';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ContextPolicy } from '../src/minisd/agent/context-policy';
@@ -497,6 +497,80 @@ describe('runAgentLoop', () => {
     expect(events.some(e => e.kind === 'retry')).toBe(true);
     expect(events.some(e => e.kind === 'fallback')).toBe(false);
     expect(events.some(e => e.kind === 'textDelta' && e.text === 'ok')).toBe(true);
+  });
+});
+
+// ── 附件请求侧合成：store 落 mediaRef，请求侧替换为 imageData（base64），raw history 永不改写 ──
+describe('runAgentLoop + 附件请求侧合成', () => {
+  /** 1×1 真实 PNG（最小合法头）：内容无所谓，重点是字节 → base64 的往返可断言。 */
+  const TINY_PNG = Buffer.from(
+    '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63fcffff3f030005fe02fea72d99480000000049454e44ae426082',
+    'hex',
+  );
+
+  function seedAttachment(toolContext: ToolContext, sessionId: string, name: string): string {
+    // 必须落进 toolContext.paths 的附件桶——loop 请求侧合成读的是这份；写到别的临时根会读不到
+    writeFileSync(join(toolContext.paths.sessionBucket(sessionId, 'attachments'), name), TINY_PNG);
+    return `attachments/${name}`;
+  }
+
+  it('user 消息带 mediaRef → provider 收到 imageData(base64)，store 仍是 mediaRef', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    const rel = seedAttachment(toolContext, sessionId, 'tiny.png');
+    store.appendMessage({
+      id: 'U1', sessionId, role: 'user', createdAt: store.nowEpoch(), streamInterruptCount: 0,
+      parts: [
+        { type: 'text', value: '看图' },
+        { type: 'mediaRef', value: { id: 'M1', relativePath: rel, mimeType: 'image/png' } },
+      ],
+    });
+    const provider = new ScriptedProvider([[ { kind: 'textDelta', text: '看到了' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    // 请求侧：mediaRef 已替换为 imageData，base64 与磁盘字节一致
+    const parts = provider.seen[0].messages[0].parts;
+    expect(parts[0]).toEqual({ type: 'text', value: '看图' });
+    expect(parts[1]).toEqual({ type: 'imageData', value: { mimeType: 'image/png', base64: TINY_PNG.toString('base64') } });
+    // 存储侧：raw history 未被改写，仍是 mediaRef
+    const stored = store.listMessages(sessionId);
+    expect(stored[0].parts[1]).toEqual({ type: 'mediaRef', value: { id: 'M1', relativePath: rel, mimeType: 'image/png' } });
+  });
+
+  it('附件文件缺失 → 请求侧替换为 [附件已丢失] 文本 part（模型知情，不静默消失）', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    // 落了又删：mediaRef 指向一个已不存在的文件
+    const rel = seedAttachment(toolContext, sessionId, 'ghost.png');
+    rmSync(join(toolContext.paths.sessionBucket(sessionId, 'attachments'), 'ghost.png'));
+    store.appendMessage({
+      id: 'U1', sessionId, role: 'user', createdAt: store.nowEpoch(), streamInterruptCount: 0,
+      parts: [{ type: 'mediaRef', value: { id: 'M1', relativePath: rel, mimeType: 'image/png' } }],
+    });
+    const provider = new ScriptedProvider([[ { kind: 'textDelta', text: '没看到图' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    const part = provider.seen[0].messages[0].parts[0];
+    expect(part.type).toBe('text');
+    expect((part as { value: string }).value).toContain('[附件已丢失');
+    expect((part as { value: string }).value).toContain('ghost.png');
+  });
+
+  it('两轮工具循环：附件只读一次（缓存生效——第二轮前删文件仍能拿到 imageData）', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    const rel = seedAttachment(toolContext, sessionId, 'once.png');
+    const abs = join(toolContext.paths.sessionBucket(sessionId, 'attachments'), 'once.png');
+    store.appendMessage({
+      id: 'U1', sessionId, role: 'user', createdAt: store.nowEpoch(), streamInterruptCount: 0,
+      parts: [{ type: 'mediaRef', value: { id: 'M1', relativePath: rel, mimeType: 'image/png' } }],
+    });
+    const provider = new ScriptedProvider([
+      [ { kind: 'toolCallComplete', toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' }, { kind: 'done', stopReason: 'toolUse' } ],
+      [ { kind: 'textDelta', text: '完成' }, { kind: 'done', stopReason: 'endTurn' } ],
+    ], (n) => {
+      // 第一轮读完附件后立刻删文件：第二轮若重读必失败，只有缓存命中才能继续带上 imageData
+      if (n === 0) rmSync(abs);
+    });
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    expect(provider.calls).toBe(2);
+    const second = provider.seen[1].messages.flatMap((m: any) => m.parts).find((p: any) => p.type === 'imageData');
+    expect(second).toEqual({ type: 'imageData', value: { mimeType: 'image/png', base64: TINY_PNG.toString('base64') } });
   });
 });
 

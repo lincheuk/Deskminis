@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { startMinisd } from '../src/minisd/index';
 import { pipeRequest } from './bridge-util';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -198,6 +198,29 @@ describe('minisd JSON-RPC', () => {
     expect((await c.call('chat.prompt', { sessionId: s.id, text: '   \n\t ', providerId: '__fake__' })).error).toBeTruthy();
     expect((await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__' })).error).toBeTruthy();
     expect((await c.call('chat.messages.list', { sessionId: s.id })).result).toEqual([]); // 没有落库
+    c.close();
+  });
+  it('chat.prompt attachments：路径穿越被拒；空文本+附件放行；空文本+无附件仍拒', async () => {
+    const { port, authToken, dataDir } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    // 穿越路径：正则只认 attachments/单层文件名.白名单扩展名，../ 形态直接拒
+    const evil = (await c.call('chat.prompt', { sessionId: s.id, text: 'x', attachments: ['attachments/../evil.png'], providerId: '__fake__' }));
+    expect(evil.error).toBeTruthy();
+    expect((await c.call('chat.messages.list', { sessionId: s.id })).result).toEqual([]); // 拒绝时不落库
+    // 空文本 + 无附件：仍拒（两者皆空才抛）
+    expect((await c.call('chat.prompt', { sessionId: s.id, text: '', providerId: '__fake__' })).error).toBeTruthy();
+    // 空文本 + 有效附件：放行，user 消息落 mediaRef part
+    const dir = join(dataDir, 'sessions', s.id, 'attachments');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'a.png'), Buffer.from('89504e47', 'hex'));
+    const ok = await c.call('chat.prompt', { sessionId: s.id, text: '', attachments: ['attachments/a.png'], providerId: '__fake__' });
+    expect(ok.result).toEqual({ ok: true });
+    const msgs = (await c.call('chat.messages.list', { sessionId: s.id })).result;
+    const userMsg = msgs.find((m: any) => m.role === 'user');
+    expect(userMsg.parts).toHaveLength(1); // 空文本不落 text part，只有 mediaRef
+    expect(userMsg.parts[0].type).toBe('mediaRef');
+    expect(userMsg.parts[0].value).toMatchObject({ relativePath: 'attachments/a.png', mimeType: 'image/png' });
     c.close();
   });
   it('同一会话并发 chat.prompt：第二次被拒（避免两个 agent 循环交错写历史）', async () => {

@@ -21,7 +21,6 @@ import { fmtHHMM } from '../lib/time/hhmm';
 import { groupToolCards, isGroup, type ToolGroup } from '../lib/toolline/group';
 import { eventCopy } from '../lib/eventnote/copy';
 import { rowsFor } from '../lib/composer/autogrow';
-import { attachNote } from '../lib/composer/attach';
 import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
@@ -99,6 +98,17 @@ function userText(m: { parts?: any[] }): string {
   return (Array.isArray(m.parts) ? m.parts : [])
     .filter(p => p && p.type === 'text' && typeof p.value === 'string')
     .map(p => p.value).join('\n');
+}
+// 历史消息里的附件（mediaRef part）：渲染 chip 只取文件名等元数据，
+// 不加载图片字节——历史缩略图需要 IPC 读图，属后续任务，本步不做
+function userAttachments(m: { parts?: any[] }): { relativePath: string; originalFileName?: string }[] {
+  return (Array.isArray(m.parts) ? m.parts : [])
+    .filter(p => p && p.type === 'mediaRef' && isRec(p.value) && typeof p.value.relativePath === 'string')
+    .map(p => p.value as { relativePath: string; originalFileName?: string });
+}
+// chip 文案：优先用户原始文件名，否则从会话相对路径取末段
+function attLabel(a: { relativePath: string; originalFileName?: string }): string {
+  return a.originalFileName || a.relativePath.split('/').pop() || a.relativePath;
 }
 function isResultCarrier(m: { role: string; parts?: any[] }): boolean {
   const parts = Array.isArray(m.parts) ? m.parts : [];
@@ -216,11 +226,12 @@ const noteViews = computed(() => chat.eventNotes.map(n => ({ note: n, copy: even
 // 错误「重试」前提：会话里存在可重发的真实用户消息（无 → 按钮不出现，retryLast 空转兜底）
 const canRetry = computed(() => chat.messages.some(m => m.role === 'user' && userText(m).trim() !== ''));
 
-const canSend = computed(() => input.value.trim().length > 0 && !chat.running);
-
-// ---- MU2b Task 6：图片粘贴/拖拽附件（main 落盘会话附件目录 → 48px chip → 发送尾注）----
+// ---- MU2b Task 6：图片粘贴/拖拽附件（main 落盘会话附件目录 → 48px chip → 发送附件参数）----
 interface PendingAttachment { path: string; dataUrl: string }
 const pendingAttachments = ref<PendingAttachment[]>([]);
+
+// 发送键放行条件：「有文本或有附件」——纯图片消息（空文本+附件）也是合法输入
+const canSend = computed(() => (input.value.trim().length > 0 || pendingAttachments.value.length > 0) && !chat.running);
 
 function fileToDataUrl(f: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -271,14 +282,14 @@ function onAttachPick(e: Event): void {
 
 async function send(): Promise<void> {
   const t = input.value.trim();
-  if (!t || chat.running) return;
+  const atts = pendingAttachments.value.map(a => a.path);
+  if ((!t && !atts.length) || chat.running) return;
   // 没有选中会话就先建一个再发（避免「按了没反应」）
   if (!chat.activeId) await chat.newSession();
   input.value = '';
-  // 附件 chip → 文本尾注（[附件] attachments/paste-…png），发送后清空
-  const note = attachNote(pendingAttachments.value.map(a => a.path));
+  // 附件以 attachments 参数进模型（后端落 mediaRef part + 请求侧合成 base64），发送后清空
   pendingAttachments.value = [];
-  await chat.send(t + note);
+  await chat.send(t, atts.length ? atts : undefined);
 }
 
 // ---- 滚动跟随治理（MU2a Task 3，治审计 X-2）：用户上翻 >40px 解除跟随，回到底部恢复 ----
@@ -366,6 +377,13 @@ function onSlashTab(e: KeyboardEvent): void {
                 <button class="uops" type="button" title="复制" @click="copyUser(t.user!.text)"><Icon name="copy" :size="13" /></button>
               </div>
               <div class="utext">{{ t.user.text }}</div>
+              <!-- 历史附件 chip：📎 + 文件名（元数据渲染，不加载图片字节） -->
+              <div v-if="userAttachments(t.user.msg).length" class="uchips">
+                <span
+                  v-for="(a, i) in userAttachments(t.user.msg)" :key="i" class="uchip"
+                  :title="a.relativePath"
+                >📎 {{ attLabel(a) }}</span>
+              </div>
             </div>
           </template>
           <div v-for="m in t.assistants" :key="m.id" class="msg-a">
@@ -600,6 +618,14 @@ function onSlashTab(e: KeyboardEvent): void {
 .uops:hover { color: var(--label); background: var(--fill-tertiary); }
 .uops:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .utext { font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+/* 历史附件 chip（mediaRef）：样式随 .cpill 同款 chip token；只显示文件名不显示图 */
+.uchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.uchip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--r-pill);
+  border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  font-size: var(--fs-ui); color: var(--label-secondary); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* 助手消息：无气泡（名称行只留实时回合一处） */
 .msg-a { padding: 0; }
 .ahead { display: flex; align-items: center; gap: 8px; }

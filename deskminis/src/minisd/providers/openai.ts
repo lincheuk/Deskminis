@@ -23,6 +23,7 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: Open
     const texts = m.parts.filter(p => p.type === 'text').map(p => p.value as string).join('');
     const toolUses = m.parts.filter(p => p.type === 'toolUse');
     const toolResults = m.parts.filter(p => p.type === 'toolResult');
+    const images = m.parts.filter(p => p.type === 'imageData');
     if (m.role === 'assistant') {
       const msg: Record<string, unknown> = { role: 'assistant', content: texts || null };
       if (toolUses.length) msg.tool_calls = toolUses.map(p => {
@@ -31,7 +32,19 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: Open
       });
       messages.push(msg);
     } else {
-      if (texts) messages.push({ role: 'user', content: texts });
+      // 含图时才切数组 content：老端点（部分 OpenAI 兼容网关/Ollama）对数组形态 content 支持参差，
+      // 无图消息保持 string 形态是最保守的兼容面——只在必要时才启用新形态。
+      if (images.length > 0) {
+        const content: Record<string, unknown>[] = [];
+        if (texts) content.push({ type: 'text', text: texts });
+        for (const p of images) {
+          const v = p.value as { mimeType: string; base64: string };
+          content.push({ type: 'image_url', image_url: { url: `data:${v.mimeType};base64,${v.base64}` } });
+        }
+        messages.push({ role: 'user', content });
+      } else if (texts) {
+        messages.push({ role: 'user', content: texts });
+      }
       for (const p of toolResults) {
         const v = p.value as { toolUseId: string; output: string };
         messages.push({ role: 'tool', tool_call_id: v.toolUseId, content: v.output });

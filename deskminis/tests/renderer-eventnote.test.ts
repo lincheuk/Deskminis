@@ -108,8 +108,9 @@ describe('MU2a Task 8 守卫（4 例）', () => {
   it('chat.ts：lastError/retryNote 字段保留（双写过渡期，MU2b Task 2 收口）；send 清零路径不回归', () => {
     expect(chatTs).toContain("lastError: '' as string");
     expect(chatTs).toContain("retryNote: '' as string");
-    // send 前清零仍含 lastError/retryNote/eventNotes（既有行为不动）
-    expect(chatTs).toMatch(/async send\(text: string\)[\s\S]*?this\.lastError = ''[\s\S]*?this\.eventNotes = \[\]/);
+    // send 前清零仍含 lastError/retryNote/eventNotes（既有行为不动）。
+    // 签名随附件任务扩为 send(text, attachments?)——守卫只锚清零行为，不锚参数个数
+    expect(chatTs).toMatch(/async send\(text: string, attachments\?: string\[\]\)[\s\S]*?this\.lastError = ''[\s\S]*?this\.eventNotes = \[\]/);
     // open 换会话清零仍含 lastError/retryNote
     expect(chatTs).toMatch(/if \(id !== this\.activeId\) \{[\s\S]*?this\.lastError = ''; this\.retryNote = ''/);
   });

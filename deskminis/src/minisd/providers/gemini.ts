@@ -11,6 +11,7 @@ interface GeminiPart {
   functionCall?: { name: string; args?: Record<string, unknown> };
   functionResponse?: { name: string; response: Record<string, unknown> };
   thoughtSignature?: string;
+  inlineData?: { mimeType: string; data: string };
 }
 
 interface ToolUseValue { toolUseId: string; name: string; input: string; thoughtSignature?: string }
@@ -41,6 +42,11 @@ export function buildGeminiBody(req: StreamRequest, modelId: string): Record<str
         case 'text':
           parts.push({ text: p.value as string });
           break;
+        case 'imageData': {
+          const v = p.value as { mimeType: string; base64: string };
+          parts.push({ inlineData: { mimeType: v.mimeType, data: v.base64 } });
+          break;
+        }
         case 'toolUse': {
           const v = p.value as ToolUseValue;
           if (unsignedIds.has(v.toolUseId)) {

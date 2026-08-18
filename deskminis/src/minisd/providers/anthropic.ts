@@ -58,6 +58,10 @@ function isReplayableThinking(p: ContentPart): boolean {
 function partToBlock(p: ContentPart): Record<string, unknown> | undefined {
   switch (p.type) {
     case 'text': return { type: 'text', text: p.value as string };
+    case 'imageData': {
+      const v = p.value as { mimeType: string; base64: string };
+      return { type: 'image', source: { type: 'base64', media_type: v.mimeType, data: v.base64 } };
+    }
     case 'toolUse': {
       const v = p.value as { toolUseId: string; name: string; input: string };
       // 历史里一旦躺着非法 JSON（老版本落库 / 流被截断），裸 JSON.parse 会在该会话

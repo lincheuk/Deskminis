@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import type { AgentMessage, ContentPart, RawMessage, StopReason, ThinkingLevel, TokenUsage } from '../../shared/types';
 import type { AgentProvider, StreamRequest } from '../providers/types';
 import { ProviderError, isFallbackable } from '../providers/types';
@@ -68,6 +70,41 @@ export function toAgentMessages(history: RawMessage[]): AgentMessage[] {
       return p;
     }),
   }));
+}
+
+/**
+ * 附件请求侧合成：把 user 消息里的 mediaRef part 读文件替换成 imageData（base64）。
+ * 与 pairToolResults / CONTINUE_HINT 同属请求构建边界——raw history 与 store 永不改写
+ * （落库 base64 会把图片字节冗余进 parts_json，同步/导出全量放大）。
+ * 文件缺失/读失败 → 替换为「[附件已丢失: 文件名]」文本 part：静默丢图的话模型会以为自己
+ * 看过图并开始基于想象作答，比报缺失危险得多。
+ * cache 为 run 级 Map<relativePath, base64|null>：同一附件多轮不重读（长任务几十轮
+ * 不能每轮重读 5MB）；缺失也缓存（null），免得丢失附件每轮再撞一次磁盘。
+ */
+function synthesizeImageData(
+  messages: AgentMessage[],
+  cache: Map<string, string | null>,
+  resolveAbs: (relativePath: string) => string,
+): AgentMessage[] {
+  if (!messages.some(m => m.role === 'user' && m.parts.some(p => p.type === 'mediaRef'))) return messages;
+  return messages.map(m => {
+    if (m.role !== 'user' || !m.parts.some(p => p.type === 'mediaRef')) return m;
+    return {
+      role: m.role,
+      parts: m.parts.map(p => {
+        if (p.type !== 'mediaRef') return p;
+        const v = p.value as { relativePath: string; mimeType: string };
+        if (!cache.has(v.relativePath)) {
+          try { cache.set(v.relativePath, readFileSync(resolveAbs(v.relativePath)).toString('base64')); }
+          catch { cache.set(v.relativePath, null); }
+        }
+        const b64 = cache.get(v.relativePath);
+        return b64 === null
+          ? { type: 'text' as const, value: `[附件已丢失: ${basename(v.relativePath)}]` }
+          : { type: 'imageData' as const, value: { mimeType: v.mimeType, base64: b64 } };
+      }),
+    };
+  });
 }
 
 /**
@@ -189,6 +226,12 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   let compactCount = 0; // 本循环已压缩次数（上限 3，设计 §4.2）
   let continueCount = 0; // 本循环已注入的 maxTokens 续写次数（上限 MAX_CONTINUATIONS，防无限空转）
 
+  // 附件 base64 的 run 级缓存（见 synthesizeImageData）：整个循环内同一附件只读一次盘。
+  // 解析基准取 attachments 桶 + basename：mediaRef.relativePath 正常是 attachments/<file>，
+  // basename 兜底保证任何形态的 relativePath 都逃不出桶（与 chat.prompt 校验正则双保险）。
+  const attCache = new Map<string, string | null>();
+  const attDir = opts.toolContext.paths.sessionBucket(opts.sessionId, 'attachments');
+
   for (let turn = 0; turn < maxTurns; turn++) {
     if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
     const history = store.listMessages(opts.sessionId);
@@ -244,8 +287,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     const allToolDefs = opts.tools.definitions();
     const toolDefs = opts.excludedToolNames ? allToolDefs.filter(t => !opts.excludedToolNames!.has(t.name)) : allToolDefs;
     const req: StreamRequest = {
-      // 发送前在 provider 边界配对 tool_use/tool_result（修中断后会话永久损坏），不改存储
-      messages: pairToolResults(effectiveHistory),
+      // 发送前在 provider 边界配对 tool_use/tool_result（修中断后会话永久损坏），不改存储。
+      // 附件同属请求构建边界：mediaRef → imageData(base64) 就地合成，raw history 不动。
+      messages: pairToolResults(synthesizeImageData(effectiveHistory, attCache, rel => join(attDir, basename(rel)))),
       // systemPrompt/maxTokens 占位——下方 while 循环内按当前 activeSlot 重算（降级切换后当轮生效）
       systemPrompt: '',
       maxTokens: 0,
