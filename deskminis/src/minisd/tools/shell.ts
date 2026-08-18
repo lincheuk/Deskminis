@@ -10,6 +10,11 @@ const RESET_HINT = '[提示：shell 已重启，工作目录与环境变量已�
 
 const DRIVER_PS = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# 上一行只管 PowerShell 自身 .NET 输出的编码；原生 exe 按控制台代码页吐字节，
+# 中文 Windows 默认 936/GBK——chcp 把控制台代码页切到 UTF-8，多数原生 exe 会跟随
+chcp 65001 | Out-Null
+# 反方向：PowerShell 经管道喂给原生 exe 的 stdin 编码（默认跟随旧代码页，需一并切）
+$OutputEncoding = [System.Text.Encoding]::UTF8
 while ($true) {
   $line = [Console]::In.ReadLine()
   if ($null -eq $line) { break }
@@ -24,6 +29,20 @@ while ($true) {
   [Console]::Out.WriteLine("__MINIS_DONE_" + $marker + "_EXIT_" + $ec + "__")
 }
 `;
+
+/** 宿主侧解码：驱动已把控制台切到 UTF-8，但仍拦不住硬编码 GBK 输出的老 exe。
+ *  先按 UTF-8 解，无 U+FFFD 即直接用；含替换符说明字节不是合法 UTF-8（多半是 GBK），降级再解一次。
+ *  只做「有替换符才降级」而非「先猜编码」：UTF-8 合法性校验是结构性的（多字节序列必须自洽），
+ *  合法 UTF-8 中文几乎不可能恰好也是合理 GBK 文本；反向不成立——先猜会把正常 UTF-8 输出解成乱码。 */
+export function decodeShellOutput(bytes: Buffer): string {
+  const utf8 = bytes.toString('utf8');
+  if (!utf8.includes('\uFFFD')) return utf8;
+  try {
+    return new TextDecoder('gbk').decode(bytes); // Electron 自带 full-icu，gbk 标签可用
+  } catch {
+    return utf8; // 运行时不支持 gbk 解码器（非 full-icu 环境）：退回 UTF-8 结果，保持原行为
+  }
+}
 
 export class PersistentShell {
   private proc: ChildProcessWithoutNullStreams | undefined;
@@ -51,7 +70,8 @@ export class PersistentShell {
     // 无监听器时它会冒泡到进程级 unhandled 处理并杀死整个 minisd。挂一个吞掉的兜底监听器，
     // 让 runNow 的 close/error 分支正常兜底。（同步 write 抛出仍由下方 try/catch 兜住，纵深防御。）
     proc.stdin.on('error', () => { /* 子进程已退出时写入的异步 EPIPE：吞掉，runNow 的 close/error 处理会兜底 */ });
-    proc.stdout.setEncoding('utf8');
+    // 不 setEncoding('utf8')：那会「按 UTF-8 解码后再拼接」，GBK 字节被解成替换符后原始信息不可逆丢失
+    // （之后再也拿不回字节做兜底解码）。保持流吐 Buffer，由 runNow 收集后整体解码。
     proc.stderr.resume(); // 驱动已 2>&1 并入 stdout；排空真实 stderr 管道避免写满阻塞
     this.proc = proc;
     return proc;
@@ -75,13 +95,19 @@ export class PersistentShell {
     const sentinel = new RegExp(`__MINIS_DONE_${marker}_EXIT_(-?\\d+)__`);
     const started = Date.now();
     return new Promise(resolve => {
+      const chunks: Buffer[] = [];
+      // latin1 视图上做哨兵匹配：latin1 每字节恰好映射一个字符，正则命中位置即字节偏移，
+      // 可精确切出「本命令输出」的字节段再整体解码。前提是哨兵与退出码本身为纯 ASCII——
+      // 在任何代码页下字节不变，latin1 视图不会失真（这是能按字节切割的根基）。
       let out = '';
-      const onData = (chunk: string) => {
-        out += chunk;
+      const onData = (chunk: Buffer) => {
+        chunks.push(chunk);
+        out += chunk.toString('latin1');
         const m = out.match(sentinel);
         if (m) {
           cleanup();
-          const output = resetNote + out.slice(0, out.indexOf(m[0])).replace(/\r\n/g, '\n').trimEnd();
+          const bytes = Buffer.concat(chunks).subarray(0, out.indexOf(m[0]));
+          const output = resetNote + decodeShellOutput(bytes).replace(/\r\n/g, '\n').trimEnd();
           resolve({ output, exitCode: Number(m[1]), durationMs: Date.now() - started });
         }
       };
@@ -92,12 +118,12 @@ export class PersistentShell {
       };
       const onClose = () => {
         cleanup();
-        resolve({ output: out.replace(/\r\n/g, '\n') + '\n[shell 进程意外退出]', exitCode: 129, durationMs: Date.now() - started });
+        resolve({ output: decodeShellOutput(Buffer.concat(chunks)).replace(/\r\n/g, '\n') + '\n[shell 进程意外退出]', exitCode: 129, durationMs: Date.now() - started });
       };
       const timer = setTimeout(() => {
         cleanup();
         this.interrupt(); // 杀掉整个常驻驱动（cd/env 会丢），并标记 wasReset 供下条命令提示
-        resolve({ output: out.replace(/\r\n/g, '\n') + '\n[命令超时被终止]', exitCode: 124, durationMs: Date.now() - started });
+        resolve({ output: decodeShellOutput(Buffer.concat(chunks)).replace(/\r\n/g, '\n') + '\n[命令超时被终止]', exitCode: 124, durationMs: Date.now() - started });
       }, timeoutMs);
       const cleanup = () => {
         clearTimeout(timer);

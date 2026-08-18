@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { PersistentShell, ShellManager, makeShellTool } from '../src/minisd/tools/shell';
+import { PersistentShell, ShellManager, makeShellTool, decodeShellOutput } from '../src/minisd/tools/shell';
 import type { PermissionRequest, PermissionDecision } from '../src/minisd/tools/types';
 import { MinisPaths } from '../src/minisd/paths';
 import { mkdtempSync } from 'node:fs';
@@ -17,6 +17,21 @@ describe('PersistentShell (真实 powershell)', () => {
     expect(r.output.trim()).toBe('你好世界');
     expect(r.exitCode).toBe(0);
   });
+  it('GBK 原始字节兜底解码为可读中文', async () => {
+    // 模拟硬编码 GBK 输出、不跟随 chcp 的老原生 exe：GetBytes(936) 绕过控制台代码页
+    // 直吐 GBK 字节，任何机器上都命中宿主侧 decodeShellOutput 的 GBK 降级路径
+    const r = await mk().run("$b=[Text.Encoding]::GetEncoding(936).GetBytes('汉字兜底'); [Console]::OpenStandardOutput().Write($b,0,$b.Length)");
+    expect(r.output.trim()).toBe('汉字兜底');
+  }, 20000);
+  it('输出含坏字节不影响退出码解析（哨兵按字节切割）', async () => {
+    // 0xFF 在 UTF-8 与 GBK 下都非法，解码后必成替换符——但具体码点随 ICU 版本而异
+    // （node 解为 U+FFFD，Electron 的 ICU 解为 PUA 区 U+F8F5），断言锚定「恰好一个非 ASCII
+    // 替换字符」即可；本用例真正的锚点是：坏字节混在输出里也绝不干扰哨兵定位与退出码提取
+    const r = await mk().run('[Console]::OpenStandardOutput().Write([byte[]](255),0,1); cmd /c exit 7');
+    expect(r.exitCode).toBe(7);
+    expect([...r.output].length).toBe(1);
+    expect(r.output.codePointAt(0)!).toBeGreaterThan(0x7f);
+  }, 20000);
   it('原生命令退出码穿透', async () => {
     const r = await mk().run('cmd /c exit 3');
     expect(r.exitCode).toBe(3);
@@ -160,4 +175,17 @@ describe('shell_execute 工具', () => {
     expect(r.output).toContain('[exit=0, '); // shell 工具把 exitCode 拼进 output
     mgr.disposeAll();
   }, 60000);
+});
+
+describe('decodeShellOutput（纯函数）', () => {
+  it('纯 UTF-8 中文：无替换符，直接采用不降级', () => {
+    expect(decodeShellOutput(Buffer.from('你好世界', 'utf8'))).toBe('你好世界');
+  });
+  it('GBK 字节：UTF-8 解码含替换符，降级解出中文', () => {
+    // 「你好」的 GBK 编码 C4 E3 BA C3 不是合法 UTF-8，UTF-8 解码必产生 U+FFFD → 触发降级
+    expect(decodeShellOutput(Buffer.from([0xc4, 0xe3, 0xba, 0xc3]))).toBe('你好');
+  });
+  it('纯 ASCII：合法 UTF-8 子集，解码即终', () => {
+    expect(decodeShellOutput(Buffer.from('hello shell'))).toBe('hello shell');
+  });
 });
