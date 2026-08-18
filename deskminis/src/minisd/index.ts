@@ -577,6 +577,25 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       return { ok: true };
     },
     'provider.setDefault': (p: { id: string }) => { providers.setDefaultId(p.id); return { ok: true }; },
+    /** 设置页「获取列表」：拉端点模型清单填 datalist。纯查询——不广播、不落 settings。
+     *  有 id → 已存实例（密钥在 store 内部从 vault 取）；无 id → 新建未保存场景（表单临时 key，
+     *  与 create 同一信任边界）。失败抛 ProviderError，由前端静默回退手输。 */
+    'provider.models.fetch': async (p: { id?: string; kind?: string; baseUrl?: string; apiKey?: string }) => {
+      if (p.id !== undefined) {
+        if (typeof p.id !== 'string') throw new Error('id 必须为字符串');
+      } else {
+        // 无 id 时 kind 决定端点形态与鉴权头，必须是四值之一（有 id 时 kind 由实例决定）
+        if (p.kind !== 'anthropic' && p.kind !== 'openai-compat' && p.kind !== 'gemini' && p.kind !== 'ollama') {
+          throw new Error('kind 必须是 anthropic/openai-compat/gemini/ollama 之一');
+        }
+      }
+      const baseUrl = typeof p.baseUrl === 'string' ? p.baseUrl.trim() || undefined : undefined;
+      const apiKey = typeof p.apiKey === 'string' ? p.apiKey : undefined;
+      const models = await providers.fetchModels(
+        { id: typeof p.id === 'string' ? p.id : undefined, kind: p.kind as 'anthropic' | 'openai-compat' | 'gemini' | 'ollama' | undefined, baseUrl, apiKey },
+      );
+      return { models };
+    },
     // ── ModelGroup ──
     'modelgroup.create': (p: { name: string; memberIds: string[] }) => {
       if (typeof p.name !== 'string' || p.name.trim() === '') throw new Error('模型组名称不能为空');

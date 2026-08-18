@@ -111,6 +111,26 @@ describe('ProviderStore ModelGroup', () => {
   });
 });
 
+describe('ProviderStore fetchModels（设置页「获取列表」）', () => {
+  it('fetchModels({id}): 密钥从 vault 内部取出只进请求头，不进返回值', async () => {
+    const a = store.create({ name: 'A', kind: 'anthropic', modelId: 'm1' }, 'sk-from-vault');
+    const rec: { url?: string; headers?: Record<string, string> } = {};
+    const models = await store.fetchModels({ id: a.id }, async (url, init) => {
+      rec.url = String(url);
+      rec.headers = (init?.headers ?? {}) as Record<string, string>;
+      return new Response(JSON.stringify({ data: [{ id: 'claude-sonnet-5' }] }), { status: 200 });
+    });
+    // kind/baseUrl 取实例值：anthropic 未设 baseUrl → 默认端点
+    expect(rec.url).toBe('https://api.anthropic.com/v1/models?limit=1000');
+    expect(rec.headers!['x-api-key']).toBe('sk-from-vault');
+    expect(models).toEqual(['claude-sonnet-5']);
+  });
+
+  it('fetchModels id 不存在 → 抛「provider 不存在」', async () => {
+    await expect(store.fetchModels({ id: 'NOPE' })).rejects.toThrow('provider 不存在');
+  });
+});
+
 describe('ProviderInstance 手动 contextWindow (M4.5 Task 3)', () => {
   it('create 支持手动 contextWindow 字段并持久化', () => {
     const p = store.create({ name: 'test', kind: 'openai-compat', baseUrl: 'http://x/v1', modelId: 'm1', contextWindow: 256_000 }, 'k');

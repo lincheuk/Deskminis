@@ -298,6 +298,8 @@ export const useChat = defineStore('chat', {
     async createProvider(p: any) { await rpc.call('provider.instances.create', p); await this.refreshProviders(); },
     async updateProvider(id: string, p: any) { await rpc.call('provider.instances.update', { id, ...p }); await this.refreshProviders(); },
     async deleteProvider(id: string) { await rpc.call('provider.instances.delete', { id, confirm: true }); await this.refreshProviders(); },
+    /** 设置页「获取列表」：拉端点模型清单（纯查询，不刷新 providers）。失败由调用方静默回退手输。 */
+    async fetchProviderModels(p: { id?: string; kind?: string; baseUrl?: string; apiKey?: string }) { return await rpc.call<{ models: string[] }>('provider.models.fetch', p); },
     async respondPerm(requestId: string, decision: string) {
       this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);
       await rpc.call('permission.respond', { requestId, decision });

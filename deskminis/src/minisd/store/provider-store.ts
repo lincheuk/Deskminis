@@ -2,10 +2,11 @@ import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
-import type { AgentProvider } from '../providers/types';
+import type { AgentProvider, FetchLike } from '../providers/types';
 import { AnthropicProvider } from '../providers/anthropic';
 import { OpenAIProvider } from '../providers/openai';
 import { GeminiProvider } from '../providers/gemini';
+import { fetchModelList } from '../providers/model-list';
 
 const nativeRequire = createRequire(import.meta.url);
 
@@ -163,6 +164,20 @@ export class ProviderStore {
         if (apiKey === undefined) throw new Error(`provider 缺少密钥: ${p.name}`);
         return new OpenAIProvider({ apiKey, modelId: p.modelId, baseUrl: p.baseUrl ?? 'https://api.openai.com/v1' });
     }
+  }
+
+  /** 拉取端点可用模型列表（设置页「获取列表」）。
+   *  有 id：kind/baseUrl 取实例值，密钥从 vault 内部读取——只进请求头，不进返回值与任何日志
+   *  （维持「密钥绝不回显」封装，不新增公开的 key 读取方法）。
+   *  无 id：「新建未保存」场景，用表单临时传入的 kind/baseUrl/apiKey——与 create 走同一信任边界。 */
+  async fetchModels(p: { id?: string; kind?: ProviderInstance['kind']; baseUrl?: string; apiKey?: string }, fetchImpl?: FetchLike): Promise<string[]> {
+    if (p.id !== undefined) {
+      const inst = this.cfg.providers.find(x => x.id === p.id);
+      if (!inst) throw new Error(`provider 不存在: ${p.id}`);
+      return fetchModelList({ kind: inst.kind, baseUrl: inst.baseUrl, apiKey: this.vault.get(`provider:${p.id}`), fetchImpl });
+    }
+    if (!p.kind) throw new Error('缺少 provider 类型');
+    return fetchModelList({ kind: p.kind, baseUrl: p.baseUrl, apiKey: p.apiKey, fetchImpl });
   }
 
   // ── ModelGroup CRUD ──

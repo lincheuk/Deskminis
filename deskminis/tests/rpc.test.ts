@@ -401,6 +401,17 @@ describe('provider.instances.* kind 扩展', () => {
     expect(resp.error).toBeTruthy();
     c.close();
   });
+  it('provider.models.fetch 无 id 且 kind 非法 → 被拒（有 id 时 kind 由实例决定，无需校验）', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    // 断言具体报错文案而非仅 error 真值：方法未装配时 -32601 也会让 error 为真，测不出守卫本身
+    const bad = await c.call('provider.models.fetch', { kind: 'nope' });
+    expect(bad.error).toBeTruthy();
+    expect(bad.error.message).toContain('kind');
+    const none = await c.call('provider.models.fetch', {});
+    expect(none.error).toBeTruthy();
+    c.close();
+  });
 });
 
 describe('modelgroup.* RPC', () => {

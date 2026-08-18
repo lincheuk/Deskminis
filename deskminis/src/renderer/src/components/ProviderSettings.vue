@@ -7,12 +7,15 @@ import { useChat } from '../stores/chat';
 import Icon from './Icon.vue';
 
 const chat = useChat();
-const blank = { name: '', kind: 'openai-compat' as 'anthropic' | 'openai-compat', baseUrl: '', modelId: '', apiKey: '' };
+const blank = { name: '', kind: 'openai-compat' as 'anthropic' | 'openai-compat' | 'gemini' | 'ollama', baseUrl: '', modelId: '', apiKey: '' };
 const form = reactive({ ...blank });
 const editingId = ref('');
 const err = ref('');
 /** 路径重复只是「多半错了」，不是一定错：确认过一次就放行，以便对付特殊网关。 */
 const forced = ref(false);
+/** 「获取列表」的 datalist 数据源与请求中标志（防重入）。 */
+const modelOptions = ref<string[]>([]);
+const fetchingModels = ref(false);
 
 const editing = computed(() => editingId.value !== '');
 
@@ -44,7 +47,7 @@ const submitLabel = computed(() => {
   return editing.value ? '保存' : '添加';
 });
 
-function startEdit(p: { id: string; name: string; kind: 'anthropic' | 'openai-compat'; baseUrl?: string; modelId: string }): void {
+function startEdit(p: { id: string; name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama'; baseUrl?: string; modelId: string }): void {
   err.value = ''; forced.value = false;
   editingId.value = p.id;
   form.name = p.name; form.kind = p.kind; form.baseUrl = p.baseUrl ?? ''; form.modelId = p.modelId;
@@ -77,6 +80,26 @@ async function remove(id: string): Promise<void> {
     if (editingId.value === id) cancel();
   } catch (e) { err.value = e instanceof Error ? e.message : String(e); }
 }
+
+/** 「获取列表」→ RPC provider.models.fetch（经 chat.fetchProviderModels）填 datalist。
+ *  编辑态且本次未重新输 key → 按 id 查（密钥留在后端 vault，前端永远摸不到）；
+ *  否则用表单当前的 kind/baseUrl/apiKey（新建未保存场景，与 create 同一信任边界）。
+ *  失败静默——手输回退是一等路径，弹错误反而打扰。 */
+async function fetchModelOptions(): Promise<void> {
+  if (fetchingModels.value) return; // 请求期间按钮本就 disabled，双保险
+  fetchingModels.value = true;
+  try {
+    const r = editing.value && !form.apiKey
+      ? await chat.fetchProviderModels({ id: editingId.value })
+      : await chat.fetchProviderModels({ kind: form.kind, baseUrl: form.baseUrl.trim() || undefined, apiKey: form.apiKey || undefined });
+    modelOptions.value = Array.isArray(r?.models) ? r.models : [];
+  } catch (e) {
+    modelOptions.value = [];
+    console.warn('获取模型列表失败（回退手输）', e);
+  } finally {
+    fetchingModels.value = false;
+  }
+}
 </script>
 
 <template>
@@ -102,12 +125,20 @@ async function remove(id: string): Promise<void> {
       <select v-model="form.kind" class="inp">
         <option value="openai-compat">OpenAI 兼容</option>
         <option value="anthropic">Anthropic</option>
+        <option value="gemini">Gemini</option>
+        <option value="ollama">Ollama</option>
       </select>
       <input v-model="form.baseUrl" class="inp" :class="{ warn: urlWarning }" :placeholder="baseUrlPlaceholder" />
       <div v-if="urlWarning" class="warnmsg">
         <Icon name="shield" :size="14" /><span>{{ urlWarning }}</span>
       </div>
-      <input v-model="form.modelId" class="inp" placeholder="模型 ID（如 claude-sonnet-5）" />
+      <div class="modelrow">
+        <input v-model="form.modelId" class="inp" list="model-id-list" placeholder="模型 ID（如 claude-sonnet-5）" />
+        <button class="fetchbtn" :disabled="fetchingModels" @click="fetchModelOptions">{{ fetchingModels ? '获取中…' : '获取列表' }}</button>
+      </div>
+      <datalist id="model-id-list">
+        <option v-for="m in modelOptions" :key="m" :value="m" />
+      </datalist>
       <input
         v-model="form.apiKey" class="inp" type="password"
         :placeholder="editing ? 'API Key（留空 = 不修改）' : 'API Key'"
@@ -153,6 +184,17 @@ async function remove(id: string): Promise<void> {
 }
 .warnmsg :deep(svg) { flex: 0 0 auto; margin-top: 2px; }
 .btnrow { display: flex; gap: 6px; margin-top: 2px; }
+/* modelId 输入与「获取列表」并排：按钮不换行、输入框吃满剩余宽度 */
+.modelrow { display: flex; gap: 6px; }
+.modelrow .inp { flex: 1; min-width: 0; }
+.fetchbtn {
+  padding: 8px 12px; border-radius: var(--r-control); border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  color: var(--label-secondary); font-size: 13px; cursor: pointer; font-family: var(--font-ui); white-space: nowrap;
+}
+.fetchbtn:hover { background: var(--fill-quaternary); }
+.fetchbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+/* 请求期间防重入：置灰且不可点 */
+.fetchbtn:disabled { opacity: .5; cursor: default; }
 .addbtn {
   flex: 1; padding: 9px; border-radius: var(--r-control); border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
   color: var(--label); font-size: 15px; font-weight: 600; cursor: pointer; font-family: var(--font-ui);
