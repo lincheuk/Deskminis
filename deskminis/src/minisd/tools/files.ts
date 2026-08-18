@@ -39,7 +39,7 @@ async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute
  * 否则会话绑定项目后每个新文件路径都会触发一次权限确认，确认沦为噪音。
  * 未绑定会话时 workspaceOf 回落沙箱桶（在数据根内），上面的数据根判断已覆盖，行为不变。
  */
-async function guardRead(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string): Promise<string | undefined> {
+export async function guardRead(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string): Promise<string | undefined> {
   if (!isInsideRoot(absPath, ctx.paths.root) && !isInsideRoot(absPath, ctx.paths.workspaceOf(ctx.sessionId))) {
     const d = await ctx.permissions.check({ kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle });
     if (d === 'deny') return `读取被用户拒绝: ${absPath}（可在设置-权限中调整）`;

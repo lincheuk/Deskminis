@@ -11,6 +11,7 @@ import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { ToolRegistry } from './tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
+import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
 import { ShellManager, makeShellTool } from './tools/shell';
 import { PermissionGatewayImpl, classifyShellCommand, type PermissionPrompt } from './tools/permissions';
 import type { BridgePermissionKind, PermissionRequest } from './tools/types';
@@ -301,6 +302,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const shells = new ShellManager();
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
+  tools.register(fileListTool); tools.register(fileGlobTool); tools.register(fileGrepTool);
   tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, bridgeNode)));
   tools.register(memoryWriteTool); tools.register(memoryGetTool);
 
