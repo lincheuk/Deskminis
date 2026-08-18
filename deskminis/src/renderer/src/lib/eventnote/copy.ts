@@ -12,7 +12,13 @@ export interface EventCopy {
 /** 原始错误信息 → 一句人话：先剥 HTTP 状态码，再认网络层错误，剥不出截断 80 字。 */
 export function humanizeError(raw: string): string {
   const msg = String(raw ?? '');
-  if (/\b(401|403)\b/.test(msg)) return 'API Key 无效或过期';
+  // 401 先于 403：两者都可能是「key 问题」但处置相反——401 换 key，403 多数查余额/权限，
+  // 合并成一句会误导聚合端点（如 nodetect）的欠费用户去白白换 key。
+  if (/\b401\b/.test(msg)) return 'API Key 无效或过期';
+  if (/\b403\b/.test(msg)) {
+    if (/余额|欠费|额度|balance|quota|credit|insufficient/i.test(msg)) return '余额不足或额度受限（403）';
+    return '访问被拒绝（403）：检查 Key 权限或账户余额';
+  }
   if (/\b429\b/.test(msg)) return '请求过频或额度不足';
   const m5 = /\b(5\d{2})\b/.exec(msg);
   if (m5) return `模型服务暂时不可用（${m5[1]}）`;

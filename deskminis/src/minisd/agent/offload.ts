@@ -26,7 +26,12 @@ export class OffloadEngine {
     writeFileSync(tmp, output, 'utf8');
     renameSync(tmp, abs);
     const relativePath = `offloads/${fileName}`;
-    const stub = `[CONTEXT OFFLOADED: ${relativePath} (${output.length} 字符)]\n使用 file_read 工具读取 /var/minis/offloads/${toolUseId}.txt 取回完整内容`;
+    // 桩带首段摘录：只有路径+字符数时模型不 file_read 就完全不知道桩里是什么，
+    // 常导致盲目取回全文（浪费上下文）或该取不取。摘录是纯字符串截取，零成本、确定性。
+    // Array.from 按码点截：slice 按 UTF-16 码元截会把 emoji（surrogate pair）切成半个字符，
+    // 落进提示词就是乱码；换行折叠成 ⏎ 保证摘录单行——否则桩的行结构被内容打乱，指针行难定位。
+    const excerpt = Array.from(output).slice(0, 200).join('').replace(/\r?\n/g, '⏎') + '…';
+    const stub = `[CONTEXT OFFLOADED: ${relativePath} (${output.length} 字符)]\n开头: ${excerpt}\n使用 file_read 工具读取 /var/minis/offloads/${toolUseId}.txt 取回完整内容`;
     return { stub, relativePath };
   }
 }

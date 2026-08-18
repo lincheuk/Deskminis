@@ -31,9 +31,9 @@ describe('MU2a Task 8 eventCopy/humanizeError（6 例）', () => {
     expect(c.short).toBe('模型服务暂时不可用（503）');
   });
 
-  it('humanizeError：401/403 → API Key 无效或过期', () => {
+  it('humanizeError：401 → API Key 无效或过期；裸 403 → 访问被拒绝（403 细分后不再与 401 合并）', () => {
     expect(humanizeError('Request failed with status code 401')).toBe('API Key 无效或过期');
-    expect(humanizeError('HTTP 403 Forbidden')).toBe('API Key 无效或过期');
+    expect(humanizeError('HTTP 403 Forbidden')).toBe('访问被拒绝（403）：检查 Key 权限或账户余额');
   });
 
   it('humanizeError：429 → 请求过频或额度不足', () => {

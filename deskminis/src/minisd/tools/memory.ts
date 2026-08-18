@@ -59,7 +59,7 @@ export const memoryWriteTool: ToolExecutor = {
     parameters: {
       markdown: { type: 'string', description: '要记录的记忆内容（markdown）' },
       date: { type: 'string', description: '日期 YYYY-MM-DD，省略则写当日' },
-      tool_title: { type: 'string', description: '5-10 词中文摘要，用于 UI 卡片' },
+      tool_title: { type: 'string', description: '这次调用的 5-10 字中文摘要，用于 UI 卡片' },
     },
     required: ['markdown', 'tool_title'],
   },
@@ -82,7 +82,7 @@ export const memoryGetTool: ToolExecutor = {
     parameters: {
       query: { type: 'string', description: '搜索关键词' },
       limit: { type: 'integer', description: '返回条目上限，默认 60' },
-      tool_title: { type: 'string', description: '5-10 词中文摘要，用于 UI 卡片' },
+      tool_title: { type: 'string', description: '这次调用的 5-10 字中文摘要，用于 UI 卡片' },
     },
     required: ['query', 'tool_title'],
   },

@@ -8,9 +8,11 @@ const OPENAI_FAMILY = /^(gpt-|codex-|grok-|o\d|qwen|deepseek|glm|kimi|minimax|do
 const GOOGLE_FAMILY = /^(gemini-|gemma)/i;
 const ANTHROPIC_FAMILY = /^claude-/i;
 
-const OPENAI_DISCIPLINE = `操作纪律：当任务需要读写文件或执行命令时，必须调用对应工具完成，不要只描述计划或声称已完成却未调用工具。若现成工具可用则直接用，不要建议用户绕路手动操作。`;
-const GOOGLE_DISCIPLINE = `操作纪律：调用工具时确保参数完整准确，不要遗漏必要参数。需要执行操作时直接调用工具，不要仅输出计划文本。`;
-const ANTHROPIC_DISCIPLINE = `操作纪律：使用工具完成任务，工具调用与文本回复可并行。不要在未调用工具的情况下声称已完成操作。`;
+// tool_title 中文句三族同文：国际模型冒烟观察到英文 title，参数 description 措辞对模型约束力弱，
+// 纪律块必须正面点名；不在各族块里改写措辞——同文便于全局搜索与同步维护。
+const OPENAI_DISCIPLINE = `操作纪律：当任务需要读写文件或执行命令时，必须调用对应工具完成，不要只描述计划或声称已完成却未调用工具。若现成工具可用则直接用，不要建议用户绕路手动操作。调用工具时 tool_title 参数一律用 5-10 字中文短语概括本次操作。`;
+const GOOGLE_DISCIPLINE = `操作纪律：调用工具时确保参数完整准确，不要遗漏必要参数。需要执行操作时直接调用工具，不要仅输出计划文本。调用工具时 tool_title 参数一律用 5-10 字中文短语概括本次操作。`;
+const ANTHROPIC_DISCIPLINE = `操作纪律：使用工具完成任务，工具调用与文本回复可并行。不要在未调用工具的情况下声称已完成操作。调用工具时 tool_title 参数一律用 5-10 字中文短语概括本次操作。`;
 
 /**
  * 按 modelId 分派操作纪律块。

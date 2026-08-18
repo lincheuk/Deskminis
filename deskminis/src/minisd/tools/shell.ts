@@ -187,7 +187,7 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       parameters: {
         command: { type: 'string', description: 'PowerShell 命令，可多行' },
         timeout_seconds: { type: 'integer', description: '超时秒数，默认 120' },
-        tool_title: { type: 'string', description: '这次调用的 5-10 字用户语言摘要' },
+        tool_title: { type: 'string', description: '这次调用的 5-10 字中文摘要，用于 UI 卡片' },
       },
       required: ['command', 'tool_title'],
     },

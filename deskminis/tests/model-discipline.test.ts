@@ -49,4 +49,23 @@ describe('buildDisciplineBlock 按模型族分派', () => {
     const b = buildDisciplineBlock('gemini-2.5-pro', { toolUseEnforcement: true });
     expect(a).not.toBe(b);
   });
+
+  // tool_title 强制中文：国际模型冒烟观察到英文 title，纪律块三族都必须点名 tool_title 用中文
+  it('tool_title 强制中文：OpenAI 系纪律块含 tool_title 与中文要求', () => {
+    const r = buildDisciplineBlock('gpt-5', { toolUseEnforcement: true });
+    expect(r).toContain('tool_title');
+    expect(r).toContain('中文');
+  });
+
+  it('tool_title 强制中文：Google 系纪律块含 tool_title 与中文要求', () => {
+    const r = buildDisciplineBlock('gemini-2.5-pro', { toolUseEnforcement: true });
+    expect(r).toContain('tool_title');
+    expect(r).toContain('中文');
+  });
+
+  it('tool_title 强制中文：Anthropic 系纪律块含 tool_title 与中文要求', () => {
+    const r = buildDisciplineBlock('claude-opus-4', { toolUseEnforcement: true });
+    expect(r).toContain('tool_title');
+    expect(r).toContain('中文');
+  });
 });

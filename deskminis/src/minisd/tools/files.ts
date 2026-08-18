@@ -12,7 +12,7 @@ function previewClamp(text: string): string {
   return text.slice(0, PREVIEW_MAX_CHARS) + '…[截断]';
 }
 
-const TOOL_TITLE = { type: 'string' as const, description: '这次调用的 5-10 字用户语言摘要' };
+const TOOL_TITLE = { type: 'string' as const, description: '这次调用的 5-10 字中文摘要，用于 UI 卡片' };
 
 /** 归一化后的包含判断：避免 <root>\..\.. 形式的字符串前缀欺骗。 */
 function isInsideRoot(absPath: string, root: string): boolean {
