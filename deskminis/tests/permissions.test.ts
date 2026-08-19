@@ -105,6 +105,16 @@ describe('classifyShellCommand', () => {
     ['gci | remove-item', 'danger'],
     ['gci | select-object; rm x', 'danger'], // ; 后 rm 命中命令位危险表 → danger 先行（; 的 gated 形态见上）
     ['get-content a | select-string "$(rm x)"', 'danger'], // (rm 命中命令位危险表（regex 不识引号）；引号内 $ 的 gated 形态见上
+    // ---- C9 执行型旗标后门：旗标值是外部程序路径 = 任意代码执行，必须与 --output 同级拒绝 ----
+    ['rg --pre powershell pattern src', 'gated'], // rg --pre <程序> 会对每个文件调用该程序
+    ['rg --pre=cmd pattern', 'gated'], // = 形态同样拒绝
+    ['rg --pre-glob *.gz --pre unzip pattern', 'gated'], // --pre-glob 是 --pre 的配套过滤器
+    ['rg --hostname-bin hostname pattern', 'gated'], // 超链接主机名同样执行外部程序
+    ['gci | rg --pre cmd x', 'gated'], // 管道右侧的 rg 走同一道闸
+    ['type a.txt | sls --pre cmd', 'gated'], // 纯过滤段的旗标检查同样生效
+    // 误伤回归：精确匹配而非 --pre 前缀——下面两条是高频只读用法，必须仍然免批
+    ['git log --pretty=oneline', 'readonly'],
+    ['rg --pretty pattern src', 'readonly'],
   ])('%s → %s', (cmd, cls) => { expect(classifyShellCommand(cmd)).toBe(cls); });
 });
 

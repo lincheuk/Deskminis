@@ -90,6 +90,13 @@ const READONLY_PIPE_FILTERS = new Set([
  *  $(/@( 与 ${ 无非是括号/花括号族成员，按单字符拒绝即全覆盖。 */
 const READONLY_FORBIDDEN_CHARS = [';', '&', '`', '(', ')', '<', '>', '{', '}', '\n', '\r'];
 
+/** 执行型旗标：旗标值是外部程序路径，命中即等于任意代码执行——与 --output 后门同级拒绝。
+ *  ripgrep 的 --pre <程序> 会对每个待搜文件调用该程序（rg --pre cmd x 即任意执行），
+ *  --pre-glob 是它的配套过滤器，--hostname-bin 同样把外部程序的输出当主机名。
+ *  刻意用精确匹配而非 --pre 前缀：git log --pretty=… 与 rg --pretty 都是高频只读用法，
+ *  前缀匹配会把它们一并误伤回 gated——免批面该收窄，但不该收窄到常用只读命令头上。 */
+const EXEC_FLAG_RE = /^--(pre|pre-glob|hostname-bin)(=|$)/i;
+
 /** 引号必须配对，且引号内不得出现 $ 与反引号（防字符串内展开）。
  *  PS 单引号串本是字面量（$ 不展开），这里仍一并拒绝：少依赖一层语言语义，判定只看字符结构。 */
 function readonlyQuotesSafe(c: string): boolean {
@@ -140,6 +147,8 @@ function isReadonlySingle(segment: string): boolean {
   // --output 是 git 家族把只读查询结果写进文件的后门（diff/show/log 通用旗标），
   // 白名单内没有命令合法使用该前缀，全局按 token 前缀拒绝
   if (tokens.some(t => t.toLowerCase().startsWith('--output'))) return false;
+  // 执行型旗标：白名单里的 rg 本身只读，但 --pre 之类会把它变成任意程序启动器
+  if (tokens.some(t => EXEC_FLAG_RE.test(t))) return false;
   // 结构过滤已拒绝一切 &，这里再剥一次调用符前缀是防御性兜底：两道闸少一道也不至于漏
   const head = tokens[0].replace(/^&/, '').toLowerCase();
   if (!READONLY_ALLOWLIST.has(head)) return false;
@@ -168,6 +177,8 @@ function isPureFilterSegment(segment: string): boolean {
   if (!readonlyQuotesSafe(segment)) return false;
   const tokens = segment.split(/\s+/);
   if (tokens.some(t => t.toLowerCase().startsWith('--output'))) return false;
+  // 管道右侧同样有 rg/sls：这一侧必须用同一道闸，否则 gci | rg --pre cmd 就绕过去了
+  if (tokens.some(t => EXEC_FLAG_RE.test(t))) return false;
   // 结构过滤已拒绝一切 &，剥调用符前缀与段 1 同理是防御性兜底
   const head = tokens[0].replace(/^&/, '').toLowerCase();
   return READONLY_PIPE_FILTERS.has(head);
