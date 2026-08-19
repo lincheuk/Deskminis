@@ -162,7 +162,8 @@
   约束、保证协议顺序，优于纯 fire-and-forget）、SSE 用 text() 缓冲（POST-per-RPC 形态等价）、
   会话头任意 2xx 捕获（超集）、垃圾计数口径按 D4 规格文字。**返工 D4b（审核逮住）**：附带
   小修把 offload 例末断言写成 `expect(布尔)` 无 matcher（恒过、静默阉割断言，与报告「断言
-  一字未动」不符）——一行修复提示词已出。备忘两条：预中止分支多发一条无害 cancelled；
+  一字未动」不符）——**D4b 已修复并复核**（main `8bc667a`，一行 diff 实核 + 云端独立复跑
+  agent-loop 38/38，含恢复断言的 offload 例 32.6s 过、在 120s 新限内）。备忘两条：预中止分支多发一条无害 cancelled；
   SSE 多行 data 不拼接（SDK 服务器均单行，低风险）。**D5 勘察定案**：工具表每 run 现取
   （loop.ts:287）+ excludedToolNames 管线可承接会话禁用；`AgentToolDefinition.parameters` 是
   平铺形（anthropic.ts:26 只认 type/description/enum）——MCP 嵌套 schema 须加可选
