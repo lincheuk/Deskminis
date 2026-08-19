@@ -72,6 +72,39 @@ describe('classifyShellCommand', () => {
     // former bypasses（git --output / 裸括号 / UNC 求值形态）仍只是 gated → 走确认
     ['git diff --output=C:\\tmp\\a.txt', 'gated'], // git 家族 --output 把 diff 写入文件，旗标前缀后门拒绝
     ['echo (Set-Content C:\\x -Value p)', 'gated'],
+    // ---- B4 受限管道：段 1 走既有单段判定，段 2..n 仅纯过滤 cmdlet 白名单，段数 ≤3 ----
+    // 正例 readonly：源命令只读 + 右侧纯过滤的组合免批
+    ['git log --oneline | select-object -first 20', 'readonly'],
+    ['get-content a.txt | select-string TODO', 'readonly'],
+    ['gci -recurse | measure-object', 'readonly'],
+    ['git diff | out-string', 'readonly'],
+    ['rg "x" src | select-object -first 5', 'readonly'],
+    ['get-content "a b.txt" | findstr /i err', 'readonly'],
+    ['git log | select-string fix | select-object -first 3', 'readonly'], // 三段在保守上限内
+    ['rg "a|b" src', 'readonly'], // 引号内的 | 是字面量（正则语法）→ 不算分隔，单命令原路径
+    ['gci | sort-object name', 'readonly'],
+    ['git status | format-table -autosize', 'readonly'],
+    ['cat log.txt | ft', 'readonly'], // format-table 别名
+    ['type a.txt | sls error | fl', 'readonly'], // select-string/format-list 别名三段
+    ['gci | out-string -width 200', 'readonly'],
+    // 反例 gated：管道任一环节不满足即回落询问
+    ['echo hi | select-object', 'gated'], // 源命令不在白名单
+    ['gci | foreach-object { $_ }', 'gated'], // {} 脚本块字符全局禁 → 过滤段过不了禁字符检查
+    ['gci | out-file x.txt', 'gated'], // out-file 写盘，不在纯过滤白名单
+    ['type a.txt | cmd /c del x', 'gated'], // cmd 不在白名单（del 不在命令位，未触发 danger）
+    ['git log | git push', 'gated'], // 右侧 git 不是纯过滤器
+    ['gci | select-object; select-string x', 'gated'], // 段内含 ; —— 复合结构穿透不了管道
+    ['git log | select-string a | select-string b | select-string c', 'gated'], // 四段超保守上限
+    ['rg "a|b src', 'gated'], // 引号未配对 → 分段前先拒绝，防引号内竖线被误切
+    ['get-content a | select-string "$file"', 'gated'], // 引号内 $ 可能展开
+    ['gci | tee-object x', 'gated'], // tee 会写盘，不在白名单
+    ['gci |', 'gated'], // 尾随管道 → 空段结构不明
+    ['git log | select-object --output=x', 'gated'], // --output 后门规则对管道段同样生效
+    // 反例 danger：DANGER 两表先行且扫整条命令（含管道右侧），readonly 判定不可越过
+    ['remove-item x | select-object', 'danger'],
+    ['gci | remove-item', 'danger'],
+    ['gci | select-object; rm x', 'danger'], // ; 后 rm 命中命令位危险表 → danger 先行（; 的 gated 形态见上）
+    ['get-content a | select-string "$(rm x)"', 'danger'], // (rm 命中命令位危险表（regex 不识引号）；引号内 $ 的 gated 形态见上
   ])('%s → %s', (cmd, cls) => { expect(classifyShellCommand(cmd)).toBe(cls); });
 });
 

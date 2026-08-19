@@ -34,8 +34,9 @@ const DANGER_AT_COMMAND_POSITION = [
 ];
 
 /** 只读免批白名单（保守子集）：首 token 小写精确命中才可能免批。
- *  Measure-Object / Where-Object 刻意不收：二者脱离管道没有独立语义（而管道已被结构过滤拒绝），
- *  收进来只扩大免批面、不带来任何收益；裸 where（Where-Object 的别名）同理不收，只收 where.exe。 */
+ *  Measure-Object / Where-Object 刻意不收：二者脱离管道没有独立语义（管道右侧形态由
+ *  READONLY_PIPE_FILTERS 承接，measure-object 在彼列），收进「源」白名单只扩大免批面、
+ *  不带来任何收益；裸 where（Where-Object 的别名）同理不收，只收 where.exe。 */
 const READONLY_ALLOWLIST = new Set([
   'get-childitem', 'gci', 'ls', 'dir',
   'get-content', 'gc', 'cat', 'type',
@@ -74,10 +75,20 @@ const READONLY_SECOND_TOKEN_RULES: Record<string, SecondTokenRule[]> = {
   python: [{ flagsOnly: ['--version', '-v'] }], // -c/-m 执行代码，同理排除
 };
 
-/** 结构过滤拒绝的字符：覆盖管道/复合/子表达式/重定向/脚本块/splatting/换行。
+/** 管道右侧允许的纯过滤 cmdlet 白名单（B4 受限管道）。入选标准：只能是「读入→变换→输出」
+ *  的纯过滤器——无一能写盘/执行代码/发网络；将来扩名单必须逐个照此审（out-file/tee-object
+ *  会写盘、foreach-object/where-object 靠 {} 脚本块变换、cmd/git 可执行任意动作，均不收）。 */
+const READONLY_PIPE_FILTERS = new Set([
+  'select-object', 'select-string', 'sls', 'sort-object', 'measure-object',
+  'format-table', 'ft', 'format-list', 'fl', 'out-string', 'findstr', 'rg',
+]);
+
+/** 结构过滤拒绝的字符：覆盖复合/子表达式/重定向/脚本块/splatting/换行，对每个管道段独立生效。
+ *  | 不在此列——顶层管道分隔改由 isReadonlyCommand 分段处理（引号内的 | 是字面量，不能当
+ *  分隔符误切），分段后各段套用本表，段内再出现 ; > { } 等仍一律拒绝；
  *  裸括号也一并拒：(...) 是表达式求值，(Set-Content …) 会在参数位静默执行写操作；
  *  $(/@( 与 ${ 无非是括号/花括号族成员，按单字符拒绝即全覆盖。 */
-const READONLY_FORBIDDEN_CHARS = [';', '|', '&', '`', '(', ')', '<', '>', '{', '}', '\n', '\r'];
+const READONLY_FORBIDDEN_CHARS = [';', '&', '`', '(', ')', '<', '>', '{', '}', '\n', '\r'];
 
 /** 引号必须配对，且引号内不得出现 $ 与反引号（防字符串内展开）。
  *  PS 单引号串本是字面量（$ 不展开），这里仍一并拒绝：少依赖一层语言语义，判定只看字符结构。 */
@@ -94,10 +105,34 @@ function readonlyQuotesSafe(c: string): boolean {
   return quote === undefined; // 扫描结束仍在引号内 = 未配对，结构不明不收
 }
 
-/** 只读免批判定：全部条件满足才 true，任何一处存疑一律 false 回落 gated。
- *  免批判定被绕过等于静默放行，所以宁可漏放（该问的多问一次）、不可错放（不该放的被静默执行）。 */
-export function isReadonlyCommand(command: string): boolean {
-  const c = command.trim();
+/** 引号感知切分顶层管道：单双引号内的 | 是字面量（正则模式里极常见），不算分隔。
+ *  调用前 readonlyQuotesSafe 已保证引号配对，扫描不会以「悬空引号内」状态收尾。 */
+function splitTopLevelPipes(c: string): string[] {
+  const segments: string[] = [];
+  let cur = '';
+  let quote: '"' | "'" | undefined;
+  for (const ch of c) {
+    if (quote !== undefined) {
+      cur += ch;
+      if (ch === quote) quote = undefined;
+    } else if (ch === '"' || ch === "'") {
+      cur += ch;
+      quote = ch;
+    } else if (ch === '|') {
+      segments.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  segments.push(cur);
+  return segments;
+}
+
+/** 单段命令的只读判定（B4 从导出函数抽出，既有语义完整承接）。与旧版唯一差异：不再拒绝 | ——
+ *  顶层管道分隔由 isReadonlyCommand 分段处理，引号内的 | 在段内是字面量。 */
+function isReadonlySingle(segment: string): boolean {
+  const c = segment.trim();
   if (c === '') return false;
   if (READONLY_FORBIDDEN_CHARS.some(ch => c.includes(ch))) return false;
   if (!readonlyQuotesSafe(c)) return false;
@@ -123,6 +158,40 @@ export function isReadonlyCommand(command: string): boolean {
     }
   }
   return false;
+}
+
+/** 管道右侧单段判定：首 token 必须命中纯过滤白名单；禁字符/引号内容/--output 对每段独立生效——
+ *  { } 仍全局禁 → 脚本块过滤（ForEach-Object/Where-Object）天然不可能通过；
+ *  > 仍禁 → 管道尾重定向不可能；段内 ; 等复合结构同样穿透不了管道。 */
+function isPureFilterSegment(segment: string): boolean {
+  if (READONLY_FORBIDDEN_CHARS.some(ch => segment.includes(ch))) return false;
+  if (!readonlyQuotesSafe(segment)) return false;
+  const tokens = segment.split(/\s+/);
+  if (tokens.some(t => t.toLowerCase().startsWith('--output'))) return false;
+  // 结构过滤已拒绝一切 &，剥调用符前缀与段 1 同理是防御性兜底
+  const head = tokens[0].replace(/^&/, '').toLowerCase();
+  return READONLY_PIPE_FILTERS.has(head);
+}
+
+/** 只读免批判定（B4 受限管道）：全部条件满足才 true，任何一处存疑一律 false 回落 gated。
+ *  免批判定被绕过等于静默放行，所以宁可漏放（该问的多问一次）、不可错放（不该放的被静默执行）。
+ *  管道规则：段 1 走 isReadonlySingle 既有判定（含二段规则）；段 2..n 首 token 必须是纯过滤
+ *  白名单成员；段数上限 3——保守上限，真实只读组合两级过滤足够，更长的链宁可多问一次。 */
+export function isReadonlyCommand(command: string): boolean {
+  const c = command.trim();
+  if (c === '') return false;
+  // 分段之前必须先证明引号配对：否则 "a|b" 里的竖线会被误当分隔符，把前半段切出悬空引号、
+  // 后半段切进下一段的参数位——不配对直接整体回落 gated
+  if (!readonlyQuotesSafe(c)) return false;
+  const segments = splitTopLevelPipes(c).map(s => s.trim());
+  if (segments.length === 1) return isReadonlySingle(segments[0]);
+  if (segments.length > 3) return false;
+  if (!isReadonlySingle(segments[0])) return false;
+  for (const seg of segments.slice(1)) {
+    if (seg === '') return false; // 尾随/连续管道（gci | 或 a || b）留下空段，结构不明
+    if (!isPureFilterSegment(seg)) return false;
+  }
+  return true;
 }
 
 export function classifyShellCommand(command: string): CommandClass {
