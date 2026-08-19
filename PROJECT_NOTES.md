@@ -271,3 +271,21 @@
 - 真渲染目视：四截图（主界面/设置 × 暗亮）。玻璃壳透斑、青指示线、HUD 任务条成立；
   设置弹层完整浮于玻璃壳上（复核 Trae 真机 72 点网格结论）。观察项：亮色右栏空态区
   极光斑透出的渐变分界稍显突兀，E3 内容区改造自然覆盖，不单独返工。
+
+### E3 审核记录（2026-08-19，云端）
+- **E3 过审**（7bd7db2，Aurora 内容区）：1541→1549（+8 内容区源码守卫）。云端复跑 1549 例、
+  52 失败与基线逐条一致；typecheck 零错误；build 过。
+- 审核要点：①十组件零新增 backdrop-filter（例 8 白名单零扩 + 新守卫例 8 计数锚双保险）；
+  ②ThinkingBlock 流式计时器 onBeforeUnmount 清理无泄漏、历史块不伪造时长；③ToolLine :has(.spin)
+  运行态缘线零 DOM；④守卫例 4 手写正则带抓空抛错；⑤无 matcher 扫描零命中。
+- 偏离裁定：八条全部接受。要点：PermissionCard 主钮保留 --action 因 renderer-permcard 锚定字面
+  （--action=--accent 等值链，视觉一致）；用户消息未胶囊化——任务书前提错误（现状是 MU2a/MU5
+  拍板的无气泡文档式），Trae 按「宁可少动」正确处理；两处纯展示 DOM（思考秒读 span、裸工具名
+  mono class）均申报。
+- 真渲染目视：FakeProvider 全链路（defaultProviderId='__fake__' 零 provider 配置即通）。
+  浮岛消息卡/顶缘高光/mono 会话 chip/工具行/输入卡聚焦青色外光/HUD 任务条读数全部成立，
+  亮暗两主题正常。权限卡在 Linux 云端因 Windows 路径语义走不到权限门（基线内现象），
+  其形态由新守卫例 5 + renderer-permcard 既有锚 + Trae 真机探针（accent 逐值一致）三重覆盖。
+- 观察项（不返工，记备忘）：①主钮 hover 前后同为 accent 无反馈变化——组件层禁 color-mix，
+  无好令牌可用，留待后续 polish 波（可在 tokens 层加 --accent-hover 档）；②E2 遗留的亮色
+  右栏空态渐变分界经 E3 后仍在空态可见，属 wempty 平贴底，同归 polish。
