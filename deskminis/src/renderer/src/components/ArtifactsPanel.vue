@@ -38,7 +38,11 @@ function openInFiles(path: string): void {
 </template>
 
 <style scoped>
-.apanel { flex: 1; min-height: 0; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+/* E2 轻玻璃：本面板没有头部/工具条，玻璃落在面板容器本身——恰好一处，blur 面恒定（§5 纪律） */
+.apanel {
+  flex: 1; min-height: 0; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
+}
 .ahint { font-size: 12px; color: var(--label-tertiary); padding: 24px 12px; text-align: center; line-height: 1.6; }
 .acard {
   display: flex; align-items: center; gap: 8px; padding: 8px 10px; text-align: left;

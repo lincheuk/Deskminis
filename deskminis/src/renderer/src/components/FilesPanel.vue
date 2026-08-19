@@ -121,6 +121,8 @@ onMounted(() => {
 .fhead {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; border-bottom: .5px solid var(--separator); flex: 0 0 auto;
+  /* E2 轻玻璃：面板头一处（恰好一处，克制；无弹层，§5 白名单内） */
+  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
 }
 .ftitle { font-size: 13px; font-weight: 600; color: var(--label-strong); }
 .fbtn {

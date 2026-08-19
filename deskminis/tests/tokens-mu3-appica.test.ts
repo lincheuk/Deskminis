@@ -212,7 +212,9 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
     // 凡是身上有下拉菜单/弹层的组件用了它，弹层就会被压在下面。
     // TitleBar 当年就是这么中招的（renderer-titlebar-stacking 有实测取证），
     // MU5 §15 又刚因为同族问题（容器裁剪弹层）吃过一次「点了没反应」。
-    const ALLOW = ['ProgressPanel'];
+    // E2 扩容（设计稿 §5 表）：App 的 taskbar/rail/wtabs 三处壳层 + ArtifactsPanel/FilesPanel
+    // 面板头登记入册——壳层数量恒定、身上无弹层，blur 开销 O(1)（blur 面恒定 ≤6 的性能纪律不变）
+    const ALLOW = ['ProgressPanel', 'App', 'ArtifactsPanel', 'FilesPanel'];
     // 这些组件自带弹出层/浮层，永久禁用——加进 ALLOW 也不行，下面单独再断言一次
     const POPUP_OWNERS = ['TitleBar', 'ModelPicker', 'PermissionPicker', 'SettingsModal', 'DevicesModal', 'ChatView', 'SessionList'];
     const offenders: string[] = [];
@@ -243,7 +245,7 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
     // 唯一合法硬编码（Task 4 按新调色板 oklch→srgb 换算后同步更新白名单值）。
     const term = C('TerminalPanel');
     const found = [...new Set([...term.matchAll(COLOR)].map(m => m[0]))].sort();
-    expect(found).toEqual(['#4a5565', '#e5e7eb', '#ffffff'].sort());
+    expect(found).toEqual(['#1e2532', '#a2adbd', '#d0d6df'].sort());
   });
 
   it('10. 7 级 label 组件消费清单（Task 5 表：15 改各含指定新级；7 不改零引用）', () => {

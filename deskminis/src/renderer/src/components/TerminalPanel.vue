@@ -27,12 +27,13 @@ function readTheme() {
   const cs = getComputedStyle(document.documentElement);
   const v = (name: string) => cs.getPropertyValue(name).trim();
   return {
-    // MU3 兜底值按 Appica 调色板 oklch→srgb 换算（Ottosson 矩阵）：
-    //   oklch(0.446 0.03 256.802)→#4a5565（--label 浅段目标）；oklch(0.928 0.006 264.531)→#e5e7eb（--fill 浅段目标）
-    background: v('--bg') || '#ffffff',
-    foreground: v('--label') || '#4a5565',
-    cursor: v('--label') || '#4a5565',
-    selectionBackground: v('--fill') || '#e5e7eb',
+    // E2 兜底值换 Aurora 暗段等值（E1 审核换算，取值见 aurora 参考文件 .dark 块）：
+    //   底类 → #1e2532（--background-strong）；前景类 → #d0d6df（--foreground 基准）；
+    //   次前景/selection 类 → #a2adbd（--foreground-muted）。正常路径读得到 tokens，兜底只是保险丝。
+    background: v('--bg') || '#1e2532',
+    foreground: v('--label') || '#d0d6df',
+    cursor: v('--label') || '#d0d6df',
+    selectionBackground: v('--fill') || '#a2adbd',
   };
 }
 

@@ -387,7 +387,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.shell { display: flex; flex-direction: column; height: 100vh; background: var(--bg); }
+/* E2 极光底：background-color 与 background-image 分两属性写——--aurora-ground 是 image
+   列表，并进 background 简写会把颜色冲掉。纯 CSS 渐变无 blur 零开销，两主题自动跟随（E1 色板分叉） */
+.shell {
+  display: flex; flex-direction: column; height: 100vh;
+  background-color: var(--bg); background-image: var(--aurora-ground);
+}
 .win { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 
 /* 顶部任务条：常驻的「现在在干什么」。两家参考产品都没有这一条——
@@ -395,25 +400,37 @@ onBeforeUnmount(() => {
 .taskbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
   height: 34px; padding: 0 12px;
-  border-bottom: .5px solid var(--separator); background: var(--bg-secondary);
+  /* E2 HUD 化：玻璃底 + 顶缘内高光（玻璃「有厚度」的关键）。任务条直接贴 .shell 极光底，
+     透出斑色才有「流光」；它身上没有弹层，不在 §5 永久禁用清单（POPUP_OWNERS）内 */
+  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
+  border-bottom: 1px solid var(--separator);
 }
 .tb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-quaternary); flex: 0 0 auto; }
-.tb-dot.live { background: var(--state-ok); }
+/* E2：运行点换青 + --glow-accent 光晕 + 脉冲（设计稿 §5：running 态用青点脉冲表达活动） */
+.tb-dot.live {
+  background: var(--accent); box-shadow: 0 0 8px var(--glow-accent);
+  animation: tb-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .tb-text {
-  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-micro);
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-mono);
   color: var(--label-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* E2：权限徽记换青底深字胶囊（Aurora 单强调色语言；警示语义仍由进度 tab 的橙点承担） */
 .tb-pend {
   flex: 0 0 auto; padding: 2px 9px; border-radius: var(--r-pill);
-  border: .5px solid var(--state-warn); background: var(--state-warn-bg);
-  color: var(--state-warn); font-size: var(--fs-micro); font-weight: 600; cursor: pointer;
+  border: none; background: var(--accent);
+  color: var(--on-action); font-size: var(--fs-micro); font-weight: 600; cursor: pointer;
 }
 .tb-pend:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* 图标轨（折叠态）——来源 AionUi 工作视图：进入工作态后会话列表压成纯图标 */
 .rail {
-  width: 52px; flex: 0 0 52px; background: var(--bg-secondary);
-  border-right: .5px solid var(--separator);
+  width: 52px; flex: 0 0 52px;
+  /* E2 玻璃轨：直接贴 .shell 极光底透斑；身上无弹层（设置/设备都走模态），§5 白名单内 */
+  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--separator);
   display: flex; flex-direction: column; align-items: center; gap: 5px;
   padding: 9px 0; overflow: hidden;
 }
@@ -433,10 +450,10 @@ onBeforeUnmount(() => {
 }
 .rl-txt { line-height: 1; white-space: nowrap; letter-spacing: .01em; }
 .rl.on { border-color: var(--action); color: var(--action); }
-/* 激活项左侧 2px 竖条（AionUi 的激活标识，比整块反白克制） */
+/* 激活项左侧 2px 竖条（AionUi 的激活标识，比整块反白克制）；E2 直指 --accent（Aurora 单强调色） */
 .rl.on::before {
   content: ''; position: absolute; left: -9px; top: 8px; bottom: 8px;
-  width: 2px; border-radius: 2px; background: var(--action);
+  width: 2px; border-radius: 2px; background: var(--accent);
 }
 /* 待批准计数徽标：原 .dot-warn 只挂在「进度」tab 上，折叠态根本看不见，故扩到图标轨 */
 .rl-badge {
@@ -472,7 +489,9 @@ onBeforeUnmount(() => {
    与 MU2b 的等分四枚不同——标签按内容宽度排，才容得下多开的文件名。 */
 .wtabs {
   display: flex; align-items: center; gap: 3px; padding: 7px 10px 0;
-  border-bottom: .5px solid var(--separator); overflow-x: auto;
+  /* E2 玻璃页签条（§5 白名单内；身上无弹层） */
+  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--separator); overflow-x: auto;
 }
 .wtab {
   position: relative; flex: 0 0 auto; display: flex; align-items: center;
@@ -492,10 +511,14 @@ onBeforeUnmount(() => {
 }
 .wtab:hover { background: var(--fill-quaternary); }
 .wtab-x:hover { color: var(--label); }
-.wtab.on { background: var(--surface-1); border-color: var(--separator); }
+/* E2：活跃页签加底缘 2px 青色指示线——inset 阴影不占布局，避免 border 引起位移 */
+.wtab.on {
+  background: var(--surface-1); border-color: var(--separator);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
 .wtab.on .wtab-main { color: var(--label); font-weight: 600; }
-/* 实时标签绿点（屏幕/浏览器这类会持续变化的视图） */
-.lv { width: 6px; height: 6px; border-radius: 50%; background: var(--state-ok); flex: 0 0 auto; }
+/* 实时标签活动点（屏幕/浏览器这类会持续变化的视图）；E2 换青（Aurora 单强调色） */
+.lv { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
 .wtab-more {
   flex: 0 0 auto; margin-left: 2px; padding: 4px 8px; border: .5px solid var(--separator);
   border-radius: var(--r-control); background: none; cursor: pointer;
