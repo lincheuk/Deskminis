@@ -128,9 +128,14 @@
   互不兼容故 DeskMinis 市场应定位**技能市场 + MCP 目录**。零新依赖可行性已核实（undici/yauzl/
   importer/§5.2 全现成）。报告 → `docs/research/2026-08-19-harness-plugin-market-survey.md`
   （含 6 个待拍板决策点）。
-- **下一波候选**：**扩展市场（技能市场 + MCP 目录，先出设计稿，调研报告 §6 有实施顺序建议）**、
-  后台作业、MCP 最小面（客户端 only/工具 only/stdio+streamable-http，§5.2 已有设计、是市场 MCP tab 前置）、
-  web_search（零依赖红线下无体面免 key 方案，待裁决 provider 化配 key vs 暂缓）、
+- **进行中：D 波（2026-08-19 开工，Trae 执行 + Claude 逐 commit 审查）**：
+  ① MCP 最小面——设计稿草案 → `docs/specs/2026-08-19-mcp-minimal-design.md`
+  （7 个决策点待逐节确认，核心修订：§5.2 的 CLI 调用路线本波改为工具直注册
+  `mcp__<server>__<tool>`；确认后拆 D2–D7 步骤）；
+  ② web_search——已裁决走 provider 化配 key（brave/tavily/searxng 三 kind，searxng 供自托管
+  免 key 场景），设计决定编入 D1 提示词，新权限 kind `web-search` 默认 askOnce（同 C4 论证）。
+- **下一波候选**：**扩展市场（技能市场 + MCP 目录，先出设计稿，调研报告 §6 有实施顺序建议，
+  依赖 D 波 MCP 引擎）**、后台作业（无调研输入，需先出设计稿）、
   历史消息图片缩略图（C6 只做了 chip 元数据，读图 IPC 未做）。
 - 遗留既有路线：浏览器/屏幕里程碑（建议单工具 CLI 语法）、模型组 UI 入口（MU7）。
 
