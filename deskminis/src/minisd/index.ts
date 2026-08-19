@@ -10,6 +10,7 @@ const WORKSPACE_LAST_KEY = 'workspace.lastUsed';
 import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { SearchProviderStore } from './store/search-provider-store';
+import { McpServersStore } from './mcp/config';
 import { ToolRegistry } from './tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
@@ -231,6 +232,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const providers = new ProviderStore(root, vault);
   // 搜索 provider 与模型 provider 同库隔离：密钥走同一 vault（另一槽位），配置独立文件
   const searchProviderStore = new SearchProviderStore(root, vault);
+  // D2 MCP 配置层：只做 servers.json 读写，连接（网络/子进程）在 D3/D4
+  const mcpServers = new McpServersStore(paths);
 
   // 模型能力目录：后台预热 models.dev；失败静默回退磁盘缓存/内置兜底表
   const catalog = new ModelCatalog(join(root, 'models-dev-cache.json'), createProxyFetch());
@@ -641,6 +644,21 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     'search.provider.get': () => searchProviderStore.get(),
     'search.provider.set': (p: { kind: string; apiKey?: string; baseUrl?: string }) => {
       searchProviderStore.set(p);
+      return { ok: true };
+    },
+    // ── D2 MCP 配置面（servers.json CRUD）：$$VAR 原样存取不解析——渲染端展示引用名本身是安全的，
+    //    实际解析在 D3/D4 连接时发生；mcp.servers.test 需真连接，属 D6，本步不做。 ──
+    'mcp.servers.list': () => ({ servers: mcpServers.list() }),
+    'mcp.servers.upsert': (p: Record<string, unknown>) => {
+      mcpServers.upsert(p);
+      return { ok: true };
+    },
+    'mcp.servers.remove': (p: { name: string }) => {
+      mcpServers.remove(String(p.name ?? ''));
+      return { ok: true };
+    },
+    'mcp.servers.toggle': (p: { name: string; enabled: boolean }) => {
+      mcpServers.toggle(String(p.name ?? ''), p.enabled === true);
       return { ok: true };
     },
     // ── ModelGroup ──
