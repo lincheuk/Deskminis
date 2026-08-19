@@ -132,7 +132,15 @@
   ① MCP 最小面——设计稿 → `docs/specs/2026-08-19-mcp-minimal-design.md`
   （**2026-08-19 用户确认 ①–⑦ 全按建议，已定稿**；核心修订：§5.2 的 CLI 调用路线本波
   改为工具直注册 `mcp__<server>__<tool>`。步骤 D2 配置与存储 → D3 stdio → D4 http →
-  D5 注册/调用/权限 → D6 设置 UI → D7 e2e，逐步出提示词交 Trae）；
+  D5 注册/调用/权限 → D6 设置 UI → D7 e2e，逐步出提示词交 Trae）。
+  **D2 已完成并过审**（main `cade971`）：`src/minisd/mcp/config.ts`——三变体宽容导入、
+  `disabled`/`type` 进 KNOWN_KEYS 消费不进 extra（堵死「toggle 后重启被 extra 里的
+  disabled:true 打回」的往返回魂）、extra 先铺识别字段后盖、原子写、`resolveEnvRefs`
+  先收集缺失名再替换（已解析值构造上进不了错误文本）、`mcp.servers.list/upsert/remove/toggle`
+  RPC。测试 1400 → **1431**（+31），复跑失败集与 52 例平台基线逐条一致。已核偏离四条：
+  upsert 细分中文文案、toggle 动 updatedAt、remove 幂等、变体②非对象值跳过——均接受。
+  两条审核备忘：`list()` 浅拷贝（嵌套引用共享，D3/D4 进程内消费须只读）；`loadError` 含
+  JSON.parse 原文（新 V8 可能带源码片段，D6 展示时须脱敏——文件里有明文 headers）。
   ② ✅ **D1 web_search 已完成并过审**（main `399759a`，Trae 执行 + Claude 逐行审 diff +
   独立复跑）：搜索 provider 化三 kind（brave/tavily/searxng，searxng 供自托管免 key 场景）、
   `SearchProviderStore` 密钥只进 vault 单槽位（get 只回 hasKey、resolve 是唯一流出通道、
