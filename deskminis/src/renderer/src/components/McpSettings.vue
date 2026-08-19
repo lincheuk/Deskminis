@@ -295,10 +295,12 @@ async function onRemove(name: string): Promise<void> {
 .mxempty { font-size: var(--fs-ui); color: var(--label-tertiary); padding: 12px 0; }
 
 /* 列表行（形态对齐技能页：状态点 + 主区 + 操作钮排） */
+/* E3（Aurora §4）：服务器行浮岛化——顶缘高光 + 柔影；实心材质不用 blur */
 .mxrow {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; border-radius: var(--r-card);
   border: .5px solid var(--separator); background: var(--surface-1);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
 }
 .mxrow.mxoff { opacity: .62; }
 .mxdot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--label-quaternary); }
@@ -313,7 +315,8 @@ async function onRemove(name: string): Promise<void> {
   font-size: var(--fs-micro); font-weight: 400; color: var(--label-tertiary);
   border: .5px solid var(--separator); border-radius: var(--r-control); padding: 0 6px;
 }
-.mxtools { font-size: var(--fs-micro); font-weight: 400; color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
+/* E3：工具数是「计数读数」，走 mono（Aurora §4 读数面） */
+.mxtools { font-size: var(--fs-micro); font-weight: 400; color: var(--label-tertiary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .mxerr { margin-top: 2px; font-size: var(--fs-micro); line-height: 1.5; color: var(--state-err); }
 .mxtest { margin-top: 2px; font-size: var(--fs-micro); line-height: 1.5; color: var(--state-err); }
 .mxtest.mxok { color: var(--state-ok); }
@@ -350,10 +353,12 @@ async function onRemove(name: string): Promise<void> {
 .mxadd:hover { background: var(--fill-quaternary); }
 
 /* 添加/编辑表单（卡片化，对齐技能页导入卡） */
+/* E3：表单卡浮岛化——顶缘高光 + 柔影 */
 .mxform {
   display: flex; flex-direction: column; gap: 6px;
   padding: 12px; border-radius: var(--r-card);
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
 }
 .mxftitle { font-size: var(--fs-ui); font-weight: 700; color: var(--label); margin-bottom: 4px; }
 .mxflabel { font-size: var(--fs-micro); font-weight: 600; color: var(--label-secondary); margin-top: 4px; }
@@ -398,9 +403,10 @@ async function onRemove(name: string): Promise<void> {
   border: .5px solid var(--separator); background: var(--surface-1);
   font-size: var(--fs-ui); color: var(--label); cursor: pointer;
 }
+/* E3：主钮青底——accent 底 + on-action 字（§4），两主题自动对 */
 .mxsave {
   padding: 7px 16px; border-radius: var(--r-control); border: none;
-  background: var(--action); color: var(--on-action);
+  background: var(--accent); color: var(--on-action);
   font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
 }
 .mxsave:disabled { background: var(--label-quaternary); cursor: default; }

@@ -212,7 +212,12 @@ async function saveSearchProvider(): Promise<void> {
 .settings { display: flex; flex-direction: column; gap: 12px; }
 .title3 { font-size: 20px; font-weight: 600; }
 .grouphead { font-size: 15px; font-weight: 600; color: var(--label-strong); margin-top: 4px; }
-.group { background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-md); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+/* E3（Aurora §4）：分组卡浮岛化——圆角升 --r-card + 顶缘高光 + 柔影；实心材质不用 blur */
+.group {
+  background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-card);
+  padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+}
 .hint { font-size: 13px; color: var(--label-tertiary); padding: 6px; }
 .prow { display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: var(--r-control); }
 .prow.on { background: var(--fill-quaternary); }
@@ -251,13 +256,15 @@ async function saveSearchProvider(): Promise<void> {
 .fetchbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 /* 请求期间防重入：置灰且不可点 */
 .fetchbtn:disabled { opacity: .5; cursor: default; }
+/* E3：主钮青底——accent 底 + on-action 字（§4）；
+   confirm 变体（可疑地址二次确认）换警示色系，accent 底上橙字不可读，故整体换成警示底+橙字 */
 .addbtn {
-  flex: 1; padding: 9px; border-radius: var(--r-control); border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
-  color: var(--label); font-size: 15px; font-weight: 600; cursor: pointer; font-family: var(--font-ui);
+  flex: 1; padding: 9px; border-radius: var(--r-control); border: .5px solid var(--accent); background: var(--accent);
+  color: var(--on-action); font-size: 15px; font-weight: 600; cursor: pointer; font-family: var(--font-ui);
 }
-.addbtn:hover { background: var(--fill-quaternary); }
+.addbtn:hover { background: var(--accent); }
 .addbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.addbtn.confirm { border-color: var(--orange); color: var(--orange); }
+.addbtn.confirm { background: var(--state-warn-bg); border-color: var(--orange); color: var(--orange); }
 .cancelbtn {
   padding: 9px 14px; border-radius: var(--r-control); border: .5px solid var(--separator); background: transparent;
   color: var(--label-secondary); font-size: 15px; cursor: pointer; font-family: var(--font-ui);

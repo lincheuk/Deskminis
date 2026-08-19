@@ -67,10 +67,12 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
 .sub { font-size: 15px; color: var(--label-secondary); }
 
 /* 示例指令卡：横排三张（窄了自动换行），点击填入输入框 */
+/* E3（Aurora §4）：示例卡浮岛化（首屏门面）——顶缘高光 + 柔影；实心材质不用 blur */
 .cards { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; justify-content: center; }
 .excard {
   width: 218px; display: flex; gap: 10px; align-items: flex-start; padding: 12px;
   border: .5px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
   cursor: pointer; color: var(--label-secondary);
 }
 .excard:hover { background: var(--fill-quaternary); color: var(--label); }

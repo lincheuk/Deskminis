@@ -28,6 +28,8 @@ const TYPE_ICON: Record<string, string> = {
 };
 const icon = computed(() => TYPE_ICON[props.name] ?? 'gear');
 const label = computed(() => (props.title ?? '').trim() || props.name || '工具');
+/* E3：标题缺省时 label 回落为裸工具名（如 mcp__server__tool）——标识符读数走 mono（§4） */
+const isRawName = computed(() => (props.title ?? '').trim() === '' && props.name !== '');
 
 // file_edit 展开区换 diff 视图（§5.4）：载荷可提取即渲染 DiffView，否则回落参数/输出 JSON 区
 const editPair = computed(() => (props.name === 'file_edit' ? extractEditPair(props.input) : null));
@@ -69,7 +71,7 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
       <span v-if="state === 'running'" class="spin" aria-label="执行中"></span>
       <span v-else class="tmark" :class="state">{{ state === 'ok' ? '✓' : '✕' }}</span>
       <span class="tico"><Icon :name="icon" :size="14" /></span>
-      <span class="ttitle">{{ label }}</span>
+      <span class="ttitle" :class="{ mono: isRawName }">{{ label }}</span>
       <span v-if="durText" class="tdur">{{ durText }}</span>
       <span class="tchev"><Icon :name="open ? 'chevron-down' : 'chevron-right'" :size="14" /></span>
     </button>
@@ -107,6 +109,9 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
   width: 100%;
 }
 .tline:hover { background: var(--fill-quaternary); }
+/* E3（Aurora §4）：运行中行左缘 2px accent 活动线——inset 阴影实现，零位移；
+   :has(.spin) 选中运行态行，零 DOM 改动（.spin 仅在 running 态渲染） */
+.tline:has(.spin) { box-shadow: inset 2px 0 0 var(--accent); }
 /* MU3 §2-5 焦点环 */
 .tline:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 /* 状态符号（✓ 绿 / ✕ 红）；类型色退役后唯一的色彩语义 */
@@ -122,6 +127,8 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
 @keyframes tlspin { to { transform: rotate(360deg); } }
 .tico { display: inline-flex; color: var(--label-secondary); flex: 0 0 auto; }
 .ttitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; color: var(--label-strong); }
+/* E3：裸工具名（无标题回落，如 mcp__server__tool）走 mono——标识符读数（§4） */
+.ttitle.mono { font-family: var(--font-mono); }
 .tdur { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--label-tertiary); flex: 0 0 auto; }
 .tchev { display: inline-flex; color: var(--label-tertiary); flex: 0 0 auto; }
 .texpand { margin: 2px 0 4px 23px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }

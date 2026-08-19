@@ -633,7 +633,15 @@ function onSlashTab(e: KeyboardEvent): void {
 .aname { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); }
 /* MU5：文档式排版——行高 1.55 → 1.72（来源 AionUi 会话视图：助手输出按文档排，不进气泡）。
    气泡本身 MU2a 就已去掉（.msg-a{padding:0}），本轮补的是「读起来像文档」的那一半。 */
-.abody { font-size: var(--fs-body); line-height: 1.72; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+/* E3（Aurora §4）：助手消息卡**实心浮岛化**——不透明 surface + 顶缘高光 + 柔影。
+   红线：消息卡数量随会话增长，全程不用 blur/滤镜（§5 blur 白名单零扩），
+   质感一律由「实心底 + inset 高光 + 浅影」模拟；inset 写法不占布局、零位移。 */
+.abody {
+  font-size: var(--fs-body); line-height: 1.72; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  align-self: stretch; padding: 10px 12px; border-radius: var(--r-card);
+  background: var(--surface-1); border: .5px solid var(--separator);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+}
 
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
 .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--label-tertiary); animation: jump 1s infinite ease-in-out; }
@@ -651,9 +659,15 @@ function onSlashTab(e: KeyboardEvent): void {
   border-radius: var(--r-input); background: var(--surface-1);
   border: .5px solid var(--separator);
   /* MU5：卡片浮起（来源 AionUi 输入区）——此前是平贴的容器，与对话流没有层次差 */
-  box-shadow: var(--shadow-fab);
+  /* E3：浮岛三件套补齐顶缘高光（inset 写法与柔影并列，零位移） */
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow-fab);
   padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
   position: relative;
+}
+/* E3（Aurora §4）：输入卡是视觉主角——聚焦时外光 2px --glow-accent 一档，
+   叠加在原浮岛影上而不是替换，失焦即回到常态（:focus-within 覆盖卡内全部控件） */
+.composer:focus-within {
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow-fab), 0 0 0 2px var(--glow-accent);
 }
 .slashmenu {
   position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
@@ -707,9 +721,11 @@ function onSlashTab(e: KeyboardEvent): void {
 /* 336px 里要塞下「＋ 工作区 权限档 模型 发送」，13px/11px 内边距的常规 chip 一共约 244px，
    可用宽只有约 194px——差 50px。故在输入卡这一处收紧到 11px 字号与 8px 内边距（约省 54px）。
    只在 .ctools 作用域内收紧，其它地方的 .cpill 不受影响。 */
+/* E3：chip 文字走 mono（Aurora §4 读数面——工作区名/权限档/模型名都是「标识符读数」） */
 .cpill, .ctools :deep(.cpill) {
   flex: 0 1 auto; min-width: 0;
   padding: 4px 8px; font-size: var(--fs-micro); gap: 5px;
+  font-family: var(--font-mono);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ctools :deep(.mt) { font-size: var(--fs-micro); }

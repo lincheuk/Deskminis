@@ -127,10 +127,12 @@ async function onDelete(id: string): Promise<void> {
 }
 .snote strong { color: var(--label); font-weight: 600; }
 
+/* E3（Aurora §4）：导入卡浮岛化——顶缘高光 + 柔影；实心材质不用 blur */
 .imp {
   display: flex; flex-direction: column; gap: 6px;
   padding: 12px; border-radius: var(--r-card);
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
 }
 .implabel { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
 .improw { display: flex; gap: 8px; }
@@ -140,9 +142,10 @@ async function onDelete(id: string): Promise<void> {
   color: var(--label); font-size: var(--fs-ui); font-family: var(--font-mono);
 }
 .impinput:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
+/* E3：主钮青底——accent 底 + on-action 字（§4），两主题自动对 */
 .impbtn {
   flex: 0 0 auto; padding: 7px 16px; border-radius: var(--r-control); border: none;
-  background: var(--action); color: var(--on-action);
+  background: var(--accent); color: var(--on-action);
   font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
 }
 .impbtn:disabled { background: var(--label-quaternary); cursor: default; }
@@ -156,10 +159,12 @@ async function onDelete(id: string): Promise<void> {
 .impfail { margin: 4px 0 0; padding-left: 18px; color: var(--state-err); }
 
 .empty { font-size: var(--fs-ui); color: var(--label-tertiary); padding: 12px 0; }
+/* E3：技能行浮岛化——顶缘高光 + 柔影 */
 .row {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; border-radius: var(--r-card);
   border: .5px solid var(--separator); background: var(--surface-1);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
 }
 .row.off { opacity: .62; }
 .rmain { flex: 1; min-width: 0; }
@@ -167,7 +172,8 @@ async function onDelete(id: string): Promise<void> {
   display: flex; align-items: center; gap: 8px;
   font-size: var(--fs-ui); font-weight: 600; color: var(--label);
 }
-.rcount { font-size: var(--fs-micro); font-weight: 400; color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
+/* E3：调用次数是「计数读数」，走 mono（Aurora §4 读数面） */
+.rcount { font-size: var(--fs-micro); font-weight: 400; color: var(--label-tertiary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .rdesc {
   margin-top: 2px; font-size: var(--fs-micro); color: var(--label-secondary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

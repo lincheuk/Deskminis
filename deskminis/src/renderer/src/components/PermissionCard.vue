@@ -70,6 +70,9 @@ const previewCounts = computed(() => countAddDel(previewLines.value));
 <style scoped>
 .perm {
   background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-card);
+  /* E3（Aurora §4）：浮岛卡 + 左缘 3px accent 警示线——警示线/顶缘高光全走 inset 阴影，
+     不占布局零位移（border-left 会把内容右推 3px）；柔影给浮起感。实心材质，不用 blur（§5）。 */
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
   padding: 12px; display: flex; flex-direction: column; gap: 10px; align-self: stretch;
 }
 .h { display: flex; align-items: center; gap: 8px; }

@@ -242,13 +242,21 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 /* MU5：会话行由「两行任务卡」压成单行「状态点 + 标题 + 右对齐相对时间」
    （来源 Agent Canvas 侧栏）。MU2b 的两行卡在 212px 宽里占太多竖向空间，
    而侧栏的职责是「一眼扫完有哪些会话、哪个在跑」，不是展示每个会话的全部元数据。 */
+/* E3（Aurora §4）：会话卡浮岛化——--r-card 圆角 + 实心 surface + 顶缘高光 + 柔影；
+   实心材质不用 blur（§5：SessionList 在弹层主清单，blur 永久禁用） */
 .scard {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 9px; border-radius: var(--r-md); margin-bottom: 1px; cursor: pointer;
+  padding: 6px 9px; border-radius: var(--r-card); margin-bottom: 1px; cursor: pointer;
+  background: var(--surface-1);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
 }
 .scard:hover { background: var(--fill-quaternary); }
 .scard:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.scard.on { background: var(--fill-tertiary); }
+/* E3：活跃卡左缘 2px accent 指示线（inset 零位移），与浮岛高光/柔影叠加 */
+.scard.on {
+  background: var(--fill-tertiary);
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+}
 /* 状态点四态：类名与色令牌沿用 MU2b 的 BADGE_VIEW，只是从文字换成色点。
    色觉障碍补偿见 badgeText()——同一状态的文字挂在行 title 上。 */
 .sdot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--label-quaternary); }
@@ -263,7 +271,8 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .scard.on .stitle { color: var(--action); font-weight: 600; }
-.scount { flex: 0 0 auto; font-size: var(--fs-micro); color: var(--label-secondary); font-variant-numeric: tabular-nums; }
+/* E3：产物计数是「计数读数」，走 mono（Aurora §4 读数面） */
+.scount { flex: 0 0 auto; font-size: var(--fs-micro); color: var(--label-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 /* 时间右对齐：等宽数字让各行的时间列自然对齐，不需要固定宽度 */
 .stime {
   flex: 0 0 auto; margin-left: auto;

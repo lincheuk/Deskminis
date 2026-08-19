@@ -199,9 +199,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 <style scoped>
 .uerr { margin-top: 8px; font-size: var(--fs-micro); color: var(--state-err); line-height: 1.5; }
 /* MU6 同步暂停开关 */
+/* E3（Aurora §4）：设置分组卡浮岛化——顶缘高光 + 柔影；实心材质不用 blur
+   （§5：SettingsModal 在 POPUP_OWNERS 永久禁用清单内） */
 .syncbox {
   margin-top: 14px; padding: 12px; border-radius: var(--r-card);
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
 }
 .syncrow { display: flex; align-items: center; gap: 12px; }
 .synctxt { flex: 1; min-width: 0; }
@@ -239,7 +242,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
   color: var(--label-secondary); cursor: pointer;
 }
 .sitem:hover { background: var(--fill-quaternary); }
-.sitem.on { background: var(--fill-tertiary); color: var(--label); font-weight: 600; }
+/* E3：活跃导航项左缘 2px accent 指示线（inset 零位移），沿用既有 .on 机制只加缘线 */
+.sitem.on { background: var(--fill-tertiary); color: var(--label); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
 /* MU3 §2-5 焦点环 */
 .sitem:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .sbody { flex: 1; min-width: 0; overflow: auto; padding: 18px 20px; }
@@ -254,10 +258,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 .xbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .xbtn :deep(svg) { stroke: currentColor; }
 .stitle { font-size: var(--fs-display); font-weight: 700; color: var(--label-intense); margin-bottom: 14px; }
+/* E3：选项行（外观/权限分组卡）浮岛化——顶缘高光 + 柔影 */
 .opt {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px;
   border: .5px solid var(--separator); border-radius: var(--r-card); cursor: pointer;
   background: var(--surface-1);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
 }
 .opt:hover { background: var(--fill-quaternary); }
 .opt.on { border-color: var(--action); }
@@ -268,10 +274,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 .opt.danger .olabel, .opt.danger .osub { color: var(--state-err); }
 .ochk { color: var(--action); flex: 0 0 auto; }
 .snote { font-size: var(--fs-caption); color: var(--label-tertiary); line-height: 1.6; padding: 8px 2px; }
+/* E3：页内主钮（管理设备/立即检查更新）青底——accent 底 + on-action 字，两主题自动对（§4） */
 .devbtn {
-  margin-top: 8px; padding: 8px 14px; border: .5px solid var(--separator); border-radius: var(--r-control);
-  background: var(--surface-1); color: var(--label); font-size: var(--fs-ui); cursor: pointer;
+  margin-top: 8px; padding: 8px 14px; border: .5px solid var(--accent); border-radius: var(--r-control);
+  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
 }
-.devbtn:hover { background: var(--fill-quaternary); }
+.devbtn:hover { background: var(--accent); }
+.devbtn:disabled { opacity: var(--opacity-disabled); cursor: default; }
 .devbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 </style>
