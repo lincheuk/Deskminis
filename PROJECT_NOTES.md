@@ -111,15 +111,17 @@
   小修——纪律块三族同文点名 tool_title 用中文、403 余额类文案细分（401 优先）、卸载桩带
   码点安全摘录（Array.from 截 200 码点防切断 emoji）。测试 1223 → **1356 例**全绿，typecheck 零错误。
   8 步提示词手册存于 Claude 会话产物（《DeskMinis 中期波工作流》Artifact）。
+- ✅ **C9 执行型旗标后门（2026-08-19，C8 审查发现的既有缺口，B3 起就在）**：`rg` 在只读白名单里
+  无二段规则，而 ripgrep 的 `--pre <程序>` 会对每个待搜文件调用该程序 ⇒ `rg --pre <cmd> pattern`
+  此前可静默免批执行任意程序。修法：新增 `EXEC_FLAG_RE`（`--pre` / `--pre-glob` / `--hostname-bin`），
+  单段判定与管道段判定**双侧**拒绝。刻意用精确匹配而非 `--pre` 前缀——`git log --pretty=…`
+  与 `rg --pretty` 是高频只读用法，前缀匹配会误伤（已加两条回归用例锚定）。8 例，全量 **1364/1364**。
 
 ## 进行中 / 下一步
 
 - **下一波候选**：后台作业、MCP 最小面（客户端 only/工具 only/stdio+streamable-http）、
   web_search（零依赖红线下无体面免 key 方案，待裁决 provider 化配 key vs 暂缓）、
   历史消息图片缩略图（C6 只做了 chip 元数据，读图 IPC 未做）。
-- **安全加固候选（C8 审查发现的既有缺口，非本波引入）**：`rg` 在只读白名单里无二段规则，
-  而 ripgrep 的 `--pre <程序>` / `--pre-glob` 会执行外部程序 ⇒ `rg --pre <cmd> pattern`
-  当前可免批执行。修法：给 rg 加二段规则或显式拒绝 `--pre*` 旗标（与 `--output` 后门规则同式）。
 - 遗留既有路线：浏览器/屏幕里程碑（建议单工具 CLI 语法）、模型组 UI 入口（MU7）。
 
 ### Backlog（MU6 执行期再次兑现代价）
