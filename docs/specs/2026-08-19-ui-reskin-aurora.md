@@ -47,11 +47,12 @@ WCAG 验算（脚本：`oklch → linear sRGB → 相对亮度 → 对比度`，
 
 ## §3 B 区映射与 C 区材质令牌改动
 
-B 区映射（组件消费面）**仅 3 处换挡**，其余逐行不动：
+B 区映射（组件消费面）**仅 4 处换挡**，其余逐行不动：
 
 | 别名 | 现值 | 新值 | 为什么 |
 |---|---|---|---|
 | `--bg`（仅浅段） | `var(--background)` | `var(--background-subtle)` | 浅色要「纯白浮岛卡浮在微冷白底上」；暗段映射不动 |
+| `--on-action`（仅暗两段） | `var(--foreground-intense)` | `var(--secondary-foreground)` | accent 换成**亮青**后，白字在青钮底上仅 1.36:1 不可读；换「青底深字」13.72:1（浅段白字深青底 5.72，不动） |
 | `--r-card` | `var(--radius-sm)`（12px） | `var(--radius-md)`（14px） | C 材质大圆角，卡片一档 |
 | `--r-input` | `var(--radius-lg)`（16px） | `var(--radius-xl)`（18px） | 输入卡是视觉主角，圆角随材质 |
 
@@ -127,7 +128,7 @@ C 区玻璃切片扩展（全部 color-mix 从语义令牌调出，主题自动�
 |---|---|
 | 1 归属四要素 | **改锚**：REF 指向 aurora 参考文件；头部归属改「结构承自 Appica（MIT）+ Aurora 自研，取值唯一来源 = aurora 参考文件」 |
 | 2 A 区逐行一致 | **只换 REF 路径常量**，解析逻辑（section/decls/THEME_INDEPENDENT/RAW_FONT_MONO_OVERRIDE）一行不改；新参考文件沿用 `:root,.light` + `.dark` 块结构 |
-| 3 别名映射总表 | **改 1 行锚**（浅段 `--bg` 换挡，§3） |
+| 3 别名映射总表 | **改 2 处锚**（浅段 `--bg` 换挡成新分叉项；`--on-action` 暗段期望值换 `--secondary-foreground`，§3） |
 | 4 label 7 级定义 | 保留 |
 | 5 color-mix 仅限玻璃块 | **白名单扩至新令牌**（--aurora-ground/--glass-edge 新值/--glow-accent 仍在 glass 切片内，逻辑不改） |
 | 6 material 清零 | 保留 |
