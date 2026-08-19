@@ -132,8 +132,15 @@
   ① MCP 最小面——设计稿草案 → `docs/specs/2026-08-19-mcp-minimal-design.md`
   （7 个决策点待逐节确认，核心修订：§5.2 的 CLI 调用路线本波改为工具直注册
   `mcp__<server>__<tool>`；确认后拆 D2–D7 步骤）；
-  ② web_search——已裁决走 provider 化配 key（brave/tavily/searxng 三 kind，searxng 供自托管
-  免 key 场景），设计决定编入 D1 提示词，新权限 kind `web-search` 默认 askOnce（同 C4 论证）。
+  ② ✅ **D1 web_search 已完成并过审**（main `399759a`，Trae 执行 + Claude 逐行审 diff +
+  独立复跑）：搜索 provider 化三 kind（brave/tavily/searxng，searxng 供自托管免 key 场景）、
+  `SearchProviderStore` 密钥只进 vault 单槽位（get 只回 hasKey、resolve 是唯一流出通道、
+  换 kind 无新 key 报错且切 searxng 清残留槽位）、新权限 kind `web-search` 默认 askOnce
+  （查询串即外泄通道，同 C4 论证；闸后重查取消沿用 A 波语义）、非 2xx 不读响应体（错误页
+  可能回显密钥）、摘要 500 码点 + 总量 32KB 双截断。测试 1364 → **1400**（+36），typecheck
+  零错误；云端复跑失败集与 52 例平台基线逐条一致。两处已核偏离：同 kind 留空保留原密钥
+  （对齐 provider.instances.update 约定）、timeoutMs 可注入（生产默认 15s 不变）。
+  **遗留**：brave/tavily 端点形状按 2026-08 已知信息写死，真 key 首跑属用户侧验收项。
 - **下一波候选**：**扩展市场（技能市场 + MCP 目录，先出设计稿，调研报告 §6 有实施顺序建议，
   依赖 D 波 MCP 引擎）**、后台作业（无调研输入，需先出设计稿）、
   历史消息图片缩略图（C6 只做了 chip 元数据，读图 IPC 未做）。
