@@ -18,7 +18,7 @@ export type BridgePermissionKind =
  *  注意：preview 只进权限卡广播，不进审计落盘（审计只记有无布尔，见 minisd/index.ts）。 */
 export interface PermPreview { oldText: string; newText: string }
 
-export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | 'web-fetch' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview }
+export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview }
 export type PermissionDecision = 'allow' | 'deny';
 export interface PermissionGateway {
   check(req: PermissionRequest): Promise<PermissionDecision>;

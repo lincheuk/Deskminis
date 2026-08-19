@@ -100,6 +100,39 @@ async function fetchModelOptions(): Promise<void> {
     fetchingModels.value = false;
   }
 }
+
+// ── 网络搜索 provider（独立于模型 provider，供 web_search 工具用）──
+const searchKind = ref('none');
+const searchApiKey = ref('');
+const searchBaseUrl = ref('');
+const searchHasKey = ref(false);
+const searchErr = ref('');
+
+/** 表单同步：后端 get 只回 {kind, hasKey, baseUrl?}，密钥永不回填——已配置与否只由 hasKey 表达。 */
+function syncSearchForm(r: { kind: string; hasKey: boolean; baseUrl?: string } | null | undefined): void {
+  searchKind.value = r?.kind ?? 'none';
+  searchHasKey.value = Boolean(r?.hasKey);
+  searchBaseUrl.value = r?.baseUrl ?? '';
+  searchApiKey.value = ''; // 密钥永不回填；同 kind 留空保存 = 保持不变
+}
+
+async function loadSearchProvider(): Promise<void> {
+  try { syncSearchForm(await chat.fetchSearchProvider()); }
+  catch { /* 静默：设置页打开时后端未就绪不值得打断 */ }
+}
+void loadSearchProvider();
+
+async function saveSearchProvider(): Promise<void> {
+  searchErr.value = '';
+  try {
+    await chat.saveSearchProvider({
+      kind: searchKind.value,
+      apiKey: searchApiKey.value.trim() || undefined, // 留空 = 保持原密钥（后端同 kind 约定）
+      baseUrl: searchKind.value === 'searxng' ? (searchBaseUrl.value.trim() || undefined) : undefined,
+    });
+    syncSearchForm(chat.searchProvider); // action 内部已刷新后端状态，这里只做本地同步
+  } catch (e) { searchErr.value = e instanceof Error ? e.message : String(e); }
+}
 </script>
 
 <template>
@@ -148,6 +181,29 @@ async function fetchModelOptions(): Promise<void> {
         <button v-if="editing" class="cancelbtn" @click="cancel">取消</button>
       </div>
       <div v-if="err" class="err">{{ err }}</div>
+    </div>
+
+    <div class="grouphead">网络搜索</div>
+    <div class="group form">
+      <select v-model="searchKind" class="inp">
+        <option value="none">未配置</option>
+        <option value="brave">Brave</option>
+        <option value="tavily">Tavily</option>
+        <option value="searxng">SearXNG（自托管）</option>
+      </select>
+      <input
+        v-if="searchKind === 'brave' || searchKind === 'tavily'"
+        v-model="searchApiKey" class="inp" type="password"
+        :placeholder="searchHasKey ? 'API Key（已配置，留空 = 保持不变）' : 'API Key'"
+      />
+      <template v-if="searchKind === 'searxng'">
+        <input v-model="searchBaseUrl" class="inp" placeholder="实例地址（如 https://searx.example）" />
+        <div class="hint">实例需开启 JSON 输出格式。</div>
+      </template>
+      <div class="btnrow">
+        <button class="addbtn" @click="saveSearchProvider">保存搜索配置</button>
+      </div>
+      <div v-if="searchErr" class="err">{{ searchErr }}</div>
     </div>
   </div>
 </template>

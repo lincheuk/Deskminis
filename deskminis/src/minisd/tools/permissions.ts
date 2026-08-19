@@ -214,8 +214,8 @@ export function classifyShellCommand(command: string): CommandClass {
   return 'gated';
 }
 
-/** 权限判定类目：shell 命令分级 + 文件读写两类 + web 抓取一类 + windows-* 桥七类（其余 kind 即类目，绝不经 shell 分类器）。 */
-export type PermissionClass = CommandClass | 'file-write' | 'file-read' | 'web-fetch' | BridgePermissionKind;
+/** 权限判定类目：shell 命令分级 + 文件读写两类 + web 抓取/搜索两类 + windows-* 桥七类（其余 kind 即类目，绝不经 shell 分类器）。 */
+export type PermissionClass = CommandClass | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | BridgePermissionKind;
 
 const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
   danger: 'notAllowed',
@@ -224,6 +224,8 @@ const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
   gated: 'askOnce', 'file-write': 'askOnce', 'file-read': 'askOnce',
   // web 抓取默认过卡：URL 的查询串/路径可携带会话内外传数据，是现成的静默外泄通道
   'web-fetch': 'askOnce',
+  // web 搜索同理：查询串本身就是数据外传通道（论证同 web-fetch），默认过卡
+  'web-search': 'askOnce',
   // 桥（设计 §4.5 + M2e 计划"架构决策 3"）：device 只读系统信息放行；剪贴板读/截图隐私敏感确认；
   // 剪贴板写覆盖用户既有内容确认；notify/open/speak 可被打扰性滥用确认。
   'bridge-device': 'bypass',
@@ -266,6 +268,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
         danger: 'notAllowed', // 不可逆/系统级操作不随「完全访问」放行——文案里「不可逆的系统操作仍拦截」是承诺，不是摆设
         readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
         'web-fetch': 'bypass',
+        'web-search': 'bypass',
         'bridge-device': 'bypass', 'bridge-notify': 'bypass',
         'bridge-clipboard-read': 'bypass', 'bridge-clipboard-write': 'bypass',
         'bridge-open': 'bypass', 'bridge-speak': 'bypass', 'bridge-screenshot': 'bypass',

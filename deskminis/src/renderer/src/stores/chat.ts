@@ -32,6 +32,8 @@ export const useChat = defineStore('chat', {
     // MU2b Task 3：产物卡点击写入待预览相对路径，FilesPanel watch 后走既有 preview 流程并清空
     pendingFilePreview: null as string | null,
     providers: [] as UiProvider[],
+    /** 网络搜索 provider 状态（设置页用）：后端 get 只回 {kind, hasKey, baseUrl?}，密钥永不回显。 */
+    searchProvider: null as null | { kind: string; hasKey: boolean; baseUrl?: string },
     skills: [] as UiSkill[],
     /** MU6 技能管理页数据源。**与上面的 skills 不是一回事**：那份是斜杠菜单用的，
      *  带 sessionId 时只返回该会话生效的启用集、不带时还过滤掉了禁用项——
@@ -317,6 +319,9 @@ export const useChat = defineStore('chat', {
     async deleteProvider(id: string) { await rpc.call('provider.instances.delete', { id, confirm: true }); await this.refreshProviders(); },
     /** 设置页「获取列表」：拉端点模型清单（纯查询，不刷新 providers）。失败由调用方静默回退手输。 */
     async fetchProviderModels(p: { id?: string; kind?: string; baseUrl?: string; apiKey?: string }) { return await rpc.call<{ models: string[] }>('provider.models.fetch', p); },
+    /** 网络搜索 provider：读状态（无密钥本体，只有 hasKey）/ 保存配置（kind 传 none 清除）。 */
+    async fetchSearchProvider() { const r = await rpc.call<{ kind: string; hasKey: boolean; baseUrl?: string }>('search.provider.get'); this.searchProvider = r; return r; },
+    async saveSearchProvider(p: { kind: string; apiKey?: string; baseUrl?: string }) { await rpc.call('search.provider.set', p); await this.fetchSearchProvider(); },
     async respondPerm(requestId: string, decision: string) {
       this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);
       await rpc.call('permission.respond', { requestId, decision });

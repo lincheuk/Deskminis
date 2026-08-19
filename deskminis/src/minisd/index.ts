@@ -9,6 +9,7 @@ import { SettingsStore, SYNC_PAUSE_KEY, PERMISSION_PRESET_KEY } from './store/se
 const WORKSPACE_LAST_KEY = 'workspace.lastUsed';
 import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
+import { SearchProviderStore } from './store/search-provider-store';
 import { ToolRegistry } from './tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
@@ -28,6 +29,7 @@ import { MemoryStore } from './store/memory-store';
 import { MemoryInjector } from './store/memory-injector';
 import { memoryWriteTool, memoryGetTool, MEMORY_TOOL_NAMES } from './tools/memory';
 import { makeWebFetchTool } from './tools/web';
+import { makeWebSearchTool } from './tools/web-search';
 import { ContextPolicy } from './agent/context-policy';
 import { OffloadEngine } from './agent/offload';
 import { CompactEngine } from './agent/compact';
@@ -227,6 +229,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // Paths 不认识 DB，故用注入的方式把「会话工作区覆盖值」喂给 workspaceOf。
   paths.setWorkspaceResolver(id => chat.getWorkspaceRoot(id));
   const providers = new ProviderStore(root, vault);
+  // 搜索 provider 与模型 provider 同库隔离：密钥走同一 vault（另一槽位），配置独立文件
+  const searchProviderStore = new SearchProviderStore(root, vault);
 
   // 模型能力目录：后台预热 models.dev；失败静默回退磁盘缓存/内置兜底表
   const catalog = new ModelCatalog(join(root, 'models-dev-cache.json'), createProxyFetch());
@@ -316,6 +320,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, bridgeNode)));
   tools.register(memoryWriteTool); tools.register(memoryGetTool);
   tools.register(makeWebFetchTool());
+  // web_search 照常注册（未配置时调用返回引导文案），密钥经 resolve() 闭包内部消费、不外流
+  tools.register(makeWebSearchTool(() => searchProviderStore.resolve()));
 
   // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）
   const memoryStore = new MemoryStore(paths.globalDir('memory'));
@@ -629,6 +635,13 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         { id: typeof p.id === 'string' ? p.id : undefined, kind: p.kind as 'anthropic' | 'openai-compat' | 'gemini' | 'ollama' | undefined, baseUrl, apiKey },
       );
       return { models };
+    },
+    // ── 网络搜索 provider（独立于模型 provider）：get 只回 {kind, hasKey, baseUrl?}，
+    //    密钥留在 vault 内部（前端永远拿不到回显）；set 的 kind 传空/none 表示清除配置。
+    'search.provider.get': () => searchProviderStore.get(),
+    'search.provider.set': (p: { kind: string; apiKey?: string; baseUrl?: string }) => {
+      searchProviderStore.set(p);
+      return { ok: true };
     },
     // ── ModelGroup ──
     'modelgroup.create': (p: { name: string; memberIds: string[] }) => {
