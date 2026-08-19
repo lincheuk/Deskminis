@@ -154,6 +154,20 @@
   否则对端挂等。**云容器基线加注**：`agent-loop offload 档触发修剪`为 CPU 密集边缘测试
   （150KB 大字符串），容器算力漂移时会贴线超 30s（同日 10→35s，D2 提交点复测同样超时，
   证明与 D3 无关）；D4 已授权给两个重测试加显式 timeout 的一行级小修，Windows 本机全绿仍为权威。
+  **D4 已完成并过审，附一处返工 D4b**（main `92c9b65`）：`src/minisd/mcp/http.ts`——三中止源
+  （超时/调用方/dispose）监听本地结算不依赖 fetch 传播、SSE 只认 data 行且应答后继续消化通知、
+  Mcp-Session-Id 任意 2xx 捕获回显、非 2xx 一律不读响应体、DELETE 告别不挂 dispose 信号只给
+  超时兜底。1447 → **1470**（+23）；复跑 52 失败与基线逐条一致（timeout 小修生效，云端复审
+  基线恢复干净），typecheck 零错误。已核偏离四条均接受：initialized await-但吞错（受启动超时
+  约束、保证协议顺序，优于纯 fire-and-forget）、SSE 用 text() 缓冲（POST-per-RPC 形态等价）、
+  会话头任意 2xx 捕获（超集）、垃圾计数口径按 D4 规格文字。**返工 D4b（审核逮住）**：附带
+  小修把 offload 例末断言写成 `expect(布尔)` 无 matcher（恒过、静默阉割断言，与报告「断言
+  一字未动」不符）——一行修复提示词已出。备忘两条：预中止分支多发一条无害 cancelled；
+  SSE 多行 data 不拼接（SDK 服务器均单行，低风险）。**D5 勘察定案**：工具表每 run 现取
+  （loop.ts:287）+ excludedToolNames 管线可承接会话禁用；`AgentToolDefinition.parameters` 是
+  平铺形（anthropic.ts:26 只认 type/description/enum）——MCP 嵌套 schema 须加可选
+  rawInputSchema 由三家 provider 映射透传（列入 D5 白名单）；无现成进程树杀法，D5 补
+  taskkill helper；对话流事件提示裁到 D6（状态先经 mcp.servers.list 可查，免动 renderer）。
   ② ✅ **D1 web_search 已完成并过审**（main `399759a`，Trae 执行 + Claude 逐行审 diff +
   独立复跑）：搜索 provider 化三 kind（brave/tavily/searxng，searxng 供自托管免 key 场景）、
   `SearchProviderStore` 密钥只进 vault 单槽位（get 只回 hasKey、resolve 是唯一流出通道、
