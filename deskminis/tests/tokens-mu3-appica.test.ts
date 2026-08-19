@@ -1,7 +1,8 @@
 /** MU3 新守卫：Appica 视觉语言移植保真度 + 别名映射防漂移（12 例）。
  *
- *  取值唯一来源（MU3 新红线）：docs/specs/2026-08-09-appica-tokens-reference.css
- *    来源 https://unpkg.com/@appica/ui-react@1.0.0/styles.css（@appica/ui-react@1.0.0，MIT）
+ *  取值唯一来源（MU3 红线，E1 换锚不换纪律）：docs/specs/2026-08-19-aurora-tokens-reference.css
+ *    槽位结构承自 @appica/ui-react@1.0.0（MIT）；状态色部分值继承 Appica，其余 Aurora 自研
+ *    （设计稿 docs/specs/2026-08-19-ui-reskin-aurora.md）
  *  禁止联网重取、禁止凭印象写值（xterm 兜底换算值除外，见例 9 白名单）。
  *
  *  转绿映射（MU3 计划 §4）：例 1-7 → Task 2（tokens.css 双层重构）；例 8 → Task 3（material 退场）；
@@ -15,7 +16,7 @@ import { resolve, relative } from 'node:path';
 
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
 const tokens = R('../src/renderer/src/styles/tokens.css');
-const REF = R('../../docs/specs/2026-08-09-appica-tokens-reference.css');
+const REF = R('../../docs/specs/2026-08-19-aurora-tokens-reference.css');
 
 /** 按选择器切片（与 tokens-evolution 相同的 6 个字面切片标记，红线：逐字保留） */
 function section(src: string, start: string, end?: string): string {
@@ -76,11 +77,12 @@ const rel = (p: string) => relative(RENDERER_SRC, p).replace(/\\/g, '/');
 const C = (n: string) => R(`../src/renderer/src/components/${n}.vue`);
 
 describe('MU3 Appica 移植守卫（13 例）', () => {
-  it('1. tokens.css 头部 MIT 归属四要素（来源 URL / 版本 / 许可证 / 参考文件路径）', () => {
-    expect(tokens).toContain('https://unpkg.com/@appica/ui-react@1.0.0/styles.css');
+  it('1. tokens.css 头部归属四要素（结构来源 / 许可证 / 参考文件路径 / 唯一来源声明）', () => {
+    // E1 换锚：归属从「Appica 全文照抄」改为「槽位结构承自 Appica + 取值唯一来源 Aurora 参考文件」
     expect(tokens).toContain('@appica/ui-react@1.0.0');
     expect(tokens).toContain('MIT');
-    expect(tokens).toContain('docs/specs/2026-08-09-appica-tokens-reference.css');
+    expect(tokens).toContain('docs/specs/2026-08-19-aurora-tokens-reference.css');
+    expect(tokens).toContain('取值唯一来源');
   });
 
   it('2. A 区与参考文件逐行一致：四段 raw 层 == 参考 :root,.light / .dark 声明体（有序比对）', () => {
@@ -95,7 +97,7 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
 
   it('3. 别名映射总表全量断言（§2-1 逐行 → :root 段；5 个分叉项另断暗段）', () => {
     const light: Array<[string, string]> = [
-      ['--bg', 'var(--background)'],
+      ['--bg', 'var(--background-subtle)'], // 分叉：暗段 --background（Aurora §3 换挡：浅底微冷白，浮岛卡纯白）
       ['--bg-secondary', 'var(--background-muted)'],
       ['--bg-tertiary', 'var(--background)'], // 分叉：暗段 --background-strong
       ['--grouped-bg', 'var(--background-muted)'], // 分叉：暗段 --background
@@ -118,7 +120,7 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
       ['--fill-quaternary', 'var(--background-subtle)'],
       ['--accent', 'var(--secondary-emphasis)'],
       ['--action', 'var(--accent)'],
-      ['--on-action', 'var(--primary-foreground)'], // 分叉：暗段 --foreground-intense（两模式均白）
+      ['--on-action', 'var(--primary-foreground)'], // 分叉：暗段 --secondary-foreground（Aurora §3：亮青钮底配深字；浅段白字深青底不动）
       ['--link', 'var(--secondary-emphasis)'], // 与 accent 收敛
       ['--assistant-gradient', 'linear-gradient(135deg, var(--foreground-muted), var(--foreground-subtle))'],
       ['--red', 'var(--error-emphasis)'],
@@ -145,8 +147,8 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
       ['--scrim', 'rgba(0,0,0,.4)'],
       ['--r-control', 'var(--radius-2xs)'],
       ['--r-md', 'var(--radius-xs)'],
-      ['--r-card', 'var(--radius-sm)'],
-      ['--r-input', 'var(--radius-lg)'],
+      ['--r-card', 'var(--radius-md)'], // Aurora §3 换挡（同例 7）
+      ['--r-input', 'var(--radius-xl)'], // Aurora §3 换挡（同例 7）
       ['--r-bubble', 'var(--radius-xl)'],
       ['--r-sheet', 'var(--radius-2xl)'], // 20px 无等值阶，模态大面取 2xl（申报项）
       ['--r-pill', '999px'],
@@ -156,11 +158,12 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
     ];
     for (const [k, v] of light) expect(rootLight).toContain(`${k}: ${v};`);
     const darkFork: Array<[string, string]> = [
+      ['--bg', 'var(--background)'], // Aurora §3：--bg 换挡仅浅段，暗段映射不动
       ['--bg-tertiary', 'var(--background-strong)'],
       ['--grouped-bg', 'var(--background)'],
       ['--grouped-bg-secondary', 'var(--background-muted)'],
       ['--grouped-bg-tertiary', 'var(--background-strong)'],
-      ['--on-action', 'var(--foreground-intense)'],
+      ['--on-action', 'var(--secondary-foreground)'], // Aurora §3：亮青钮底上白字仅 1.36:1，换青底深字 13.72:1
     ];
     for (const [k, v] of darkFork) expect(mediaDark).toContain(`${k}: ${v};`);
   });
@@ -196,8 +199,8 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
   it('7. 圆角别名：6 条映射 radius 派生阶 + --r-pill 字面值保留（§2-3）', () => {
     expect(rootLight).toContain('--r-control: var(--radius-2xs);');
     expect(rootLight).toContain('--r-md: var(--radius-xs);');
-    expect(rootLight).toContain('--r-card: var(--radius-sm);');
-    expect(rootLight).toContain('--r-input: var(--radius-lg);');
+    expect(rootLight).toContain('--r-card: var(--radius-md);'); // Aurora §3：卡片升一档
+    expect(rootLight).toContain('--r-input: var(--radius-xl);'); // Aurora §3：输入卡随材质
     expect(rootLight).toContain('--r-bubble: var(--radius-xl);');
     expect(rootLight).toContain('--r-sheet: var(--radius-2xl);');
     expect(rootLight).toContain('--r-pill: 999px;');

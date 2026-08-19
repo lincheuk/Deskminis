@@ -1,7 +1,7 @@
 /** MU2a Task 4：令牌层演进（设计 §3.1/§3.2，决策 7）源文本守卫（8 例）。
  *  红线（MU3 修订，授权见 MU3 计划 §3-1）：MU2a「tokens.css 只追加不改既有值」红线自 MU3 起解除——
  *  Apple HIG 调色板整体退场；新红线：raw 层取值唯一来源是
- *  docs/specs/2026-08-09-appica-tokens-reference.css（禁止凭印象写值），别名层映射禁止漂移；
+ *  docs/specs/2026-08-19-aurora-tokens-reference.css（E1 换锚；禁止凭印象写值），别名层映射禁止漂移；
  *  组件禁写死颜色与 color-mix。 */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -63,15 +63,15 @@ describe('MU2a Task 4 令牌层演进（8 例）', () => {
     // 暗段同色断言删除：Appica subtle/soft 两段同文（直给 10%/20% alpha），四段存在性由上例保证
   });
 
-  it('Appica 原值 6 组抽样锚（MU3 §3-1，与参考文件逐字一致）+ 核心别名映射防漂移', () => {
+  it('Aurora 参考值 6 组抽样锚（E1 换锚，与参考文件逐字一致）+ 核心别名映射防漂移', () => {
     // 浅段：文字基色（7 级体系之锚）/ 交互主色轴（--accent/--action 别名目标）/ 语义色轴（--green/--state-ok 别名目标）
-    expect(rootLight).toContain('--foreground: oklch(0.446 0.03 256.802)');
-    expect(rootLight).toContain('--secondary-emphasis: oklch(0.623 0.214 259.815)');
-    expect(rootLight).toContain('--success-emphasis: oklch(0.696 0.17 162.48)');
-    // 暗段：文字基色 / 蓝黑签名底 / 主色轴暗段（两段同值，防暗段漂移）
-    expect(mediaDark).toContain('--foreground: oklch(0.872 0.01 258.338)');
-    expect(mediaDark).toContain('--background: oklch(0.13 0.028 261.692)');
-    expect(mediaDark).toContain('--secondary-emphasis: oklch(0.623 0.214 259.815)');
+    expect(rootLight).toContain('--foreground: oklch(0.4 0.032 253)');
+    expect(rootLight).toContain('--secondary-emphasis: oklch(0.5 0.088 192)');
+    expect(rootLight).toContain('--success-emphasis: oklch(0.508 0.125 165)');
+    // 暗段：文字基色 / 深空靛蓝签名底 / 主色轴暗段（两段同值，防暗段漂移）
+    expect(mediaDark).toContain('--foreground: oklch(0.875 0.014 258)');
+    expect(mediaDark).toContain('--background: oklch(0.16 0.022 262)');
+    expect(mediaDark).toContain('--secondary-emphasis: oklch(0.87 0.115 175)');
     // 别名映射防漂移（brand 轴无锚：--brand/--on-brand 已消亡，由 L79/L81/L83 不存在性断言替代）
     expect(rootLight).toContain('--accent: var(--secondary-emphasis)');
     expect(rootLight).toContain('--green: var(--success-emphasis)');
