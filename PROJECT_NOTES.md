@@ -119,7 +119,17 @@
 
 ## 进行中 / 下一步
 
-- **下一波候选**：后台作业、MCP 最小面（客户端 only/工具 only/stdio+streamable-http）、
+- ✅ **七家 harness 插件生态调研（2026-08-19）**：为「插件市场」界面立项做输入，实地调研
+  DeepSeek Harness（dshmarket + awesome 清单 CI 索引范式）、goose（扩展即 MCP + 安装安全链路蓝本）、
+  opencode（无机器可读市场，排除）、OpenClaw/ClawHub（真注册表 + ClawHavoc 投毒教训）、
+  Hermes（Skills Hub 聚合器 + 装前扫描硬阻断）、oh-my-pi（Claude marketplace.json 兼容方证据）、
+  LangGraph（判定不同赛道）。三大结论：SKILL.md 已开放标准化为 agentskills.io（DeskMinis 天然兼容）；
+  可直接消费的开放注册表 = ClawHub API（技能）+ MCP 官方注册表（CC0 免鉴权）；各家「代码插件」
+  互不兼容故 DeskMinis 市场应定位**技能市场 + MCP 目录**。零新依赖可行性已核实（undici/yauzl/
+  importer/§5.2 全现成）。报告 → `docs/research/2026-08-19-harness-plugin-market-survey.md`
+  （含 6 个待拍板决策点）。
+- **下一波候选**：**扩展市场（技能市场 + MCP 目录，先出设计稿，调研报告 §6 有实施顺序建议）**、
+  后台作业、MCP 最小面（客户端 only/工具 only/stdio+streamable-http，§5.2 已有设计、是市场 MCP tab 前置）、
   web_search（零依赖红线下无体面免 key 方案，待裁决 provider 化配 key vs 暂缓）、
   历史消息图片缩略图（C6 只做了 chip 元数据，读图 IPC 未做）。
 - 遗留既有路线：浏览器/屏幕里程碑（建议单工具 CLI 语法）、模型组 UI 入口（MU7）。
