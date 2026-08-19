@@ -775,7 +775,7 @@ describe('runAgentLoop + 压缩/卸载装配', () => {
     const stored = store.listMessages(sessionId);
     const storedTr = stored.find(m => m.id === 'TR0')!;
     expect(storedTr.parts[0]).toEqual({ type: 'toolResult', value: { toolUseId: 'T0', output: big, success: true, status: 'success' } });
-    expect(events.at(-1)?.kind === 'turnEnd');
+    expect(events.at(-1)?.kind).toBe('turnEnd');
   }, 120000);
 
   it('excludedToolNames: 过滤工具定义', async () => {
