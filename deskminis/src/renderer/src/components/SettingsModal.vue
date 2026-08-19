@@ -7,6 +7,7 @@ import { inject, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import ProviderSettings from './ProviderSettings.vue';
 import SkillsSettings from './SkillsSettings.vue';
+import McpSettings from './McpSettings.vue';
 import Icon from './Icon.vue';
 import type { ThemeMode } from '../lib/settings/theme';
 
@@ -50,11 +51,12 @@ async function checkNow(): Promise<void> {
 // App.vue provide：开配对管理面（App 侧会同时收起本设置模态，避免两模态叠层）
 const openDevices = inject<() => void>('openDevices', () => {});
 
-type Section = 'model' | 'skills' | 'appearance' | 'permission' | 'devices' | 'about';
+type Section = 'model' | 'skills' | 'mcp' | 'appearance' | 'permission' | 'devices' | 'about';
 const section = ref<Section>('model');
 const NAV: { id: Section; label: string }[] = [
   { id: 'model', label: '模型' },
   { id: 'skills', label: '技能' },
+  { id: 'mcp', label: 'MCP' },
   { id: 'appearance', label: '外观' },
   { id: 'permission', label: '权限' },
   { id: 'devices', label: '设备与同步' },
@@ -108,6 +110,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
         <ProviderSettings v-if="section === 'model'" />
 
         <SkillsSettings v-else-if="section === 'skills'" />
+
+        <McpSettings v-else-if="section === 'mcp'" />
 
         <template v-else-if="section === 'appearance'">
           <div

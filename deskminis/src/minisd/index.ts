@@ -1,5 +1,6 @@
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync, statSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
 import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
@@ -10,8 +11,10 @@ const WORKSPACE_LAST_KEY = 'workspace.lastUsed';
 import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { SearchProviderStore } from './store/search-provider-store';
-import { McpServersStore } from './mcp/config';
+import { McpServersStore, type McpServerEntry } from './mcp/config';
 import { McpManager } from './mcp/manager';
+import { McpStdioClient } from './mcp/stdio';
+import { McpHttpClient } from './mcp/http';
 import { ToolRegistry } from './tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
@@ -666,8 +669,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       return { ok: true };
     },
     // ── D2 MCP 配置面（servers.json CRUD）：$$VAR 原样存取不解析——渲染端展示引用名本身是安全的，
-    //    实际解析在 D3/D4 连接时发生；mcp.servers.test 需真连接，属 D6，本步不做。 ──
-    'mcp.servers.list': () => ({ servers: mcpServers.list(), statuses: mcpManager.statuses() }),
+    //    实际解析在 D3/D4 连接时发生。D6 起 list 增 configError 布尔 + mcp.servers.test 试连。 ──
+    // configError 只回布尔：loadError 原文是 parse 异常消息，可能带文件片段（内含明文 headers），
+    // 不出 minisd（D2 审核备忘的脱敏落实）；前端据布尔显示固定警示文案。
+    'mcp.servers.list': () => ({ servers: mcpServers.list(), statuses: mcpManager.statuses(), configError: Boolean(mcpServers.loadError) }),
     'mcp.servers.upsert': (p: Record<string, unknown>) => {
       mcpServers.upsert(p);
       return { ok: true };
@@ -679,6 +684,43 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     'mcp.servers.toggle': (p: { name: string; enabled: boolean }) => {
       mcpServers.toggle(String(p.name ?? ''), p.enabled === true);
       return { ok: true };
+    },
+    /** D6 试连：构造独立临时 client（transport 分派同 manager 缺省工厂）connect + listTools 后即 dispose。
+     *  不进 manager 运行时、不注册工具、完整条目形态不落库——试连是「摸一下」，
+     *  不能让一次探测改变 run 期状态或配置事实。两形态：
+     *  ① 仅 { name }：试已存条目，配置从 store 取；
+     *  ② 带条目字段：表单「保存前试连」——经 scratch store 的 upsert 走 config.ts 归一校验
+     *     （upsert 是唯一公开归一入口），校验中文错误与连接错误一样回 { ok:false, error }。 */
+    'mcp.servers.test': async (p: Record<string, unknown>) => {
+      let entry: McpServerEntry;
+      if (Object.keys(p).every(k => k === 'name')) {
+        const found = mcpServers.list().find(e => e.name === String(p.name ?? ''));
+        if (!found) return { ok: false, error: `MCP server 不存在: ${String(p.name ?? '')}` };
+        entry = found;
+      } else {
+        const scratchDir = mkdtempSync(join(tmpdir(), 'dm-mcp-scratch-'));
+        try {
+          entry = new McpServersStore(new MinisPaths(scratchDir)).upsert(p);
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        } finally {
+          rmSync(scratchDir, { recursive: true, force: true });
+        }
+      }
+      const client = entry.transport === 'stdio'
+        ? new McpStdioClient({ command: entry.command ?? '', args: entry.args, env: entry.env, cwd: entry.cwd, startupTimeoutSeconds: entry.startupTimeoutSeconds })
+        : new McpHttpClient({ url: entry.url ?? '', headers: entry.headers, startupTimeoutSeconds: entry.startupTimeoutSeconds });
+      const startedAt = Date.now();
+      try {
+        await client.connect();
+        const tools = await client.listTools();
+        return { ok: true, toolCount: tools.length, elapsedMs: Date.now() - startedAt };
+      } catch (e) {
+        // client 层文案透传即可——$$ 解析值/headers/env 明文不进错误文本（client 层已保证）
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      } finally {
+        client.dispose();
+      }
     },
     // ── ModelGroup ──
     'modelgroup.create': (p: { name: string; memberIds: string[] }) => {

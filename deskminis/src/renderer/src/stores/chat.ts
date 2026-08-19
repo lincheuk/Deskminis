@@ -45,6 +45,18 @@ export const useChat = defineStore('chat', {
       total: number; completed: number; succeeded: string[];
       failures: { name: string; error: string }[]; error?: string;
     },
+    /** D6 MCP 设置页数据源：servers 条目 + 运行态 statuses + configError 布尔。
+     *  configError 只拿到布尔是有意的——loadError 原文可能带文件片段（内含明文 headers），
+     *  不出 minisd；前端据布尔显示固定警示文案，绝不回显原文。 */
+    mcpServers: { servers: [], statuses: [], configError: false } as {
+      servers: {
+        name: string; transport: 'stdio' | 'streamable-http'; enabled: boolean;
+        command?: string; args?: string[]; env?: Record<string, string>;
+        url?: string; headers?: Record<string, string>; note?: string; startupTimeoutSeconds?: number;
+      }[];
+      statuses: { name: string; status: 'connected' | 'error' | 'idle'; lastError?: string; toolCount: number }[];
+      configError: boolean;
+    },
     // 循环报错（API Key 错误、provider 故障…）必须看得见，否则界面就是「按了没反应」
     lastError: '' as string,
     // 透明重试期间的提示；下一个 textDelta / turnEnd 清掉
@@ -216,6 +228,32 @@ export const useChat = defineStore('chat', {
       const t = await rpc.call('skills.importStatus', { taskId });
       if (t) this.skillImport = t;
       return t;
+    },
+    // ---- D6 MCP 服务器管理（设置页消费；upsert/toggle/remove 后统一重拉，列表即最新事实）----
+    async fetchMcpServers() {
+      const r = await rpc.call('mcp.servers.list');
+      this.mcpServers = {
+        servers: r?.servers ?? [],
+        statuses: r?.statuses ?? [],
+        configError: r?.configError === true,
+      };
+    },
+    async upsertMcpServer(entry: Record<string, unknown>) {
+      await rpc.call('mcp.servers.upsert', entry);
+      await this.fetchMcpServers();
+    },
+    async removeMcpServer(name: string) {
+      await rpc.call('mcp.servers.remove', { name });
+      await this.fetchMcpServers();
+    },
+    async toggleMcpServer(name: string, enabled: boolean) {
+      await rpc.call('mcp.servers.toggle', { name, enabled });
+      await this.fetchMcpServers();
+    },
+    /** 试连两形态：{ name } 试已存条目；完整条目 = 表单保存前试连（不落库）。
+     *  失败不抛——返回 { ok:false, error } 由界面内联展示。 */
+    async testMcpServer(p: Record<string, unknown>): Promise<{ ok: boolean; toolCount?: number; elapsedMs?: number; error?: string }> {
+      return await rpc.call('mcp.servers.test', p);
     },
     // ---- MU6 同步控制（消费 M6 既有 control.* 三方法）----
     async refreshSyncPaused() {

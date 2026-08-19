@@ -255,7 +255,8 @@ describe('mcp.servers.* RPC（13：upsert → list → toggle → remove 全链�
       });
 
       // D5：list 响应合并 manager.statuses()（空 store → 空数组），断言随之带上该字段
-      expect((await call('mcp.servers.list')).result).toEqual({ servers: [], statuses: [] });
+      // D6：响应再增 configError 布尔（loadError 脱敏布尔化），此处文件正常 → false
+      expect((await call('mcp.servers.list')).result).toEqual({ servers: [], statuses: [], configError: false });
 
       const up = await call('mcp.servers.upsert', {
         name: 'remote', url: 'https://mcp.example/api', headers: { Authorization: 'Bearer $$TOK' },
@@ -272,7 +273,7 @@ describe('mcp.servers.* RPC（13：upsert → list → toggle → remove 全链�
       expect((await call('mcp.servers.list')).result.servers[0].enabled).toBe(false);
 
       expect((await call('mcp.servers.remove', { name: 'remote' })).result).toEqual({ ok: true });
-      expect((await call('mcp.servers.list')).result).toEqual({ servers: [], statuses: [] });
+      expect((await call('mcp.servers.list')).result).toEqual({ servers: [], statuses: [], configError: false });
       ws.close();
     } finally {
       await srv.close();
