@@ -183,6 +183,16 @@
   MIGRATIONS 但须带同款 PRAGMA 守卫）。备忘三条：factories 同步抛会漏 inFlight 占位（生产
   工厂纯构造不会抛，理论项）；cmd 包裹后 win32 裸名笔误显示为启动超时而非「命令不存在」
   （stderr 尾部有 cmd 原话，D6 可展示）；server→client 请求已回 -32601。
+  **D6 已完成并代码过审**（main `562c7fb`，**真机目视验收待用户执行**——MU5/MU6 教训，
+  设置页全操作路径：打开→添加→试连→保存→启停→删除）：`McpSettings.vue`（v-for 全挂
+  template、`mx-` 前缀避撞车、状态三态点 + 行内 lastError + 行内试连结果）、SettingsModal
+  四处行级接入、chat store 五 action；`mcp.servers.test` 两形态试连（{name} 试已存 /
+  完整条目走 scratch store 归一校验——mkdtemp 于 OS tmpdir + finally rmSync + finally
+  dispose，真 store 零触碰、试连不落库有测试锚定）；`configError` 布尔化（D2 脱敏备忘
+  落实：parse 原文不出 minisd，前端固定文案）。1495 → **1509**（+14），52 失败与基线
+  逐条一致。已核偏离四条均接受：mcp-config.test 全等断言补 configError:false（收紧非放宽）、
+  scratch store 归一（decodeEntry 未导出下的正解，备忘：以后可导出纯函数省临时目录）、
+  `mx-` 前缀、push 第 4 次成功（终端吞输出非认证问题）。
   ② ✅ **D1 web_search 已完成并过审**（main `399759a`，Trae 执行 + Claude 逐行审 diff +
   独立复跑）：搜索 provider 化三 kind（brave/tavily/searxng，searxng 供自托管免 key 场景）、
   `SearchProviderStore` 密钥只进 vault 单槽位（get 只回 hasKey、resolve 是唯一流出通道、
