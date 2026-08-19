@@ -254,7 +254,8 @@ describe('mcp.servers.* RPC（13：upsert → list → toggle → remove 全链�
         ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
       });
 
-      expect((await call('mcp.servers.list')).result).toEqual({ servers: [] });
+      // D5：list 响应合并 manager.statuses()（空 store → 空数组），断言随之带上该字段
+      expect((await call('mcp.servers.list')).result).toEqual({ servers: [], statuses: [] });
 
       const up = await call('mcp.servers.upsert', {
         name: 'remote', url: 'https://mcp.example/api', headers: { Authorization: 'Bearer $$TOK' },
@@ -271,7 +272,7 @@ describe('mcp.servers.* RPC（13：upsert → list → toggle → remove 全链�
       expect((await call('mcp.servers.list')).result.servers[0].enabled).toBe(false);
 
       expect((await call('mcp.servers.remove', { name: 'remote' })).result).toEqual({ ok: true });
-      expect((await call('mcp.servers.list')).result).toEqual({ servers: [] });
+      expect((await call('mcp.servers.list')).result).toEqual({ servers: [], statuses: [] });
       ws.close();
     } finally {
       await srv.close();

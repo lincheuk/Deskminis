@@ -1,9 +1,11 @@
-/** D3 MCP stdio 传输客户端：真子进程 fixture 全链路——initialize 握手、换行分帧（跨 chunk/
+/** D3/D5 MCP stdio 传输客户端：真子进程 fixture 全链路——initialize 握手、换行分帧（跨 chunk/
  *  单 chunk 多消息/垃圾行）、tools/list 翻页、tools/call、$$VAR 环境解析、启动/调用两级超时、
- *  取消透传、进程崩溃拒绝、ENOENT 与 .cmd 兜底、dispose 幂等。 */
+ *  取消透传、进程崩溃拒绝、ENOENT、win32 cmd 包裹 spawn 策略、server→client 请求 -32601 应答、
+ *  killTree、dispose 幂等。 */
 import { describe, it, expect, afterEach } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { McpStdioClient, spawnWithCmdFallback, type McpNotification } from '../src/minisd/mcp/stdio';
+import { EventEmitter } from 'node:events';
+import { McpStdioClient, spawnMcpProcess, killTree, type McpNotification } from '../src/minisd/mcp/stdio';
 
 const FIXTURE = fileURLToPath(new URL('./mcp-stdio-server.mjs', import.meta.url));
 
@@ -201,29 +203,99 @@ describe('崩溃与关闭（9, 11）', () => {
   });
 });
 
-describe('ENOENT 与 .cmd 兜底（10）', () => {
-  it('不存在的命令 → 「命令不存在」文案（含命令名）', async () => {
-    const c = track(new McpStdioClient({ command: 'dm-definitely-missing-xyz' }));
+describe('ENOENT 与 spawn 策略（10）', () => {
+  it('不存在的命令（带路径分隔符 → 直接 spawn，不走 cmd 包裹）→ 「命令不存在」文案（含命令名）', async () => {
+    // 带路径分隔符的命令不进 cmd.exe 包裹（新策略），spawn 直接 ENOENT——文案保持 D3 原样。
+    // 裸名在 win32 下会经 cmd.exe 启动（cmd 存在、子命令不存在时以退出码 1 收场，属进程退出路径）。
+    const missing = process.platform === 'win32' ? 'C:\\dm-missing-xyz.exe' : '/definitely/dm-missing-xyz';
+    const c = track(new McpStdioClient({ command: missing }));
     const err = await errOf(c.connect());
     expect(err.message).toContain('命令不存在');
-    expect(err.message).toContain('dm-definitely-missing-xyz');
+    expect(err.message).toContain('dm-missing');
   });
 
-  it('兜底函数·win32 平台参数：裸名 ENOENT 后补试 .cmd（attempts 可见）', async () => {
-    // 本机 Node 对 *.cmd + shell:false 一律同步抛 EINVAL（批处理护栏），补试必然失败——
-    // 以 attempts 序列观察「确实补试过」，最终文案仍按「命令不存在」归一
-    const err = await errOf(spawnWithCmdFallback(
-      'dm-missing-xyz', [], { env: { ...process.env } }, 'win32',
-    ));
-    expect(err.message).toContain('命令不存在: dm-missing-xyz');
-    expect((err as { attempts?: string[] }).attempts).toEqual(['dm-missing-xyz', 'dm-missing-xyz.cmd']);
+  it('spawn 策略·win32 裸名 → cmd.exe /d /s /c 包裹（shell:false）', async () => {
+    const calls: Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }> = [];
+    const fakeChild = new EventEmitter() as unknown as import('node:child_process').ChildProcess;
+    const spawnImpl = ((cmd: string, args: string[], opts: Record<string, unknown>) => {
+      calls.push({ cmd, args, opts });
+      queueMicrotask(() => fakeChild.emit('spawn'));
+      return fakeChild;
+    }) as typeof import('node:child_process').spawn;
+    const child = await spawnMcpProcess('npx', ['-y', 'pkg'], { env: { P: '1' } }, 'win32', spawnImpl);
+    expect(child).toBe(fakeChild);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].cmd).toBe('cmd.exe');
+    expect(calls[0].args).toEqual(['/d', '/s', '/c', 'npx', '-y', 'pkg']);
+    expect(calls[0].opts.shell).toBe(false);
   });
 
-  it('兜底函数·非 win32 平台参数：不补试，首次 ENOENT 直接拒绝', async () => {
-    const err = await errOf(spawnWithCmdFallback(
-      'dm-missing-xyz', [], { env: { ...process.env } }, 'linux',
-    ));
-    expect(err.message).toContain('命令不存在: dm-missing-xyz');
-    expect((err as { attempts?: string[] }).attempts).toEqual(['dm-missing-xyz']);
+  it('spawn 策略·非 win32 或带路径分隔符 → 原样 spawn 不包裹', async () => {
+    const mk = () => {
+      const calls: Array<{ cmd: string; args: string[] }> = [];
+      const spawnImpl = ((cmd: string, args: string[]) => {
+        calls.push({ cmd, args });
+        const ch = new EventEmitter() as unknown as import('node:child_process').ChildProcess;
+        queueMicrotask(() => ch.emit('spawn'));
+        return ch;
+      }) as typeof import('node:child_process').spawn;
+      return { calls, spawnImpl };
+    };
+    const a = mk();
+    await spawnMcpProcess('npx', ['-y', 'pkg'], { env: {} }, 'linux', a.spawnImpl);
+    expect(a.calls).toEqual([{ cmd: 'npx', args: ['-y', 'pkg'] }]);
+    const b = mk();
+    await spawnMcpProcess('C:\\tools\\npx.cmd', ['-y'], { env: {} }, 'win32', b.spawnImpl);
+    expect(b.calls).toEqual([{ cmd: 'C:\\tools\\npx.cmd', args: ['-y'] }]);
+  });
+
+  it('spawn 策略·直接 spawn ENOENT → 「命令不存在」文案（不重试不包裹）', async () => {
+    const spawnImpl = (() => {
+      const ch = new EventEmitter() as unknown as import('node:child_process').ChildProcess;
+      queueMicrotask(() => ch.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })));
+      return ch;
+    }) as typeof import('node:child_process').spawn;
+    const err = await errOf(spawnMcpProcess('/definitely/dm-missing-xyz', [], { env: {} }, 'linux', spawnImpl));
+    expect(err.message).toContain('命令不存在: /definitely/dm-missing-xyz');
+  });
+});
+
+describe('server→client 请求应答 -32601（11）', () => {
+  it('--server-request：fixture 发来带 id 的请求 → 客户端回 -32601，应答经通知回传可见', async () => {
+    const c = track(mkClient(['--server-request']));
+    const notes: McpNotification[] = [];
+    c.onNotification = (n) => notes.push(n);
+    await c.connect();
+    await until(() => notes.some((n) => n.method === 'test/server-request-answered'), 5000, 'server 请求应答回传');
+    const answered = notes.find((n) => n.method === 'test/server-request-answered')!;
+    // fixture 把收到的应答原样回传：应是一份 -32601 Method not found 错误响应
+    const p = answered.params as { answer: { id: unknown; error: unknown } };
+    expect(p.answer.id).toBe(999);
+    expect(p.answer.error).toEqual({ code: -32601, message: 'Method not found' });
+  });
+});
+
+describe('killTree（12）', () => {
+  it('win32 分支：taskkill /pid <pid> /T /F 尽力 + child.kill() 兜底（spawnImpl 注入断言形态）', () => {
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnImpl = ((cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      return new EventEmitter() as unknown as import('node:child_process').ChildProcess;
+    }) as typeof import('node:child_process').spawn;
+    let killed = 0;
+    const child = { pid: 4242, kill: () => { killed++; } } as unknown as import('node:child_process').ChildProcess;
+    expect(() => killTree(child, 'win32', spawnImpl)).not.toThrow();
+    expect(calls).toEqual([{ cmd: 'taskkill', args: ['/pid', '4242', '/T', '/F'] }]);
+    expect(killed).toBe(1);
+  });
+
+  it('非 win32 分支：只 child.kill()，不起 taskkill；pid 缺失时同样不炸', () => {
+    const spawnImpl = (() => { throw new Error('不应 spawn'); }) as unknown as typeof import('node:child_process').spawn;
+    let killed = 0;
+    const child = { pid: 1, kill: () => { killed++; } } as unknown as import('node:child_process').ChildProcess;
+    killTree(child, 'linux', spawnImpl);
+    expect(killed).toBe(1);
+    expect(() => killTree({ kill: () => { killed++; } } as unknown as import('node:child_process').ChildProcess, 'win32', (() => new EventEmitter()) as unknown as typeof import('node:child_process').spawn)).not.toThrow();
+    expect(killed).toBe(2);
   });
 });

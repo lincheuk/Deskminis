@@ -57,7 +57,9 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: Open
       type: 'function',
       function: {
         name: t.name, description: t.description,
-        parameters: {
+        // D5 MCP 工具带 rawInputSchema 时直用（嵌套结构原样透传，不平铺不重排）；
+        // 无该字段的内置工具走既有平铺路径——零影响。
+        parameters: t.rawInputSchema !== undefined ? t.rawInputSchema : {
           type: 'object',
           properties: Object.fromEntries(Object.entries(t.parameters).map(([k, p]) => [k, { type: p.type, description: p.description, ...(p.enumValues ? { enum: p.enumValues } : {}) }])),
           required: t.required,

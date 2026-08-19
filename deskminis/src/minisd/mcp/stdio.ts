@@ -27,10 +27,8 @@ export interface McpNotification {
   params?: unknown;
 }
 
-/** 「命令不存在」错误附带 attempts（按序尝试过的命令），供诊断与单测观察 .cmd 补试是否发生 */
-export interface CommandNotFoundError extends Error {
-  attempts?: string[];
-}
+/** 「命令不存在」错误（spawn ENOENT 归一文案） */
+export interface CommandNotFoundError extends Error {}
 
 const PROTOCOL_VERSION = '2025-06-18';
 const STARTUP_TIMEOUT_SECONDS_DEFAULT = 30;
@@ -56,56 +54,71 @@ interface RequestOpts {
 }
 
 /**
- * spawn + Windows .cmd 兜底：裸名（不含路径分隔符）报 ENOENT 时补试 '<command>.cmd'
- * （npx/uvx 实为 .cmd 垫片）。platform 作参数（默认 process.platform）而非直接读全局，
- * 是为了非 Windows 机器也能单测 win32 分支。
- * 实测本机 Node 对 *.cmd + shell:false 一律同步抛 EINVAL（CVE-2024-27980 批处理护栏，
- * 与文件是否存在无关），因此补试失败（ENOENT/EINVAL）统一归入「命令不存在」文案；
- * 真正跑起 npx 需 shell 包裹，属 D5 接线时的复核项。
+ * spawn 策略（D5 替换 D3 的 .cmd 补试）：win32 且 command 为裸名（无路径分隔符）时经
+ * cmd.exe /d /s /c 包裹启动——Node 对 *.cmd/.bat + shell:false 一律同步抛 EINVAL
+ * （CVE-2024-27980 批处理护栏，与文件是否存在无关），而 npx/uvx 实为 .cmd 垫片，
+ * 不包裹永远拉不起真 npx。cmd 元字符风险由信任面承担：命令来自用户自己的 servers.json
+ * （同 Claude Desktop 模型；模型不能写这份配置）。非裸名或非 win32 → 原样 spawn。
+ * ENOENT 归一「命令不存在」文案（不变）。platform/spawnImpl 作参数供非 Windows 机器单测。
  */
-export function spawnWithCmdFallback(
+export function spawnMcpProcess(
   command: string,
   args: string[],
   opts: { cwd?: string; env: NodeJS.ProcessEnv },
   platform: string = process.platform,
+  spawnImpl: typeof spawn = spawn,
 ): Promise<ChildProcess> {
+  const bare = !command.includes('\\') && !command.includes('/');
+  const viaCmd = platform === 'win32' && bare;
   return new Promise((resolve, reject) => {
-    const attempts: string[] = [];
-    let settled = false; // spawn 成功后的迟到 'error'（如 EPIPE）交给 exit 事件收口，不再二次尝试
-    const fail = (err: unknown, attempted: string, retried: boolean): void => {
+    let settled = false; // spawn 成功后的迟到 'error'（如 EPIPE）交给 exit 事件收口，不重复结算
+    const fail = (err: unknown): void => {
       if (settled) return;
       const code = (err as NodeJS.ErrnoException | null)?.code;
-      const bareName = !attempted.includes('\\') && !attempted.includes('/');
-      if (!retried && code === 'ENOENT' && platform === 'win32' && bareName) {
-        attempt(attempted + '.cmd', true);
-        return;
-      }
-      if (code === 'ENOENT' || (retried && code === 'EINVAL')) {
+      if (code === 'ENOENT') {
         const e = new Error(`命令不存在: ${command}。请确认已安装对应运行时或改用绝对路径`) as CommandNotFoundError;
-        e.attempts = attempts;
         reject(e);
         return;
       }
       reject(err instanceof Error ? err : new Error(String(err)));
     };
-    const attempt = (cmd: string, retried: boolean): void => {
-      attempts.push(cmd);
-      let child: ChildProcess;
-      try {
-        child = spawn(cmd, args, { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'] });
-      } catch (err) {
-        // EINVAL 走同步 throw（.cmd 批处理护栏），与 'error' 事件同路处理
-        fail(err, cmd, retried);
-        return;
-      }
-      child.on('error', (err) => fail(err, cmd, retried));
-      child.on('spawn', () => {
-        settled = true;
-        resolve(child);
-      });
-    };
-    attempt(command, false);
+    let child: ChildProcess;
+    try {
+      // 包裹时也保持 shell:false——只是把命令行交给 cmd 解释，不经宿主 shell 二次展开
+      child = viaCmd
+        ? spawnImpl('cmd.exe', ['/d', '/s', '/c', command, ...args], { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'] })
+        : spawnImpl(command, args, { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (err) {
+      // EINVAL 等同步 throw（批处理护栏），与 'error' 事件同路处理
+      fail(err);
+      return;
+    }
+    child.on('error', (err) => fail(err));
+    child.on('spawn', () => {
+      settled = true;
+      resolve(child);
+    });
   });
+}
+
+/**
+ * 进程树终止（D5）：真 npx/uvx 会再拉 node 孙进程，只 kill 直子会留孤儿。
+ * win32 用 taskkill /pid <pid> /T /F 尽力杀整树（spawn 失败/错误事件都吞掉——尽力而已），
+ * 随后 child.kill() 兜底；其余平台 child.kill() 即可。spawnImpl 可注入供单测。
+ */
+export function killTree(
+  child: ChildProcess,
+  platform: string = process.platform,
+  spawnImpl: typeof spawn = spawn,
+): void {
+  if (platform === 'win32' && typeof child.pid === 'number') {
+    try {
+      spawnImpl('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
+    } catch {
+      // taskkill 不存在/不可用不该炸宿主，兜底还有 child.kill
+    }
+  }
+  try { child.kill(); } catch { /* 已死进程的 kill 在个别平台会抛，吞掉 */ }
 }
 
 export class McpStdioClient {
@@ -161,7 +174,7 @@ export class McpStdioClient {
     // 只含 $$引用名、不含任何已解析值，这里不重新拼值。
     const resolved: Record<string, string> = {};
     for (const [k, v] of Object.entries(this.env)) resolved[k] = resolveEnvRefs(v);
-    const child = await spawnWithCmdFallback(this.command, this.args, {
+    const child = await spawnMcpProcess(this.command, this.args, {
       cwd: this.cwd,
       env: { ...process.env, ...resolved },
     });
@@ -216,12 +229,12 @@ export class McpStdioClient {
     return this.request('tools/call', { name, arguments: args ?? {} }, { ...this.callRequestOpts(), signal: opts?.signal });
   }
 
-  /** 杀子进程（在途请求由 exit 事件统一拒绝）。fixture 无孙进程，child.kill 即可；
-   *  真实 npx/uvx 会再拉 node 孙进程（进程树），D5 接线时需复核杀法。幂等。 */
+  /** 杀进程树（在途请求由 exit 事件统一拒绝）。真实 npx/uvx 会再拉 node 孙进程，
+   *  只 kill 直子会留孤儿——win32 下 taskkill /T 整树杀（D5）。幂等。 */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.proc?.kill();
+    if (this.proc) killTree(this.proc);
   }
 
   private callRequestOpts(): RequestOpts {
@@ -323,9 +336,14 @@ export class McpStdioClient {
       return;
     }
     if (typeof msg.method === 'string') {
-      // 无 id = 通知：一律转交回调（未知通知静默与否由 D5 消费方决定，本层不崩即可）；
-      // 带 id 的 server→client 请求（sampling/roots 等）本步不支持，静默忽略
-      if (msg.id === undefined) this.onNotification?.({ method: msg.method, params: msg.params });
+      // 带 id 的 server→client 请求（sampling/roots 等）本层不支持——必须回 -32601，
+      // 静默忽略会让对端挂着等应答直到它自身超时（D5 实测坑点）
+      if (msg.id !== undefined) {
+        this.send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } });
+        return;
+      }
+      // 无 id = 通知：一律转交回调（未知通知静默与否由消费方决定，本层不崩即可）
+      this.onNotification?.({ method: msg.method, params: msg.params });
     }
   }
 

@@ -37,6 +37,7 @@ export interface SessionMeta {
   id: string; title: string; modelBinding?: string;
   memoryEnabled?: boolean;       // 会话级记忆开关，默认 true（db.ts memory_enabled DEFAULT 1）
   workspaceRoot?: string;        // 会话绑定的真实项目目录；缺省 = 回落沙箱桶 sessions/<id>/workspace
+  mcpDisabled?: string[];        // D5 会话禁用的 MCP server 名单（mcp_disabled_json；空 = 无禁用）
   createdAt: number; updatedAt: number; pinnedAt?: number;
 }
 
@@ -64,6 +65,10 @@ export interface AgentToolDefinition {
   description: string;
   parameters: Record<string, AgentToolParam>; // 必含 tool_title
   required: string[];
+  /** D5 MCP 工具的原始 JSON Schema（provider 侧优先直用，嵌套结构不平铺）。
+   *  平铺 parameters 仍填 tool_title 单参数——旧路径/审计/预检零影响；
+   *  MCP 侧真实必填由本字段的 required 表达，平铺 required 只管 tool_title。 */
+  rawInputSchema?: unknown;
 }
 
 /** Provider 入参消息（与 RawMessage 解耦：无持久化字段） */

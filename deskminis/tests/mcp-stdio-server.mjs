@@ -12,6 +12,9 @@
  *   --paginated         tools/list 分两页（nextCursor 翻页）
  *   --batch-responses   所有输出攒 50ms 一次 write（制造「单 chunk 多条消息」）
  *   --slow-ms N         slow 工具应答前等待 N 毫秒（默认 1000）
+ *   --server-request    握手完成后向客户端发一条带 id 的 server→client 请求（sampling 之类），
+ *                       收到客户端应答后经 test/server-request-answered 通知回传，供断言
+ *                       （D5：客户端对不支持的 server 请求回 -32601，否则对端挂等）
  */
 import process from 'node:process';
 
@@ -95,7 +98,16 @@ function handleLine(line) {
   }
   if (msg.method === 'notifications/initialized') {
     initialized = true;
+    if (flag('--server-request')) {
+      // D5 -32601 用例：握手后发一条带 id 的 server→client 请求；客户端应答后回传通知
+      out({ jsonrpc: '2.0', id: 999, method: 'sampling/createMessage', params: {} });
+    }
     if (flag('--exit-after-init')) setTimeout(() => process.exit(0), 300);
+    return;
+  }
+  // 客户端对 server 请求的应答：id=999 配对，经通知原样回传供断言
+  if (msg.id === 999 && (msg.result !== undefined || msg.error !== undefined)) {
+    out({ jsonrpc: '2.0', method: 'test/server-request-answered', params: { answer: msg } });
     return;
   }
   if (msg.method === 'notifications/cancelled') {

@@ -138,6 +138,15 @@ describe('buildAnthropicBody', () => {
     expect(userMsgs).toHaveLength(2);
     for (const um of userMsgs) expect(um.content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
   });
+  it('rawInputSchema 存在时 input_schema 直用（嵌套结构原样），不存在时旧平铺路径不变', () => {
+    const raw = { type: 'object' as const, properties: { q: { type: 'string', description: '查询' }, opts: { type: 'object', properties: { deep: { type: 'boolean' } } } }, required: ['q'] };
+    const body = buildAnthropicBody({ ...REQ, tools: [...REQ.tools, { name: 'mcp__a__search', description: '搜索', parameters: { tool_title: { type: 'string', description: '摘要' } }, required: ['tool_title'], rawInputSchema: raw }] }, 'm') as any;
+    const mcpTool = body.tools.find((t: any) => t.name === 'mcp__a__search');
+    expect(mcpTool.input_schema).toEqual(raw); // 嵌套 properties 原样透传，不平铺、不重排
+    const legacyTool = body.tools.find((t: any) => t.name === 'shell_execute');
+    expect(legacyTool.input_schema.required).toEqual(['command', 'tool_title']);
+    expect(legacyTool.input_schema.properties.command).toEqual({ type: 'string', description: '命令' });
+  });
 });
 
 function sseResponse(frames: string): Response {

@@ -7,6 +7,7 @@ const TITLES: Record<string, string> = {
   'file-read': '请求读取文件',
   'web-fetch': '请求访问网络',
   'web-search': '请求网络搜索',
+  'mcp': '请求调用 MCP 工具',
   'bridge-notify': '请求发送通知',
   'bridge-clipboard-read': '请求读取剪贴板',
   'bridge-clipboard-write': '请求写入剪贴板',

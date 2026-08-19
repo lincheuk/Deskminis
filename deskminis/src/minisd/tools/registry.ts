@@ -6,6 +6,10 @@ export class ToolRegistry {
 
   register(t: ToolExecutor): void { this.tools.set(t.definition.name, t); }
 
+  /** D5 MCP 动态工具生命周期：server 崩溃/空闲驱逐/list_changed 重列时摘除其工具。
+   *  工具表每 run 现取（loop definitions()），unregister 后下一轮请求模型即看不到。 */
+  unregister(name: string): void { this.tools.delete(name); }
+
   definitions(): AgentToolDefinition[] { return [...this.tools.values()].map(t => t.definition); }
 
   /** preflight 用发布给模型的同一 schema（无漂移）；一切失败都以错误 outcome 返回喂给模型。 */

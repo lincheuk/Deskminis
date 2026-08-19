@@ -18,7 +18,16 @@ export class ChatStore {
   /** M3b：脏数据钩子（Task 6 SyncCoordinator 注入），appendMessage/appendCompactMarker 等触发 */
   onDirty?: (sessionId: string) => void;
 
-  constructor(private db: Database.Database, private defaultOriginDeviceId: string = 'local') {}
+  constructor(private db: Database.Database, private defaultOriginDeviceId: string = 'local') {
+    // D5 追加式迁移：sessions 补 mcp_disabled_json 列（会话禁用的 MCP server 名单）。
+    // 照仓库既有迁移模式（db.ts MIGRATIONS[5] 的 ALTER TABLE ADD COLUMN），但迁移 runner
+    // 在 db.ts（本波白名单不含它），故在首个用户（ChatStore 构造）处幂等自查自补：
+    // 列已存在时 PRAGMA 查得即跳过，重复构造不炸、旧库新库同一代码路径。
+    const cols = db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>;
+    if (!cols.some(c => c.name === 'mcp_disabled_json')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN mcp_disabled_json TEXT');
+    }
+  }
 
   nowEpoch(): number { return Date.now() / 1000; }
   newId(): string { return randomUUID().toUpperCase(); }
@@ -46,10 +55,10 @@ export class ChatStore {
   }
 
   getSession(id: string): SessionMeta | undefined {
-    const r = this.db.prepare('SELECT id, title, model_binding, memory_enabled, workspace_root, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
-      { id: string; title: string; model_binding: string | null; memory_enabled: number; workspace_root: string | null; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
+    const r = this.db.prepare('SELECT id, title, model_binding, memory_enabled, workspace_root, mcp_disabled_json, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
+      { id: string; title: string; model_binding: string | null; memory_enabled: number; workspace_root: string | null; mcp_disabled_json: string | null; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
     if (!r) return undefined;
-    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, memoryEnabled: r.memory_enabled === 1, workspaceRoot: r.workspace_root ?? undefined, createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
+    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, memoryEnabled: r.memory_enabled === 1, workspaceRoot: r.workspace_root ?? undefined, mcpDisabled: ChatStore.parseMcpDisabled(r.mcp_disabled_json), createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
   }
 
   listSessions(): SessionMeta[] {
@@ -72,6 +81,30 @@ export class ChatStore {
   /** 写入 sessions.memory_enabled（设计 §3.4 会话级记忆开关）。 */
   setMemoryEnabled(sessionId: string, enabled: boolean): void {
     this.db.prepare('UPDATE sessions SET memory_enabled=?, updated_at=? WHERE id=?').run(enabled ? 1 : 0, this.nowEpoch(), sessionId);
+    this.onDirty?.(sessionId);
+  }
+
+  /** mcp_disabled_json 原始值的统一解析：空/损坏/形态不对一律回 []——
+   *  这一列只是工具过滤开关，坏数据不该让会话不可用（getSession 与 getMcpDisabled 共用）。 */
+  private static parseMcpDisabled(raw: string | null): string[] {
+    if (raw === null) return [];
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { return []; }
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === 'string');
+  }
+
+  /** 读会话禁用的 MCP server 名单（D5 §5.2 调用层硬执行的数据源）。 */
+  getMcpDisabled(sessionId: string): string[] {
+    const r = this.db.prepare('SELECT mcp_disabled_json FROM sessions WHERE id=?').get(sessionId) as { mcp_disabled_json: string | null } | undefined;
+    return ChatStore.parseMcpDisabled(r?.mcp_disabled_json ?? null);
+  }
+
+  /** 写会话禁用的 MCP server 名单；空数组/去重后写 JSON（空写 '[]' 而非 NULL，读侧同形）。 */
+  setMcpDisabled(sessionId: string, servers: string[]): void {
+    const list = [...new Set(servers.filter(s => typeof s === 'string'))];
+    this.db.prepare('UPDATE sessions SET mcp_disabled_json=?, updated_at=? WHERE id=?')
+      .run(JSON.stringify(list), this.nowEpoch(), sessionId);
     this.onDirty?.(sessionId);
   }
 

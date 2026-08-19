@@ -5,6 +5,32 @@ import { parseSse } from './sse';
 
 const BUDGETS: Record<Exclude<ThinkingLevel, 'off'>, number> = { low: 4096, medium: 16384, high: 24576 };
 
+/** Gemini Schema 子集允许的关键字：MCP server 的 inputSchema 是自由 JSON-Schema
+ *  （常带 $schema/additionalProperties 等），Gemini 对未知关键字直接 400——
+ *  递归剥掉允许表以外的键再透传，结构与嵌套 properties 原样保留。 */
+const GEMINI_SCHEMA_KEYS = new Set([
+  'type', 'format', 'title', 'description', 'nullable', 'enum',
+  'items', 'properties', 'required', 'pattern', 'minItems', 'maxItems',
+  'minLength', 'maxLength', 'example', 'anyOf', 'minimum', 'maximum', 'default',
+]);
+
+function stripGeminiSchema(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stripGeminiSchema);
+  if (v === null || typeof v !== 'object') return v;
+  const out: Record<string, unknown> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    // properties 的键是任意属性名（q/opts…），不在关键字表内——全部保留、只递归其值
+    if (k === 'properties' && val !== null && typeof val === 'object' && !Array.isArray(val)) {
+      const props: Record<string, unknown> = {};
+      for (const [pk, pv] of Object.entries(val as Record<string, unknown>)) props[pk] = stripGeminiSchema(pv);
+      out[k] = props;
+    } else if (GEMINI_SCHEMA_KEYS.has(k)) {
+      out[k] = stripGeminiSchema(val);
+    }
+  }
+  return out;
+}
+
 interface GeminiPart {
   text?: string;
   thought?: boolean;
@@ -87,7 +113,10 @@ export function buildGeminiBody(req: StreamRequest, modelId: string): Record<str
     body.tools = [{
       functionDeclarations: req.tools.map(t => ({
         name: t.name, description: t.description,
-        parameters: {
+        // D5 MCP 工具带 rawInputSchema 时剥掉 Gemini 不认识的 JSON-Schema 关键字后直用
+        //（嵌套结构保留、内部 type 不做大写归一——Gemini 的 Schema 本就接受小写）；
+        // 无该字段的内置工具走既有平铺路径——零影响。
+        parameters: t.rawInputSchema !== undefined ? stripGeminiSchema(t.rawInputSchema) : {
           type: 'object',
           properties: Object.fromEntries(Object.entries(t.parameters).map(([k, p]) => [k, { type: p.type.toUpperCase(), description: p.description, ...(p.enumValues ? { enum: p.enumValues } : {}) }])),
           required: t.required,

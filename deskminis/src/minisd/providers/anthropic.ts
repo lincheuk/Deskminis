@@ -21,7 +21,9 @@ export function buildAnthropicBody(req: StreamRequest, modelId: string): Record<
   }
   const tools = req.tools.map(t => ({
     name: t.name, description: t.description,
-    input_schema: {
+    // D5 MCP 工具带 rawInputSchema 时直用（嵌套结构原样透传给 Anthropic，不平铺不重排）；
+    // 无该字段的内置工具走既有平铺路径——零影响。
+    input_schema: t.rawInputSchema !== undefined ? t.rawInputSchema : {
       type: 'object',
       properties: Object.fromEntries(Object.entries(t.parameters).map(([k, p]) => [k, { type: p.type, description: p.description, ...(p.enumValues ? { enum: p.enumValues } : {}) }])),
       required: t.required,

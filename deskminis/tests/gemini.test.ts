@@ -97,6 +97,16 @@ describe('buildGeminiBody', () => {
     expect(body.contents[0].parts[0]).toEqual({ text: '看图' });
     expect(body.contents[0].parts[1]).toEqual({ inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } });
   });
+  it('rawInputSchema 存在时剥掉不支持关键字后原样使用（嵌套保留），不存在时旧平铺路径不变', () => {
+    const raw = { type: 'object', properties: { q: { type: 'string', description: '查询' }, opts: { type: 'object', properties: { deep: { type: 'boolean' } } } }, required: ['q'], additionalProperties: false, $schema: 'http://json-schema.org/draft-07/schema#' };
+    const body = buildGeminiBody({ ...BASE, tools: [...TOOLS, { name: 'mcp__a__search', description: '搜索', parameters: { tool_title: { type: 'string', description: '摘要' } }, required: ['tool_title'], rawInputSchema: raw }] }, 'm') as any;
+    const mcpTool = body.tools[0].functionDeclarations.find((t: any) => t.name === 'mcp__a__search');
+    // 嵌套 properties 原样保留；Gemini 不认识的 JSON-Schema 关键字（$schema/additionalProperties）被剥掉
+    expect(mcpTool.parameters).toEqual({ type: 'object', properties: { q: { type: 'string', description: '查询' }, opts: { type: 'object', properties: { deep: { type: 'boolean' } } } }, required: ['q'] });
+    const legacyTool = body.tools[0].functionDeclarations.find((t: any) => t.name === 'shell_execute');
+    expect(legacyTool.parameters.properties.command.type).toBe('STRING');
+    expect(legacyTool.parameters.required).toEqual(['command', 'tool_title']);
+  });
 });
 
 function sseResponse(frames: string): Response {

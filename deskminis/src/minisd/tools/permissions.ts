@@ -214,8 +214,8 @@ export function classifyShellCommand(command: string): CommandClass {
   return 'gated';
 }
 
-/** 权限判定类目：shell 命令分级 + 文件读写两类 + web 抓取/搜索两类 + windows-* 桥七类（其余 kind 即类目，绝不经 shell 分类器）。 */
-export type PermissionClass = CommandClass | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | BridgePermissionKind;
+/** 权限判定类目：shell 命令分级 + 文件读写两类 + web 抓取/搜索两类 + MCP 一类 + windows-* 桥七类（其余 kind 即类目，绝不经 shell 分类器）。 */
+export type PermissionClass = CommandClass | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | 'mcp' | BridgePermissionKind;
 
 const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
   danger: 'notAllowed',
@@ -226,6 +226,10 @@ const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
   'web-fetch': 'askOnce',
   // web 搜索同理：查询串本身就是数据外传通道（论证同 web-fetch），默认过卡
   'web-search': 'askOnce',
+  // MCP 工具语义未知——同一台 server 上的工具可读可写可外呼，无法按调用内容分级；
+  // 用户添加 server 时已过「装什么」一关，运行期只需把关「本会话可不可以用这台」，
+  // 故类目粒度 = server 名（detail），默认每次询问（askOnce）。
+  'mcp': 'askOnce',
   // 桥（设计 §4.5 + M2e 计划"架构决策 3"）：device 只读系统信息放行；剪贴板读/截图隐私敏感确认；
   // 剪贴板写覆盖用户既有内容确认；notify/open/speak 可被打扰性滥用确认。
   'bridge-device': 'bypass',
@@ -269,6 +273,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
         readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
         'web-fetch': 'bypass',
         'web-search': 'bypass',
+        'mcp': 'bypass',
         'bridge-device': 'bypass', 'bridge-notify': 'bypass',
         'bridge-clipboard-read': 'bypass', 'bridge-clipboard-write': 'bypass',
         'bridge-open': 'bypass', 'bridge-speak': 'bypass', 'bridge-screenshot': 'bypass',

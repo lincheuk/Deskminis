@@ -56,6 +56,15 @@ describe('buildOpenAIBody', () => {
     expect((buildOpenAIBody(REQ, 'm') as any).messages[2].tool_calls[0].function.arguments)
       .toBe('{"path":"a.txt","tool_title":"读文件"}');
   });
+  it('rawInputSchema 存在时 parameters 直用（嵌套结构原样），不存在时旧平铺路径不变', () => {
+    const raw = { type: 'object', properties: { q: { type: 'string', description: '查询' }, opts: { type: 'object', properties: { deep: { type: 'boolean' } } } }, required: ['q'] };
+    const b = buildOpenAIBody({ ...REQ, tools: [...REQ.tools, { name: 'mcp__a__search', description: '搜索', parameters: { tool_title: { type: 'string', description: '摘要' } }, required: ['tool_title'], rawInputSchema: raw }] }, 'gpt-x') as any;
+    const mcpTool = b.tools.find((t: any) => t.function.name === 'mcp__a__search');
+    expect(mcpTool.function.parameters).toEqual(raw); // 嵌套 properties 原样透传
+    const legacyTool = b.tools.find((t: any) => t.function.name === 'file_read');
+    expect(legacyTool.function.parameters.required).toEqual(['path', 'tool_title']);
+    expect(legacyTool.function.parameters.properties.path).toEqual({ type: 'string', description: 'p' });
+  });
 });
 
 function sseResponse(chunks: object[]): Response {

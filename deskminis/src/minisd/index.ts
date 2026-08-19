@@ -11,6 +11,7 @@ import { ChatStore } from './store/chat-store';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
 import { SearchProviderStore } from './store/search-provider-store';
 import { McpServersStore } from './mcp/config';
+import { McpManager } from './mcp/manager';
 import { ToolRegistry } from './tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
@@ -325,6 +326,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   tools.register(makeWebFetchTool());
   // web_search 照常注册（未配置时调用返回引导文案），密钥经 resolve() 闭包内部消费、不外流
   tools.register(makeWebSearchTool(() => searchProviderStore.resolve()));
+  // D5 MCP 管理器：run 开始连接 enabled server，其工具以 mcp__<server>__<tool> 动态进出本 registry
+  const mcpManager = new McpManager({ store: mcpServers, chatStore: chat, registry: tools });
 
   // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）
   const memoryStore = new MemoryStore(paths.globalDir('memory'));
@@ -433,8 +436,16 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       chat.setMemoryEnabled(sessionId, p.enabled);
       return { ok: true };
     },
+    // D5 会话禁用 MCP server（命名形态对齐记忆开关）：写库即生效——工具表剔除在下一次 run 开头，
+    // 调用层硬执行则立即生效（正在跑的 run 里也会被拒）。
+    'chat.sessions.setMcpDisabled': (p: { sessionId: string; servers: string[] }) => {
+      const sessionId = assertSessionId(p.sessionId);
+      const servers = Array.isArray(p.servers) ? p.servers.filter((s): s is string => typeof s === 'string') : [];
+      chat.setMcpDisabled(sessionId, servers);
+      return { ok: true };
+    },
     'chat.messages.list': (p: { sessionId: string }) => chat.listMessages(assertSessionId(p.sessionId)),
-    'chat.prompt': (p: { sessionId: string; text: string; providerId?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high'; modelGroupId?: string; attachments?: string[] }) => {
+    'chat.prompt': async (p: { sessionId: string; text: string; providerId?: string; thinkingLevel?: 'off' | 'low' | 'medium' | 'high'; modelGroupId?: string; attachments?: string[] }) => {
       const sessionId = assertSessionId(p.sessionId);
       // 附件校验（先于空文本判定：文本+附件任一非空即放行，两者皆空才拒）
       const attachments = Array.isArray(p.attachments) ? p.attachments : [];
@@ -507,12 +518,20 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         const base = stable + skillsBlock;
         return memoryBlock ? memoryBlock.replace('__BASE__', base) : base;
       };
-      const excludedToolNames = memoryEnabled ? undefined : new Set<string>(MEMORY_TOOL_NAMES);
+      let excludedToolNames = memoryEnabled ? undefined : new Set<string>(MEMORY_TOOL_NAMES);
 
-      // 从这里到 IIFE 启动之间没有 await：占位与释放不会被别的请求插进来
+      // 从这里到 IIFE 启动之间除 ensureForRun 外没有 await：占位原子性靠守卫到 add 之间
+      // 全同步保证（并发第二发在守卫处被拒，不会双跑）；ensureForRun 不抛（单台失败内部消化）。
       inFlight.add(sessionId);
       const controller = new AbortController();
       controllers.set(sessionId, controller);
+      // D5 MCP 接线：run 开始连接 enabled server（已连接/未 stale 的台秒回），工具动态进注册表。
+      // 会话禁用的 MCP 台：工具表剔除第一层（第二层是调用层硬执行——工具若因竞态仍在表内也会被拒）。
+      await mcpManager.ensureForRun();
+      const mcpExcluded = mcpManager.excludedToolNames(sessionId);
+      if (mcpExcluded.size > 0) {
+        excludedToolNames = excludedToolNames ? new Set([...excludedToolNames, ...mcpExcluded]) : mcpExcluded;
+      }
       // 落库 user 消息：文本非空才落 text part（空文本+附件时不产空 text block），
       // 每个附件一枚 mediaRef part（文件本体留在附件桶，请求侧由 loop 合成 base64，永不落库）
       const userParts: ContentPart[] = [];
@@ -648,7 +667,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     },
     // ── D2 MCP 配置面（servers.json CRUD）：$$VAR 原样存取不解析——渲染端展示引用名本身是安全的，
     //    实际解析在 D3/D4 连接时发生；mcp.servers.test 需真连接，属 D6，本步不做。 ──
-    'mcp.servers.list': () => ({ servers: mcpServers.list() }),
+    'mcp.servers.list': () => ({ servers: mcpServers.list(), statuses: mcpManager.statuses() }),
     'mcp.servers.upsert': (p: Record<string, unknown>) => {
       mcpServers.upsert(p);
       return { ok: true };
@@ -897,7 +916,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       for (const c of controllers.values()) c.abort();
       for (const { timer } of pendingPerms.values()) clearTimeout(timer);
       pendingPerms.clear();
-      terminals.disposeAll(); shells.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
+      terminals.disposeAll(); shells.disposeAll(); mcpManager.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
     },
   };
 }
