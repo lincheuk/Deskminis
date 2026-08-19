@@ -169,6 +169,20 @@
   平铺形（anthropic.ts:26 只认 type/description/enum）——MCP 嵌套 schema 须加可选
   rawInputSchema 由三家 provider 映射透传（列入 D5 白名单）；无现成进程树杀法，D5 补
   taskkill helper；对话流事件提示裁到 D6（状态先经 mcp.servers.list 可查，免动 renderer）。
+  **D5 已完成并过审**（main `dd6df66`，20 文件 +1162/−83 全中白名单）：`mcp/manager.ts`——
+  两阶段注册（并行连接、按 store 序注册，全局 120 上限截断确定性不受网络快慢影响）、
+  命名规范化 + sha256 12 位尾缀、每台 40/全局 120、执行器顺序 signal→会话禁用现查→权限
+  askOnce(kind=mcp, detail=server)→闸后重查→调用、崩溃标记 error + 摘工具单次驱逐重建、
+  10 分钟空闲驱逐（unref 定时器）、驱逐竞态兜底；`rawInputSchema` 三家透传（gemini 递归
+  剥关键字）；win32 裸名改 `cmd.exe /d /s /c` 包裹（shell:false 让 cmd 解释不经宿主 shell
+  二次展开）；-32601 应答；taskkill /T 树杀；`mcp_disabled_json` 会话禁用列 +
+  `chat.sessions.setMcpDisabled` RPC；**`inFlight.add` 在 `await ensureForRun()` 之前，
+  占位原子性不变量保持**（审核实锚验证）。1470 → **1495**（+25），52 失败与基线逐条一致，
+  无 matcher 断言扫描零命中。已核偏离：mcp-config.test 两处 toEqual 补 statuses 字段（比报告
+  更严格）；chat-store 迁移落在构造器幂等自查（db.ts 不在白名单的务实解，备忘：后续可折进
+  MIGRATIONS 但须带同款 PRAGMA 守卫）。备忘三条：factories 同步抛会漏 inFlight 占位（生产
+  工厂纯构造不会抛，理论项）；cmd 包裹后 win32 裸名笔误显示为启动超时而非「命令不存在」
+  （stderr 尾部有 cmd 原话，D6 可展示）；server→client 请求已回 -32601。
   ② ✅ **D1 web_search 已完成并过审**（main `399759a`，Trae 执行 + Claude 逐行审 diff +
   独立复跑）：搜索 provider 化三 kind（brave/tavily/searxng，searxng 供自托管免 key 场景）、
   `SearchProviderStore` 密钥只进 vault 单槽位（get 只回 hasKey、resolve 是唯一流出通道、
