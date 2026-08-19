@@ -12,9 +12,10 @@ Windows 桌面端的通用 Agent 应用。让模型在你自己的机器上读�
 
 | 能力 | 状态 |
 |---|---|
-| Agent 循环 + 工具调用 | ✅ `shell_execute` / `file_read` / `file_write` / `file_edit` / `memory_get` / `memory_write`；输出截断自动续写、点停止即时中断正在跑的工具 |
-| 模型接入 | ✅ OpenAI 兼容端点 / Anthropic 原生 / Gemini 原生 / Ollama 本地；思考过程可见（Anthropic/Gemini 原生思考与 DeepSeek 类 `reasoning_content` 都渲染） |
-| 权限网关 | ✅ 三档（每次确认 / 本会话沿用 / 完全访问）真实作用于后端并跨重启持久；常见只读命令免询问；工作区内（含绑定的项目目录）文件直接放行；写文件审批带 diff 预览 |
+| Agent 循环 + 工具调用 | ✅ `shell_execute` / `file_read` / `file_write` / `file_edit` / `file_list` / `file_glob` / `file_grep` / `web_fetch` / `memory_get` / `memory_write`；输出截断自动续写、点停止即时中断正在跑的工具；老程序吐的 GBK 乱码自动兜底解码 |
+| 模型接入 | ✅ OpenAI 兼容端点 / Anthropic 原生 / Gemini 原生 / Ollama 本地；模型 ID 可从端点直接拉取成下拉，不必手输；思考过程可见（Anthropic/Gemini 原生思考与 DeepSeek 类 `reasoning_content` 都渲染） |
+| 图片输入 | ✅ 粘贴 / 拖拽 / ＋ 选择图片直接进模型，Anthropic、OpenAI 兼容、Gemini 三条链路各自映射（图片字节只在请求时合成，不写进会话库） |
+| 权限网关 | ✅ 三档（每次确认 / 本会话沿用 / 完全访问）真实作用于后端并跨重启持久；常见只读命令免询问，含 `git log \| select-object -first 20` 这类受限只读管道；工作区内（含绑定的项目目录）文件直接放行；写文件审批带 diff 预览；访问网络单列一档，默认每次确认 |
 | 会话 | ✅ 首回合后自动命名，菜单可重命名 / 删除 / 绑定模型 |
 | 持久记忆 + 上下文压缩 | ✅ Markdown 记忆库、自动压缩与卸载；单指令长任务也能压缩，陈旧的大工具结果自动修剪 |
 | 技能系统 | ✅ `SKILL.md` 生态兼容，设置里可启停/删除/导入 |
@@ -44,7 +45,7 @@ Windows 桌面端的通用 Agent 应用。让模型在你自己的机器上读�
 ```bash
 cd deskminis && npm install
 npm run dev          # 开发模式（自动起 minisd 与渲染进程）
-npm test             # 1200+ 例
+npm test             # 1364 例
 npm run typecheck
 npm run dist         # 出安装包到 deskminis/dist/
 ```
