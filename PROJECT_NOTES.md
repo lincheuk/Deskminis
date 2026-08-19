@@ -239,3 +239,20 @@
   它们是 `<div @click>` 无 `tabindex`，Tab 到不了。成因是 MU3 §2-5（补键盘可达性）与 §1.2（禁动 DOM）的内在矛盾，
   样式层已尽力。补齐需 DOM 层改造（tabindex + Enter/Space + role），属独立无障碍里程碑。
   详见 [ui-design-v3.md §5-1](docs/specs/2026-08-09-ui-design-v3.md)。
+
+### E1 审核记录（2026-08-19，云端）
+- **E1 过审**（3d0c280，Aurora 调色板落地）：1509→1535（+26 对比度守卫）。云端复跑 typecheck 零错误、
+  失败集与 52 例 Linux 基线逐条一致（LC_ALL=C 排序后 diff 为空）。
+- 审核要点：①两份 docs 定稿与设计分支逐字一致（照抄纪律成立）；②对比度守卫 OKLCH→sRGB 转换矩阵
+  系数逐位核对无误，26+1 断言齐全、全带 matcher（机械扫描零命中）、grab 抓空抛错；③tokens.css B/C 区
+  改动恰为规格内 4 处换挡 + glass 切片 3 处，无私货；④evolution 6 组抽样锚与参考文件逐字一致；
+  ⑤例 2 解析逻辑零改（含 RAW_FONT_MONO_OVERRIDE 豁免机制）。
+- 偏离裁定：两条申报偏离（例 3 内 r-card/r-input 重复锚同步、守卫 doc 注释路径同步）均属必然跟随，接受。
+  另点名一处未申报微改：B 区注释「（Appica 弱级仅 2 档）」等措辞去 Appica 化——性质同偏离 2，接受，
+  下不为例（注释措辞改动也应入偏离清单）。
+- 真渲染目视：xvfb + 强制 data-theme 截四图（主界面/设置页 × 暗/亮）。暗段 body 实测
+  oklch(0.16 0.022 262)、浅段 oklch(0.988 0.003 220)——浅段 --bg 换挡生效（微冷白底 + 纯白浮岛卡）。
+  青强调肉眼可见（发送钮/活跃项），三级文字可读性提升明显，无崩坏。
+- 备忘：E2 需自查 TitleBar 下拉菜单不被玻璃壳层压住（App.vue 加 backdrop-filter 创建层叠上下文，
+  菜单弹层若渲染于其内部会被封 z-index）；xterm 三值换算对照表已备（暗.fg #d0d6df / 暗.bg #080d17 /
+  暗.bgStrong #1e2532 / 暗.fgMuted #a2adbd）。
