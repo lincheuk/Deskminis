@@ -141,6 +141,19 @@
   upsert 细分中文文案、toggle 动 updatedAt、remove 幂等、变体②非对象值跳过——均接受。
   两条审核备忘：`list()` 浅拷贝（嵌套引用共享，D3/D4 进程内消费须只读）；`loadError` 含
   JSON.parse 原文（新 V8 可能带源码片段，D6 展示时须脱敏——文件里有明文 headers）。
+  **D3 已完成并过审**（main `59b5fc2`）：`src/minisd/mcp/stdio.ts`——换行分帧（跨 chunk
+  缓冲/单 chunk 多消息/CRLF 容忍/垃圾行计数跳过）、initialize 握手（2025-06-18，启动超时
+  杀进程不留半死连接）、tools/list nextCursor 翻页（上限 10 页防环）、tools/call 单次超时
+  不迁怒连接、取消透传 notifications/cancelled 不等应答（A 波语义）、崩溃统一拒绝在途与
+  新请求、结算竞态全对（超时先摘条目、迟到响应按未知 id 丢弃、同 id 只结算一次）、
+  stdin EPIPE 吞噬防崩宿主。测试 1431 → **1447**（+16，真子进程 fixture 双平台可跑）。
+  已核偏离：kill 后 exitCode 恒 null（Windows 实证）改断言 exitCode|signalCode 任一非 null。
+  **两个 D5 硬输入**：① CVE-2024-27980 护栏下 `*.cmd + shell:false` 一律同步 EINVAL——
+  设计稿 §3 的「.cmd 兜底」实际拉不起真 npx，D5 须改 `cmd.exe /c` 包裹或解析 .cmd 背后的
+  js 直跑（注意参数转义）；② server→client 带 id 请求（sampling 等）现静默忽略，宜回 -32601
+  否则对端挂等。**云容器基线加注**：`agent-loop offload 档触发修剪`为 CPU 密集边缘测试
+  （150KB 大字符串），容器算力漂移时会贴线超 30s（同日 10→35s，D2 提交点复测同样超时，
+  证明与 D3 无关）；D4 已授权给两个重测试加显式 timeout 的一行级小修，Windows 本机全绿仍为权威。
   ② ✅ **D1 web_search 已完成并过审**（main `399759a`，Trae 执行 + Claude 逐行审 diff +
   独立复跑）：搜索 provider 化三 kind（brave/tavily/searxng，searxng 供自托管免 key 场景）、
   `SearchProviderStore` 密钥只进 vault 单槽位（get 只回 hasKey、resolve 是唯一流出通道、
