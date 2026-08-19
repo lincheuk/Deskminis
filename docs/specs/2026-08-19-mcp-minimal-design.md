@@ -1,6 +1,8 @@
-# DeskMinis MCP 最小面设计（草案 v0，待逐节确认）
+# DeskMinis MCP 最小面设计（定稿）
 
-> 日期：2026-08-19。状态：**草案**——7 个决策点（§9）经用户逐节确认后转定稿，再拆 TDD 步骤（D2+）。
+> 日期：2026-08-19。状态：**定稿**——同日用户确认 §9 决策点 ①–⑦ 全按建议采纳。
+> 定稿时补一处 §2 宽容细化：servers.json **整文件** JSON 损坏时按空配置加载并在 store 暴露
+> `loadError`（手编 JSON 的笔误不该崩 minisd 启动），与「坏条目跳过」同一宽容原则。
 > 输入：设计总稿 §5.2（docs/specs/2026-07-26-deskminis-design.md）+ 调研报告
 > （docs/research/2026-08-19-harness-plugin-market-survey.md，尤其 §2 mcpServers shape 与
 > mcp__ 命名共识、§3 官方注册表、§4 消费端防线）。

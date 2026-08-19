@@ -129,9 +129,10 @@
   importer/§5.2 全现成）。报告 → `docs/research/2026-08-19-harness-plugin-market-survey.md`
   （含 6 个待拍板决策点）。
 - **进行中：D 波（2026-08-19 开工，Trae 执行 + Claude 逐 commit 审查）**：
-  ① MCP 最小面——设计稿草案 → `docs/specs/2026-08-19-mcp-minimal-design.md`
-  （7 个决策点待逐节确认，核心修订：§5.2 的 CLI 调用路线本波改为工具直注册
-  `mcp__<server>__<tool>`；确认后拆 D2–D7 步骤）；
+  ① MCP 最小面——设计稿 → `docs/specs/2026-08-19-mcp-minimal-design.md`
+  （**2026-08-19 用户确认 ①–⑦ 全按建议，已定稿**；核心修订：§5.2 的 CLI 调用路线本波
+  改为工具直注册 `mcp__<server>__<tool>`。步骤 D2 配置与存储 → D3 stdio → D4 http →
+  D5 注册/调用/权限 → D6 设置 UI → D7 e2e，逐步出提示词交 Trae）；
   ② ✅ **D1 web_search 已完成并过审**（main `399759a`，Trae 执行 + Claude 逐行审 diff +
   独立复跑）：搜索 provider 化三 kind（brave/tavily/searxng，searxng 供自托管免 key 场景）、
   `SearchProviderStore` 密钥只进 vault 单槽位（get 只回 hasKey、resolve 是唯一流出通道、
