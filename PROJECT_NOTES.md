@@ -96,13 +96,30 @@
   全链路 README 任务 + 自动命名 + 工作区零弹卡实测）。审查记录与 12 步提示词手册存于
   Claude 会话产物（体检报告 + 修复工作流手册两份 Artifact）。
 
+- ✅ **2026-08 中期波 C1–C8（与 Claude 协作，Trae 执行 + Claude 逐 commit 审查，共 8 commit）**：
+  能力扩展——provider 模型列表拉取（新 RPC `provider.models.fetch` 按四 kind 分派，密钥在
+  ProviderStore 内部消费不出边界；设置页 datalist + gemini/ollama 选项补齐）、只读文件三件套
+  `file_list`/`file_glob`/`file_grep`（手写 `** * ?` 保守通配子集、symlink/junction 一律不进入
+  以保「基准目录一次授权即覆盖遍历」、正则 DoS 与体积/时间预算全设上限）、`web_fetch`
+  （新增 web-fetch 权限类目默认 askOnce——URL 查询串即外泄通道、流式 1MB 上限到限即断、
+  charset 嗅探 + GBK 解码）、多模态图片输入（复用现成 mediaRef 落库、`imageData` 仅请求侧合成
+  绝不落库、run 级 base64 缓存、三家 provider 各自映射、附件路径正则白名单即穿越防线）。
+  加固——桥剪贴板换原生 Win32 + 30×100ms 重试（对抗 UU远程/夸克等剪贴板监听器抢占，
+  本机两例真剪贴板测试恢复稳定通过）、shell 输出 GBK 兜底（驱动 `chcp 65001` 双向切 UTF-8 +
+  宿主 latin1 字节切割哨兵 + 「有替换符才降级」的 `decodeShellOutput`）、只读免批受限管道
+  （引号感知分段、管道右侧仅 12 个纯过滤 cmdlet、段数 ≤3、`|` 移出禁字符表但段内禁字符全保留）。
+  小修——纪律块三族同文点名 tool_title 用中文、403 余额类文案细分（401 优先）、卸载桩带
+  码点安全摘录（Array.from 截 200 码点防切断 emoji）。测试 1223 → **1356 例**全绿，typecheck 零错误。
+  8 步提示词手册存于 Claude 会话产物（《DeskMinis 中期波工作流》Artifact）。
+
 ## 进行中 / 下一步
 
-- **中期波候选（体检报告§9 + 真模型冒烟观察项）**：C1 provider 模型列表拉取（GET /models
-  填下拉，方案已定）、file_grep/glob/list 原生工具、web_fetch/web_search、后台作业、
-  卸载桩带摘要、GBK 编码兜底、多模态图片输入、MCP 最小面（客户端 only/工具 only/
-  stdio+streamable-http）；观察项：只读免批的安全管道组合、tool_title 强制中文、
-  403 余额类文案细分。
+- **下一波候选**：后台作业、MCP 最小面（客户端 only/工具 only/stdio+streamable-http）、
+  web_search（零依赖红线下无体面免 key 方案，待裁决 provider 化配 key vs 暂缓）、
+  历史消息图片缩略图（C6 只做了 chip 元数据，读图 IPC 未做）。
+- **安全加固候选（C8 审查发现的既有缺口，非本波引入）**：`rg` 在只读白名单里无二段规则，
+  而 ripgrep 的 `--pre <程序>` / `--pre-glob` 会执行外部程序 ⇒ `rg --pre <cmd> pattern`
+  当前可免批执行。修法：给 rg 加二段规则或显式拒绝 `--pre*` 旗标（与 `--output` 后门规则同式）。
 - 遗留既有路线：浏览器/屏幕里程碑（建议单工具 CLI 语法）、模型组 UI 入口（MU7）。
 
 ### Backlog（MU6 执行期再次兑现代价）
