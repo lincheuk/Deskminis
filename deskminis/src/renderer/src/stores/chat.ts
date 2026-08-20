@@ -11,13 +11,15 @@ interface PendingPerm { requestId: string; detail: string; kind: string; toolTit
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
+/** J2 助手（字段对齐后端 AssistantMeta，assistants.list 原样返回）。 */
+interface UiAssistant { id: string; name: string; avatar: string; rules: string; modelBinding?: string; skillIds: string[]; prompts: string[]; sortOrder: number }
 
 export const useChat = defineStore('chat', {
   state: () => ({
     // 字段与后端 SessionMeta 对齐：chat.sessions.list 本就返回 memoryEnabled / modelBinding，
     // 此前本地只声明了四项，导致「有数据但界面读不到」——MU6 会话操作正需要这两项显示当前状态。
     sessions: [] as { id: string; title: string; updatedAt?: number; pinnedAt?: number;
-                      memoryEnabled?: boolean; modelBinding?: string }[],
+                      memoryEnabled?: boolean; modelBinding?: string; assistantId?: string }[],
     activeId: '' as string,
     messages: [] as UiMessage[],
     streamingText: '' as string,
@@ -32,6 +34,8 @@ export const useChat = defineStore('chat', {
     // MU2b Task 3：产物卡点击写入待预览相对路径，FilesPanel watch 后走既有 preview 流程并清空
     pendingFilePreview: null as string | null,
     providers: [] as UiProvider[],
+    /** J2 助手目录（欢迎页卡区 + 设置管理页共用；变更经 assistants.changed 广播回流刷新）。 */
+    assistants: [] as UiAssistant[],
     /** 网络搜索 provider 状态（设置页用）：后端 get 只回 {kind, hasKey, baseUrl?}，密钥永不回显。 */
     searchProvider: null as null | { kind: string; hasKey: boolean; baseUrl?: string },
     skills: [] as UiSkill[],
@@ -142,8 +146,11 @@ export const useChat = defineStore('chat', {
           this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail: '权限请求已超时，自动拒绝', retryable: false }];
         }
       });
+      // J2：助手目录变更广播（本窗口的写操作也走这条回流——单一代码路径，多窗口一致）
+      rpc.on('assistants.changed', () => { void this.refreshAssistants(); });
       await this.refreshSessions();
       await this.refreshProviders();
+      await this.refreshAssistants();
       await this.refreshAllSkills();
       // 暂停是持久化设置（settings 表），重启后仍生效——启动就得读回来，否则界面会谎报「同步中」
       await this.refreshSyncPaused();
@@ -176,6 +183,29 @@ export const useChat = defineStore('chat', {
       this.skills = this.activeId
         ? await rpc.call('skills.list', { sessionId: this.activeId })
         : (await rpc.call('skills.list', {})).filter((s: UiSkill) => s.isEnabled);
+    },
+    // ---- J2 助手体系（设计稿 §5）----
+    async refreshAssistants() { this.assistants = await rpc.call('assistants.list'); },
+    /** 点助手卡 → 新建绑定会话并切入（预设三件由后端 create 一并应用）。 */
+    async newSessionWithAssistant(assistantId: string) {
+      const s = await rpc.call('chat.sessions.create', { assistantId });
+      await this.refreshSessions();
+      await this.open(s.id);
+    },
+    async createAssistant(input: { name: string; avatar?: string; rules?: string; modelBinding?: string; skillIds?: string[]; prompts?: string[] }) {
+      const a = await rpc.call('assistants.create', input);
+      await this.refreshAssistants();
+      return a;
+    },
+    async updateAssistant(id: string, patch: { name?: string; avatar?: string; rules?: string; modelBinding?: string; skillIds?: string[]; prompts?: string[] }) {
+      const a = await rpc.call('assistants.update', { id, ...patch });
+      await this.refreshAssistants();
+      return a;
+    },
+    /** 后端强制 confirm:true——漏了会抛错，界面表现为「点了删除没反应」（deleteSession 同款）。 */
+    async deleteAssistant(id: string) {
+      await rpc.call('assistants.delete', { id, confirm: true });
+      await this.refreshAssistants();
     },
     // ---- MU6 会话操作（消费既有 RPC，不新增方法）----
     /** 删除会话。后端强制 confirm:true——漏了它会抛错，界面表现为「点了删除没反应」。 */

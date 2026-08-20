@@ -21,7 +21,20 @@ const openSettings = inject<() => void>('openSettings', () => {});
 const openDevices = inject<() => void>('openDevices', () => {});
 
 interface S { id: string; title: string; updatedAt?: number; pinnedAt?: number;
-              memoryEnabled?: boolean; modelBinding?: string }
+              memoryEnabled?: boolean; modelBinding?: string; assistantId?: string }
+
+/** J2：会话行助手 emoji 前缀（绑定悬空/无绑定回空串，行渲染自动省略）。 */
+function avatarOf(s: S): string {
+  return s.assistantId ? (chat.assistants.find(a => a.id === s.assistantId)?.avatar ?? '') : '';
+}
+
+/** J2 随动修缺的显示侧：旧库存量绑定是裸 provider id（无前缀），select 选项已换前缀值——
+ *  显示时归一化补前缀，否则旧绑定行会错显成「跟随全局默认」（后端兼容分支同一语义）。 */
+function bindingValue(s: S): string {
+  const b = s.modelBinding ?? '';
+  if (b === '' || b.startsWith('provider:') || b.startsWith('group:')) return b;
+  return 'provider:' + b;
+}
 
 /** MU6 会话操作：哪一行的操作区展开了；哪一行处在删除二次确认态。
  *  刻意做成**行内展开**而不是浮层菜单：.list 有 overflow:auto，浮层会被裁掉——
@@ -151,6 +164,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
           @click="chat.open(s.id)"
         >
           <span class="sdot" :class="badgeOf(s) ? BADGE_VIEW[badgeOf(s)!].cls : 'idle'"></span>
+          <span v-if="avatarOf(s)" class="semoji">{{ avatarOf(s) }}</span>
           <span class="stitle">{{ s.title || '新会话' }}</span>
           <span v-if="s.id === chat.activeId && activeArtifactCount > 0" class="scount">◈ {{ activeArtifactCount }}</span>
           <span class="stime">{{ relTime(s) }}</span>
@@ -167,11 +181,13 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
           <label class="smenu-item smenu-sel">
             模型
             <select
-              class="smenu-select" :value="s.modelBinding ?? ''"
+              class="smenu-select" :value="bindingValue(s)"
               @click.stop @change="chat.setSessionModelBinding(s.id, ($event.target as HTMLSelectElement).value || undefined)"
             >
               <option value="">跟随全局默认</option>
-              <option v-for="p in chat.providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+              <!-- J2 随动修缺：写 'provider:' 前缀值——chat.prompt 解析只认前缀，
+                   此前存裸 id 会静默落回默认模型（绑定形同虚设）。旧库存量裸 id 由后端兼容分支接住。 -->
+              <option v-for="p in chat.providers" :key="p.id" :value="'provider:' + p.id">{{ p.name }}</option>
             </select>
           </label>
           <template v-if="renameFor !== s.id">
@@ -263,6 +279,8 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .sdot.fail { background: var(--state-err); }
 .sdot.done { background: var(--label-tertiary); }
 .sdot.idle { background: var(--label-quaternary); }
+/* J2：助手 emoji 前缀——只占内容宽，无绑定时元素不渲染（v-if），行高不变 */
+.semoji { flex: 0 0 auto; font-size: 13px; line-height: 1; }
 .stitle {
   flex: 1; min-width: 0;
   font-size: var(--fs-ui); font-weight: 500; color: var(--label-strong);

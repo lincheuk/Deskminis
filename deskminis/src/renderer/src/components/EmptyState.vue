@@ -1,7 +1,10 @@
 <script setup lang="ts">
-/** 中栏空状态 · 任务起点页（MU2b Task 6，设计 §1.3）——3 示例指令卡（读代码/写脚本/跑命令，
- *  点击 emit('fill') 填入输入框）+ 最近任务 3 条（chat.sessions 前 3，点击 chat.open 直达，
- *  相对时间复用 lib/time/relative）。 */
+/** 中栏空状态 · 任务起点页（MU2b Task 6 → J2 助手两态，设计稿 2026-08-20-assistants §5）。
+ *  未绑态：hero + 助手卡区（点卡 → 新建绑定会话）+ 3 示例指令卡 + 最近任务 3 条。
+ *  绑定态（活动会话带 assistantId 且助手仍在）：hero 换助手身份，示例卡换助手预设
+ *  prompts（同走 emit('fill') 通路，不自动发送）；「换助手」展开卡区新建另一会话——
+ *  当前会话的绑定不可换，会话身份稳定（设计稿 §5）。助手已删（绑定悬空）自动回未绑态。 */
+import { computed, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import { fmtRelative } from '../lib/time/relative';
 import Icon from './Icon.vue';
@@ -16,23 +19,77 @@ const EXAMPLES: Example[] = [
   { icon: 'terminal', title: '跑命令', text: '看一下当前工作区的目录结构，告诉我这个项目怎么跑起来' },
 ];
 
-interface S { id: string; title: string; updatedAt?: number }
+interface S { id: string; title: string; updatedAt?: number; assistantId?: string }
 function recentThree(): S[] { return chat.sessions.slice(0, 3); }
 function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.now() / 1000) : ''; }
+
+/** 活动会话绑定的助手；绑定悬空（助手已删）回 undefined → 界面自动落回未绑态。 */
+const boundAssistant = computed(() => {
+  const s = chat.sessions.find(x => x.id === chat.activeId) as S | undefined;
+  return s?.assistantId ? chat.assistants.find(a => a.id === s.assistantId) : undefined;
+});
+/** 绑定态下「换助手」展开卡区（点卡即新建另一会话，本会话绑定不动）。 */
+const pickerOpen = ref(false);
+async function pickAssistant(id: string): Promise<void> {
+  pickerOpen.value = false;
+  await chat.newSessionWithAssistant(id);
+}
+/** 卡片摘要：规则压成单行截 40 字——卡片是导航不是文档 */
+function rulesBrief(rules: string): string {
+  const t = rules.replace(/\s+/g, ' ').trim();
+  return t.length > 40 ? t.slice(0, 40) + '…' : t;
+}
 </script>
 
 <template>
   <div class="empty">
-    <!-- I3 hero 问候（AionUi Guid 页「Hi, what's your plan for today?」的中文位） -->
-    <h2>你好，今天想做点什么？</h2>
-    <p class="sub">让 DeskMinis 帮你读写文件、执行命令、完成任务</p>
+    <template v-if="boundAssistant">
+      <!-- 绑定态 hero：助手身份接管问候位 -->
+      <h2><span class="aemoji">{{ boundAssistant.avatar }}</span>{{ boundAssistant.name }}</h2>
+      <p class="sub">由助手预设驱动——规则、默认技能与模型已按预设配置</p>
+      <div v-if="boundAssistant.prompts.length" class="cards prompts">
+        <div
+          v-for="(p, i) in boundAssistant.prompts" :key="i" class="excard pcard"
+          tabindex="0" role="button" @keydown.enter.prevent="emit('fill', p)" @keydown.space.prevent="emit('fill', p)"
+          @click="emit('fill', p)"
+        >
+          <Icon name="edit" :size="14" />
+          <div class="extxt"><div class="exsub pfull">{{ p }}</div></div>
+        </div>
+      </div>
+      <button class="switchbtn" type="button" @click="pickerOpen = !pickerOpen">
+        {{ pickerOpen ? '收起' : '换个助手开新会话…' }}
+      </button>
+    </template>
+    <template v-else>
+      <!-- I3 hero 问候（AionUi Guid 页「Hi, what's your plan for today?」的中文位） -->
+      <h2>你好，今天想做点什么？</h2>
+      <p class="sub">让 DeskMinis 帮你读写文件、执行命令、完成任务</p>
+    </template>
 
-    <div class="cards">
-      <div v-for="ex in EXAMPLES" :key="ex.title" class="excard" @click="emit('fill', ex.text)" tabindex="0" role="button" @keydown.enter.prevent="emit('fill', ex.text)" @keydown.space.prevent="emit('fill', ex.text)">
-        <Icon :name="ex.icon" :size="16" />
-        <div class="extxt"><div class="extitle">{{ ex.title }}</div><div class="exsub">{{ ex.text }}</div></div>
+    <!-- 助手卡区：未绑态常驻；绑定态由「换助手」展开 -->
+    <div v-if="chat.assistants.length && (!boundAssistant || pickerOpen)" class="agrid">
+      <div
+        v-for="a in chat.assistants" :key="a.id" class="ascard"
+        :title="a.name" tabindex="0" role="button" @keydown.enter.prevent="pickAssistant(a.id)" @keydown.space.prevent="pickAssistant(a.id)"
+        @click="pickAssistant(a.id)"
+      >
+        <span class="aavatar">{{ a.avatar || '🤖' }}</span>
+        <div class="atxt">
+          <div class="aname">{{ a.name }}</div>
+          <div class="abrief">{{ rulesBrief(a.rules) || '未设置规则' }}</div>
+        </div>
       </div>
     </div>
+
+    <template v-if="!boundAssistant">
+      <div class="cards">
+        <div v-for="ex in EXAMPLES" :key="ex.title" class="excard" @click="emit('fill', ex.text)" tabindex="0" role="button" @keydown.enter.prevent="emit('fill', ex.text)" @keydown.space.prevent="emit('fill', ex.text)">
+          <Icon :name="ex.icon" :size="16" />
+          <div class="extxt"><div class="extitle">{{ ex.title }}</div><div class="exsub">{{ ex.text }}</div></div>
+        </div>
+      </div>
+    </template>
 
     <div v-if="recentThree().length" class="recent">
       <div class="rhead">最近任务</div>
@@ -66,7 +123,34 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
 }
 /* I3：hero 规格对齐 AionUi 欢迎标题（text-2xl/600），从面板题升为页面题 */
 .empty h2 { font-size: 26px; font-weight: 600; color: var(--label-emphasis); }
+.aemoji { margin-right: 10px; }
 .sub { font-size: 15px; color: var(--label-secondary); }
+
+/* J2 助手卡区（AionUi 助手网格语言）：emoji + 名称 + 规则摘要，点卡开绑定会话 */
+.agrid { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; justify-content: center; max-width: 720px; }
+.ascard {
+  width: 218px; display: flex; gap: 10px; align-items: flex-start; padding: 12px;
+  border: 1px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
+  box-shadow: 0 2px 8px var(--shadow-color);
+  cursor: pointer; color: var(--label-secondary); text-align: left;
+}
+.ascard:hover { background: var(--fill-quaternary); color: var(--label); border-color: var(--accent); }
+.ascard:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.aavatar { flex: 0 0 auto; font-size: 20px; line-height: 1.2; }
+.atxt { min-width: 0; }
+.aname { font-size: var(--fs-ui); font-weight: 600; color: var(--label-strong); }
+.abrief {
+  font-size: var(--fs-caption); color: var(--label-tertiary); margin-top: 3px; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* 绑定态「换助手」：低调文字钮——主角是预设 prompts，不是换台 */
+.switchbtn {
+  margin-top: 14px; padding: 5px 12px; border: none; border-radius: var(--r-control);
+  background: none; color: var(--label-tertiary); font-size: var(--fs-caption); cursor: pointer;
+}
+.switchbtn:hover { background: var(--fill-quaternary); color: var(--label); }
+.switchbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* 示例指令卡：横排三张（窄了自动换行），点击填入输入框 */
 /* I3 平面化（AionUi 助手卡语言）：白卡 + 1px 边 + 柔影，受光边退场 */
@@ -85,6 +169,10 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
   font-size: var(--fs-caption); color: var(--label-tertiary); margin-top: 3px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+/* 预设 prompt 卡：整句就是内容，行数放宽到 3、拉通宽度（AionUi 示例 prompt 列表形态） */
+.prompts { flex-direction: column; align-items: stretch; max-width: 560px; width: 100%; }
+.excard.pcard { width: 100%; }
+.pfull { -webkit-line-clamp: 3; color: var(--label-secondary); }
 
 /* 最近任务：标题 + 相对时间，点击直达会话 */
 .recent { margin-top: 22px; width: 452px; max-width: 100%; }

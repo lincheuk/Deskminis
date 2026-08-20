@@ -19,7 +19,8 @@ describe('D6 SettingsModal：mcp section 行级接入', () => {
     expect(modal).toContain('<McpSettings v-else-if="section === \'mcp\'" />');
     expect(modal.indexOf("{ id: 'skills'")).toBeLessThan(modal.indexOf("{ id: 'mcp'"));
     expect(modal.indexOf("{ id: 'mcp'")).toBeLessThan(modal.indexOf("{ id: 'appearance'"));
-    expect(modal).toContain("'model' | 'skills' | 'mcp'");
+    // J2 改锚：Section 联合类型插入 'assistants'（模型与技能之间），mcp 的相对次序不变
+    expect(modal).toContain("'model' | 'assistants' | 'skills' | 'mcp'");
   });
 });
 
