@@ -23,6 +23,7 @@
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "gen:tray-icon": "node scripts/gen-tray-icon.mjs",
     "e2e:mu6": "node scripts/e2e-mu6-acceptance.mjs",
+    "e2e:mcp": "node scripts/e2e-mcp-acceptance.mjs",
     "audit:clicks": "node scripts/ui-click-audit.mjs",
     "dist": "electron-vite build && electron-builder --publish never",
     "dist:dir": "electron-vite build && electron-builder --dir"
