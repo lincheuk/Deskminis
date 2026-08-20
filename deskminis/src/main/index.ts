@@ -3,7 +3,7 @@ import electronUpdater from 'electron-updater';
 import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { dataRoot } from '../minisd/paths';
-import { attachmentPath, decodeImageDataUrl } from './attachments';
+import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
 
 let minisd: UtilityProcess | undefined;
 let minisdPort = 0;
@@ -191,14 +191,16 @@ ipcMain.handle('minisd:info', () => ({ port: minisdPort, token: minisdToken }));
 
 // MU2b Task 6：渲染端图片粘贴/拖拽 → 落盘会话附件目录（main/preload 白名单：本 Task 仅此一处 handler）。
 // sessionId 经 attachmentPath 内 UUID 正则校验防路径逃逸；dataUrl 非图片/坏 base64 拒绝。
-// 返回会话相对路径 attachments/paste-<ts>.png，渲染端发送时以 [附件] 尾注带给模型。
+// F2a：扩展名随 dataUrl 的 mime（降采样后 jpeg 导出落 .jpg，防 mimeFromPath 与字节不符）。
+// 返回会话相对路径 attachments/paste-<ts>.<ext>，渲染端发送时以 attachments 参数带给模型。
 ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) => {
   if (typeof sessionId !== 'string' || typeof dataUrl !== 'string') throw new Error('非法参数');
+  const ext = extFromDataUrl(dataUrl) ?? 'png';
   const ts = Date.now();
-  const abs = attachmentPath(dataRoot(), sessionId, ts);
+  const abs = attachmentPath(dataRoot(), sessionId, ts, ext);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, decodeImageDataUrl(dataUrl));
-  return `attachments/paste-${ts}.png`;
+  return `attachments/paste-${ts}.${ext}`;
 });
 
 app.whenReady().then(async () => {

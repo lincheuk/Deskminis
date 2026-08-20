@@ -107,6 +107,41 @@ function synthesizeImageData(
   });
 }
 
+/** F2b：历史图片占位——最近 keepRounds 轮（含当前正在发送的这轮）内的 mediaRef 照常
+ * resolve，更早轮次替换为 `[图片 <文件名> 已随上下文省略]` 文本 part。
+ * 为什么：多轮带图会话的历史图片 base64 会全量复带进每次请求，随轮次累计撞 provider
+ * 载荷上限（字节校验管得住 5MB、管不住像素——视觉模型长边限制在像素维度）。
+ * 轮次定义对齐 compact.ts isRealUserTurn 惯例（一问一答为一轮）：role='user' 且非
+ * toolResult 载体即轮界；mediaRef-only 纯图消息也是一次提问，算轮界（isRealUserTurn
+ * 的 hasText 判定会把纯图消息漏掉，此处不沿用那半个分支）。
+ * 与 synthesizeImageData 同属请求构建边界，且必须排在 resolve 之前——被占位的引用
+ * 不再读文件（省 IO），也不会落进 attCache；raw history 与 store 永不改写（DB 零迁移，
+ * 占位只发生在组装请求时）。红线：占位文本恒非空、map 保序保长——绝不产生空 parts
+ * 数组或空 text part（Anthropic 400 雷）。 */
+export const KEEP_MEDIA_ROUNDS = 2;
+
+export function placeholderOldMediaRefs(messages: AgentMessage[], keepRounds: number = KEEP_MEDIA_ROUNDS): AgentMessage[] {
+  // 从新到旧数第 keepRounds 个轮界：下标小于 cutoff 的消息属于「更早轮次」
+  let cutoff = -1;
+  let rounds = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'user' && !m.parts.some(p => p.type === 'toolResult')) {
+      rounds++;
+      if (rounds >= keepRounds) { cutoff = i; break; }
+    }
+  }
+  if (cutoff <= 0) return messages; // 历史不足 keepRounds 轮：全部都在保留窗口内
+  return messages.map((m, i) => {
+    if (i >= cutoff || m.role !== 'user') return m;
+    if (!m.parts.some(p => p.type === 'mediaRef')) return m;
+    const parts = m.parts.map(p => p.type === 'mediaRef'
+      ? { type: 'text' as const, value: `[图片 ${basename((p.value as { relativePath: string }).relativePath)} 已随上下文省略]` }
+      : p);
+    return { role: m.role, parts };
+  });
+}
+
 /**
  * 单调时钟：store.listMessages 按 (created_at, id) 排序，而 nowEpoch() 只有毫秒精度，
  * 同一毫秒内连续追加会退化成按随机 UUID 排序 —— 回合内消息顺序必须靠严格递增的
@@ -288,8 +323,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     const toolDefs = opts.excludedToolNames ? allToolDefs.filter(t => !opts.excludedToolNames!.has(t.name)) : allToolDefs;
     const req: StreamRequest = {
       // 发送前在 provider 边界配对 tool_use/tool_result（修中断后会话永久损坏），不改存储。
-      // 附件同属请求构建边界：mediaRef → imageData(base64) 就地合成，raw history 不动。
-      messages: pairToolResults(synthesizeImageData(effectiveHistory, attCache, rel => join(attDir, basename(rel)))),
+      // 附件同属请求构建边界：先占位（F2b，resolve 之前——旧轮引用不读盘），
+      // 再 mediaRef → imageData(base64) 就地合成，raw history 不动。
+      messages: pairToolResults(synthesizeImageData(placeholderOldMediaRefs(effectiveHistory), attCache, rel => join(attDir, basename(rel)))),
       // systemPrompt/maxTokens 占位——下方 while 循环内按当前 activeSlot 重算（降级切换后当轮生效）
       systemPrompt: '',
       maxTokens: 0,

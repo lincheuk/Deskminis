@@ -21,6 +21,7 @@ import { fmtHHMM } from '../lib/time/hhmm';
 import { groupToolCards, isGroup, type ToolGroup } from '../lib/toolline/group';
 import { eventCopy } from '../lib/eventnote/copy';
 import { rowsFor } from '../lib/composer/autogrow';
+import { downsampleImageFile } from '../lib/attach/downsample';
 import type { MdNode } from '../lib/markdown/parse';
 
 const chat = useChat();
@@ -233,14 +234,6 @@ const pendingAttachments = ref<PendingAttachment[]>([]);
 // 发送键放行条件：「有文本或有附件」——纯图片消息（空文本+附件）也是合法输入
 const canSend = computed(() => (input.value.trim().length > 0 || pendingAttachments.value.length > 0) && !chat.running);
 
-function fileToDataUrl(f: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(new Error('读取文件失败'));
-    r.readAsDataURL(f);
-  });
-}
 function pickImages(list: FileList | null): File[] {
   return Array.from(list ?? []).filter(f => f.type.startsWith('image/'));
 }
@@ -251,8 +244,9 @@ async function saveImages(files: File[]): Promise<void> {
   const bridge = (window as { deskminis?: { saveAttachment?: (s: string, d: string) => Promise<string> } }).deskminis;
   if (!id || !bridge?.saveAttachment) return;
   for (const f of files) {
-    const dataUrl = await fileToDataUrl(f);
-    const path = await bridge.saveAttachment(id, dataUrl); // 返回会话相对路径 attachments/paste-<ts>.png
+    // F2a：入库降采样——超 1568px 长边的先缩再传（gif/边界内原字节直传，见 lib/attach/downsample）
+    const dataUrl = await downsampleImageFile(f);
+    const path = await bridge.saveAttachment(id, dataUrl); // 返回会话相对路径 attachments/paste-<ts>.<ext>
     pendingAttachments.value.push({ path, dataUrl });
   }
 }

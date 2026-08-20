@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { runAgentLoop, pairToolResults, type LoopEvent } from '../src/minisd/agent/loop';
+import { runAgentLoop, pairToolResults, placeholderOldMediaRefs, type LoopEvent } from '../src/minisd/agent/loop';
 import type { AgentMessage } from '../src/shared/types';
 import { buildAnthropicBody } from '../src/minisd/providers/anthropic';
 import { openDb } from '../src/minisd/store/db';
@@ -574,7 +574,141 @@ describe('runAgentLoop + 附件请求侧合成', () => {
   });
 });
 
-/** 纯函数 pairToolResults：发送前对整段历史做 tool_use/tool_result 配对（不改存储）。 */
+// ── F2b 历史图片占位：最近 2 轮的 mediaRef 照常 resolve，更早轮次换占位文本 ──
+// 多轮带图会话历史图片 base64 全量复带进每次请求，随轮次累计撞载荷上限；
+// 占位发生在请求组装层（resolve 之前，不读文件省 IO），raw history 原样存储。
+describe('runAgentLoop + 历史图片占位（F2b）', () => {
+  const TINY_PNG = Buffer.from(
+    '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63fcffff3f030005fe02fea72d99480000000049454e44ae426082',
+    'hex',
+  );
+
+  /** 4 轮带图历史：U1(旧) A1 U2 A2 U3 A3 U4(当前轮)——U1/U2 应成占位，U3/U4 应保留 base64。 */
+  function seedFourRounds(store: ChatStore, sessionId: string, rels: string[]): void {
+    let n = 0;
+    for (const rel of rels) {
+      store.appendMessage({
+        id: `U${++n}`, sessionId, role: 'user', createdAt: store.nowEpoch() + n, streamInterruptCount: 0,
+        parts: [
+          { type: 'text', value: `第${n}轮看图` },
+          { type: 'mediaRef', value: { id: `M${n}`, relativePath: rel, mimeType: 'image/png' } },
+        ],
+      });
+      store.appendMessage({
+        id: `A${n}`, sessionId, role: 'assistant', createdAt: store.nowEpoch() + n + 0.5, streamInterruptCount: 0,
+        parts: [{ type: 'text', value: `第${n}轮回复` }],
+      });
+    }
+  }
+
+  it('4 轮带图历史 → 最早 2 轮图片成占位文本，最近 2 轮（含当前轮）保留 imageData(base64)', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    // U3/U4 的附件真实落盘（最近 2 轮要 resolve）；U1/U2 不落盘——若占位没在 resolve 前跑，
+    // 它们会变成 [附件已丢失] 而非占位文本，此断言即失败
+    for (const name of ['keep3.png', 'keep4.png']) {
+      writeFileSync(join(toolContext.paths.sessionBucket(sessionId, 'attachments'), name), TINY_PNG);
+    }
+    seedFourRounds(store, sessionId, [
+      'attachments/stale1.png', 'attachments/stale2.png',
+      'attachments/keep3.png', 'attachments/keep4.png',
+    ]);
+    const provider = new ScriptedProvider([[ { kind: 'textDelta', text: '收到' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+
+    const userMsgs = provider.seen[0].messages.filter(m => m.role === 'user');
+    expect(userMsgs).toHaveLength(4);
+    // 旧 2 轮：mediaRef → 占位文本（文件名出现在占位里）
+    for (const [i, stale] of [0, 1].entries()) {
+      const mediaPart = userMsgs[i].parts.find(p => p.type === 'imageData' || p.type === 'mediaRef');
+      expect(mediaPart).toBeUndefined();
+      const ph = userMsgs[i].parts.find(p => p.type === 'text' && String((p as { value: string }).value).includes('stale'));
+      expect(ph).toBeDefined();
+      expect(String((ph as { value: string }).value)).toBe(`[图片 stale${stale + 1}.png 已随上下文省略]`);
+    }
+    // 新 2 轮：imageData base64 与磁盘字节一致
+    for (const i of [2, 3]) {
+      const img = userMsgs[i].parts.find(p => p.type === 'imageData');
+      expect(img).toEqual({ type: 'imageData', value: { mimeType: 'image/png', base64: TINY_PNG.toString('base64') } });
+    }
+    // 存储侧：raw history 永不改写，4 条 user 消息仍是 mediaRef
+    const stored = store.listMessages(sessionId).filter(m => m.role === 'user');
+    expect(stored).toHaveLength(4);
+    for (const m of stored) expect(m.parts.some(p => p.type === 'mediaRef')).toBe(true);
+  });
+
+  it('红线：替换后无空 parts 数组、无空 text part（Anthropic 400 雷）', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    writeFileSync(join(toolContext.paths.sessionBucket(sessionId, 'attachments'), 'keep.png'), TINY_PNG);
+    // 纯图消息（无文本）：最旧一轮只有 mediaRef，替换后必须仍有非空内容。
+    // 3 轮历史（U1 旧 + U2/U3 最近两轮）：U1 成占位，U2/U3 保留图。
+    store.appendMessage({
+      id: 'U1', sessionId, role: 'user', createdAt: store.nowEpoch(), streamInterruptCount: 0,
+      parts: [{ type: 'mediaRef', value: { id: 'M1', relativePath: 'attachments/stale.png', mimeType: 'image/png' } }],
+    });
+    store.appendMessage({
+      id: 'A1', sessionId, role: 'assistant', createdAt: store.nowEpoch() + 0.5, streamInterruptCount: 0,
+      parts: [{ type: 'text', value: '旧回复' }],
+    });
+    store.appendMessage({
+      id: 'U2', sessionId, role: 'user', createdAt: store.nowEpoch() + 1, streamInterruptCount: 0,
+      parts: [{ type: 'mediaRef', value: { id: 'M2', relativePath: 'attachments/keep.png', mimeType: 'image/png' } }],
+    });
+    store.appendMessage({
+      id: 'A2', sessionId, role: 'assistant', createdAt: store.nowEpoch() + 1.5, streamInterruptCount: 0,
+      parts: [{ type: 'text', value: '新回复' }],
+    });
+    store.appendMessage({
+      id: 'U3', sessionId, role: 'user', createdAt: store.nowEpoch() + 2, streamInterruptCount: 0,
+      parts: [{ type: 'mediaRef', value: { id: 'M3', relativePath: 'attachments/keep.png', mimeType: 'image/png' } }],
+    });
+    const provider = new ScriptedProvider([[ { kind: 'textDelta', text: '好' }, { kind: 'done', stopReason: 'endTurn' } ]]);
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys' }));
+    for (const m of provider.seen[0].messages) {
+      expect(m.parts.length).toBeGreaterThan(0);
+      for (const p of m.parts) {
+        if (p.type === 'text') expect(String((p as { value: string }).value).trim()).not.toBe('');
+      }
+    }
+    // 纯图旧消息替换后仍是单条非空占位文本
+    const first = provider.seen[0].messages[0];
+    expect(first.parts).toHaveLength(1);
+    expect(first.parts[0]).toEqual({ type: 'text', value: '[图片 stale.png 已随上下文省略]' });
+  });
+});
+
+/** F2b 纯函数 placeholderOldMediaRefs：轮次边界与保留窗口。 */
+describe('placeholderOldMediaRefs', () => {
+  const img = (name: string) => ({ type: 'mediaRef' as const, value: { id: 'M', relativePath: `attachments/${name}`, mimeType: 'image/png' } });
+  const txt = (v: string) => ({ type: 'text' as const, value: v });
+
+  it('历史只有 2 轮（即最近 2 轮本身）：全部保留，不产生占位', () => {
+    const msgs: AgentMessage[] = [
+      { role: 'user', parts: [txt('问1'), img('a.png')] },
+      { role: 'assistant', parts: [txt('答1')] },
+      { role: 'user', parts: [txt('问2'), img('b.png')] },
+    ];
+    expect(placeholderOldMediaRefs(msgs)).toEqual(msgs);
+  });
+
+  it('工具结果载体 user 消息不是轮界：数轮时跳过（对齐 compact.ts isRealUserTurn 惯例）', () => {
+    const msgs: AgentMessage[] = [
+      { role: 'user', parts: [txt('问1'), img('a.png')] },
+      { role: 'assistant', parts: [txt('答1')] },
+      { role: 'user', parts: [{ type: 'toolResult', value: { toolUseId: 'T1', output: 'o', success: true, status: 'success' } }] },
+      { role: 'user', parts: [txt('问2'), img('b.png')] },
+      { role: 'assistant', parts: [txt('答2')] },
+      { role: 'user', parts: [txt('问3'), img('c.png')] },
+    ];
+    const out = placeholderOldMediaRefs(msgs);
+    // 轮界 = 问1/问2/问3（toolResult 载体不算）：最近 2 轮 = 问2/问3 → 只有问1 的 a.png 成占位
+    expect(out[0].parts).toEqual([txt('问1'), txt('[图片 a.png 已随上下文省略]')]);
+    expect(out[3].parts.some(p => p.type === 'mediaRef')).toBe(true);
+    expect(out[5].parts.some(p => p.type === 'mediaRef')).toBe(true);
+    // 输入不可变：原数组未被改写
+    expect(msgs[0].parts[1].type).toBe('mediaRef');
+  });
+});
+
 describe('pairToolResults', () => {
   const text = (v: string): AgentMessage => ({ role: 'user', parts: [{ type: 'text', value: v }] });
   const toolUse = (...ids: string[]): AgentMessage => ({
