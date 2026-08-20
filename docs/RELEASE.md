@@ -41,7 +41,9 @@ npm run e2e:m5
 
 ## 4. 发布到 GitHub Releases
 
-1. tag `v<版本>` 已由源码侧推好（对应升版 commit）；Release 基于该 tag 创建。
+1. 在 GitHub 新建 Release 时填 tag `v<版本>`、目标选升版 commit（0.2.0 → `6bd9741`），
+   发布时 GitHub 会自动创建该 tag。（云端侧实测 tag 推送被 403 拒——凭据只放行分支推送，
+   故 tag 统一走 Release 发布这条路。）
 2. Release notes 直接取根 `CHANGELOG.md` 对应版本段。
 3. 上传 **三个**资产：`DeskMinis-<版本>-Setup.exe`、
    `DeskMinis-<版本>-win-x64-portable.exe`、**`latest.yml`**。
