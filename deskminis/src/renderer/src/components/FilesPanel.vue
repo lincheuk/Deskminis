@@ -2,11 +2,13 @@
 /** 右栏 · 文件面板（设计 §7）——会话工作区文件树（懒加载）+ 文本预览。
  *  数据全部经 files.* RPC（minisd 为唯一事实源）；本组件只缓存「已展开的目录」这一视图状态。
  *  agent 回合结束（running 真→假）自动刷新根与已展开目录；外部挂载树在 M2 后续里程碑补（计划决策 4）。 */
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { rpc } from '../rpc';
 import { useChat } from '../stores/chat';
 import FileTreeNode from './FileTreeNode.vue';
+import MarkdownView from './MarkdownView.vue';
 import Icon from './Icon.vue';
+import { parseMarkdown } from '../lib/markdown/parse';
 import type { FileNode, FilePreview } from '../../../minisd/files';
 
 const chat = useChat();
@@ -17,6 +19,11 @@ const refreshKey = ref(0);
 const preview = ref<FilePreview | null>(null);
 const previewLoading = ref(false);
 const previewFailed = ref('');
+/** L4（pool-batch §4）：.md 预览走既有零依赖 AST 渲染器（XSS 白名单同 MarkdownView 红线）。
+ *  默认渲染态；「源码/渲染」段控只在 md 文件出现。解析器不认的语法自然降级纯文本段——安全优先。 */
+const mdMode = ref<'render' | 'source'>('render');
+const isMd = computed(() => !!preview.value && !preview.value.binary && /\.(md|markdown)$/i.test(preview.value.path));
+const mdNodes = computed(() => (isMd.value && mdMode.value === 'render' && preview.value) ? parseMarkdown(preview.value.content) : null);
 
 async function loadRoot(): Promise<void> {
   if (!chat.activeId) { root.value = null; return; }
@@ -108,8 +115,13 @@ onMounted(() => {
       <template v-else-if="preview">
         <div class="pmeta">
           {{ fmtSize(preview.size) }}<template v-if="preview.truncated"> · 超过 256KB，仅显示前缀</template>
+          <span v-if="isMd" class="pseg">
+            <button type="button" :class="{ on: mdMode === 'render' }" @click="mdMode = 'render'">渲染</button>
+            <button type="button" :class="{ on: mdMode === 'source' }" @click="mdMode = 'source'">源码</button>
+          </span>
         </div>
         <div v-if="preview.binary" class="fhint">二进制文件不可预览</div>
+        <div v-else-if="mdNodes" class="pmd"><MarkdownView :nodes="mdNodes" /></div>
         <pre v-else class="pbody">{{ preview.content }}</pre>
       </template>
     </div>
@@ -145,4 +157,14 @@ onMounted(() => {
   font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--label);
   white-space: pre-wrap; word-break: break-word;
 }
+/* L4 md 渲染预览：滚动容器同 pbody，正文交给 MarkdownView 既有排版 */
+.pmd { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 10px; }
+/* 「渲染/源码」段控（.seg 成例的局部版）：只在 md 文件出现 */
+.pseg { display: inline-flex; margin-left: 8px; border: .5px solid var(--separator); border-radius: var(--r-control); overflow: hidden; }
+.pseg button {
+  border: none; background: none; cursor: pointer;
+  padding: 1px 8px; font-size: var(--fs-micro); color: var(--label-secondary);
+}
+.pseg button.on { background: var(--action); color: var(--on-action); font-weight: 600; }
+.pseg button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 </style>

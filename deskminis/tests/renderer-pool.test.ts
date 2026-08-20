@@ -45,3 +45,15 @@ describe('L1 接线：ChatView 历史上翻挂 onSlashNav（斜杠菜单优先�
     expect(cv).toContain('histCursor');
   });
 });
+
+describe('L4 FilesPanel md 预览：走既有零依赖渲染器 + 渲染/源码段控', () => {
+  it('parseMarkdown → MarkdownView 接线；段控仅 md 出现；零 v-html 红线不碰', () => {
+    const fp = read('src/renderer/src/components/FilesPanel.vue');
+    expect(fp).toContain("from '../lib/markdown/parse'");
+    expect(fp).toContain('parseMarkdown(');
+    expect(fp).toContain('<MarkdownView :nodes="mdNodes" />');
+    expect(fp).toContain('\\.(md|markdown)$'); // 扩展名判定的正则字面量按子串锚
+    expect(fp).toContain('v-if="isMd"');
+    expect(fp).not.toContain('v-html'); // XSS 红线：预览走 AST 白名单渲染，不直插 HTML
+  });
+});
