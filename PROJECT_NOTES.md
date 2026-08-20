@@ -474,3 +474,28 @@
   真把安装拦下（「必填环境变量缺失」橙字）；②工具名手拼带点号 → manager sanitizeSegment
   规范化（D5 设计内，模型按工具定义调用不会踩）；③缺 tool_title → 工具协议参数校验拦截。
   均为 driver 侧修正，产品零改动。
+
+### G4 审核记录 + 端到端调用闭环 + G 波波结（2026-08-20，云端）
+- **G4 过审**（8824ed4，9 文件 +899/-54）：1690→1713。云端复跑 52 失败与基线逐条一致、
+  tsc 显式 TSC_OK_EXPLICIT、扫描零命中。要点：install 时刻也做 ttlMs=0 裁定复核（把
+  「checkUpdates 后、install 前上游换恶意包」的时序洞一并堵上，超规格正确）；mergeEnvForUpdate
+  纯函数三规则 + existing 来自 servers.json 非注册表的反向锚说明；技能覆盖重装保留使用痕迹。
+  偏离 2（/resolve match 恒 null → 字节直比）裁定接受——比的就是将装之物，语义最真；
+  性能（手动触发 × KB 级 zip）可忽略，provenance 补 version 字段记 polish 候选。
+  偏离 1（importer overwriteId，白名单外）已申报 ✓。
+- **端到端调用闭环（用户点名验证，云端 xvfb 全链路）**：
+  ①技能：市场 UI 搜索→确认卡→确认安装→toast「已安装『Pdf』」→ 落盘 skills/pdf/SKILL.md
+   + SkillStore 注册（提示注入由 skills-prompt.test.ts 既有锚背书）；
+  ②MCP：确认卡 env 收集（password 框填 test-key-123）→ servers.json 产物完整（npx -y 命令、
+   **env 值来自用户输入、注册表零带值**）→ 命令等价替换 node+本仓 stdio fixture（云端无
+   npm 包运行环境，申报）→ 引擎真启动 → 工具注册 mcp__io_github_acme-fetcher__echo →
+   FakeProvider 会话真调用 → **kind=mcp 权限卡弹出**（允许/本会话允许/拒绝 + 任务条待批徽记）
+   → 允许 → echo 执行 → 结果原样回流 UI。**装→用全链路零产品 bug**。
+  ③过程三次弯路全为验证方 driver 侧（Enter 未触发发送、工具名未按 sanitizeSegment 归一、
+   缺 tool_title 必填参）——后两者恰证明产品纪律在正确工作（点号归一符合 Anthropic 工具名
+   规范；tool_title 是本项目工具协议，真模型按 schema 必带）。
+- **G 波正式波结**：G1 客户端 → G2 安装链路 → G3 市场 UI → G4 更新检查，四步全过审，
+  1634…→1713（G 波累计 +79 例）。立项初心兑现：三源（ClawHub/MCP Registry/awesome-dsh-plugin）
+  浏览/搜索/安全确认卡/一键安装/更新检查全通，装完即用经全链路实证。ClawHavoc 防线全套
+  在位（malicious 无 force 硬阻断 × 安装与更新双时刻、env 本地闭环、stdio 白名单、
+  install 拒任意 URL）。
