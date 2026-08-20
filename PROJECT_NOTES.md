@@ -596,3 +596,22 @@
   命名预设 + 欢迎页助手卡，cowork 化地基）→ K 波定时任务（interval/once/cron 三态 +
   绑定会话/模型/技能）；候选池增补见调研报告 §2 表 Ⅲ 档（文件预览增强/@文件/输入历史/
   锚点导航轨/会话级 MCP 勾选/图片生成/内置浏览器升格/办公技能包）。
+
+### J 波：助手体系——cowork 化地基（2026-08-20，用户「做建议立项和候选池」授权，自己做）
+- **两步全落 main + 终验**：J1 后端（b209394，迁移[9] assistants + AssistantStore +
+  一次性种子 3 个（settings 标记，删除不复活）+ applyAssistantPreset（技能快照覆盖：
+  勾选写 1 其余写 0，覆盖回落全局的坑显式堵住）+ chat.sessions.create 扩参 +
+  promptFactory 注入 assistantBlock + RPC 五件）→ J2 前端（6ccc68a，欢迎页助手卡两态 +
+  AssistantSettings 管理页 + SessionList emoji 前缀）。26+ 新例，五版本钉文件 9→10 随动申报。
+- **重大随动修缺**：J2 调研实锤**会话模型绑定休眠 bug**——SessionList 自 MU6 起写裸
+  provider id，chat.prompt 解析只认 'provider:'/'group:' 前缀，**绑定从未生效**（静默走
+  默认模型，README 宣传的功能形同虚设）。三侧齐修：select 写前缀值 + 显示侧归一化
+  bindingValue + 后端兼容分支接住旧库存量裸 id（查无抛错可见，不再无声用错模型）。
+- **xvfb 终验实证**（j3-*.png 七图入册）：种子三卡在欢迎页 → 点卡建绑定会话 → hero 换
+  🤝通用协作 + 预设 prompts 卡 + 换助手钮 → 点 prompt 填入不发送 → 会话行 emoji 前缀 →
+  设置·助手管理页列表与编辑表单双主题全对。
+- 已知边界（设计稿 §0 如实记录）：技能覆盖是建会话时快照——会话建成后新装技能会按
+  全局开关漏进助手会话（三层判定改造留候选）；deleteSession 级联删补
+  session_skill_overrides（残留膨胀治理随 J1 落地）。
+- 事故：J2 全量首跑逮到 renderer-mcp-settings 钉 Section 联合类型子串（插 'assistants'
+  破锚），改锚申报后绿——「守卫红先想它对不对」，这次守卫对（次序锚保留）、锚宽了（改窄）。
