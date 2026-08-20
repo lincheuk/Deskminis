@@ -499,3 +499,35 @@
   浏览/搜索/安全确认卡/一键安装/更新检查全通，装完即用经全链路实证。ClawHavoc 防线全套
   在位（malicious 无 force 硬阻断 × 安装与更新双时刻、env 本地闭环、stdio 白名单、
   install 拒任意 URL）。
+
+### D7 审核记录 + D 波波结（2026-08-20，云端）
+- **D7 过审**（6adb4bf，2 文件 +250/-0）：白名单严丝合缝——package.json 仅 scripts 段
+  +1 行 `e2e:mcp`，零依赖变动、零新单测；scripts/e2e-mcp-acceptance.mjs 249 行。
+  提示词四处适配全部按写落地（基线 1713、tool_title 必填进六案、案 3/案 5 按 FakeProvider
+  「重放历史首条」机制设计断言、模板从 mu6 换 m2a 纯 RPC 面），脚本对四个源码锚点
+  （DESKMINIS_STANDALONE 握手、turnEnd/textDelta 事件名、SessionMeta.id、「正在运行」
+  竞态文案）逐一核对无虚构。
+- **云端独立复跑三项全绿**：①build 后 `node scripts/e2e-mcp-acceptance.mjs` 六案 6/6
+  退出码 0——脚本在 Linux 云端 headless 全过，与 Trae Windows 真机双平台实证（elapsedMs
+  95↔253 为环境差）；②npm test 1713 例/140 文件，52 失败与 Linux 基线**排序归一后逐条
+  全等**（首轮 diff 全为行序漂移，LC_ALL=C 双侧重排后空 diff）；③tsc 真实退出码 0
+  （审核方首查又踩管道吞退出码——`npm run typecheck | tail; echo $?` 取到的是 tail 的码，
+  自查即纠，重跑独立重定向取真码。G2 教训第二次现形，纪律再钉一遍：**退出码必须来自
+  目标命令本身，任何管道/链式后取 $? 一律无效**）。
+- **脚本质量要点（性能/健壮性视角）**：回合超时 150s > 权限超时 90s 的量化理由写进注释
+  （「无权限卡」断言不被误报截断）；waiter 与 collector 双通道监听均在 finally 摘除；
+  「该会话正在运行中」已知竞态用 300ms×10 退避而非拍脑袋 sleep；finally 关进程后 800ms
+  再删数据根（minis.db 单进程持有）；六案逐案 try/catch，单案异常不吞后续案。零改进项。
+- **偏离三条裁定**：① npm.cmd 替代裸 npm（PowerShell 执行策略拦 npm.ps1）——环境层等价，
+  接受；② push 退避循环 `| Out-String` 吞掉 git 退出码致首推误判成功，发现后弃循环单条
+  重推——坦白属实、最终 `git log origin/main` 验证干净，接受；**与审核方 G2/本轮 typecheck
+  同构的第三次「管道吞退出码」，双方各中过，教训对称入册**；③ pull --ff-only 未显式复现
+  但谱系（6adb4bf 单父即 8824ed4、无 divergence）证实 no-op 语义满足，接受。
+- **D 波正式波结**：D1 web_search（399759a）→ D2 配置层 → D3 stdio 客户端 → D4 http →
+  D5 注册/调用/权限 → D6 设置页 → D7 e2e 冒烟（6adb4bf），七步全过审。引擎面：双传输、
+  宽容配置、mcp__ 归一命名、kind=mcp askOnce 权限、会话级禁用硬执行、试连、设置页全路径、
+  可回归 e2e（npm run e2e:mcp）。G 波市场装出的 MCP 走同一引擎，装→用闭环已实证——
+  两波在 servers.json 接缝处如设计稿预留严丝合缝。
+- **收官遗留一件**：README 能力表陈旧——「MCP ⛔ 未实现」应转 ✅、缺「扩展市场」行、
+  Agent 工具清单缺 web_search。属 main 侧 README.md 三行级小修，**排进下一个 Trae 提示词
+  作授权附带小修**（白名单点名，不单开一轮）。
