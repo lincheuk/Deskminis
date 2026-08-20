@@ -1,8 +1,8 @@
 /** MU3 新守卫：Appica 视觉语言移植保真度 + 别名映射防漂移（12 例）。
  *
- *  取值唯一来源（MU3 红线，E1 换锚不换纪律）：docs/specs/2026-08-19-aurora-tokens-reference.css
- *    槽位结构承自 @appica/ui-react@1.0.0（MIT）；状态色部分值继承 Appica，其余 Aurora 自研
- *    （设计稿 docs/specs/2026-08-19-ui-reskin-aurora.md）
+ *  取值唯一来源（MU3 红线，E1/I1 换锚不换纪律）：docs/specs/2026-08-20-aionui-tokens-reference.css
+ *    槽位结构承自 @appica/ui-react@1.0.0（MIT）；取值据 AionUi v2.1.59（Apache-2.0）色系移植，
+ *    文本档为过 AA 的自研调整（设计稿 docs/specs/2026-08-20-ui-redo-aionui-design.md）
  *  禁止联网重取、禁止凭印象写值（xterm 兜底换算值除外，见例 9 白名单）。
  *
  *  转绿映射（MU3 计划 §4）：例 1-7 → Task 2（tokens.css 双层重构）；例 8 → Task 3（material 退场）；
@@ -16,7 +16,7 @@ import { resolve, relative } from 'node:path';
 
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
 const tokens = R('../src/renderer/src/styles/tokens.css');
-const REF = R('../../docs/specs/2026-08-19-aurora-tokens-reference.css');
+const REF = R('../../docs/specs/2026-08-20-aionui-tokens-reference.css');
 
 /** 按选择器切片（与 tokens-evolution 相同的 6 个字面切片标记，红线：逐字保留） */
 function section(src: string, start: string, end?: string): string {
@@ -78,10 +78,12 @@ const C = (n: string) => R(`../src/renderer/src/components/${n}.vue`);
 
 describe('MU3 Appica 移植守卫（13 例）', () => {
   it('1. tokens.css 头部归属四要素（结构来源 / 许可证 / 参考文件路径 / 唯一来源声明）', () => {
-    // E1 换锚：归属从「Appica 全文照抄」改为「槽位结构承自 Appica + 取值唯一来源 Aurora 参考文件」
+    // I1 换锚：归属改「槽位结构承自 Appica（MIT）+ 取值据 AionUi（Apache-2.0）移植 + 自研 AA 调整」
     expect(tokens).toContain('@appica/ui-react@1.0.0');
     expect(tokens).toContain('MIT');
-    expect(tokens).toContain('docs/specs/2026-08-19-aurora-tokens-reference.css');
+    expect(tokens).toContain('AionUi');
+    expect(tokens).toContain('Apache-2.0');
+    expect(tokens).toContain('docs/specs/2026-08-20-aionui-tokens-reference.css');
     expect(tokens).toContain('取值唯一来源');
   });
 
@@ -147,10 +149,10 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
       ['--scrim', 'rgba(0,0,0,.4)'],
       ['--r-control', 'var(--radius-2xs)'],
       ['--r-md', 'var(--radius-xs)'],
-      ['--r-card', 'var(--radius-md)'], // Aurora §3 换挡（同例 7）
-      ['--r-input', 'var(--radius-xl)'], // Aurora §3 换挡（同例 7）
+      ['--r-card', 'var(--radius-sm)'], // I1 换挡：AionUi 卡片一档 12px（同例 7）
+      ['--r-input', 'var(--radius-2xl)'], // I1 换挡：AionUi 输入大卡 24px（同例 7）
       ['--r-bubble', 'var(--radius-xl)'],
-      ['--r-sheet', 'var(--radius-2xl)'], // 20px 无等值阶，模态大面取 2xl（申报项）
+      ['--r-sheet', 'var(--radius-lg)'], // I1 换挡：AionUi 弹窗 16px（同例 7）
       ['--r-pill', '999px'],
       ['--ring', 'var(--focus-ring)'],
       ['--ring-input', 'var(--focus-ring-input)'],
@@ -199,10 +201,10 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
   it('7. 圆角别名：6 条映射 radius 派生阶 + --r-pill 字面值保留（§2-3）', () => {
     expect(rootLight).toContain('--r-control: var(--radius-2xs);');
     expect(rootLight).toContain('--r-md: var(--radius-xs);');
-    expect(rootLight).toContain('--r-card: var(--radius-md);'); // Aurora §3：卡片升一档
-    expect(rootLight).toContain('--r-input: var(--radius-xl);'); // Aurora §3：输入卡随材质
+    expect(rootLight).toContain('--r-card: var(--radius-sm);'); // I1：AionUi 卡片一档 12px
+    expect(rootLight).toContain('--r-input: var(--radius-2xl);'); // I1：AionUi 输入大卡 24px
     expect(rootLight).toContain('--r-bubble: var(--radius-xl);');
-    expect(rootLight).toContain('--r-sheet: var(--radius-2xl);');
+    expect(rootLight).toContain('--r-sheet: var(--radius-lg);'); // I1：AionUi 弹窗 16px
     expect(rootLight).toContain('--r-pill: 999px;');
   });
 

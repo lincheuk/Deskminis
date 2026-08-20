@@ -1,11 +1,12 @@
-/* DeskMinis 设计令牌 —— 唯一颜色/尺寸声明处（Aurora 换皮，E1 落地）。
+/* DeskMinis 设计令牌 —— 唯一颜色/尺寸声明处（AionUi 换向，I1 落地）。
  * 组件一律引用变量，绝不写死颜色。
  *
  * 双层架构（MU3 定型双层，E1 换值不换结构）：
  *   A 区 = raw 值层，逐字照抄参考文件（取值唯一来源，禁止凭印象写值）：
  *     槽位结构承自 @appica/ui-react@1.0.0（MIT，github.com/appica-dev/appica-ui）；
- *     取值唯一来源 docs/specs/2026-08-19-aurora-tokens-reference.css
- *     （状态色部分值继承 Appica，其余 Aurora 自研，设计稿 docs/specs/2026-08-19-ui-reskin-aurora.md）。
+ *     取值唯一来源 docs/specs/2026-08-20-aionui-tokens-reference.css
+ *     （取值据 AionUi v2.1.59（Apache-2.0）色系移植、文本档为过 AA 的自研调整，
+ *      设计稿 docs/specs/2026-08-20-ui-redo-aionui-design.md）。
  *   B 区 = DeskMinis 语义别名层（映射总表见 MU3 计划 §2-1，Aurora 换挡见设计稿 §3），组件只消费别名。
  *   C 区（仅 :root）= DeskMinis 自有令牌：尺度（--fs/--sp/--ico/--h，A 区无尺度层）
  *     与字体栈（--font-ui/--font-mono 置后覆盖 raw 层同族首选——通用栈缺
@@ -16,99 +17,98 @@
  * 四段结构：raw 层按段全量重复；主题色别名每段重申；主题无关别名只写一次。 */
 
 :root {
-  /* ===== A 区：Aurora raw 层（照抄参考文件 :root,.light 块，逐字一致） ===== */
-  --foreground: oklch(0.4 0.032 253);
-  --foreground-subtle: oklch(0.5 0.03 250);
-  --foreground-muted: oklch(0.43 0.032 252);
-  --foreground-strong: oklch(0.33 0.032 258);
-  --foreground-emphasis: oklch(0.26 0.03 260);
-  --foreground-intense: oklch(0.19 0.028 262);
+  /* ===== A 区：AionUi raw 层（照抄参考文件 :root,.light 块，逐字一致） ===== */
+  --foreground: oklch(0.42 0.032 266.2);
+  --foreground-subtle: oklch(0.506 0.031 264.2);
+  --foreground-muted: oklch(0.42 0.032 266.2);
+  --foreground-strong: oklch(0.247 0.016 264.2);
+  --foreground-emphasis: oklch(0.201 0.014 272.6);
+  --foreground-intense: oklch(0.163 0.009 264.3);
   --foreground-inverse: oklch(1 0 0);
 
   --background: oklch(1 0 0);
-  --background-subtle: oklch(0.988 0.003 220);
-  --background-muted: oklch(0.962 0.006 220);
-  --background-strong: oklch(0.925 0.009 225);
-  --background-inverse: oklch(0.16 0.022 262);
+  --background-subtle: oklch(0.985 0.002 247.8);
+  --background-muted: oklch(0.964 0.003 264.5);
+  --background-strong: oklch(0.926 0.007 277.2);
+  --background-inverse: oklch(0.247 0.016 264.2);
 
-  --border: oklch(0.925 0.009 225);
-  --border-muted: oklch(0.962 0.006 220);
-  --border-strong: oklch(0.872 0.012 235);
-  --border-emphasis: oklch(0.7 0.02 245);
-  --border-intense: oklch(0.545 0.03 250);
-  --border-inverse: oklch(0.26 0.03 260);
-  --border-overlay: oklch(0.962 0.006 220);
+  --border: oklch(0.937 0.005 275);
+  --border-muted: oklch(0.964 0.003 264.5);
+  --border-strong: oklch(0.926 0.007 277.2);
+  --border-emphasis: oklch(0.768 0.02 263);
+  --border-intense: oklch(0.649 0.021 253);
+  --border-inverse: oklch(0.297 0.039 271.6);
+  --border-overlay: oklch(0.964 0.003 264.5);
 
-  --primary: oklch(0.21 0.03 262);
-  --primary-subtle: oklch(0.962 0.006 220);
-  --primary-soft: oklch(0.925 0.009 225);
-  --primary-muted: oklch(0.375 0.032 255);
-  --primary-strong: oklch(0.14 0.02 262);
+  --primary: oklch(0.297 0.039 271.6);
+  --primary-subtle: oklch(0.956 0.008 278.6);
+  --primary-soft: oklch(0.929 0.012 276.1);
+  --primary-muted: oklch(0.408 0.055 271.7);
+  --primary-strong: oklch(0.176 0.025 272.8);
   --primary-foreground: oklch(1 0 0);
 
-  --secondary: oklch(0.8 0.09 180);
-  --secondary-subtle: oklch(0.5 0.088 192 / 10%);
-  --secondary-soft: oklch(0.5 0.088 192 / 20%);
-  --secondary-muted: oklch(0.88 0.06 180);
-  --secondary-strong: oklch(0.6 0.09 188);
-  --secondary-emphasis: oklch(0.5 0.088 192);
-  --secondary-intense: oklch(0.44 0.082 200);
-  --secondary-foreground: oklch(0.14 0.02 262);
+  --secondary: oklch(0.796 0.103 258.9);
+  --secondary-subtle: oklch(0.537 0.239 262.8 / 10%);
+  --secondary-soft: oklch(0.537 0.239 262.8 / 20%);
+  --secondary-muted: oklch(0.882 0.057 262.3);
+  --secondary-strong: oklch(0.62 0.188 261.2);
+  --secondary-emphasis: oklch(0.537 0.239 262.8);
+  --secondary-intense: oklch(0.452 0.204 263.1);
+  --secondary-foreground: oklch(0.163 0.009 264.3);
 
-  --error: oklch(0.808 0.114 19.571);
-  --error-subtle: oklch(0.55 0.21 27 / 10%);
-  --error-soft: oklch(0.55 0.21 27 / 20%);
-  --error-muted: oklch(0.885 0.062 18.334);
-  --error-strong: oklch(0.65 0.19 25);
-  --error-emphasis: oklch(0.55 0.21 27);
-  --error-intense: oklch(0.5 0.2 27);
-  --error-foreground: oklch(0.14 0.02 262);
+  --error: oklch(0.754 0.135 24);
+  --error-subtle: oklch(0.575 0.209 26.9 / 10%);
+  --error-soft: oklch(0.575 0.209 26.9 / 20%);
+  --error-muted: oklch(0.868 0.064 23.3);
+  --error-strong: oklch(0.642 0.218 25.9);
+  --error-emphasis: oklch(0.575 0.209 26.9);
+  --error-intense: oklch(0.491 0.179 27);
+  --error-foreground: oklch(0.163 0.009 264.3);
 
-  --success: oklch(0.845 0.143 164.978);
-  --success-subtle: oklch(0.508 0.125 165 / 10%);
-  --success-soft: oklch(0.508 0.125 165 / 20%);
-  --success-muted: oklch(0.905 0.093 164.15);
-  --success-strong: oklch(0.6 0.14 164);
-  --success-emphasis: oklch(0.508 0.125 165);
-  --success-intense: oklch(0.46 0.115 166);
-  --success-foreground: oklch(0.14 0.02 262);
+  --success: oklch(0.758 0.159 150.4);
+  --success-subtle: oklch(0.528 0.141 151.3 / 10%);
+  --success-soft: oklch(0.528 0.141 151.3 / 20%);
+  --success-muted: oklch(0.869 0.091 153.4);
+  --success-strong: oklch(0.669 0.214 144.4);
+  --success-emphasis: oklch(0.528 0.141 151.3);
+  --success-intense: oklch(0.471 0.125 151.7);
+  --success-foreground: oklch(0.163 0.009 264.3);
 
-  --warning: oklch(0.837 0.128 66.29);
-  --warning-subtle: oklch(0.52 0.135 45 / 10%);
-  --warning-soft: oklch(0.52 0.135 45 / 20%);
-  --warning-muted: oklch(0.901 0.076 70.697);
-  --warning-strong: oklch(0.62 0.15 50);
-  --warning-emphasis: oklch(0.52 0.135 45);
-  --warning-intense: oklch(0.47 0.13 42);
-  --warning-foreground: oklch(0.14 0.02 262);
+  --warning: oklch(0.798 0.147 62.7);
+  --warning-subtle: oklch(0.523 0.128 55.8 / 10%);
+  --warning-soft: oklch(0.523 0.128 55.8 / 20%);
+  --warning-muted: oklch(0.888 0.079 65.3);
+  --warning-strong: oklch(0.727 0.188 51.7);
+  --warning-emphasis: oklch(0.523 0.128 55.8);
+  --warning-intense: oklch(0.47 0.115 55.9);
+  --warning-foreground: oklch(0.163 0.009 264.3);
 
-  --info: oklch(0.828 0.111 230.318);
-  --info-subtle: oklch(0.5 0.123 240 / 10%);
-  --info-soft: oklch(0.5 0.123 240 / 20%);
-  --info-muted: oklch(0.901 0.058 230.902);
-  --info-strong: oklch(0.6 0.13 235);
-  --info-emphasis: oklch(0.5 0.123 240);
-  --info-intense: oklch(0.45 0.115 242);
-  --info-foreground: oklch(0.14 0.02 262);
+  --info: oklch(0.754 0.127 257.2);
+  --info-subtle: oklch(0.537 0.239 262.8 / 10%);
+  --info-soft: oklch(0.537 0.239 262.8 / 20%);
+  --info-muted: oklch(0.882 0.057 262.3);
+  --info-strong: oklch(0.62 0.188 261.2);
+  --info-emphasis: oklch(0.537 0.239 262.8);
+  --info-intense: oklch(0.452 0.204 263.1);
+  --info-foreground: oklch(0.163 0.009 264.3);
 
-  --aurora-1: oklch(0.75 0.1 185 / 7%);
-  --aurora-2: oklch(0.6 0.12 300 / 6%);
-  --aurora-3: oklch(0.7 0.12 350 / 5%);
+  --aurora-1: oklch(1 0 0 / 0%);
+  --aurora-2: oklch(1 0 0 / 0%);
+  --aurora-3: oklch(1 0 0 / 0%);
 
-  --font-sans:
-    ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-sans: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
   /* 本行是 A 区唯一申报偏离（见守卫 RAW_FONT_MONO_OVERRIDE）：等宽族无中文字形，
      不补 CJK 回退的话 mono 语境（代码块/权限卡路径）里的中文会掉进宋体 */
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', "Noto Sans SC", "Microsoft YaHei", monospace;
 
-  --focus-ring: oklch(0.6 0.085 192);
-  --focus-ring-input: oklch(0.86 0.045 195);
-  --focus-ring-primary: oklch(0.6 0.085 192);
-  --focus-ring-secondary: oklch(0.5 0.088 192 / 30%);
-  --focus-ring-error: oklch(0.55 0.21 27 / 30%);
-  --focus-ring-success: oklch(0.508 0.125 165 / 30%);
-  --focus-ring-warning: oklch(0.52 0.135 45 / 30%);
-  --focus-ring-info: oklch(0.5 0.123 240 / 30%);
+  --focus-ring: oklch(0.537 0.239 262.8);
+  --focus-ring-input: oklch(0.848 0.067 266.2);
+  --focus-ring-primary: oklch(0.537 0.239 262.8);
+  --focus-ring-secondary: oklch(0.537 0.239 262.8 / 30%);
+  --focus-ring-error: oklch(0.575 0.209 26.9 / 30%);
+  --focus-ring-success: oklch(0.528 0.141 151.3 / 30%);
+  --focus-ring-warning: oklch(0.523 0.128 55.8 / 30%);
+  --focus-ring-info: oklch(0.537 0.239 262.8 / 30%);
   --focus-ring-light: oklch(1 0 0 / 25%);
 
   --border-width: 1px;
@@ -126,8 +126,8 @@
   --radius-3xl: calc(var(--radius) * 16 / 7);
   --radius-4xl: calc(var(--radius) * 20 / 7);
 
-  --shadow-color: oklch(0.375 0.05 255 / 16%);
-  --selection-color: oklch(0.5 0.088 192 / 18%);
+  --shadow-color: oklch(0.208 0.04 265.8 / 12%);
+  --selection-color: oklch(0.537 0.239 262.8 / 18%);
 
   --opacity-disabled: 0.65;
 
@@ -191,10 +191,10 @@
   --scrim: rgba(0,0,0,.4);
   --r-control: var(--radius-2xs);
   --r-md: var(--radius-xs);
-  --r-card: var(--radius-md); /* Aurora §3：玻璃材质大圆角，卡片升一档 */
-  --r-input: var(--radius-xl); /* Aurora §3：输入卡是视觉主角，圆角随材质 */
+  --r-card: var(--radius-sm); /* I1 AionUi：平面卡片一档 12px */
+  --r-input: var(--radius-2xl); /* I1 AionUi：输入大卡 24px，视觉主角 */
   --r-bubble: var(--radius-xl);
-  --r-sheet: var(--radius-2xl);
+  --r-sheet: var(--radius-lg); /* I1 AionUi：弹窗 16px */
   --r-pill: 999px;
   --ring: var(--focus-ring);
   --ring-input: var(--focus-ring-input);
@@ -263,97 +263,97 @@
 /* 自动跟随系统深色 */
 @media (prefers-color-scheme: dark) {
   :root {
-    /* ===== A 区：Aurora raw 层（照抄参考文件 .dark 块，逐字一致） ===== */
-    --foreground: oklch(0.875 0.014 258);
-    --foreground-subtle: oklch(0.64 0.03 258);
-    --foreground-muted: oklch(0.745 0.026 258);
-    --foreground-strong: oklch(0.93 0.008 258);
-    --foreground-emphasis: oklch(0.968 0.004 258);
+    /* ===== A 区：AionUi raw 层（照抄参考文件 .dark 块，逐字一致） ===== */
+    --foreground: oklch(0.746 0.022 264.4);
+    --foreground-subtle: oklch(0.713 0.024 260.7);
+    --foreground-muted: oklch(0.865 0.011 256.7);
+    --foreground-strong: oklch(0.937 0.006 264.5);
+    --foreground-emphasis: oklch(0.967 0.003 264.5);
     --foreground-intense: oklch(1 0 0);
-    --foreground-inverse: oklch(0.21 0.03 262);
+    --foreground-inverse: oklch(0.247 0.016 264.2);
 
-    --background: oklch(0.16 0.022 262);
-    --background-subtle: oklch(0.64 0.03 258 / 8%);
-    --background-muted: oklch(0.205 0.024 262);
-    --background-strong: oklch(0.265 0.026 262);
+    --background: oklch(0.164 0 0);
+    --background-subtle: oklch(0.713 0.024 260.7 / 8%);
+    --background-muted: oklch(0.218 0 0);
+    --background-strong: oklch(0.269 0 0);
     --background-inverse: oklch(1 0 0);
 
-    --border: oklch(0.265 0.026 262);
-    --border-muted: oklch(0.205 0.024 262);
-    --border-strong: oklch(0.34 0.03 260);
-    --border-emphasis: oklch(0.42 0.03 258);
-    --border-intense: oklch(0.545 0.03 255);
-    --border-inverse: oklch(0.93 0.008 258);
-    --border-overlay: oklch(0.3 0.028 260);
+    --border: oklch(0.269 0 0);
+    --border-muted: oklch(0.218 0 0);
+    --border-strong: oklch(0.321 0 0);
+    --border-emphasis: oklch(0.371 0 0);
+    --border-intense: oklch(0.468 0 0);
+    --border-inverse: oklch(0.937 0.006 264.5);
+    --border-overlay: oklch(0.297 0 0);
 
     --primary: oklch(1 0 0);
-    --primary-subtle: oklch(0.205 0.024 262);
-    --primary-soft: oklch(0.265 0.026 262);
-    --primary-muted: oklch(0.93 0.008 258);
+    --primary-subtle: oklch(0.218 0 0);
+    --primary-soft: oklch(0.269 0 0);
+    --primary-muted: oklch(0.937 0.006 264.5);
     --primary-strong: oklch(1 0 0);
-    --primary-foreground: oklch(0.16 0.022 262);
+    --primary-foreground: oklch(0.164 0 0);
 
-    --secondary: oklch(0.79 0.125 192);
-    --secondary-subtle: oklch(0.87 0.115 175 / 10%);
-    --secondary-soft: oklch(0.87 0.115 175 / 20%);
-    --secondary-muted: oklch(0.9 0.08 172);
-    --secondary-strong: oklch(0.79 0.125 192);
-    --secondary-emphasis: oklch(0.87 0.115 175);
-    --secondary-intense: oklch(0.72 0.13 200);
-    --secondary-foreground: oklch(0.16 0.022 262);
+    --secondary: oklch(0.749 0.132 253.5);
+    --secondary-subtle: oklch(0.696 0.163 254.1 / 10%);
+    --secondary-soft: oklch(0.696 0.163 254.1 / 20%);
+    --secondary-muted: oklch(0.834 0.084 254.2);
+    --secondary-strong: oklch(0.749 0.132 253.5);
+    --secondary-emphasis: oklch(0.696 0.163 254.1);
+    --secondary-intense: oklch(0.602 0.174 256.6);
+    --secondary-foreground: oklch(0.163 0.009 264.3);
 
-    --error: oklch(0.704 0.191 22.216);
-    --error-subtle: oklch(0.637 0.237 25.331 / 10%);
-    --error-soft: oklch(0.637 0.237 25.331 / 20%);
-    --error-muted: oklch(0.808 0.114 19.571);
-    --error-strong: oklch(0.704 0.191 22.216);
-    --error-emphasis: oklch(0.637 0.237 25.331);
-    --error-intense: oklch(0.577 0.245 27.325);
-    --error-foreground: oklch(0.13 0.028 261.692);
+    --error: oklch(0.75 0.138 25.1);
+    --error-subtle: oklch(0.69 0.18 24.9 / 10%);
+    --error-soft: oklch(0.69 0.18 24.9 / 20%);
+    --error-muted: oklch(0.827 0.089 23.4);
+    --error-strong: oklch(0.75 0.138 25.1);
+    --error-emphasis: oklch(0.69 0.18 24.9);
+    --error-intense: oklch(0.618 0.187 26.1);
+    --error-foreground: oklch(0.201 0.014 272.6);
 
-    --success: oklch(0.765 0.177 163.223);
-    --success-subtle: oklch(0.696 0.17 162.48 / 10%);
-    --success-soft: oklch(0.696 0.17 162.48 / 20%);
-    --success-muted: oklch(0.845 0.143 164.978);
-    --success-strong: oklch(0.765 0.177 163.223);
-    --success-emphasis: oklch(0.696 0.17 162.48);
-    --success-intense: oklch(0.596 0.145 163.225);
-    --success-foreground: oklch(0.13 0.028 261.692);
+    --success: oklch(0.766 0.172 148.4);
+    --success-subtle: oklch(0.714 0.211 145.5 / 10%);
+    --success-soft: oklch(0.714 0.211 145.5 / 20%);
+    --success-muted: oklch(0.849 0.127 150);
+    --success-strong: oklch(0.766 0.172 148.4);
+    --success-emphasis: oklch(0.714 0.211 145.5);
+    --success-intense: oklch(0.625 0.184 145.5);
+    --success-foreground: oklch(0.201 0.014 272.6);
 
-    --warning: oklch(0.75 0.183 55.934);
-    --warning-subtle: oklch(0.705 0.213 47.604 / 10%);
-    --warning-soft: oklch(0.705 0.213 47.604 / 20%);
-    --warning-muted: oklch(0.837 0.128 66.29);
-    --warning-strong: oklch(0.75 0.183 55.934);
-    --warning-emphasis: oklch(0.705 0.213 47.604);
-    --warning-intense: oklch(0.646 0.222 41.116);
-    --warning-foreground: oklch(0.13 0.028 261.692);
+    --warning: oklch(0.825 0.136 68.3);
+    --warning-subtle: oklch(0.775 0.164 61.6 / 10%);
+    --warning-soft: oklch(0.775 0.164 61.6 / 20%);
+    --warning-muted: oklch(0.881 0.091 70);
+    --warning-strong: oklch(0.825 0.136 68.3);
+    --warning-emphasis: oklch(0.775 0.164 61.6);
+    --warning-intense: oklch(0.72 0.167 57.5);
+    --warning-foreground: oklch(0.201 0.014 272.6);
 
-    --info: oklch(0.746 0.16 232.661);
-    --info-subtle: oklch(0.685 0.169 237.323 / 10%);
-    --info-soft: oklch(0.685 0.169 237.323 / 20%);
-    --info-muted: oklch(0.828 0.111 230.318);
-    --info-strong: oklch(0.746 0.16 232.661);
-    --info-emphasis: oklch(0.685 0.169 237.323);
-    --info-intense: oklch(0.588 0.158 241.966);
-    --info-foreground: oklch(0.13 0.028 261.692);
+    --info: oklch(0.749 0.132 253.5);
+    --info-subtle: oklch(0.696 0.163 254.1 / 10%);
+    --info-soft: oklch(0.696 0.163 254.1 / 20%);
+    --info-muted: oklch(0.834 0.084 254.2);
+    --info-strong: oklch(0.749 0.132 253.5);
+    --info-emphasis: oklch(0.696 0.163 254.1);
+    --info-intense: oklch(0.602 0.174 256.6);
+    --info-foreground: oklch(0.201 0.014 272.6);
 
-    --aurora-1: oklch(0.7 0.13 185 / 9%);
-    --aurora-2: oklch(0.55 0.16 300 / 8%);
-    --aurora-3: oklch(0.6 0.14 345 / 6%);
+    --aurora-1: oklch(1 0 0 / 0%);
+    --aurora-2: oklch(1 0 0 / 0%);
+    --aurora-3: oklch(1 0 0 / 0%);
 
-    --focus-ring: oklch(0.62 0.09 190);
-    --focus-ring-input: oklch(0.42 0.06 195);
-    --focus-ring-primary: oklch(0.62 0.09 190);
-    --focus-ring-secondary: oklch(0.87 0.115 175 / 50%);
-    --focus-ring-error: oklch(0.637 0.237 25.331 / 50%);
-    --focus-ring-success: oklch(0.696 0.17 162.48 / 50%);
-    --focus-ring-warning: oklch(0.705 0.213 47.604 / 50%);
-    --focus-ring-info: oklch(0.685 0.169 237.323 / 50%);
+    --focus-ring: oklch(0.696 0.163 254.1);
+    --focus-ring-input: oklch(0.483 0.116 255.1);
+    --focus-ring-primary: oklch(0.696 0.163 254.1);
+    --focus-ring-secondary: oklch(0.696 0.163 254.1 / 50%);
+    --focus-ring-error: oklch(0.69 0.18 24.9 / 50%);
+    --focus-ring-success: oklch(0.714 0.211 145.5 / 50%);
+    --focus-ring-warning: oklch(0.775 0.164 61.6 / 50%);
+    --focus-ring-info: oklch(0.696 0.163 254.1 / 50%);
     --focus-ring-light: oklch(1 0 0 / 25%);
 
     --shadow-color: oklch(0 0 0 / 45%);
-    --selection-color: oklch(0.87 0.115 175 / 22%);
+    --selection-color: oklch(0.696 0.163 254.1 / 25%);
 
     /* ===== B 区：DeskMinis 语义别名层（媒体暗段；分叉映射按 §2-1） ===== */
     --bg: var(--background);
@@ -407,97 +407,97 @@
 
 /* 强制深色（视图 → 明暗模式）——优先级高于系统 */
 :root[data-theme="dark"] {
-  /* ===== A 区：Aurora raw 层（照抄参考文件 .dark 块，逐字一致） ===== */
-  --foreground: oklch(0.875 0.014 258);
-  --foreground-subtle: oklch(0.64 0.03 258);
-  --foreground-muted: oklch(0.745 0.026 258);
-  --foreground-strong: oklch(0.93 0.008 258);
-  --foreground-emphasis: oklch(0.968 0.004 258);
+  /* ===== A 区：AionUi raw 层（照抄参考文件 .dark 块，逐字一致） ===== */
+  --foreground: oklch(0.746 0.022 264.4);
+  --foreground-subtle: oklch(0.713 0.024 260.7);
+  --foreground-muted: oklch(0.865 0.011 256.7);
+  --foreground-strong: oklch(0.937 0.006 264.5);
+  --foreground-emphasis: oklch(0.967 0.003 264.5);
   --foreground-intense: oklch(1 0 0);
-  --foreground-inverse: oklch(0.21 0.03 262);
+  --foreground-inverse: oklch(0.247 0.016 264.2);
 
-  --background: oklch(0.16 0.022 262);
-  --background-subtle: oklch(0.64 0.03 258 / 8%);
-  --background-muted: oklch(0.205 0.024 262);
-  --background-strong: oklch(0.265 0.026 262);
+  --background: oklch(0.164 0 0);
+  --background-subtle: oklch(0.713 0.024 260.7 / 8%);
+  --background-muted: oklch(0.218 0 0);
+  --background-strong: oklch(0.269 0 0);
   --background-inverse: oklch(1 0 0);
 
-  --border: oklch(0.265 0.026 262);
-  --border-muted: oklch(0.205 0.024 262);
-  --border-strong: oklch(0.34 0.03 260);
-  --border-emphasis: oklch(0.42 0.03 258);
-  --border-intense: oklch(0.545 0.03 255);
-  --border-inverse: oklch(0.93 0.008 258);
-  --border-overlay: oklch(0.3 0.028 260);
+  --border: oklch(0.269 0 0);
+  --border-muted: oklch(0.218 0 0);
+  --border-strong: oklch(0.321 0 0);
+  --border-emphasis: oklch(0.371 0 0);
+  --border-intense: oklch(0.468 0 0);
+  --border-inverse: oklch(0.937 0.006 264.5);
+  --border-overlay: oklch(0.297 0 0);
 
   --primary: oklch(1 0 0);
-  --primary-subtle: oklch(0.205 0.024 262);
-  --primary-soft: oklch(0.265 0.026 262);
-  --primary-muted: oklch(0.93 0.008 258);
+  --primary-subtle: oklch(0.218 0 0);
+  --primary-soft: oklch(0.269 0 0);
+  --primary-muted: oklch(0.937 0.006 264.5);
   --primary-strong: oklch(1 0 0);
-  --primary-foreground: oklch(0.16 0.022 262);
+  --primary-foreground: oklch(0.164 0 0);
 
-  --secondary: oklch(0.79 0.125 192);
-  --secondary-subtle: oklch(0.87 0.115 175 / 10%);
-  --secondary-soft: oklch(0.87 0.115 175 / 20%);
-  --secondary-muted: oklch(0.9 0.08 172);
-  --secondary-strong: oklch(0.79 0.125 192);
-  --secondary-emphasis: oklch(0.87 0.115 175);
-  --secondary-intense: oklch(0.72 0.13 200);
-  --secondary-foreground: oklch(0.16 0.022 262);
+  --secondary: oklch(0.749 0.132 253.5);
+  --secondary-subtle: oklch(0.696 0.163 254.1 / 10%);
+  --secondary-soft: oklch(0.696 0.163 254.1 / 20%);
+  --secondary-muted: oklch(0.834 0.084 254.2);
+  --secondary-strong: oklch(0.749 0.132 253.5);
+  --secondary-emphasis: oklch(0.696 0.163 254.1);
+  --secondary-intense: oklch(0.602 0.174 256.6);
+  --secondary-foreground: oklch(0.163 0.009 264.3);
 
-  --error: oklch(0.704 0.191 22.216);
-  --error-subtle: oklch(0.637 0.237 25.331 / 10%);
-  --error-soft: oklch(0.637 0.237 25.331 / 20%);
-  --error-muted: oklch(0.808 0.114 19.571);
-  --error-strong: oklch(0.704 0.191 22.216);
-  --error-emphasis: oklch(0.637 0.237 25.331);
-  --error-intense: oklch(0.577 0.245 27.325);
-  --error-foreground: oklch(0.13 0.028 261.692);
+  --error: oklch(0.75 0.138 25.1);
+  --error-subtle: oklch(0.69 0.18 24.9 / 10%);
+  --error-soft: oklch(0.69 0.18 24.9 / 20%);
+  --error-muted: oklch(0.827 0.089 23.4);
+  --error-strong: oklch(0.75 0.138 25.1);
+  --error-emphasis: oklch(0.69 0.18 24.9);
+  --error-intense: oklch(0.618 0.187 26.1);
+  --error-foreground: oklch(0.201 0.014 272.6);
 
-  --success: oklch(0.765 0.177 163.223);
-  --success-subtle: oklch(0.696 0.17 162.48 / 10%);
-  --success-soft: oklch(0.696 0.17 162.48 / 20%);
-  --success-muted: oklch(0.845 0.143 164.978);
-  --success-strong: oklch(0.765 0.177 163.223);
-  --success-emphasis: oklch(0.696 0.17 162.48);
-  --success-intense: oklch(0.596 0.145 163.225);
-  --success-foreground: oklch(0.13 0.028 261.692);
+  --success: oklch(0.766 0.172 148.4);
+  --success-subtle: oklch(0.714 0.211 145.5 / 10%);
+  --success-soft: oklch(0.714 0.211 145.5 / 20%);
+  --success-muted: oklch(0.849 0.127 150);
+  --success-strong: oklch(0.766 0.172 148.4);
+  --success-emphasis: oklch(0.714 0.211 145.5);
+  --success-intense: oklch(0.625 0.184 145.5);
+  --success-foreground: oklch(0.201 0.014 272.6);
 
-  --warning: oklch(0.75 0.183 55.934);
-  --warning-subtle: oklch(0.705 0.213 47.604 / 10%);
-  --warning-soft: oklch(0.705 0.213 47.604 / 20%);
-  --warning-muted: oklch(0.837 0.128 66.29);
-  --warning-strong: oklch(0.75 0.183 55.934);
-  --warning-emphasis: oklch(0.705 0.213 47.604);
-  --warning-intense: oklch(0.646 0.222 41.116);
-  --warning-foreground: oklch(0.13 0.028 261.692);
+  --warning: oklch(0.825 0.136 68.3);
+  --warning-subtle: oklch(0.775 0.164 61.6 / 10%);
+  --warning-soft: oklch(0.775 0.164 61.6 / 20%);
+  --warning-muted: oklch(0.881 0.091 70);
+  --warning-strong: oklch(0.825 0.136 68.3);
+  --warning-emphasis: oklch(0.775 0.164 61.6);
+  --warning-intense: oklch(0.72 0.167 57.5);
+  --warning-foreground: oklch(0.201 0.014 272.6);
 
-  --info: oklch(0.746 0.16 232.661);
-  --info-subtle: oklch(0.685 0.169 237.323 / 10%);
-  --info-soft: oklch(0.685 0.169 237.323 / 20%);
-  --info-muted: oklch(0.828 0.111 230.318);
-  --info-strong: oklch(0.746 0.16 232.661);
-  --info-emphasis: oklch(0.685 0.169 237.323);
-  --info-intense: oklch(0.588 0.158 241.966);
-  --info-foreground: oklch(0.13 0.028 261.692);
+  --info: oklch(0.749 0.132 253.5);
+  --info-subtle: oklch(0.696 0.163 254.1 / 10%);
+  --info-soft: oklch(0.696 0.163 254.1 / 20%);
+  --info-muted: oklch(0.834 0.084 254.2);
+  --info-strong: oklch(0.749 0.132 253.5);
+  --info-emphasis: oklch(0.696 0.163 254.1);
+  --info-intense: oklch(0.602 0.174 256.6);
+  --info-foreground: oklch(0.201 0.014 272.6);
 
-  --aurora-1: oklch(0.7 0.13 185 / 9%);
-  --aurora-2: oklch(0.55 0.16 300 / 8%);
-  --aurora-3: oklch(0.6 0.14 345 / 6%);
+  --aurora-1: oklch(1 0 0 / 0%);
+  --aurora-2: oklch(1 0 0 / 0%);
+  --aurora-3: oklch(1 0 0 / 0%);
 
-  --focus-ring: oklch(0.62 0.09 190);
-  --focus-ring-input: oklch(0.42 0.06 195);
-  --focus-ring-primary: oklch(0.62 0.09 190);
-  --focus-ring-secondary: oklch(0.87 0.115 175 / 50%);
-  --focus-ring-error: oklch(0.637 0.237 25.331 / 50%);
-  --focus-ring-success: oklch(0.696 0.17 162.48 / 50%);
-  --focus-ring-warning: oklch(0.705 0.213 47.604 / 50%);
-  --focus-ring-info: oklch(0.685 0.169 237.323 / 50%);
+  --focus-ring: oklch(0.696 0.163 254.1);
+  --focus-ring-input: oklch(0.483 0.116 255.1);
+  --focus-ring-primary: oklch(0.696 0.163 254.1);
+  --focus-ring-secondary: oklch(0.696 0.163 254.1 / 50%);
+  --focus-ring-error: oklch(0.69 0.18 24.9 / 50%);
+  --focus-ring-success: oklch(0.714 0.211 145.5 / 50%);
+  --focus-ring-warning: oklch(0.775 0.164 61.6 / 50%);
+  --focus-ring-info: oklch(0.696 0.163 254.1 / 50%);
   --focus-ring-light: oklch(1 0 0 / 25%);
 
   --shadow-color: oklch(0 0 0 / 45%);
-  --selection-color: oklch(0.87 0.115 175 / 22%);
+  --selection-color: oklch(0.696 0.163 254.1 / 25%);
 
   /* ===== B 区：DeskMinis 语义别名层（强制暗段，同媒体暗段） ===== */
   --bg: var(--background);
@@ -550,97 +550,97 @@
 
 /* 强制浅色——即便系统是深色也覆盖回浅（重申默认值；主题无关 raw 只在 :root 写一次） */
 :root[data-theme="light"] {
-  /* ===== A 区：Aurora raw 层（照抄参考文件 :root,.light 块，逐字一致） ===== */
-  --foreground: oklch(0.4 0.032 253);
-  --foreground-subtle: oklch(0.5 0.03 250);
-  --foreground-muted: oklch(0.43 0.032 252);
-  --foreground-strong: oklch(0.33 0.032 258);
-  --foreground-emphasis: oklch(0.26 0.03 260);
-  --foreground-intense: oklch(0.19 0.028 262);
+  /* ===== A 区：AionUi raw 层（照抄参考文件 :root,.light 块，逐字一致） ===== */
+  --foreground: oklch(0.42 0.032 266.2);
+  --foreground-subtle: oklch(0.506 0.031 264.2);
+  --foreground-muted: oklch(0.42 0.032 266.2);
+  --foreground-strong: oklch(0.247 0.016 264.2);
+  --foreground-emphasis: oklch(0.201 0.014 272.6);
+  --foreground-intense: oklch(0.163 0.009 264.3);
   --foreground-inverse: oklch(1 0 0);
 
   --background: oklch(1 0 0);
-  --background-subtle: oklch(0.988 0.003 220);
-  --background-muted: oklch(0.962 0.006 220);
-  --background-strong: oklch(0.925 0.009 225);
-  --background-inverse: oklch(0.16 0.022 262);
+  --background-subtle: oklch(0.985 0.002 247.8);
+  --background-muted: oklch(0.964 0.003 264.5);
+  --background-strong: oklch(0.926 0.007 277.2);
+  --background-inverse: oklch(0.247 0.016 264.2);
 
-  --border: oklch(0.925 0.009 225);
-  --border-muted: oklch(0.962 0.006 220);
-  --border-strong: oklch(0.872 0.012 235);
-  --border-emphasis: oklch(0.7 0.02 245);
-  --border-intense: oklch(0.545 0.03 250);
-  --border-inverse: oklch(0.26 0.03 260);
-  --border-overlay: oklch(0.962 0.006 220);
+  --border: oklch(0.937 0.005 275);
+  --border-muted: oklch(0.964 0.003 264.5);
+  --border-strong: oklch(0.926 0.007 277.2);
+  --border-emphasis: oklch(0.768 0.02 263);
+  --border-intense: oklch(0.649 0.021 253);
+  --border-inverse: oklch(0.297 0.039 271.6);
+  --border-overlay: oklch(0.964 0.003 264.5);
 
-  --primary: oklch(0.21 0.03 262);
-  --primary-subtle: oklch(0.962 0.006 220);
-  --primary-soft: oklch(0.925 0.009 225);
-  --primary-muted: oklch(0.375 0.032 255);
-  --primary-strong: oklch(0.14 0.02 262);
+  --primary: oklch(0.297 0.039 271.6);
+  --primary-subtle: oklch(0.956 0.008 278.6);
+  --primary-soft: oklch(0.929 0.012 276.1);
+  --primary-muted: oklch(0.408 0.055 271.7);
+  --primary-strong: oklch(0.176 0.025 272.8);
   --primary-foreground: oklch(1 0 0);
 
-  --secondary: oklch(0.8 0.09 180);
-  --secondary-subtle: oklch(0.5 0.088 192 / 10%);
-  --secondary-soft: oklch(0.5 0.088 192 / 20%);
-  --secondary-muted: oklch(0.88 0.06 180);
-  --secondary-strong: oklch(0.6 0.09 188);
-  --secondary-emphasis: oklch(0.5 0.088 192);
-  --secondary-intense: oklch(0.44 0.082 200);
-  --secondary-foreground: oklch(0.14 0.02 262);
+  --secondary: oklch(0.796 0.103 258.9);
+  --secondary-subtle: oklch(0.537 0.239 262.8 / 10%);
+  --secondary-soft: oklch(0.537 0.239 262.8 / 20%);
+  --secondary-muted: oklch(0.882 0.057 262.3);
+  --secondary-strong: oklch(0.62 0.188 261.2);
+  --secondary-emphasis: oklch(0.537 0.239 262.8);
+  --secondary-intense: oklch(0.452 0.204 263.1);
+  --secondary-foreground: oklch(0.163 0.009 264.3);
 
-  --error: oklch(0.808 0.114 19.571);
-  --error-subtle: oklch(0.55 0.21 27 / 10%);
-  --error-soft: oklch(0.55 0.21 27 / 20%);
-  --error-muted: oklch(0.885 0.062 18.334);
-  --error-strong: oklch(0.65 0.19 25);
-  --error-emphasis: oklch(0.55 0.21 27);
-  --error-intense: oklch(0.5 0.2 27);
-  --error-foreground: oklch(0.14 0.02 262);
+  --error: oklch(0.754 0.135 24);
+  --error-subtle: oklch(0.575 0.209 26.9 / 10%);
+  --error-soft: oklch(0.575 0.209 26.9 / 20%);
+  --error-muted: oklch(0.868 0.064 23.3);
+  --error-strong: oklch(0.642 0.218 25.9);
+  --error-emphasis: oklch(0.575 0.209 26.9);
+  --error-intense: oklch(0.491 0.179 27);
+  --error-foreground: oklch(0.163 0.009 264.3);
 
-  --success: oklch(0.845 0.143 164.978);
-  --success-subtle: oklch(0.508 0.125 165 / 10%);
-  --success-soft: oklch(0.508 0.125 165 / 20%);
-  --success-muted: oklch(0.905 0.093 164.15);
-  --success-strong: oklch(0.6 0.14 164);
-  --success-emphasis: oklch(0.508 0.125 165);
-  --success-intense: oklch(0.46 0.115 166);
-  --success-foreground: oklch(0.14 0.02 262);
+  --success: oklch(0.758 0.159 150.4);
+  --success-subtle: oklch(0.528 0.141 151.3 / 10%);
+  --success-soft: oklch(0.528 0.141 151.3 / 20%);
+  --success-muted: oklch(0.869 0.091 153.4);
+  --success-strong: oklch(0.669 0.214 144.4);
+  --success-emphasis: oklch(0.528 0.141 151.3);
+  --success-intense: oklch(0.471 0.125 151.7);
+  --success-foreground: oklch(0.163 0.009 264.3);
 
-  --warning: oklch(0.837 0.128 66.29);
-  --warning-subtle: oklch(0.52 0.135 45 / 10%);
-  --warning-soft: oklch(0.52 0.135 45 / 20%);
-  --warning-muted: oklch(0.901 0.076 70.697);
-  --warning-strong: oklch(0.62 0.15 50);
-  --warning-emphasis: oklch(0.52 0.135 45);
-  --warning-intense: oklch(0.47 0.13 42);
-  --warning-foreground: oklch(0.14 0.02 262);
+  --warning: oklch(0.798 0.147 62.7);
+  --warning-subtle: oklch(0.523 0.128 55.8 / 10%);
+  --warning-soft: oklch(0.523 0.128 55.8 / 20%);
+  --warning-muted: oklch(0.888 0.079 65.3);
+  --warning-strong: oklch(0.727 0.188 51.7);
+  --warning-emphasis: oklch(0.523 0.128 55.8);
+  --warning-intense: oklch(0.47 0.115 55.9);
+  --warning-foreground: oklch(0.163 0.009 264.3);
 
-  --info: oklch(0.828 0.111 230.318);
-  --info-subtle: oklch(0.5 0.123 240 / 10%);
-  --info-soft: oklch(0.5 0.123 240 / 20%);
-  --info-muted: oklch(0.901 0.058 230.902);
-  --info-strong: oklch(0.6 0.13 235);
-  --info-emphasis: oklch(0.5 0.123 240);
-  --info-intense: oklch(0.45 0.115 242);
-  --info-foreground: oklch(0.14 0.02 262);
+  --info: oklch(0.754 0.127 257.2);
+  --info-subtle: oklch(0.537 0.239 262.8 / 10%);
+  --info-soft: oklch(0.537 0.239 262.8 / 20%);
+  --info-muted: oklch(0.882 0.057 262.3);
+  --info-strong: oklch(0.62 0.188 261.2);
+  --info-emphasis: oklch(0.537 0.239 262.8);
+  --info-intense: oklch(0.452 0.204 263.1);
+  --info-foreground: oklch(0.163 0.009 264.3);
 
-  --aurora-1: oklch(0.75 0.1 185 / 7%);
-  --aurora-2: oklch(0.6 0.12 300 / 6%);
-  --aurora-3: oklch(0.7 0.12 350 / 5%);
+  --aurora-1: oklch(1 0 0 / 0%);
+  --aurora-2: oklch(1 0 0 / 0%);
+  --aurora-3: oklch(1 0 0 / 0%);
 
-  --focus-ring: oklch(0.6 0.085 192);
-  --focus-ring-input: oklch(0.86 0.045 195);
-  --focus-ring-primary: oklch(0.6 0.085 192);
-  --focus-ring-secondary: oklch(0.5 0.088 192 / 30%);
-  --focus-ring-error: oklch(0.55 0.21 27 / 30%);
-  --focus-ring-success: oklch(0.508 0.125 165 / 30%);
-  --focus-ring-warning: oklch(0.52 0.135 45 / 30%);
-  --focus-ring-info: oklch(0.5 0.123 240 / 30%);
+  --focus-ring: oklch(0.537 0.239 262.8);
+  --focus-ring-input: oklch(0.848 0.067 266.2);
+  --focus-ring-primary: oklch(0.537 0.239 262.8);
+  --focus-ring-secondary: oklch(0.537 0.239 262.8 / 30%);
+  --focus-ring-error: oklch(0.575 0.209 26.9 / 30%);
+  --focus-ring-success: oklch(0.528 0.141 151.3 / 30%);
+  --focus-ring-warning: oklch(0.523 0.128 55.8 / 30%);
+  --focus-ring-info: oklch(0.537 0.239 262.8 / 30%);
   --focus-ring-light: oklch(1 0 0 / 25%);
 
-  --shadow-color: oklch(0.375 0.05 255 / 16%);
-  --selection-color: oklch(0.5 0.088 192 / 18%);
+  --shadow-color: oklch(0.208 0.04 265.8 / 12%);
+  --selection-color: oklch(0.537 0.239 262.8 / 18%);
 
   /* ===== B 区：DeskMinis 语义别名层（强制浅段，同 :root 段） ===== */
   --bg: var(--background-subtle); /* Aurora §3 换挡（同 :root 段） */
