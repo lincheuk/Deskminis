@@ -209,6 +209,16 @@ const turns = computed<Turn[]>(() => {
   }
   return out;
 });
+// ---- L3 消息锚点导航轨（pool-batch §3）：右缘竖点，点击滚到对应回合；不做拖拽刷 ----
+const railVisible = computed(() => !isEmpty.value && turns.value.length >= 3);
+function railTitle(t: Turn): string {
+  return t.user ? (t.user.text.replace(/\s+/g, ' ').trim().slice(0, 24) || '（空消息）') : '助手回合';
+}
+// permFocusRequestId 成例：querySelector 定位 + 平滑滚动；回合可能很高，块首对齐
+function jumpTurn(id: string): void {
+  streamEl.value?.querySelector(`[data-turn-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 // 用户消息时间（乐观消息也有 createdAt；历史缺失兜底空串）
 function userTime(m: UiMsg): string { return typeof m.createdAt === 'number' ? fmtHHMM(m.createdAt) : ''; }
 // hover 复制：用户正文纯文本进剪贴板
@@ -670,7 +680,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
       <EmptyState v-if="isEmpty" part="hero" @fill="fillInput" />
       <template v-else>
         <!-- 回合流：用户消息（无气泡标签行）+ 助手工作区（无名称行，回合容器承载归属） -->
-        <section v-for="t in turns" :key="t.id" class="turn">
+        <section v-for="t in turns" :key="t.id" class="turn" :data-turn-id="t.id">
           <template v-if="t.user">
             <div class="ublock">
               <div class="urow">
@@ -712,7 +722,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
         </section>
 
         <!-- 实时助手块：流式文本 + 执行中胶囊 + 权限卡 + 重试提示（进行中的回合，保名称行） -->
-        <section v-if="hasLive" class="turn live">
+        <section v-if="hasLive" class="turn live" data-turn-id="live">
           <div class="ahead"><div class="aicon"></div><div class="aname">DeskMinis</div></div>
           <div class="abody">
             <!-- 实时思考块：流式正文上方，收起态露末两行（思考还在滚动的窗口感） -->
@@ -759,6 +769,19 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
       v-if="!following" class="back-bottom" type="button"
       title="回到底部" aria-label="回到底部" @click="backToBottom"
     ><Icon name="chevron-down" :size="16" /></button>
+
+    <!-- L3 锚点导航轨（pool-batch §3）：≥3 回合才有导航价值，welcome 隐藏（railVisible 统管） -->
+    <nav v-if="railVisible" class="trail" aria-label="回合导航">
+      <button
+        v-for="t in turns" :key="t.id" type="button" class="tdot"
+        :title="railTitle(t)" :aria-label="railTitle(t)"
+        @click="jumpTurn(t.id)"
+      ></button>
+      <button
+        v-if="hasLive" type="button" class="tdot live"
+        title="正在进行的回合" aria-label="正在进行的回合" @click="jumpTurn('live')"
+      ></button>
+    </nav>
 
     <!-- 选区浮条：mousedown.prevent 是必须的——默认 mousedown 会先塌掉选区，click 就永远打不到 -->
     <div v-if="annoBar" class="annobar" role="toolbar" aria-label="选区操作" :style="{ left: annoBar.x + 'px', top: annoBar.y + 'px' }">
@@ -965,6 +988,21 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .back-bottom:hover { color: var(--label); background: var(--fill-tertiary); }
 /* MU3 §2-5 焦点环：键盘 :focus-visible 出环，鼠标点击无环 */
 .back-bottom:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+/* L3 锚点导航轨：右缘竖点（绝对定位吃 .pane-c 的 position:relative）。
+   点多时轨内静默滚动（无滚动条视噪）；不做拖拽刷——点击导航先覆盖 90% 场景。 */
+.trail {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%); z-index: 15;
+  display: flex; flex-direction: column; gap: 7px; align-items: center;
+  max-height: 55%; overflow-y: auto; scrollbar-width: none; padding: 4px 2px;
+}
+.tdot {
+  width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; border: none; padding: 0;
+  background: var(--label-quaternary); cursor: pointer; opacity: .55;
+}
+.tdot:hover { background: var(--action); opacity: 1; }
+.tdot:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.tdot.live { background: var(--action); opacity: 1; animation: railpulse 1.6s ease-in-out infinite; }
+@keyframes railpulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: .55; } }
 
 /* 回合容器（设计 v2 §2.1）：回合间 1px 分隔线 + 24px 间距，回合内块间 8px */
 /* MU5：对话列现在可以拖到可用宽的一半（2560 屏上到 1254px），但**正文不该跟着拉长**——

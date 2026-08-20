@@ -64,6 +64,21 @@ describe('L2 接线：ChatView @ 文件菜单（slashmenu 同款、独立状态�
   });
 });
 
+describe('L3 接线：消息锚点导航轨（≥3 回合显示，welcome 隐藏，点击平滑滚动）', () => {
+  it('turn 节补 data-turn-id；右缘 .trail 原生按钮点 + 实时回合脉动点', () => {
+    const cv = read('src/renderer/src/components/ChatView.vue');
+    expect(cv).toContain(':data-turn-id="t.id"');
+    expect(cv).toContain('data-turn-id="live"'); // 实时回合也可跳
+    expect(cv).toContain('class="trail"');
+    expect(cv).toContain('v-if="railVisible"');
+    expect(cv).toContain('!isEmpty.value && turns.value.length >= 3'); // welcome 隐藏 + 阈值
+    expect(cv).toContain('.slice(0, 24)'); // 点 title = 用户消息首 24 字
+    expect(cv).toMatch(/data-turn-id[^\n]*scrollIntoView\(\{ behavior: 'smooth'/); // permFocus 成例
+    expect(cv).toContain('class="tdot live"');
+    expect(cv).toMatch(/@keyframes\s+railpulse/);
+  });
+});
+
 describe('L4 FilesPanel md 预览：走既有零依赖渲染器 + 渲染/源码段控', () => {
   it('parseMarkdown → MarkdownView 接线；段控仅 md 出现；零 v-html 红线不碰', () => {
     const fp = read('src/renderer/src/components/FilesPanel.vue');
