@@ -1,11 +1,11 @@
-/** F2a 入库降采样：
- *  纯计算部分（planDownsample / pickSmallerDataUrl）node 直测——尺寸/格式分支表驱动；
+/** F2a/F2c 入库降采样：
+ *  纯计算部分（planDownsample / approxDataUrlBytes）node 直测——尺寸/格式分支表驱动；
  *  canvas 实际缩放 jsdom 测不了，用源码守卫锚定上传路径（ChatView.saveImages 调用了
  *  downsampleImageFile + 1568 长边上限字面量经 MAX_LONG_EDGE 锚定）。 */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { planDownsample, pickSmallerDataUrl, MAX_LONG_EDGE } from '../src/renderer/src/lib/attach/downsample';
+import { planDownsample, approxDataUrlBytes, MAX_LONG_EDGE } from '../src/renderer/src/lib/attach/downsample';
 
 const root = path.resolve(__dirname, '..');
 const readSrc = (rel: string): string =>
@@ -56,18 +56,19 @@ describe('F2a planDownsample 纯函数：是否需缩 / 目标尺寸 / 格式选
   });
 });
 
-describe('F2a pickSmallerDataUrl：导出反而变大时取小的那份', () => {
-  const big = `data:image/png;base64,${'A'.repeat(2000)}`;
-  const small = `data:image/jpeg;base64,${'B'.repeat(500)}`;
-  it('导出更小 → 用导出的', () => {
-    expect(pickSmallerDataUrl(big, small)).toBe(small);
-  });
-  it('导出反而更大 → 保原字节（原份在前、导出份在后）', () => {
-    expect(pickSmallerDataUrl(small, big)).toBe(small);
-  });
-  it('同尺寸：返回其一（此处即原份）', () => {
-    expect(pickSmallerDataUrl(small, small)).toBe(small);
-  });
+describe('F2c approxDataUrlBytes：base64 payload 长度 × 3/4 向下取整（表驱动）', () => {
+  const table: { name: string; dataUrl: string; expect: number }[] = [
+    { name: '空 payload = 0', dataUrl: 'data:image/png;base64,', expect: 0 },
+    { name: 'payload 4 字符（QUJD=ABC）→ 3 字节', dataUrl: 'data:image/png;base64,QUJD', expect: 3 },
+    { name: 'payload 8 字符含填充（QUJDRA==）→ 6 字节', dataUrl: 'data:image/jpeg;base64,QUJDRA==', expect: 6 },
+    { name: '大 payload：2000 字符 → 1500 字节', dataUrl: `data:image/png;base64,${'A'.repeat(2000)}`, expect: 1500 },
+    { name: '无逗号坏输入 → 0', dataUrl: 'not-a-data-url', expect: 0 },
+  ];
+  for (const row of table) {
+    it(row.name, () => {
+      expect(approxDataUrlBytes(row.dataUrl)).toBe(row.expect);
+    });
+  }
 });
 
 describe('F2a 上传路径源码守卫：ChatView.saveImages 走降采样', () => {
@@ -81,5 +82,17 @@ describe('F2a 上传路径源码守卫：ChatView.saveImages 走降采样', () =
   it('1568 上限字面量锚定在 downsample 模块（MAX_LONG_EDGE），不散落组件', () => {
     const mod = readSrc('src/renderer/src/lib/attach/downsample.ts');
     expect(mod).toContain('1568');
+  });
+});
+
+describe('F2c 像素上限硬约束源码守卫：字节取小退役、导出兜底常量锚定', () => {
+  const mod = readSrc('src/renderer/src/lib/attach/downsample.ts');
+  it('pickSmallerDataUrl 已删除（防回魂反向锚：字节取小会让超像素原图胜出）', () => {
+    expect(mod).not.toContain('pickSmallerDataUrl');
+  });
+  it('approxDataUrlBytes 与 MAX_EXPORT_BYTES 存在（5MB 导出兜底同口径锚定）', () => {
+    expect(mod).toContain('approxDataUrlBytes');
+    expect(mod).toContain('MAX_EXPORT_BYTES');
+    expect(mod).toContain('5 * 1024 * 1024');
   });
 });

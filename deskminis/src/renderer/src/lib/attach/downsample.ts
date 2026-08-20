@@ -1,13 +1,18 @@
-/** F2a 入库降采样（渲染端，DOM canvas，零依赖）。
+/** F2a/F2c 入库降采样（渲染端，DOM canvas，零依赖）。
  *  选图后、发往 minisd 前：长边 ≤1568 的原字节直传不动；超限按比例缩至长边 1568 再导出——
  *  png 保 png，jpeg/webp 导出 jpeg 质量 0.92；gif 豁免直传（canvas 会丢动画，5MB 上限仍兜底）。
- *  导出后若字节反而变大（罕见），取小的那份。
- *  决策逻辑抽成纯函数 planDownsample / pickSmallerDataUrl（node 单测表驱动）；
+ *  F2c 两条决策：needsResize 必用缩后结果（像素合规是硬约束——canvas 重采样噪点会让 png
+ *  「缩后字节反超原图」成为常规场景，字节取小已退役）；png 缩后超 5MB 时改导 jpeg 0.92 兜底。
+ *  决策逻辑抽成纯函数 planDownsample / approxDataUrlBytes（node 单测表驱动）；
  *  canvas 实际缩放 jsdom 测不了，由 tests/renderer-downsample.test.ts 源码守卫锚定
  *  上传路径（ChatView.saveImages 调用本模块）+ 1568 字面量。 */
 
 /** 降采样长边上限：对齐主流视觉模型的长边像素限制（1568 = 768×2+32 档，Gemini 文档口径）。 */
 export const MAX_LONG_EDGE = 1568;
+
+/** 缩后导出的字节硬顶：与 chat.prompt 的附件 5MB 上限同口径，renderer/main 边界不跨端
+ *  import 故各自字面。超限且导出格式是 png 时改导 jpeg 0.92（照片类 jpeg 远小于 png）。 */
+const MAX_EXPORT_BYTES = 5 * 1024 * 1024;
 
 export interface DownsamplePlan {
   /** false = 尺寸在限内，原字节直传不动（不重编码——重编码必掉质量）。 */
@@ -39,11 +44,10 @@ export function planDownsample(w: number, h: number, mime: string): DownsamplePl
   };
 }
 
-/** 纯决策：两份 dataUrl 取字节小的那份。base64 字节数 ≈ payload 长度 × 3/4，
- *  长度有序 ⇒ 字节有序，无需真解码。导出反而变大时保原字节（罕见，如噪声图重编码）。 */
-export function pickSmallerDataUrl(original: string, exported: string): string {
-  const bytes = (d: string): number => Math.floor(((d.split(',', 2)[1] ?? '').length * 3) / 4);
-  return bytes(exported) < bytes(original) ? exported : original;
+/** dataUrl 字节估算：base64 payload 长度 × 3/4 向下取整（无需真解码）。
+ *  无逗号坏输入返回 0（split 取不到 payload 段）。 */
+export function approxDataUrlBytes(dataUrl: string): number {
+  return Math.floor(((dataUrl.split(',', 2)[1] ?? '').length * 3) / 4);
 }
 
 function fileToDataUrl(f: File): Promise<string> {
@@ -90,7 +94,14 @@ export async function downsampleImageFile(f: File): Promise<string> {
   } catch { return original; } // 解码失败（损坏图/浏览器不认）：原样交给 main 的校验拒绝
   if (!plan || !plan.needsResize) return original;
   try {
-    return pickSmallerDataUrl(original, await canvasResize(original, plan));
+    // F2c：像素合规是硬约束，needsResize 必用缩后结果——不与原字节比大小
+    // （缩后 1568 长边的图远够不着 5MB，字节无忧；噪点图 png 重编码膨胀已不再是回退理由）。
+    let exported = await canvasResize(original, plan);
+    if (approxDataUrlBytes(exported) > MAX_EXPORT_BYTES && plan.exportMime === 'image/png') {
+      // 极端兜底：png 缩后仍超 5MB（如满噪点截图）→ 改导 jpeg 0.92，重导后即为终版不再回头比较。
+      exported = await canvasResize(original, { ...plan, exportMime: 'image/jpeg' });
+    }
+    return exported;
   } catch {
     return original;
   }
