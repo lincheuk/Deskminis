@@ -103,7 +103,7 @@
 
 | 步 | 内容 | 先红守卫 |
 |---|---|---|
-| **G1** | 市场客户端：market/ 模块 + 两适配器 + SQLite 缓存表（追加迁移）+ 读侧 RPC 三件（sources/search/detail）| 适配器 fixture 例 + 白名单守卫 |
+| **G1** | 市场客户端：market/ 模块 + 三适配器（ClawHub / MCP Registry / awesome-dsh）+ SQLite 缓存表（追加迁移）+ 读侧 RPC 三件（sources/search/detail）| 适配器 fixture 例 + 白名单守卫 |
 | **G2** | 安装链路：market.install + 确认卡数据组装 + verdict 硬阻断 + stdio 白名单闸 + installed 比对 | 安装安全例全套 |
 | **G3** | 市场 UI：工作台「扩展」tab + MarketPanel 两子 tab + 卡片/详情/确认卡/已装态 | renderer 源码守卫 + 双主题截图 |
 | **G4**（可后置） | 更新检查：checkUpdates + hash 比对 + Update 流 + polish 收尾 | 更新例 |
