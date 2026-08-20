@@ -337,3 +337,20 @@
 - **E4b 过审**（bd0f299）：diff 与提示词逐字一致——仅 SessionList.vue 一行、.scard 两个
   keydown 加 .self、零其它改动。云端复跑 1559 例、52 失败与基线逐条一致、typecheck 零错误。
   a11y 守卫前缀匹配不受影响（预判成立）。.smore Enter 被父卡吞的 bug 关账。
+
+### F 波审核记录（2026-08-20，云端）——F1 d1d8810 + F2 a10c321 一并过审
+- 云端一次性全量复跑（对照 Trae 因并行会话分 6 批跑）：**1584 例、52 失败与基线逐条一致、
+  typecheck 零错误**，与其聚合数吻合。无 matcher 扫描零命中（两 commit 范围）。
+- **并行踩踏事故核实**：Trae 两会话并行 F1/F2 共享 checkout 曾产出杂交 commit，申报已 amend
+  修复。逐 hunk 验证成立：a10c321 的 loop.ts hunk 纯 F2（placeholderOldMediaRefs），
+  d1d8810 纯 F1（cancelWithPartialReply）且 diff base 为 F2 后树，互不冲掉。
+  流程教训入册：**并行执行波必须各自独立 clone 或严格串行**，共享 index 的 amend 是事故温床。
+- F1 要点：generator 收尾函数复用两处短路点；turn 头不接的论证成立（续写路径上一轮已
+  persist、空响应路径本就空）；streamInterruptCount=1 启用既有语义（恒写 0 无读取方，核实）；
+  三例断言含顺序断言（messagePersisted 先于 error）与两红线例。
+- F2 要点：downsample「优化不是闸门」回落设计正确；**扩展名跟随是 Trae 超规格抓的真雷**
+  （jpeg 字节落 .png → mimeFromPath 报 image/png 与字节不符 → Anthropic 400），ext 白名单 +
+  jpg 归一 + 缺省 png 兼容；占位函数保序保长、恒非空占位文本、轮界定义与 isRealUserTurn
+  的差异（纯图消息算轮界）有论证；DB 零迁移兑现。
+- **用户真机自查清单（未清）**：①E 波双主题目视（连 D6 设置页）；②F2 三项：4000px 大图上传
+  落盘为缩后文件、连发 3 轮带图后第 4 轮请求老图成占位、gif 直传动画保留。
