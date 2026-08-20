@@ -46,6 +46,7 @@ import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
 import { SkillImporter, type ImportKind } from './skills/importer';
+import { MarketService } from './market/service';
 import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath, resolveBridgeNode } from './bridge/server';
 import { detectBridgeTriggers } from './bridge/detect';
 import { makeBridgeDispatcher } from './bridge/handlers';
@@ -348,6 +349,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const importer = new SkillImporter(skillsRoot, skillStore, undefined, t => rpc.broadcast('skills.import.progress', t));
   // agent 直写目录的孤儿回收（设计 §5.1）：skillsRoot 下存在但不在表里的含 SKILL.md 目录入库
   importer.adoptOrphans();
+
+  // ---- G1 扩展市场读侧（设计 §2/§6）：三源适配器 + market_cache 缓存 + 读 RPC。
+  //  SQLite 走既有 db 连接不新开；读操作免批（与 skills.list 同档）；install 链路属 G2。----
+  const market = new MarketService(db);
 
   const fakeEnabled = process.env.DESKMINIS_FAKE_PROVIDER === '1';
 
@@ -842,6 +847,11 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       rpc.broadcast('skills.changed', {});
       return { ok: true };
     },
+    // ---- G1 市场读侧 RPC（设计 §6）：读操作免批（与 skills.list 同档）；install 属 G2 ----
+    'market.sources.list': () => market.sourcesList(),
+    'market.search': (p: { kind?: unknown; q?: unknown; category?: unknown; cursor?: unknown }) =>
+      market.search(p ?? {}),
+    'market.detail': (p: { id?: unknown }) => market.detail(p ?? {}),
     // ---- M6 Task 4：审计查询面 audit.list（决策点 2-2：只留 RPC 接缝，不出 UI）----
     // 透传 AuditLogger.list 过滤参数；payload 防御性再脱敏一次（double-redact，红线：密钥材料不出现在任何出口）。
     'audit.list': (p: AuditListOpts) => {

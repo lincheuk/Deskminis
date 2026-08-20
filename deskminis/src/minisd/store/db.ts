@@ -93,6 +93,19 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE sessions ADD COLUMN workspace_root TEXT;
   `,
+  // [6] G1 扩展市场：market_cache（读侧 HTTP 缓存，设计稿 §2）。
+  //  迁移一经发布不可改：已发布库 user_version=6，runner 只对 v<7 的库跑 MIGRATIONS[6]。
+  //  key=源前缀:端点:查询（适配器构造），etag 支持条件请求（304 只刷 fetched_at），
+  //  TTL 软过期（列表 15 分钟/详情 24h）由 cache.ts 运行时判断——列里不存 TTL，改策略无需迁移。
+  //  追加式纪律：只建新表，不动既有任何表。
+  `
+  CREATE TABLE market_cache (
+    key TEXT PRIMARY KEY,
+    etag TEXT,
+    body TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(filePath: string): Database.Database {

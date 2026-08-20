@@ -147,7 +147,7 @@ describe('工作区可选 · 界面（3 例）', () => {
 describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
   it('新建库：sessions 带 workspace_root，默认 NULL（= 回落沙箱桶）', () => {
     const db = openDb(':memory:');
-    expect(db.pragma('user_version', { simple: true })).toBe(6);
+    expect(db.pragma('user_version', { simple: true })).toBe(7);
     const cols = (db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(c => c.name);
     expect(cols).toContain('workspace_root');
     const now = Date.now() / 1000;
@@ -157,15 +157,17 @@ describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
     db.close();
   });
 
-  it('**M6 用户的库停在 v5**：重开只补跑 [5] 到 6，存量会话不丢、且幂等', () => {
+  it('**M6 用户的库停在 v5**：重开只补跑 [5][6] 到 7，存量会话不丢、且幂等', () => {
     // 这条是这次真正的新增路径。上面那个 v4 用例覆盖的是更老的库；
     // 现网绝大多数库是 v5（M6 之后），它们首次启动才补跑 [5]——不单独覆盖等于没测。
     const dir = mkdtempSync(path.join(tmpdir(), 'dm-ws-mig-'));
     const file = path.join(dir, 'test.db');
     try {
       let db = openDb(file);
-      // 造出「工作区之前」的库形态：撤掉 [5] 的列并把版本退回 5
+      // 造出「工作区之前」的库形态：撤掉 [5] 的列与 [6] 的表并把版本退回 5
+      // （G1 加了 MIGRATIONS[6] market_cache，回退老库必须连它一起撤，否则重开报 already exists）
       db.exec('ALTER TABLE sessions DROP COLUMN workspace_root;');
+      db.exec('DROP TABLE IF EXISTS market_cache;');
       db.pragma('user_version = 5');
       const now = Date.now() / 1000;
       db.prepare('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)')
@@ -173,7 +175,7 @@ describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
       db.close();
 
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(6);
+      expect(db.pragma('user_version', { simple: true })).toBe(7);
       const cols = (db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(c => c.name);
       expect(cols).toContain('workspace_root');
       // 存量会话完好，且新列对老行是 NULL —— 老会话升级后仍用沙箱桶，行为一字不变
@@ -185,7 +187,7 @@ describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
 
       // 幂等：再开一次不重跑（重跑会报 duplicate column name）
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(6);
+      expect(db.pragma('user_version', { simple: true })).toBe(7);
       expect((db.prepare('SELECT title FROM sessions WHERE id=?').get('S_OLD') as { title: string }).title)
         .toBe('升级前的会话');
       db.close();
