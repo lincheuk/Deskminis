@@ -332,3 +332,8 @@
 - 其余映射：Windows 持久 PowerShell 我们早有（PersistentShell）；Profile Bundle 与商标规范
   （「DeepSeek Harness」注册商标）记为扩展市场波设计输入——市场 UI 文案需按其
   BRAND_GUIDELINES 做描述性使用合规；会话搜索/@ 引用/会话分叉/web_search 并发记入候选池。
+
+### E4b 审核记录（2026-08-20，云端）
+- **E4b 过审**（bd0f299）：diff 与提示词逐字一致——仅 SessionList.vue 一行、.scard 两个
+  keydown 加 .self、零其它改动。云端复跑 1559 例、52 失败与基线逐条一致、typecheck 零错误。
+  a11y 守卫前缀匹配不受影响（预判成立）。.smore Enter 被父卡吞的 bug 关账。
