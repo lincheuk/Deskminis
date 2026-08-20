@@ -76,9 +76,13 @@ async function resetWs(): Promise<void> {
 
 // ---- L5 会话级 MCP 勾选（pool-batch §5：D5 后端全通，这里是唯一 renderer 入口）----
 const mcpOpen = ref(false);
-// 组件创建即拉取一次：pill 显隐取决于「存在已启用 server」，不拉则 mcpServers 恒为空、入口永不出现。
-// 设置页的增删改走同一 store（写后重拉），两处天然同步，无需订阅。
-void chat.fetchMcpServers();
+// pill 显隐取决于「存在已启用 server」，不拉名单则 mcpServers 恒为空、入口永不出现。
+// 不能在组件创建时裸拉一次：ChatView 随 App 首帧挂载，rpc 此刻可能尚未 connect（init 才连），
+// 首拉静默失败就再无入口（L6 目视实测踩到）。改挂 activeId：有会话 = rpc 必已就绪；
+// 空名单才重拉（会话切换顺带自愈）。设置页的增删改走同一 store 写后重拉，两处天然同步。
+watch(() => chat.activeId, () => {
+  if (chat.activeId && chat.mcpServers.servers.length === 0) void chat.fetchMcpServers().catch(() => {});
+}, { immediate: true });
 const enabledMcpServers = computed(() => chat.mcpServers.servers.filter(s => s.enabled));
 const mcpPillVisible = computed(() => !!chat.activeId && enabledMcpServers.value.length > 0);
 const sessionMcpDisabled = computed(() => chat.sessions.find(s => s.id === chat.activeId)?.mcpDisabled ?? []);
