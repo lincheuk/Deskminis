@@ -45,6 +45,11 @@ export class ChatStore {
     if (!cols.some(c => c.name === 'mcp_disabled_json')) {
       db.exec('ALTER TABLE sessions ADD COLUMN mcp_disabled_json TEXT');
     }
+    // J1 同款幂等补列：会话绑定的助手 id（NULL = 无助手）。删助手时绑定悬空保留——
+    // 注入侧查无即跳过，会话继续可用（设计稿 §1）。
+    if (!cols.some(c => c.name === 'assistant_id')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN assistant_id TEXT');
+    }
   }
 
   nowEpoch(): number { return Date.now() / 1000; }
@@ -73,10 +78,10 @@ export class ChatStore {
   }
 
   getSession(id: string): SessionMeta | undefined {
-    const r = this.db.prepare('SELECT id, title, model_binding, memory_enabled, workspace_root, mcp_disabled_json, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
-      { id: string; title: string; model_binding: string | null; memory_enabled: number; workspace_root: string | null; mcp_disabled_json: string | null; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
+    const r = this.db.prepare('SELECT id, title, model_binding, memory_enabled, workspace_root, mcp_disabled_json, assistant_id, created_at, updated_at, pinned_at FROM sessions WHERE id=?').get(id) as
+      { id: string; title: string; model_binding: string | null; memory_enabled: number; workspace_root: string | null; mcp_disabled_json: string | null; assistant_id: string | null; created_at: number; updated_at: number; pinned_at: number | null } | undefined;
     if (!r) return undefined;
-    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, memoryEnabled: r.memory_enabled === 1, workspaceRoot: r.workspace_root ?? undefined, mcpDisabled: ChatStore.parseMcpDisabled(r.mcp_disabled_json), createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
+    return { id: r.id, title: r.title, modelBinding: r.model_binding ?? undefined, memoryEnabled: r.memory_enabled === 1, workspaceRoot: r.workspace_root ?? undefined, mcpDisabled: ChatStore.parseMcpDisabled(r.mcp_disabled_json), assistantId: r.assistant_id ?? undefined, createdAt: r.created_at, updatedAt: r.updated_at, pinnedAt: r.pinned_at ?? undefined };
   }
 
   listSessions(): SessionMeta[] {
@@ -94,6 +99,13 @@ export class ChatStore {
     const val = (typeof binding === 'string' && binding.trim() !== '') ? binding.trim() : null;
     this.db.prepare('UPDATE sessions SET model_binding=?, updated_at=? WHERE id=?').run(val, this.nowEpoch(), sessionId);
     this.onDirty?.(sessionId);
+  }
+
+  /** 写入 sessions.assistant_id（J1 会话绑定助手）；undefined/空串 = 清除。
+   *  不触发 onDirty：助手是本机预设，wire 格式无此类目（annotations 同款裁定）。 */
+  setAssistant(sessionId: string, assistantId: string | undefined): void {
+    const val = (typeof assistantId === 'string' && assistantId.trim() !== '') ? assistantId.trim() : null;
+    this.db.prepare('UPDATE sessions SET assistant_id=?, updated_at=? WHERE id=?').run(val, this.nowEpoch(), sessionId);
   }
 
   /** 写入 sessions.memory_enabled（设计 §3.4 会话级记忆开关）。 */
@@ -131,6 +143,9 @@ export class ChatStore {
       this.db.prepare('DELETE FROM messages WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM compact_markers WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM annotations WHERE session_id=?').run(id);
+      // J1 随动修缺（设计稿 §3 申报）：该表此前不在删除链路，助手快照批量写覆盖后
+      // 残留会随会话数膨胀——趁本波一并治理
+      this.db.prepare('DELETE FROM session_skill_overrides WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM sessions WHERE id=?').run(id);
     });
     tx();

@@ -38,6 +38,7 @@ export interface SessionMeta {
   memoryEnabled?: boolean;       // 会话级记忆开关，默认 true（db.ts memory_enabled DEFAULT 1）
   workspaceRoot?: string;        // 会话绑定的真实项目目录；缺省 = 回落沙箱桶 sessions/<id>/workspace
   mcpDisabled?: string[];        // D5 会话禁用的 MCP server 名单（mcp_disabled_json；空 = 无禁用）
+  assistantId?: string;          // J1 会话绑定的助手 id（悬空 = 助手已删，注入侧查无即跳过）
   createdAt: number; updatedAt: number; pinnedAt?: number;
 }
 

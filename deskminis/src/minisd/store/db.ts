@@ -141,6 +141,26 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_annotations_session ON annotations(session_id, created_at);
   `,
+  // [9] J1 助手体系（设计稿 2026-08-20-assistants-design.md §1）：assistants 只追加新表。
+  //  迁移一经发布不可改：已发布库 user_version=9，runner 只对 v<10 的库跑 MIGRATIONS[9]。
+  //  助手 = 命名预设：rules 追加系统提示词、skill_ids_json 默认技能勾选（建会话时快照式
+  //  写 session_skill_overrides）、model_binding 同 sessions 取值约定（'provider:'/'group:'）、
+  //  prompts_json 示例指令数组。会话绑定列 sessions.assistant_id 走 ChatStore 构造器
+  //  幂等补列（mcp_disabled_json 成例），不占迁移位。权限档不入表：全局态不劫持（设计稿 §0）。
+  `
+  CREATE TABLE assistants (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    avatar TEXT NOT NULL DEFAULT '',
+    rules TEXT NOT NULL DEFAULT '',
+    model_binding TEXT,
+    skill_ids_json TEXT NOT NULL DEFAULT '[]',
+    prompts_json TEXT NOT NULL DEFAULT '[]',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+  );
+  `,
 ];
 
 export function openDb(filePath: string): Database.Database {

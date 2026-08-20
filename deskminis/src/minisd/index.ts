@@ -45,6 +45,8 @@ import { createDiagnosticsMethods } from './diagnostics';
 import { randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
+import { AssistantStore, applyAssistantPreset } from './assistants/store';
+import { buildAssistantBlock } from './assistants/prompt';
 import { SkillImporter, type ImportKind } from './skills/importer';
 import { MarketService } from './market/service';
 import { MarketClient } from './market/client';
@@ -357,6 +359,15 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // agent 直写目录的孤儿回收（设计 §5.1）：skillsRoot 下存在但不在表里的含 SKILL.md 目录入库
   importer.adoptOrphans();
 
+  // ---- J1 助手体系（设计稿 2026-08-20-assistants-design.md）：命名预设目录 + 一次性种子 ----
+  const assistantStore = new AssistantStore(db);
+  assistantStore.ensureSeeds(settings);
+  /** 会话 → 生效助手（悬空绑定查无回 undefined，注入侧即跳过——删助手不杀会话）。 */
+  const assistantOf = (sessionId: string) => {
+    const aid = chat.getSession(sessionId)?.assistantId;
+    return aid ? assistantStore.get(aid) : undefined;
+  };
+
   // ---- G1/G2 扩展市场（设计 §2/§3/§6）：三源适配器 + market_cache 缓存 + 读 RPC + 安装链路。
   //  client/cache/sources 共享装配：读侧服务与安装链路共用同一份缓存与并发预算（≤2）。
   //  SQLite 走既有 db 连接不新开；读操作免批（与 skills.list 同档）；install 属状态变更——
@@ -437,7 +448,34 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       return { root: paths.workspaceOf(p.sessionId), isDefault: true };
     },
     'chat.sessions.list': () => chat.listSessions(),
-    'chat.sessions.create': (p: { title?: string }) => chat.createSession(p.title, settings.get(WORKSPACE_LAST_KEY)),
+    // J1 扩参：带 assistantId 时建会话并应用预设三件（绑定/默认模型/技能快照，设计稿 §3）。
+    // 返回 getSession 重取——预设写入发生在 createSession 之后，直接回 create 的返回值会缺字段。
+    'chat.sessions.create': (p: { title?: string; assistantId?: string }) => {
+      if (p.assistantId === undefined) return chat.createSession(p.title, settings.get(WORKSPACE_LAST_KEY));
+      const a = assistantStore.get(p.assistantId);
+      if (!a) throw new Error(`助手不存在: ${p.assistantId}`);
+      const s = chat.createSession(p.title ?? a.name, settings.get(WORKSPACE_LAST_KEY));
+      applyAssistantPreset({ chat, skills: skillStore }, s.id, a);
+      return chat.getSession(s.id)!;
+    },
+    // J1 助手 CRUD：读免批（skills.list 同档）；写操作广播 assistants.changed 供前端刷新
+    'assistants.list': () => assistantStore.list(),
+    'assistants.create': (p: { name: string; avatar?: string; rules?: string; modelBinding?: string; skillIds?: string[]; prompts?: string[] }) => {
+      const a = assistantStore.create(p);
+      rpc.broadcast('assistants.changed', {});
+      return a;
+    },
+    'assistants.update': (p: { id: string; name?: string; avatar?: string; rules?: string; modelBinding?: string; skillIds?: string[]; prompts?: string[]; sortOrder?: number }) => {
+      const a = assistantStore.update(p.id, p);
+      rpc.broadcast('assistants.changed', {});
+      return a;
+    },
+    'assistants.delete': (p: { id: string; confirm?: boolean }) => {
+      if (p.confirm !== true) throw new Error('删除助手需要 confirm: true 确认');
+      assistantStore.remove(p.id);
+      rpc.broadcast('assistants.changed', {});
+      return { ok: true };
+    },
     'chat.sessions.delete': (p: { sessionId: string; confirm?: boolean }) => {
       const sessionId = assertSessionId(p.sessionId);
       if (p.confirm !== true) throw new Error('删除会话需 confirm:true');
@@ -572,8 +610,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         const disciplineBlock = buildDisciplineBlock(ctx.modelId, promptConfig.discipline ?? {});
         const stable = stableCache.get(ctx.sessionId, { bridgeGranted, modelId: ctx.modelId, config: promptConfig, disciplineBlock });
         const skillsBlock = buildSkillsBlock(skillStore.listEnabledForSession(ctx.sessionId), skillsRoot, skillStore.nowEpoch());
+        // J1：助手规则块置 stable 后、技能块前（设计稿 §4）；每轮实时读表——会话中改助手规则下一轮生效
+        const assistantBlock = buildAssistantBlock(assistantOf(ctx.sessionId));
         const memoryBlock = memoryInjector.build('__BASE__', { memoryEnabled });
-        const base = stable + skillsBlock;
+        const base = stable + assistantBlock + skillsBlock;
         return memoryBlock ? memoryBlock.replace('__BASE__', base) : base;
       };
       let excludedToolNames = memoryEnabled ? undefined : new Set<string>(MEMORY_TOOL_NAMES);

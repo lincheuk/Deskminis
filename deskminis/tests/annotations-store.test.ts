@@ -11,8 +11,8 @@ let db: Database.Database; let store: ChatStore;
 beforeEach(() => { db = openDb(':memory:'); store = new ChatStore(db); });
 
 describe('迁移 [8] annotations', () => {
-  it('新库 user_version=9 且 annotations 表与会话索引就位', () => {
-    expect(db.pragma('user_version', { simple: true })).toBe(9);
+  it('新库 user_version=10 且 annotations 表与会话索引就位（J1 追加 [9] 后最新版是 10）', () => {
+    expect(db.pragma('user_version', { simple: true })).toBe(10);
     const t = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='annotations'").get();
     expect(t).toBeTruthy();
     const i = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_annotations_session'").get();
