@@ -374,11 +374,19 @@ function annoRootOf(n: Node | null): HTMLElement | null {
   return null;
 }
 
-function onStreamMouseUp(): void {
-  // mouseup 一刻选区可能尚未定稿（双击/三击选词选段）：推一帧再读才是最终选区
+function onStreamMouseUp(ev: MouseEvent): void {
+  // mouseup 一刻选区可能尚未定稿（双击/三击选词选段）：推一帧再读才是最终选区。
+  // 点击命中高亮也走本手势面（不另挂 <div @click>——键盘可达守卫口径，一个手势面也更干净）
   requestAnimationFrame(() => {
+    const wasPop = annoPop.value !== null;
+    if (wasPop) closeAnnoPop(); // 流内任意 mouseup 先关已开气泡（气泡自身在 .stream 外，不受此路径影响）
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { hideAnnoBar(); return; }
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      hideAnnoBar();
+      // 塌缩点击：命中高亮即开气泡；刚关掉的那次点击不立刻复开（点外=关的手感）
+      if (!wasPop) tryOpenPopAt(ev.clientX, ev.clientY);
+      return;
+    }
     const r = sel.getRangeAt(0);
     const root = annoRootOf(r.startContainer);
     // 两端点必须同一正文根：跨消息/跨工具行的选区两个动作语义都不成立
@@ -435,6 +443,51 @@ function onSelectionChange(): void {
 document.addEventListener('selectionchange', onSelectionChange);
 onBeforeUnmount(() => { document.removeEventListener('selectionchange', onSelectionChange); });
 
+// ---- H3 注释气泡：点击高亮 → 查看引文/编辑笔记/删除（命中判定用与 Highlight 同一批 Range）----
+interface AnnoRangeEntry { id: string; range: Range; note: string; exact: string }
+let annoRanges: AnnoRangeEntry[] = []; // repaintHighlights 每轮整批重建，与着色永远同源
+const annoPop = ref<{ id: string; x: number; y: number; exact: string } | null>(null);
+const annoNote = ref('');
+const annoNoteEl = ref<HTMLTextAreaElement | null>(null);
+
+function openAnnoPop(entry: AnnoRangeEntry, clientX: number, clientY: number): void {
+  const host = paneEl.value?.getBoundingClientRect();
+  if (!host) return;
+  annoNote.value = entry.note;
+  annoPop.value = {
+    id: entry.id,
+    exact: entry.exact.length > 80 ? entry.exact.slice(0, 80) + '…' : entry.exact,
+    // 130 ≈ 气泡半宽（260px 卡）：夹紧到半宽整卡才不出列
+    x: Math.min(Math.max(clientX - host.left, 130), host.width - 130),
+    y: Math.min(clientY - host.top + 10, host.height - 40),
+  };
+  void nextTick(() => annoNoteEl.value?.focus()); // 焦点进笔记框：Esc 关卡的键盘闭环由此成立
+}
+function closeAnnoPop(): void { annoPop.value = null; }
+function saveAnnoNote(): void {
+  const p = annoPop.value;
+  if (!p) return;
+  closeAnnoPop();
+  void chat.updateAnnotationNote(p.id, annoNote.value.trim());
+}
+function deleteAnno(): void {
+  const p = annoPop.value;
+  if (!p) return;
+  closeAnnoPop();
+  void chat.removeAnnotation(p.id);
+}
+/** 塌缩点击的高亮命中判定：与着色同源的 Range 几何，不做任何 DOM 包裹。 */
+function tryOpenPopAt(clientX: number, clientY: number): void {
+  if (!annoRanges.length) return;
+  const doc = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null };
+  const caret = doc.caretRangeFromPoint?.(clientX, clientY);
+  if (!caret) return;
+  const hit = annoRanges.find(a => {
+    try { return a.range.isPointInRange(caret.startContainer, caret.startOffset); } catch { return false; }
+  });
+  if (hit) openAnnoPop(hit, clientX, clientY);
+}
+
 /** 高亮渲染：CSS Custom Highlight API——零 DOM 改写（跨节点 <mark> 包裹会破坏 Vue 视图一致性），
  *  重渲染后只需重算 Range。API 缺失（理论不发生，Chromium 140）只是无着色，数据面不受影响。 */
 function repaintHighlights(): void {
@@ -443,6 +496,7 @@ function repaintHighlights(): void {
   if (!HL || !registry) return;
   const all: Range[] = [];
   const noted: Range[] = [];
+  const entries: AnnoRangeEntry[] = [];
   const stream = streamEl.value;
   if (stream && chat.annotations.length) {
     const byMid = new Map<string, typeof chat.annotations>();
@@ -465,11 +519,15 @@ function repaintHighlights(): void {
           range.setEnd(pts.end.node as Node, pts.end.offset);
           all.push(range);
           if (a.note) noted.push(range);
+          entries.push({ id: a.id, range, note: a.note, exact: a.exact });
           break; // 每条注释锚进首个命中的正文根
         }
       }
     }
   }
+  annoRanges = entries;
+  // 气泡指向的注释被删（本窗或别窗）：随重算即关，不留悬空卡
+  if (annoPop.value && !entries.some(en => en.id === annoPop.value!.id)) closeAnnoPop();
   registry.set('dm-anno', new HL(...all));
   registry.set('dm-anno-noted', new HL(...noted));
 }
@@ -582,6 +640,20 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
     <div v-if="annoBar" class="annobar" role="toolbar" aria-label="选区操作" :style="{ left: annoBar.x + 'px', top: annoBar.y + 'px' }">
       <button type="button" class="annobtn" aria-label="引用到输入框" @mousedown.prevent="quoteSelection"><Icon name="copy" :size="13" /><span>引用</span></button>
       <button type="button" class="annobtn" aria-label="添加标注" @mousedown.prevent="annotateSelection"><Icon name="book" :size="13" /><span>标注</span></button>
+    </div>
+
+    <!-- 注释气泡：点击高亮弹出；Esc（焦点在笔记框，事件冒泡到卡）/流内点击别处/删除/保存即关 -->
+    <div
+      v-if="annoPop" class="annopop" role="dialog" aria-label="标注"
+      :style="{ left: annoPop.x + 'px', top: annoPop.y + 'px' }"
+      @keydown.esc="closeAnnoPop"
+    >
+      <div class="annoquote">{{ annoPop.exact }}</div>
+      <textarea ref="annoNoteEl" v-model="annoNote" class="annonote" rows="2" placeholder="添加笔记…" aria-label="标注笔记"></textarea>
+      <div class="annoops">
+        <button type="button" class="annodel" aria-label="删除标注" @click="deleteAnno">删除</button>
+        <button type="button" class="annosave" aria-label="保存笔记" @click="saveAnnoNote">保存</button>
+      </div>
     </div>
 
     <div class="composer">
@@ -922,6 +994,35 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .annobtn:hover { background: var(--fill-tertiary); }
 .annobtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .annobtn :deep(svg) { stroke: var(--label-secondary); }
+/* 注释气泡：260px 实底浮岛卡（同零 blur 纪律） */
+.annopop {
+  position: absolute; z-index: 30; transform: translateX(-50%);
+  width: 260px; display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 8px 28px var(--shadow-color);
+}
+.annoquote {
+  font-size: var(--fs-micro); color: var(--label-secondary); line-height: 1.5;
+  padding-left: 8px; border-left: 3px solid var(--accent);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.annonote {
+  resize: none; padding: 6px 8px; border-radius: var(--r-control);
+  border: .5px solid var(--separator); background: var(--bg); color: var(--label);
+  font-family: var(--font-ui); font-size: var(--fs-micro); line-height: 1.5;
+}
+.annonote:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
+.annoops { display: flex; justify-content: space-between; gap: 8px; }
+.annodel {
+  border: none; background: none; color: var(--state-err); font-size: var(--fs-micro);
+  cursor: pointer; padding: 4px 8px; border-radius: var(--r-control);
+}
+.annodel:hover { background: var(--fill-tertiary); }
+.annosave {
+  border: none; background: var(--action); color: var(--on-action); font-size: var(--fs-micro);
+  font-weight: 600; cursor: pointer; padding: 4px 12px; border-radius: var(--r-control);
+}
+.annodel:focus-visible, .annosave:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 </style>
 
 <style>

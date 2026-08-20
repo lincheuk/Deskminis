@@ -40,6 +40,26 @@ describe('ChatView 选区注释接线', () => {
   });
 });
 
+describe('H3 注释气泡（点击高亮 → 查看/编辑笔记/删除）', () => {
+  it('命中判定走 Range 几何（caretRangeFromPoint + isPointInRange），不做 DOM 包裹', () => {
+    expect(chatView).toMatch(/caretRangeFromPoint/);
+    expect(chatView).toMatch(/isPointInRange/);
+  });
+  it('气泡：引文摘要 + 笔记输入（aria-label）+ 保存/删除原生按钮', () => {
+    expect(chatView).toMatch(/annopop/);
+    expect(chatView).toMatch(/aria-label="标注笔记"/);
+    expect(chatView).toMatch(/aria-label="保存笔记"/);
+    expect(chatView).toMatch(/aria-label="删除标注"/);
+  });
+  it('删除/保存走 store 动作（removeAnnotation/updateAnnotationNote），本地态靠广播回流', () => {
+    expect(chatView).toMatch(/chat\.removeAnnotation\(/);
+    expect(chatView).toMatch(/chat\.updateAnnotationNote\(/);
+  });
+  it('Esc 可关气泡（键盘可达闭环；composer 自带一处，气泡是第二处起）', () => {
+    expect(chatView.match(/keydown\.esc/g)!.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('chat store 注释面接线', () => {
   it('四件 RPC 与 changed 订阅在位', () => {
     expect(store).toMatch(/rpc\.call\('chat\.annotations\.list'/);
