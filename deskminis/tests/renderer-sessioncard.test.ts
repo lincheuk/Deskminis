@@ -99,11 +99,12 @@ describe('MU2b Task 4 左栏任务卡：SessionList/App.vue 守卫（2 例）', 
     expect(sessionList).toContain('var(--state-err)');
   });
 
-  /** MU5 重锚：布局 B 把展开态压到 212px，折叠态走 52px 图标轨（计划决策 2-2）。
-   *  上一档 260→232 是 MU2b 的设计 §1.2；本轮 232→212，同一守卫换锚不换意图。 */
-  it('App.vue：.pane-l 展开态宽 232px → 212px（MU5 布局 B；折叠态另走 52px 图标轨）', () => {
-    expect(app).toContain('width: 212px');
+  /** MU5 重锚：布局 B 把展开态压到 212px；I6 再重锚 240px（AionUi 新版宽侧栏，
+   *  用户 2026-08-20 截图指令）——同一守卫换锚不换意图，历史档位全列反向锚。 */
+  it('App.vue：.pane-l 展开态宽 212px → 240px（I6；折叠态另走 52px 图标轨）', () => {
+    expect(app).toContain('width: 240px');
     expect(app).not.toContain('width: 260px');
     expect(app).not.toContain('width: 232px');
+    expect(app).not.toContain('width: 212px');
   });
 });

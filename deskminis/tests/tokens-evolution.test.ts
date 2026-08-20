@@ -86,10 +86,12 @@ describe('MU2a Task 4 令牌层演进（8 例）', () => {
     expect(chatView).toContain('font-size: var(--fs-ui)');
   });
 
-  it('SessionList 新建按钮 brand 降权：newbtn 块无 var(--brand)/--on-brand，中性 --fill-tertiary 底', () => {
+  it('SessionList 新建按钮 brand 降权：newbtn 块无 var(--brand)/--on-brand（I6 改锚：行式无底）', () => {
     const newbtn = section(sessionList, '.newbtn {', '}');
     expect(newbtn).not.toContain('var(--brand)');
-    expect(newbtn).toContain('var(--fill-tertiary)');
+    // I6 改锚（AionUi 新版侧栏）：New Chat 从灰底块钮改「透明行 + hover 灰」——
+    // 底色锚从「主块含 --fill-tertiary」放宽为「hover 态含 --fill」；brand 降权红线不动
+    expect(sessionList).toMatch(/\.newbtn:hover\s*\{[^}]*var\(--fill/);
     expect(sessionList).not.toContain('var(--on-brand)');
   });
 

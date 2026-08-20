@@ -41,9 +41,9 @@ const railOpen = ref(true);
  *  窗口一变大就自动展开侧栏会打断用户手动折叠的意图，那比默认不对更烦人。 */
 const LARGE_SCREEN_W = 1600;
 const isLargeScreen = window.innerWidth >= LARGE_SCREEN_W;
-/** 大屏默认展开会话列表（看得到会话名），小屏仍折为图标轨——
- *  窄窗口里 212px 侧栏会把对话列和工作台一起挤瘦。 */
-const sidebarExpanded = ref(isLargeScreen);
+/** I6（用户 2026-08-20 截图指令）：默认恒展开宽侧栏——AionUi 新版参考全尺寸都是
+ *  宽白侧栏 + 分组导航，「工作态默认纯图标」的 MU5 决策 2-2 被覆盖；折叠仍可手动。 */
+const sidebarExpanded = ref(true);
 /** 三个分区各自可隐藏，但**对话列与工作台不能同时隐藏**——那会留下一个空壳白屏。
  *  左区可以整个隐掉（它是导航，不是内容）。 */
 const chatOpen = ref(true);
@@ -150,7 +150,7 @@ function restoreTabs(): void { hiddenTabs.value = []; }
 
 /** 左区实际占宽（与 .rail / .pane-l 的 CSS 定宽一一对应；改 CSS 要同步改这里）。 */
 const RAIL_W = 52;
-const SIDEBAR_W = 212;
+const SIDEBAR_W = 240; /* I6：212 → 240（AionUi 新版宽侧栏） */
 /** 视口宽度（响应式）——对话列上限要随它收缩，否则窄窗口下会把工作台饿死。 */
 const viewportW = ref(window.innerWidth);
 function onResize(): void { viewportW.value = window.innerWidth; }
@@ -480,7 +480,7 @@ onBeforeUnmount(() => {
 .rsp { flex: 1; }
 
 .pane-l {
-  width: 212px; flex: 0 0 212px; background: var(--bg); border-right: .5px solid var(--separator);
+  width: 240px; flex: 0 0 240px; background: var(--surface-1); border-right: .5px solid var(--separator);
   display: flex; flex-direction: column; overflow: hidden;
 }
 /* 对话列外壳。**类名不能叫 .pane-c**——ChatView 的根元素正是 .pane-c，而 Vue 的

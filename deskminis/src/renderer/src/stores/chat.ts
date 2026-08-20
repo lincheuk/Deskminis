@@ -36,6 +36,9 @@ export const useChat = defineStore('chat', {
     providers: [] as UiProvider[],
     /** J2 助手目录（欢迎页卡区 + 设置管理页共用；变更经 assistants.changed 广播回流刷新）。 */
     assistants: [] as UiAssistant[],
+    /** I6 欢迎屏选择态（AionUi Guid 页语义）：选中的助手 id，**不建会话**——
+     *  会话在发送首条消息时按此创建（ChatView send 消费）；换会话即失效清空。 */
+    welcomeAssistantId: '' as string,
     /** 网络搜索 provider 状态（设置页用）：后端 get 只回 {kind, hasKey, baseUrl?}，密钥永不回显。 */
     searchProvider: null as null | { kind: string; hasKey: boolean; baseUrl?: string },
     skills: [] as UiSkill[],
@@ -336,6 +339,7 @@ export const useChat = defineStore('chat', {
         this.lastStopReason = '';
         this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
         this.contextInfo = null;
+        this.welcomeAssistantId = ''; // I6：欢迎屏选择态只对「当下这次开局」有效，换会话即失效
       }
       this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.streamingThinking = ''; this.toolCards = [];
       void this.refreshSkills(); // 会话覆盖会改变生效启用集，换会话必须重取

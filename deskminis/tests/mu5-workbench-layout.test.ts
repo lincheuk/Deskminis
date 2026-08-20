@@ -47,9 +47,9 @@ describe('MU5 三区骨架：图标轨 / 对话列定宽 / 工作台伸展（3 �
     expect(app).toMatch(/width:\s*2px/);
   });
 
-  it('会话列表两态：折叠 52px 图标轨 / 展开 212px，且展开为挤压非浮层（计划决策 2-2）', () => {
-    // 展开态宽度换锚：MU2b 的 232px → 布局 B 的 212px
-    expect(app).toMatch(/\.pane-l\s*\{[^}]*width:\s*212px/);
+  it('会话列表两态：折叠 52px 图标轨 / 展开 240px，且展开为挤压非浮层（计划决策 2-2）', () => {
+    // 展开态宽度换锚：MU2b 232px → 布局 B 212px → I6 240px（AionUi 新版宽侧栏，用户 2026-08-20 截图指令）
+    expect(app).toMatch(/\.pane-l\s*\{[^}]*width:\s*240px/);
     expect(app).not.toContain('width: 232px');
     // 挤压而非浮层：不得用 position:absolute/fixed 把展开态浮在对话列之上
     expect(app).not.toMatch(/\.pane-l\s*\{[^}]*position:\s*(absolute|fixed)/);
@@ -179,10 +179,12 @@ describe('未建功能不许伪装可用（用户 2026-08-11 指出，2 例）',
 });
 
 describe('大屏默认比例（用户 2026-08-11 拍板，2 例）', () => {
-  it('阈值 1600：大屏默认展开侧栏 + 对话列给可读栏满宽；小屏沿用紧凑默认', () => {
+  it('阈值 1600：对话列大屏给可读栏满宽；侧栏默认恒展开（I6 改锚：AionUi 新版宽侧栏）', () => {
     expect(app).toContain('LARGE_SCREEN_W = 1600');
     expect(app).toMatch(/const isLargeScreen = window\.innerWidth >= LARGE_SCREEN_W/);
-    expect(app).toMatch(/const sidebarExpanded = ref\(isLargeScreen\)/);
+    // I6 改锚（用户 2026-08-20 截图指令）：默认展开不再按屏宽分档——AionUi 新版参考
+    // 全尺寸默认宽侧栏；「工作态默认纯图标」的 MU5 决策 2-2 被覆盖，折叠仍可手动
+    expect(app).toMatch(/const sidebarExpanded = ref\(true\)/);
     // 对话列默认宽随屏幕分档，且大屏那档与 ChatView 的可读栏同值
     expect(app).toContain('CHAT_MEASURE_W = 792');
     expect(app).toMatch(/ref\(isLargeScreen \? CHAT_MEASURE_W : 336\)/);

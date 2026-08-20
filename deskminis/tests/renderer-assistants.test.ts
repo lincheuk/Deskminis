@@ -36,21 +36,39 @@ describe('J2 助手体系前端接线', () => {
     expect(STORE).toContain('assistantId?: string'); // sessions 状态字段与后端 SessionMeta 对齐
   });
 
-  it('2. EmptyState：两态接线 + @fill 通路与既有锚不破 + 键盘可达', () => {
+  it('2. EmptyState：选中再输入（I6 药丸流）+ @fill 通路与既有锚不破 + 键盘可达', () => {
     expect(EMPTY).toContain('boundAssistant');
-    expect(EMPTY).toContain('newSessionWithAssistant');
-    // 绑定态的预设 prompts 走既有 fill 通路（不自动发送——与示例卡同语义）
+    // I6 改锚（用户 2026-08-20 截图指令）：点助手不再立刻建会话——chip 只写选择态
+    // welcomeAssistantId，会话在**发送时**由 ChatView 按选择创建（AionUi Guid 页语义）
+    expect(EMPTY).toContain('welcomeAssistantId');
+    expect(EMPTY).not.toContain('newSessionWithAssistant');
+    // 预设 prompts 走既有 fill 通路（不自动发送——与示例卡同语义）
     expect(EMPTY).toMatch(/prompts[\s\S]*emit\('fill'/);
     // renderer-composer 守卫的地基锚原样保留
     for (const anchor of ['读代码', '写脚本', '跑命令', 'chat.sessions.slice(0, 3)', "emit('fill'", 'chat.open(']) {
       expect(EMPTY).toContain(anchor);
     }
-    // 助手卡键盘可达（a11y-keyboard-reachable 成例：tabindex + role + enter/space）
+    // 助手 chip 键盘可达（a11y-keyboard-reachable 成例：tabindex + role + enter/space）
     const card = EMPTY.match(/class="ascard"[^>]*>/);
-    expect(card, 'EmptyState 应有 .ascard 助手卡').toBeTruthy();
+    expect(card, 'EmptyState 应有 .ascard 助手 chip').toBeTruthy();
     expect(card![0]).toContain('tabindex');
     expect(card![0]).toContain('role="button"');
     expect(card![0]).toContain('@keydown.enter');
+  });
+
+  it('2b. I6 欢迎屏次序与发送接线：hero → composer → 助手区下移；send 按选择建会话', () => {
+    const chatView = read('src/renderer/src/components/ChatView.vue');
+    // 源序：stream 里的 hero 部（part="hero"）在 .composer 之前，.wbelow（part="below"）在其后
+    const iHero = chatView.indexOf('part="hero"');
+    const iComposer = chatView.indexOf('<div class="composer">');
+    const iBelow = chatView.indexOf('class="wbelow"');
+    expect(iHero).toBeGreaterThan(-1);
+    expect(iBelow).toBeGreaterThan(-1);
+    expect(iHero).toBeLessThan(iComposer);
+    expect(iComposer).toBeLessThan(iBelow);
+    // 发送时消费选择态：无会话 + 选了助手 → newSessionWithAssistant；否则普通新建
+    expect(chatView).toContain('newSessionWithAssistant');
+    expect(chatView).toContain('welcomeAssistantId');
   });
 
   it('3. SettingsModal：NAV「助手」项 + 组件接入', () => {
@@ -78,5 +96,20 @@ describe('J2 助手体系前端接线', () => {
     expect(SESSIONLIST).toContain("'provider:' + p.id");
     // 反向锚：裸 id 选项不得再出现（:value="p.id" 是坏形态）
     expect(SESSIONLIST).not.toMatch(/:value="p\.id"/);
+  });
+
+  it('7. I6 侧栏对齐：品牌行 + New Chat 行式（newbtn 类名与键盘通路不动）', () => {
+    expect(SESSIONLIST).toContain('class="brand"');
+    expect(SESSIONLIST).toContain('DeskMinis');
+    expect(SESSIONLIST).toContain('class="newbtn"'); // a11y 守卫锚（renderer-a11y-keyboard）不动
+  });
+
+  it('8. I6 标题栏净化：三文字菜单收纳为单 ☰ 菜单（功能项全保留）', () => {
+    const tb = read('src/renderer/src/components/TitleBar.vue');
+    // 单菜单：menus 数组只剩一项；全部动作项仍在（新建/切换三区/主题/重载/退出/编辑五件）
+    expect(tb.match(/\{ id: '[a-z]+', label: '[^']*', items:/g) ?? []).toHaveLength(1);
+    for (const act of ["act: 'new'", "act: 'sidebar'", "act: 'chat'", "act: 'right'", "act: 'theme'", "act: 'reload'", "act: 'quit'", "act: 'copy'"]) {
+      expect(tb).toContain(act);
+    }
   });
 });

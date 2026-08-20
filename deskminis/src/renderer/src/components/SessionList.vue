@@ -142,11 +142,15 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 
 <template>
   <div class="pane">
+    <!-- I6 品牌行（AionUi 新版侧栏：logo + 应用名置顶，折叠钮右置） -->
+    <div class="brand">
+      <span class="bmark">◆</span><span class="bname">DeskMinis</span>
+      <button class="collapse" type="button" title="折叠为图标轨" @click="emit('collapse')"><Icon name="sidebar" :size="15" /></button>
+    </div>
     <div class="lhead">
       <div class="newbtn" @click="chat.newSession()" tabindex="0" role="button" @keydown.enter.prevent="chat.newSession()" @keydown.space.prevent="chat.newSession()">
         <Icon name="plus" :size="16" /><span>新建会话</span>
       </div>
-      <button class="collapse" type="button" title="折叠为图标轨" @click="emit('collapse')">☰</button>
     </div>
     <div class="list">
       <template v-for="grp in grouped" :key="grp.group">
@@ -231,11 +235,20 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 </template>
 
 <style scoped>
-.pane { display: flex; flex-direction: column; height: 100%; background: var(--bg); overflow: hidden; }
-/* MU5：新建钮与折叠钮同排（折叠钮把展开态收回 52px 图标轨） */
-.lhead { display: flex; align-items: center; gap: 6px; margin: 12px; flex: 0 0 auto; }
+.pane { display: flex; flex-direction: column; height: 100%; background: var(--surface-1); overflow: hidden; }
+/* I6 品牌行：AionUi 新版侧栏置顶 logo + 名（bmark 用字符标不引图片资产，零新资产） */
+.brand {
+  display: flex; align-items: center; gap: 8px; padding: 12px 14px 6px; flex: 0 0 auto;
+}
+.bmark {
+  width: 24px; height: 24px; border-radius: 7px; background: var(--accent); color: var(--on-action);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex: 0 0 auto;
+}
+.bname { flex: 1; min-width: 0; font-size: var(--fs-title); font-weight: 700; color: var(--label-emphasis); }
+/* I6：New Chat 从灰底块钮改「透明行 + hover 灰」（AionUi 新版行式导航） */
+.lhead { display: flex; align-items: center; gap: 6px; margin: 4px 8px 8px; flex: 0 0 auto; }
 .collapse {
-  flex: 0 0 auto; width: 32px; height: 32px; border-radius: var(--r-md);
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: var(--r-md);
   border: none; background: none; color: var(--label-tertiary); cursor: pointer;
   font-size: 13px; display: flex; align-items: center; justify-content: center;
 }
@@ -243,17 +256,17 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .collapse:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .newbtn {
   flex: 1; min-width: 0;
-  display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: var(--r-md);
-  background: var(--fill-tertiary); color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-control);
+  background: none; color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
 }
-.newbtn:hover { background: var(--fill); }
+.newbtn:hover { background: var(--fill-tertiary); }
 /* MU3 §2-5 焦点环 */
 .newbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .newbtn :deep(svg) { stroke: var(--label); }
 .list { flex: 1; min-height: 0; overflow: auto; padding: 0 6px 8px; }
 .datehead {
   position: sticky; top: 0; z-index: 1; padding: 6px 10px; font-size: 12px; font-weight: 600;
-  color: var(--label-secondary); background: var(--bg); display: flex; align-items: center; gap: 4px;
+  color: var(--label-secondary); background: var(--surface-1); display: flex; align-items: center; gap: 4px;
 }
 /* MU5：会话行由「两行任务卡」压成单行「状态点 + 标题 + 右对齐相对时间」
    （来源 Agent Canvas 侧栏）。MU2b 的两行卡在 212px 宽里占太多竖向空间，

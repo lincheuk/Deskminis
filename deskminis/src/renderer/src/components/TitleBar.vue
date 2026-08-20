@@ -34,28 +34,25 @@ const syncTitle = computed(() => {
 interface MenuItem { label?: string; kbd?: string; act?: string; sep?: boolean; danger?: boolean }
 interface Menu { id: string; label: string; items: MenuItem[] }
 
+/** I6（用户 2026-08-20 截图指令）：三条文字菜单收纳为单 ☰——AionUi 新版标题栏没有
+ *  菜单文字排。功能项一件不删，只是入口从三处并一处；快捷键提示原样保留。 */
 const menus: Menu[] = [
-  { id: 'file', label: '文件', items: [
+  { id: 'main', label: '☰', items: [
     { label: '新建会话', kbd: 'Ctrl+N', act: 'new' },
     { sep: true },
-    { label: '退出', kbd: 'Ctrl+Q', act: 'quit' },
-  ] },
-  { id: 'edit', label: '编辑', items: [
-    { label: '撤销', kbd: 'Ctrl+Z', act: 'undo' },
-    { label: '重做', kbd: 'Ctrl+Y', act: 'redo' },
-    { sep: true },
-    { label: '剪切', kbd: 'Ctrl+X', act: 'cut' },
-    { label: '复制', kbd: 'Ctrl+C', act: 'copy' },
-    { label: '粘贴', kbd: 'Ctrl+V', act: 'paste' },
-  ] },
-  { id: 'view', label: '视图', items: [
     { label: '切换侧栏', kbd: 'Ctrl+B', act: 'sidebar' },
     { label: '切换对话列', act: 'chat' },
     { label: '切换工作台', act: 'right' },
-    { sep: true },
     { label: '明暗模式', act: 'theme' },
     { sep: true },
+    { label: '撤销', kbd: 'Ctrl+Z', act: 'undo' },
+    { label: '重做', kbd: 'Ctrl+Y', act: 'redo' },
+    { label: '剪切', kbd: 'Ctrl+X', act: 'cut' },
+    { label: '复制', kbd: 'Ctrl+C', act: 'copy' },
+    { label: '粘贴', kbd: 'Ctrl+V', act: 'paste' },
+    { sep: true },
     { label: '重新加载', kbd: 'Ctrl+R', act: 'reload' },
+    { label: '退出', kbd: 'Ctrl+Q', act: 'quit', danger: true },
   ] },
 ];
 
@@ -107,7 +104,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
     <div class="menubar" @click.stop>
       <div
         v-for="mn in menus" :key="mn.id"
-        class="mi" :class="{ open: openId === mn.id }" tabindex="0" role="button" @keydown.enter.prevent="toggle(mn.id)" @keydown.space.prevent="toggle(mn.id)" :aria-expanded="openId === mn.id"
+        class="mi" :class="{ open: openId === mn.id }" tabindex="0" role="button" title="菜单" aria-label="菜单" @keydown.enter.prevent="toggle(mn.id)" @keydown.space.prevent="toggle(mn.id)" :aria-expanded="openId === mn.id"
         @click.stop="toggle(mn.id)" @mouseenter="hover(mn.id)"
       >
         {{ mn.label }}

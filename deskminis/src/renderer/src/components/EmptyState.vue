@@ -1,14 +1,17 @@
 <script setup lang="ts">
-/** 中栏空状态 · 任务起点页（MU2b Task 6 → J2 助手两态，设计稿 2026-08-20-assistants §5）。
- *  未绑态：hero + 助手卡区（点卡 → 新建绑定会话）+ 3 示例指令卡 + 最近任务 3 条。
- *  绑定态（活动会话带 assistantId 且助手仍在）：hero 换助手身份，示例卡换助手预设
- *  prompts（同走 emit('fill') 通路，不自动发送）；「换助手」展开卡区新建另一会话——
- *  当前会话的绑定不可换，会话身份稳定（设计稿 §5）。助手已删（绑定悬空）自动回未绑态。 */
-import { computed, ref } from 'vue';
+/** 中栏空状态 · 任务起点页（MU2b Task 6 → J2 两态 → I6 分部 + 药丸选择流）。
+ *  I6（用户 2026-08-20 截图指令，AionUi Guid 页语义）：分两部随 ChatView 布局——
+ *  part="hero" 在 composer 上（问候/助手身份），part="below" 在 composer 下
+ *  （助手 chips 选择条 + 选中助手的预设 prompts / 示例卡 + 最近任务）。
+ *  点 chip **只写选择态** chat.welcomeAssistantId，不建会话——会话在发送首条消息时
+ *  按选择创建（ChatView send 消费）；再点同一 chip 取消选择。
+ *  绑定态（活动会话带 assistantId）：hero 换助手身份、below 显示其 prompts。 */
+import { computed } from 'vue';
 import { useChat } from '../stores/chat';
 import { fmtRelative } from '../lib/time/relative';
 import Icon from './Icon.vue';
 
+const props = withDefaults(defineProps<{ part?: 'hero' | 'below' }>(), { part: 'hero' });
 const chat = useChat();
 const emit = defineEmits<{ (e: 'fill', text: string): void }>();
 
@@ -23,73 +26,66 @@ interface S { id: string; title: string; updatedAt?: number; assistantId?: strin
 function recentThree(): S[] { return chat.sessions.slice(0, 3); }
 function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.now() / 1000) : ''; }
 
-/** 活动会话绑定的助手；绑定悬空（助手已删）回 undefined → 界面自动落回未绑态。 */
+/** 活动会话绑定的助手；绑定悬空（助手已删）回 undefined → 自动落回未绑态。 */
 const boundAssistant = computed(() => {
   const s = chat.sessions.find(x => x.id === chat.activeId) as S | undefined;
   return s?.assistantId ? chat.assistants.find(a => a.id === s.assistantId) : undefined;
 });
-/** 绑定态下「换助手」展开卡区（点卡即新建另一会话，本会话绑定不动）。 */
-const pickerOpen = ref(false);
-async function pickAssistant(id: string): Promise<void> {
-  pickerOpen.value = false;
-  await chat.newSessionWithAssistant(id);
-}
-/** 卡片摘要：规则压成单行截 40 字——卡片是导航不是文档 */
-function rulesBrief(rules: string): string {
-  const t = rules.replace(/\s+/g, ' ').trim();
-  return t.length > 40 ? t.slice(0, 40) + '…' : t;
+/** 欢迎屏选择态的助手（未建会话，仅 chips 高亮 + prompts 预览 + 占位符）。 */
+const pickedAssistant = computed(() =>
+  chat.welcomeAssistantId ? chat.assistants.find(a => a.id === chat.welcomeAssistantId) : undefined);
+/** below 部展示 prompts 的来源：绑定态优先，其次选择态。 */
+const promptSource = computed(() => boundAssistant.value ?? pickedAssistant.value);
+
+function pickAssistant(id: string): void {
+  // 再点同一 chip = 取消选择（回到通用示例卡）；绑定态下 chips 不渲染，无冲突
+  chat.welcomeAssistantId = chat.welcomeAssistantId === id ? '' : id;
 }
 </script>
 
 <template>
-  <div class="empty">
+  <!-- hero 部：composer 之上，只有问候/身份，一屏重心留给 composer -->
+  <div v-if="props.part === 'hero'" class="ehero">
     <template v-if="boundAssistant">
-      <!-- 绑定态 hero：助手身份接管问候位 -->
       <h2><span class="aemoji">{{ boundAssistant.avatar }}</span>{{ boundAssistant.name }}</h2>
       <p class="sub">由助手预设驱动——规则、默认技能与模型已按预设配置</p>
-      <div v-if="boundAssistant.prompts.length" class="cards prompts">
-        <div
-          v-for="(p, i) in boundAssistant.prompts" :key="i" class="excard pcard"
-          tabindex="0" role="button" @keydown.enter.prevent="emit('fill', p)" @keydown.space.prevent="emit('fill', p)"
-          @click="emit('fill', p)"
-        >
-          <Icon name="edit" :size="14" />
-          <div class="extxt"><div class="exsub pfull">{{ p }}</div></div>
-        </div>
-      </div>
-      <button class="switchbtn" type="button" @click="pickerOpen = !pickerOpen">
-        {{ pickerOpen ? '收起' : '换个助手开新会话…' }}
-      </button>
     </template>
     <template v-else>
       <!-- I3 hero 问候（AionUi Guid 页「Hi, what's your plan for today?」的中文位） -->
       <h2>你好，今天想做点什么？</h2>
-      <p class="sub">让 DeskMinis 帮你读写文件、执行命令、完成任务</p>
+      <p class="sub">{{ pickedAssistant ? `已选 ${pickedAssistant.avatar} ${pickedAssistant.name}——输入即以该预设开始` : '让 DeskMinis 帮你读写文件、执行命令、完成任务' }}</p>
     </template>
+  </div>
 
-    <!-- 助手卡区：未绑态常驻；绑定态由「换助手」展开 -->
-    <div v-if="chat.assistants.length && (!boundAssistant || pickerOpen)" class="agrid">
+  <!-- below 部：composer 之下——chips 选择条 → prompts / 示例卡 → 最近任务 -->
+  <div v-else class="ebelow">
+    <div v-if="chat.assistants.length && !boundAssistant" class="abar" role="group" aria-label="选择助手">
       <div
-        v-for="a in chat.assistants" :key="a.id" class="ascard"
-        :title="a.name" tabindex="0" role="button" @keydown.enter.prevent="pickAssistant(a.id)" @keydown.space.prevent="pickAssistant(a.id)"
+        v-for="a in chat.assistants" :key="a.id" class="ascard" :class="{ on: chat.welcomeAssistantId === a.id }"
+        :title="a.rules.slice(0, 80) || a.name" tabindex="0" role="button" :aria-pressed="chat.welcomeAssistantId === a.id"
+        @keydown.enter.prevent="pickAssistant(a.id)" @keydown.space.prevent="pickAssistant(a.id)"
         @click="pickAssistant(a.id)"
       >
-        <span class="aavatar">{{ a.avatar || '🤖' }}</span>
-        <div class="atxt">
-          <div class="aname">{{ a.name }}</div>
-          <div class="abrief">{{ rulesBrief(a.rules) || '未设置规则' }}</div>
-        </div>
+        <span class="aavatar">{{ a.avatar || '🤖' }}</span><span class="acname">{{ a.name }}</span>
       </div>
     </div>
 
-    <template v-if="!boundAssistant">
-      <div class="cards">
-        <div v-for="ex in EXAMPLES" :key="ex.title" class="excard" @click="emit('fill', ex.text)" tabindex="0" role="button" @keydown.enter.prevent="emit('fill', ex.text)" @keydown.space.prevent="emit('fill', ex.text)">
-          <Icon :name="ex.icon" :size="16" />
-          <div class="extxt"><div class="extitle">{{ ex.title }}</div><div class="exsub">{{ ex.text }}</div></div>
-        </div>
+    <div v-if="promptSource && promptSource.prompts.length" class="prows">
+      <div class="phint">试试这些开场：</div>
+      <button
+        v-for="(p, i) in promptSource.prompts" :key="i" type="button" class="prow"
+        @click="emit('fill', p)"
+      >
+        <span class="ptext">{{ p }}</span><span class="parrow">↗</span>
+      </button>
+    </div>
+
+    <div v-if="!promptSource" class="cards">
+      <div v-for="ex in EXAMPLES" :key="ex.title" class="excard" @click="emit('fill', ex.text)" tabindex="0" role="button" @keydown.enter.prevent="emit('fill', ex.text)" @keydown.space.prevent="emit('fill', ex.text)">
+        <Icon :name="ex.icon" :size="16" />
+        <div class="extxt"><div class="extitle">{{ ex.title }}</div><div class="exsub">{{ ex.text }}</div></div>
       </div>
-    </template>
+    </div>
 
     <div v-if="recentThree().length" class="recent">
       <div class="rhead">最近任务</div>
@@ -106,55 +102,57 @@ function rulesBrief(rules: string): string {
 </template>
 
 <style scoped>
-.empty {
-  flex: 1; height: 100%; display: flex; flex-direction: column;
-  align-items: center; gap: 8px;
-  /* safe center 而不是 center：**flexbox 的经典陷阱**——内容比容器高时，
-     center 会把内容顶到滚动原点以上，上半截既看不见也滚不到。
-     safe 在溢出时自动退回 start，内容永远从顶部开始、可滚。
-     用户 2026-08-11 实测「开始新的对话怎么顶格了」正是这个：对话列变窄后
-     示例卡从横排变竖排、空态整体变高，把下面那段固定的「上提」偏置挤成了溢出。 */
-  justify-content: safe center;
-  /* 底部多留白把内容上提：对话区很高，纯居中会让视觉重心偏低。
-     偏置封顶 72px——10vh 在高窗口上会到 120px+，内容一高就直接把标题顶到贴边。 */
-  /* 顶部 40 而非 24：safe center 在内容偏高时会退回 start（这是对的——内容比容器高时
-     就该从顶部开始、可滚），此时顶部留白就是唯一的呼吸位，24 太紧。 */
-  padding: 40px 24px calc(24px + min(10vh, 72px));
+/* hero 部：贴 composer 上方，重心交给 ChatView 的 safe center 整组处理 */
+.ehero {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 24px 24px 18px; text-align: center;
 }
-/* I3：hero 规格对齐 AionUi 欢迎标题（text-2xl/600），从面板题升为页面题 */
-.empty h2 { font-size: 26px; font-weight: 600; color: var(--label-emphasis); }
+/* I3：hero 规格对齐 AionUi 欢迎标题（text-2xl/600） */
+.ehero h2 { font-size: 26px; font-weight: 600; color: var(--label-emphasis); }
 .aemoji { margin-right: 10px; }
 .sub { font-size: 15px; color: var(--label-secondary); }
 
-/* J2 助手卡区（AionUi 助手网格语言）：emoji + 名称 + 规则摘要，点卡开绑定会话 */
-.agrid { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; justify-content: center; max-width: 720px; }
+/* below 部：composer 之下整组居中，内容宽对齐 composer 的 792 契约 */
+.ebelow {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  width: 100%; max-width: 792px; margin: 0 auto; padding-top: 10px;
+}
+
+/* I6 助手 chips 选择条（AionUi Guid 页助手 chips）：胶囊行，选中白底浮起 + 蓝描边 */
+.abar {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+  padding: 6px; border-radius: var(--r-pill); background: var(--fill-tertiary);
+}
 .ascard {
-  width: 218px; display: flex; gap: 10px; align-items: flex-start; padding: 12px;
-  border: 1px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
-  box-shadow: 0 2px 8px var(--shadow-color);
-  cursor: pointer; color: var(--label-secondary); text-align: left;
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+  border-radius: var(--r-pill); border: 1px solid transparent;
+  color: var(--label-secondary); font-size: var(--fs-ui); cursor: pointer; white-space: nowrap;
 }
-.ascard:hover { background: var(--fill-quaternary); color: var(--label); border-color: var(--accent); }
+.ascard:hover { background: var(--fill-quaternary); color: var(--label); }
 .ascard:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.aavatar { flex: 0 0 auto; font-size: 20px; line-height: 1.2; }
-.atxt { min-width: 0; }
-.aname { font-size: var(--fs-ui); font-weight: 600; color: var(--label-strong); }
-.abrief {
-  font-size: var(--fs-caption); color: var(--label-tertiary); margin-top: 3px; line-height: 1.45;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+.ascard.on {
+  background: var(--surface-1); border-color: var(--accent); color: var(--label);
+  box-shadow: 0 2px 8px var(--shadow-color); font-weight: 600;
 }
+.aavatar { font-size: 15px; line-height: 1; }
+.acname { line-height: 1; }
 
-/* 绑定态「换助手」：低调文字钮——主角是预设 prompts，不是换台 */
-.switchbtn {
-  margin-top: 14px; padding: 5px 12px; border: none; border-radius: var(--r-control);
-  background: none; color: var(--label-tertiary); font-size: var(--fs-caption); cursor: pointer;
+/* 选中/绑定助手的预设 prompts：AionUi 透明文字行 + hover 现箭头 */
+.prows { display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 560px; margin-top: 6px; }
+.phint { font-size: var(--fs-micro); color: var(--label-quaternary); padding: 0 2px 4px; text-align: left; }
+.prow {
+  display: flex; align-items: baseline; gap: 6px; width: 100%; padding: 6px 2px;
+  border: none; background: none; cursor: pointer; text-align: left;
+  font-size: var(--fs-ui); color: var(--label-secondary); line-height: 1.5;
 }
-.switchbtn:hover { background: var(--fill-quaternary); color: var(--label); }
-.switchbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.prow:hover { color: var(--label); }
+.prow:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.ptext { min-width: 0; }
+.parrow { flex: 0 0 auto; opacity: 0; color: var(--accent); transition: opacity .12s ease-out; }
+.prow:hover .parrow, .prow:focus-visible .parrow { opacity: 1; }
 
-/* 示例指令卡：横排三张（窄了自动换行），点击填入输入框 */
-/* I3 平面化（AionUi 助手卡语言）：白卡 + 1px 边 + 柔影，受光边退场 */
-.cards { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; justify-content: center; }
+/* 示例指令卡：横排三张（窄了自动换行），点击填入输入框（I3 平面卡语言） */
+.cards { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
 .excard {
   width: 218px; display: flex; gap: 10px; align-items: flex-start; padding: 12px;
   border: 1px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
@@ -169,19 +167,16 @@ function rulesBrief(rules: string): string {
   font-size: var(--fs-caption); color: var(--label-tertiary); margin-top: 3px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-/* 预设 prompt 卡：整句就是内容，行数放宽到 3、拉通宽度（AionUi 示例 prompt 列表形态） */
-.prompts { flex-direction: column; align-items: stretch; max-width: 560px; width: 100%; }
-.excard.pcard { width: 100%; }
-.pfull { -webkit-line-clamp: 3; color: var(--label-secondary); }
 
 /* 最近任务：标题 + 相对时间，点击直达会话 */
-.recent { margin-top: 22px; width: 452px; max-width: 100%; }
+.recent { margin-top: 16px; width: 452px; max-width: 100%; }
 .rhead { font-size: 12px; font-weight: 600; color: var(--label-tertiary); padding: 0 4px 6px; text-align: left; }
 .ritem {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-control);
   cursor: pointer; color: var(--label-secondary);
 }
 .ritem:hover { background: var(--fill-quaternary); color: var(--label); }
+.ritem:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .rtitle { flex: 1; min-width: 0; font-size: var(--fs-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .rtime { flex: 0 0 auto; font-size: var(--fs-micro); color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
 </style>

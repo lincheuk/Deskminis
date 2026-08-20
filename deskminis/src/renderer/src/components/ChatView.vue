@@ -154,6 +154,12 @@ const hasLive = computed(() =>
 );
 /** I3：空态判据抽到 lib/welcome/blank 与 App.vue（欢迎态收工作台）共用——双写必漂移 */
 const isEmpty = computed(() => isBlankState(chat));
+/** I6：占位符随助手走——绑定会话 > 欢迎屏选择态 > 默认（AionUi「Aion CLI, Send a message…」位） */
+const composerPlaceholder = computed(() => {
+  const boundId = chat.sessions.find(s => s.id === chat.activeId)?.assistantId;
+  const a = chat.assistants.find(x => x.id === (boundId || chat.welcomeAssistantId));
+  return a ? `让 ${a.name} 做点什么…` : '让 DeskMinis 做点什么…';
+});
 
 // ---- 回合结构（MU2a Task 5，设计 v2 §2.1）----
 // 一回合 = 用户消息 + 其后助手工作区。仅承载工具结果的合成 user 消息不产生新回合。
@@ -281,8 +287,12 @@ async function send(): Promise<void> {
   const t = input.value.trim();
   const atts = pendingAttachments.value.map(a => a.path);
   if ((!t && !atts.length) || chat.running) return;
-  // 没有选中会话就先建一个再发（避免「按了没反应」）
-  if (!chat.activeId) await chat.newSession();
+  // 没有选中会话就先建一个再发（避免「按了没反应」）。
+  // I6：欢迎屏选了助手（AionUi「选中再输入」流）→ 按选择建绑定会话，预设三件随之应用
+  if (!chat.activeId) {
+    if (chat.welcomeAssistantId) await chat.newSessionWithAssistant(chat.welcomeAssistantId);
+    else await chat.newSession();
+  }
   input.value = '';
   // 附件以 attachments 参数进模型（后端落 mediaRef part + 请求侧合成 base64），发送后清空
   pendingAttachments.value = [];
@@ -545,7 +555,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 <template>
   <div ref="paneEl" class="pane-c" :class="{ welcome: isEmpty }">
     <div ref="streamEl" class="stream" @scroll="onScroll" @mouseup="onStreamMouseUp">
-      <EmptyState v-if="isEmpty" @fill="fillInput" />
+      <EmptyState v-if="isEmpty" part="hero" @fill="fillInput" />
       <template v-else>
         <!-- 回合流：用户消息（无气泡标签行）+ 助手工作区（无名称行，回合容器承载归属） -->
         <section v-for="t in turns" :key="t.id" class="turn">
@@ -679,7 +689,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
       <textarea
         ref="fieldEl"
         v-model="input" class="field" :rows="rowsFor(input)"
-        placeholder="让 DeskMinis 做点什么…"
+        :placeholder="composerPlaceholder"
         @keydown.enter.exact.prevent="onEnterKey"
         @keydown.up="onSlashNav(-1, $event)"
         @keydown.down="onSlashNav(1, $event)"
@@ -732,6 +742,11 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
         </div>
         <div v-if="wsErr" class="wserr">{{ wsErr }}</div>
       </div>
+    </div>
+    <!-- I6 欢迎屏下半区（AionUi Guid 页次序：hero → composer → 助手区）：
+         助手 chips/预设 prompts/示例卡/最近任务全在 composer 之下，EmptyState 分部渲染 -->
+    <div v-if="isEmpty" class="wbelow">
+      <EmptyState part="below" @fill="fillInput" />
     </div>
   </div>
 </template>
@@ -1035,9 +1050,13 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
    取规则块，welcome 变体若排在原始块之前会被守卫误当主块（i3 实测踩中）。 */
 .pane-c.welcome { justify-content: safe center; }
 .pane-c.welcome .stream { flex: 0 1 auto; }
-/* composer 自带 width:min(792px,100%-32px) + margin auto 居中，欢迎态只补重心上移：
-   底边距抬高整组（AionUi 首页 -5vh 的等效），封顶防高窗过抬 */
-.pane-c.welcome .composer { margin-bottom: min(10vh, 96px); }
+/* I6 次序改造（AionUi Guid 页）：hero(stream) → composer → 助手区(.wbelow)。
+   重心上移从 composer 底边距移到 wbelow 底 padding——中间不能再隔一块 10vh 的空白 */
+.pane-c.welcome .composer { margin-bottom: 0; }
+.wbelow {
+  flex: 0 1 auto; min-height: 0; overflow: auto;
+  padding: 6px 16px min(8vh, 72px);
+}
 </style>
 
 <style>
