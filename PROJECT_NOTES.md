@@ -315,3 +315,20 @@
   POPUP_OWNERS 禁令原样、对比度 AA 闸常驻。遗留 polish 观察项：主钮 hover 无变化档、
   亮色空态渐变分界、.smore Enter（上条）。
 - **收官硬条件未清**：用户 Windows 真机目视双主题（连同 D6 设置页目视一并），确认后 E 波关账。
+
+### DSH rc.8 情报自查（2026-08-20，云端，对照其修复项查同款雷）
+- **A 推理内容回传：无雷**。openai.ts:112-115 已读 delta.reasoning_content（DeepSeek/Kimi/GLM
+  兼容层思考流），另有 reasoning_effort 的 Ollama 兼容开关。DSH rc.8 才修的这条我们早防了。
+- **B 取消流式半截回复：同款真雷**。agent/loop.ts 三处取消短路（236/355/375）均
+  `yield error; return`，永远到不了 452 行 appendMessage——已流出展示给用户的 text 累积
+  不落库，下轮提问模型看不到自己说过的半截话（与 DSH「取消后已展示前缀未带入后续」同病）。
+  修法方向：取消短路时 text 非空则落一条 assistant 消息（守住「空 assistant 绝不落库」红线；
+  半截工具调用不落，已有 '[工具执行被中断]' 机制的场景不受影响）。
+- **C 图片载荷：半个雷**。单文件 5MB + 单条 8 张有校验（index.ts chat.prompt），但
+  ①无像素尺寸控制（5MB 内的 PNG 可轻松超模型长边限制）；②context-policy.ts/offload.ts
+  对 media part 零处理——多轮带图会话历史图片 base64 全量复带，随轮次累计撞载荷上限
+  （DSH「历史图片累计载荷过高」同款）。修法方向：渲染端入库前 canvas 降采样（零依赖）+
+  上下文策略对老图片 part 换占位文本（保留近 N 轮）。
+- 其余映射：Windows 持久 PowerShell 我们早有（PersistentShell）；Profile Bundle 与商标规范
+  （「DeepSeek Harness」注册商标）记为扩展市场波设计输入——市场 UI 文案需按其
+  BRAND_GUIDELINES 做描述性使用合规；会话搜索/@ 引用/会话分叉/web_search 并发记入候选池。
