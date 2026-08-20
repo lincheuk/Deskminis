@@ -459,3 +459,18 @@
   橙字 gating/未扫描灰字），列表卡片流完整。
 - **G 波 G1-G3 完成**：扩展市场全链路上线（三源浏览/搜索/详情/安全确认卡/安装/已装态）。
   G4（更新检查）设计稿标可后置，待用户裁定即做或收官。
+
+### G3 使用闭环验证（2026-08-20，云端，用户点名「装完能不能真调用」）
+- **两条链路全通**（fixture 三源 + xvfb 真跑，两段式驱动）：
+  ①技能：市场搜索 → 确认卡（download 预告文件清单）→ 确认安装 → 已装态 → skills/pdf/SKILL.md
+  真落盘（进系统提示由 skills-prompt.test.ts 既有单测背书）；
+  ②MCP：确认卡（npx -y 命令原样 + API_KEY 必填 isSecret 输入）→ servers.json 真生成
+  （name 归一 io.github.acme-fetcher、env 值来自确认卡输入而非注册表——反向锚实景验证）→
+  引擎试连 ✓ → FakeProvider 会话调 mcp__io_github_acme-fetcher__echo → **权限卡（kind=mcp
+  askOnce）弹出** → 允许 → echo 执行 ✓ 输出回流页面。
+- 等价替换申报（唯一非真环节）：npx 包载体换 node + tests/mcp-stdio-server.mjs（虚构 npm 包
+  云端不可得），条目名/env/结构/引擎链路全真。
+- 过程三次 driver 踩坑，**每个都反证了产品防线在工作**：①env 误填搜索框 → G2 必填 gating
+  真把安装拦下（「必填环境变量缺失」橙字）；②工具名手拼带点号 → manager sanitizeSegment
+  规范化（D5 设计内，模型按工具定义调用不会踩）；③缺 tool_title → 工具协议参数校验拦截。
+  均为 driver 侧修正，产品零改动。
