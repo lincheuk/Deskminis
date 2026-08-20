@@ -1,0 +1,52 @@
+tests/bridge-cli.test.ts > 真分发端到端（真 PowerShell） > windows-clipboard set/get 经 CLI 往返（会短暂改写本机剪贴板，跨文件互斥）
+tests/bridge-cli.test.ts > 真分发端到端（真 PowerShell） > windows-device info：stub→管道→真 PowerShell 全链路
+tests/bridge-handlers.test.ts > runPowerShell（真实 powershell.exe） > stdin 透传：脚本 ReadToEnd 原样读回（含中文）
+tests/bridge-handlers.test.ts > runPowerShell（真实 powershell.exe） > 原生命令退出码穿透
+tests/bridge-handlers.test.ts > runPowerShell（真实 powershell.exe） > 超时杀进程返回 124
+tests/bridge-handlers.test.ts > 真实 PowerShell 集成（allow-all 网关） > clipboard set→get 往返（会短暂改写本机剪贴板，跨文件互斥）
+tests/bridge-handlers.test.ts > 真实 PowerShell 集成（allow-all 网关） > device info 返回本机真实字段
+tests/bridge-handlers.test.ts > 真实 PowerShell 集成（allow-all 网关） > screenshot 真截屏存 PNG（需交互式桌面会话）
+tests/bridge-minisd.test.ts > minisd 桥装配 > 权限定域端到端：管道调 clipboard get → RPC 收到 permission.request(kind=bridge-clipboard-read) → allow-session → 第二次不再问
+tests/bridge-minisd.test.ts > minisd 桥装配 > 返回值带 bridgePipe 且与数据根派生一致；真管道可调 windows-device info（bypass 不问权限）
+tests/diagnostics.test.ts > diagnostics.dryRun > classifyBridgeNode：真 node.exe → ready
+tests/diagnostics.test.ts > diagnostics.dryRun > classifyBridgeNode：随包 .cmd 垫片 → ready（Task 5，垫片即可用 Node 运行时）
+tests/diagnostics.test.ts > diagnostics.dryRun > 默认 provider 存在且有 key → ready
+tests/files-tools.test.ts > 文件工具 > 数据根之外的绝对路径写入要过权限, deny 则拒绝
+tests/files-tools.test.ts > 文件工具 > 数据根之外的绝对路径读取要过权限, deny 则拒绝且不泄露内容
+tests/files-tools.test.ts > 文件工具 > 权限卡变更预览 > file_edit 工作区外：preview 直接取 old_string/new_string（编辑差分本身就是预览正文）
+tests/files-tools.test.ts > 文件工具 > 权限卡变更预览 > file_write 工作区外：preview.oldText 是原文件内容, newText 是待写内容
+tests/files-tools.test.ts > 文件工具 > 权限卡变更预览 > file_write 目标文件不存在：oldText 为空串（新建文件场景显示全新增）
+tests/files-tools.test.ts > 文件工具 > 权限卡变更预览 > 超长内容：oldText/newText 各截断到 20000 字符并尾标「…[截断]」
+tests/files-tools.test.ts > 文件工具 > 权限等待期间取消（批准晚于取消）→ 仍返回取消且未写盘
+tests/files-tools.test.ts > 文件工具 > 穿越式绝对路径(字符串前缀像在根内)仍要过权限门
+tests/files-tools.test.ts > 文件工具 > 绑定自定义工作区后 file_write 工作区内文件不需过权限门
+tests/files-tools.test.ts > 文件工具 > 绑定自定义工作区后读取工作区之外路径仍触发权限门
+tests/paths.test.ts > MinisPaths > 绝对 Windows 路径放行
+tests/permission-audit.test.ts > M6 Task 3：权限决议落库 > audit.list RPC：可查、过滤生效、payload 防御性再脱敏
+tests/permission-audit.test.ts > M6 Task 3：权限决议落库 > permission.request 与 permission.resolved(answered) 成对落库，requestId 关联
+tests/permission-audit.test.ts > M6 Task 3：权限决议落库 > permission.request 审计剔除 preview 全文（只记 hasPreview 布尔）
+tests/permission-audit.test.ts > M6 Task 3：权限决议落库 > permission.resolved(timeout) 落库（reason=timeout）
+tests/permission-preset.test.ts > permission 档位预设（permission.preset）RPC > setPreset 持久化 → 重启同一数据根后 getPreset 读回 full 且网关行为生效
+tests/rpc.test.ts > minisd JSON-RPC > permission.resolved 超时路径带 reason:timeout（独立用例；决策 4b' 评审命门 1）
+tests/rpc.test.ts > minisd JSON-RPC > permission.respond allow-session 且带 bridgeTriggers：之后同桥 kind 管道请求不再广播 permission.request（合并授权端到端）
+tests/rpc.test.ts > minisd JSON-RPC > permission.respond 也会广播 permission.resolved（多窗口同步）
+tests/rpc.test.ts > minisd JSON-RPC > 权限询问超时会广播 permission.resolved（卡片不再永久悬挂）
+tests/search-tools.test.ts > search 工具权限 > 工作区外基准 → 每个工具恰好一条 kind=file-read, detail 为基准绝对路径
+tests/shell.test.ts > PersistentShell (真实 powershell) > GBK 原始字节兜底解码为可读中文
+tests/shell.test.ts > PersistentShell (真实 powershell) > cd 跨命令持久
+tests/shell.test.ts > PersistentShell (真实 powershell) > dispose 后不再复活进程
+tests/shell.test.ts > PersistentShell (真实 powershell) > echo 输出与退出码 0
+tests/shell.test.ts > PersistentShell (真实 powershell) > interrupt 后重建的 shell 下一条命令输出头部含重启提示
+tests/shell.test.ts > PersistentShell (真实 powershell) > spawn 失败被兜住: 返回工具错误而不是杀死进程
+tests/shell.test.ts > PersistentShell (真实 powershell) > stderr 并入输出
+tests/shell.test.ts > PersistentShell (真实 powershell) > 原生命令退出码穿透
+tests/shell.test.ts > PersistentShell (真实 powershell) > 子进程死于 spawn 前后, 连发命令的 stdin 异步错误被吞: minisd 不被杀死
+tests/shell.test.ts > PersistentShell (真实 powershell) > 超时杀进程, 下条命令自动重建
+tests/shell.test.ts > PersistentShell (真实 powershell) > 输出含坏字节不影响退出码解析（哨兵按字节切割）
+tests/shell.test.ts > shell_execute 工具 > envFor 注入的变量在会话 shell 可见（MINIS_* 桥环境）
+tests/shell.test.ts > shell_execute 工具 > 真实 PowerShell 链路：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" --help 输出桥帮助（electron GUI PE 的 stdout 缺陷回归）
+tests/terminal.test.ts > terminal.* RPC（独立交互式终端 shell） > chat.sessions.delete 同时销毁终端：再 attach 后 scrollback 是新的输出（无旧内容遗留）
+tests/terminal.test.ts > terminal.* RPC（独立交互式终端 shell） > input 写入 echo 命令后，广播 terminal.output 含输出内容
+tests/terminal.test.ts > terminal.* RPC（独立交互式终端 shell） > 不同会话的终端输出互不泄漏（隔离）
+tests/terminal.test.ts > terminal.* RPC（独立交互式终端 shell） > 同会话第二次 attach 返回的 scrollback 含第一次的输出（滚动缓冲持久）
+tests/terminal.test.ts > terminal.* RPC（独立交互式终端 shell） > 终端 MINIS_CHAT_SESSION_ID 环境变量注入同当前会话（#8 过时假设修正）
