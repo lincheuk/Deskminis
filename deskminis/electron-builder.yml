@@ -33,6 +33,9 @@ directories:
 # 安装形态（决策点 2-4）：NSIS 安装包为主 + portable 免安装形态；命名规则（决策点 2-6）。
 artifactName: 'DeskMinis-${version}-${name}.${ext}'
 win:
+  # R2：应用/安装器图标（scripts/gen-app-icon.mjs 纯 node 生成，256 PNG-in-ICO；
+  # 缺省时装出来是 Electron 默认图标——发布不过关点）
+  icon: build/icon.ico
   target:
     - nsis
     - portable

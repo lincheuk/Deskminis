@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SIZE = 32, R = 7;
-const BRAND = [0xB7, 0xAF, 0x96, 0xFF]; // tokens.css --brand（浅色）：暖灰褐
+const BRAND = [0x15, 0x5B, 0xF5, 0xFF]; // tokens.css 浅色 --accent（AionUi 蓝，I 波换肤随动；旧 Aurora 暖灰褐退场）
 const WHITE = [0xFF, 0xFF, 0xFF, 0xFF];
 const CLEAR = [0, 0, 0, 0];
 // 三条对话行（h 取 3：通知区 16px 缩略后仍可辨）
