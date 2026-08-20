@@ -240,6 +240,11 @@
   样式层已尽力。补齐需 DOM 层改造（tabindex + Enter/Space + role），属独立无障碍里程碑。
   详见 [ui-design-v3.md §5-1](docs/specs/2026-08-09-ui-design-v3.md)。
 
+  **⟪2026-08-19 更正：本节两条均已清账⟫** 对比度由 E1 Aurora 色板在源头解决（26 对 AA 全过 +
+  tokens-aurora-contrast 守卫常驻）；键盘可达经查早在 cc9363a（2026-08-11「a11y 补齐 17→0」）+
+  MU5（.tb-ico 退役为原生 button.tb-seg）落地，本节当时未回写导致 E4 规格引用了陈旧状态
+  （审核方侦察漏洞，已记入 E4 审核记录），E4 补 renderer-a11y-keyboard 专属守卫钉死防回归。
+
 ### E1 审核记录（2026-08-19，云端）
 - **E1 过审**（3d0c280，Aurora 调色板落地）：1509→1535（+26 对比度守卫）。云端复跑 typecheck 零错误、
   失败集与 52 例 Linux 基线逐条一致（LC_ALL=C 排序后 diff 为空）。
@@ -289,3 +294,24 @@
 - 观察项（不返工，记备忘）：①主钮 hover 前后同为 accent 无反馈变化——组件层禁 color-mix，
   无好令牌可用，留待后续 polish 波（可在 tokens 层加 --accent-hover 档）；②E2 遗留的亮色
   右栏空态渐变分界经 E3 后仍在空态可见，属 wempty 平贴底，同归 polish。
+
+### E4 审核记录 + E 波波结（2026-08-19，云端）
+- **E4 过审**（baae4d7，仅 +85 行新守卫）：1549→1559。云端复跑 52 失败与基线逐条一致、
+  typecheck 零错误。核心主张「组件侧属性已提前落地」经三重独立核实成立：cc9363a 存在且
+  即「a11y 补齐 17→0」、普遍守卫 a11y-keyboard-reachable.test.ts 存在（无 renderer- 前缀，
+  审核方当初 ls renderer-* 漏检）、SessionList 模板抽查属性齐全。设计稿 §6.2 引用陈旧
+  backlog 属审核方侦察漏洞，Trae 发现后按「只补防回归守卫」处理，正确。
+- 新守卫质量：:class 排除与跨行开标签兼容、.tb-ico 反向防回魂、失败消息带明细、
+  it.each + 汇总双层、无 matcher 扫描零命中。偏离四条全部接受（widget role 比一刀切
+  button 更优、CDP trusted 键盘事件证据强度等同真机）。
+- **E4 走查新发现 bug（backlog，一行级修待拍板）**：会话卡内 ⋮（.smore 原生 button）
+  Enter 无法展开菜单——keydown 冒泡到 .scard 的 @keydown.enter.prevent 被 preventDefault。
+  建议修法：.scard 的 enter/space 两个 keydown 加 .self 修饰（优于 Trae 建议的逐子按钮
+  加 .stop：一处治全、future-proof，且顺带解决改名 input 回车可能误触 chat.open 的同族隐患；
+  新守卫断言为前缀匹配 @keydown.enter，加 .self 不需改锚）。
+- **E 波波结（代码侧完成）**：E1 色板（3d0c280）→ E2 壳层（64cdcc5）→ E3 内容区（7bd7db2）
+  → E4 a11y 守卫（baae4d7），1509→1559（+50 例），四步全过审。Aurora 换皮四项拍板全部兑现：
+  A 骨架 + C 材质、换皮零功能增删、亮暗双主题、无障碍两账清偿。玻璃 blur 面恒定 ≤6、
+  POPUP_OWNERS 禁令原样、对比度 AA 闸常驻。遗留 polish 观察项：主钮 hover 无变化档、
+  亮色空态渐变分界、.smore Enter（上条）。
+- **收官硬条件未清**：用户 Windows 真机目视双主题（连同 D6 设置页目视一并），确认后 E 波关账。
