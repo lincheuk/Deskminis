@@ -147,7 +147,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
              是 e2e:mu6 真跑起来才暴露的。 -->
         <template v-for="s in grp.items" :key="s.id">
         <div
-          class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id" :title="badgeText(s)" tabindex="0" role="button" @keydown.enter.prevent="chat.open(s.id)" @keydown.space.prevent="chat.open(s.id)"
+          class="scard" :class="{ on: s.id === chat.activeId }" :data-sid="s.id" :title="badgeText(s)" tabindex="0" role="button" @keydown.enter.self.prevent="chat.open(s.id)" @keydown.space.self.prevent="chat.open(s.id)"
           @click="chat.open(s.id)"
         >
           <span class="sdot" :class="badgeOf(s) ? BADGE_VIEW[badgeOf(s)!].cls : 'idle'"></span>
