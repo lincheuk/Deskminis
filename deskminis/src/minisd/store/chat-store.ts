@@ -14,6 +14,24 @@ interface MessageRow {
   origin_device_id: string; created_locally_at: number | null;
 }
 
+/** H1 文本选区注释（W3C TextQuoteSelector 锚 + 笔记）。exact/prefix/suffix 针对消息渲染后纯文本。 */
+export interface Annotation {
+  id: string; sessionId: string; messageId: string;
+  exact: string; prefix: string; suffix: string;
+  note: string; color: string;
+  createdAt: number; updatedAt: number;
+}
+interface AnnotationRow {
+  id: string; session_id: string; message_id: string;
+  exact: string; prefix: string; suffix: string; note: string; color: string;
+  created_at: number; updated_at: number;
+}
+// 写入上限：本地 RPC 也不给无界写入面（PREVIEW_MAX_CHARS 同一精神）。
+// prefix/suffix 只是消歧上下文，64 已远超 renderer 送来的 32；exact/note 截断而非拒绝——
+// 超长选区的语义是「用户真选了这么长」，静默截断仍可锚定（匹配退 exact 前缀命中），拒绝反而丢数据。
+const ANNO_CONTEXT_MAX = 64;
+const ANNO_TEXT_MAX = 20000;
+
 export class ChatStore {
   /** M3b：脏数据钩子（Task 6 SyncCoordinator 注入），appendMessage/appendCompactMarker 等触发 */
   onDirty?: (sessionId: string) => void;
@@ -112,9 +130,60 @@ export class ChatStore {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM messages WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM compact_markers WHERE session_id=?').run(id);
+      this.db.prepare('DELETE FROM annotations WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM sessions WHERE id=?').run(id);
     });
     tx();
+  }
+
+  // ── H1 文本选区注释（设计稿 §1-3/§1-5）──
+  // 注释不触发 onDirty：不入设备同步面（wire 格式无此类目，脏标记只会空跑一轮同步）。
+
+  private static rowToAnnotation(r: AnnotationRow): Annotation {
+    return {
+      id: r.id, sessionId: r.session_id, messageId: r.message_id,
+      exact: r.exact, prefix: r.prefix, suffix: r.suffix, note: r.note, color: r.color,
+      createdAt: r.created_at, updatedAt: r.updated_at,
+    };
+  }
+
+  /** created_at 同刻靠 rowid 决序（Windows 时钟 ~15ms 分辨率，连续 add 会同刻——getLatestCompactMarker 同一教训）。 */
+  listAnnotations(sessionId: string): Annotation[] {
+    const rows = this.db.prepare('SELECT * FROM annotations WHERE session_id=? ORDER BY created_at, rowid').all(sessionId) as AnnotationRow[];
+    return rows.map(ChatStore.rowToAnnotation);
+  }
+
+  addAnnotation(a: { sessionId: string; messageId: string; exact: string; prefix?: string; suffix?: string; note?: string; color?: string }): Annotation {
+    const now = this.nowEpoch();
+    const row: Annotation = {
+      id: this.newId(), sessionId: a.sessionId, messageId: a.messageId,
+      exact: a.exact.slice(0, ANNO_TEXT_MAX),
+      prefix: (a.prefix ?? '').slice(0, ANNO_CONTEXT_MAX),
+      suffix: (a.suffix ?? '').slice(0, ANNO_CONTEXT_MAX),
+      note: (a.note ?? '').slice(0, ANNO_TEXT_MAX),
+      color: (a.color ?? '').slice(0, ANNO_CONTEXT_MAX),
+      createdAt: now, updatedAt: now,
+    };
+    this.db.prepare('INSERT INTO annotations (id, session_id, message_id, exact, prefix, suffix, note, color, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(row.id, row.sessionId, row.messageId, row.exact, row.prefix, row.suffix, row.note, row.color, row.createdAt, row.updatedAt);
+    return row;
+  }
+
+  /** 返回所属会话 id 供调用方定向广播；未知 id 返回 undefined（幂等，不抛）。 */
+  updateAnnotationNote(id: string, note: string): string | undefined {
+    const r = this.db.prepare('SELECT session_id FROM annotations WHERE id=?').get(id) as { session_id: string } | undefined;
+    if (!r) return undefined;
+    this.db.prepare('UPDATE annotations SET note=?, updated_at=? WHERE id=?')
+      .run(note.slice(0, ANNO_TEXT_MAX), this.nowEpoch(), id);
+    return r.session_id;
+  }
+
+  /** 返回所属会话 id 供调用方定向广播；未知 id 返回 undefined（幂等，不抛）。 */
+  removeAnnotation(id: string): string | undefined {
+    const r = this.db.prepare('SELECT session_id FROM annotations WHERE id=?').get(id) as { session_id: string } | undefined;
+    if (!r) return undefined;
+    this.db.prepare('DELETE FROM annotations WHERE id=?').run(id);
+    return r.session_id;
   }
 
   /** 追加压缩摘要 marker（设计 §4.2「压缩」）：锚定 lastCompactedMessageId，推理时合成 effectiveAgentHistory。 */

@@ -1,5 +1,5 @@
 /** G2 安装登记表迁移例（迁移纪律：只追加，不动既有表）：MIGRATIONS[7] 新增 market_installs。
- *  新库建表成功；带旧数据（user_version=7）的库升级后 user_version=8、既有表无损、幂等。
+ *  新库建表成功；带旧数据（user_version=7）的库升级后 user_version=9（H1 追加 [8]）、既有表无损、幂等。
  *  照 market-cache-migration.test.ts 成例。 */
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -21,9 +21,9 @@ describe('MIGRATIONS[7]（G2 市场安装登记表）', () => {
     db.close();
   });
 
-  it('user_version 演进到 8，既有表结构不被破坏', () => {
+  it('user_version 演进到 9，既有表结构不被破坏', () => {
     const db = openDb(':memory:');
-    expect(db.pragma('user_version', { simple: true })).toBe(8); // 8 条迁移 [0..7]
+    expect(db.pragma('user_version', { simple: true })).toBe(9); // 9 条迁移 [0..8]
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
     for (const t of ['sessions', 'messages', 'skills', 'audit_logs', 'settings', 'market_cache', 'market_installs']) {
       expect(tables.some(x => x.name === t)).toBe(true);
@@ -31,13 +31,13 @@ describe('MIGRATIONS[7]（G2 市场安装登记表）', () => {
     db.close();
   });
 
-  it('已有 user_version=7 的库重开：补跑 [7] 到 8，既有数据不丢，且幂等', () => {
+  it('已有 user_version=7 的库重开：补跑 [7][8] 到 9，既有数据不丢，且幂等', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dm-mig8-'));
     const file = join(dir, 'test.db');
     try {
       // 造「G2 之前」的库形态：跑满后撤掉 [7] 的产物并退回版本 7，再写入既有数据
       let db = openDb(file);
-      db.exec('DROP TABLE IF EXISTS market_installs;');
+      db.exec('DROP TABLE IF EXISTS market_installs; DROP TABLE IF EXISTS annotations;');
       db.pragma('user_version = 7');
       const now = Date.now() / 1000;
       db.prepare('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)')
@@ -49,7 +49,7 @@ describe('MIGRATIONS[7]（G2 市场安装登记表）', () => {
 
       // 关键动作：当前 openDb 重开该库 → 补跑 [7]
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(8);
+      expect(db.pragma('user_version', { simple: true })).toBe(9);
       expect((db.prepare('SELECT title FROM sessions WHERE id=?').get('S_OLD') as { title: string }).title)
         .toBe('升级前的会话');
       expect(db.prepare('SELECT key FROM market_cache WHERE key=?').get('clawhub:probe')).toBeTruthy();
@@ -69,7 +69,7 @@ describe('MIGRATIONS[7]（G2 市场安装登记表）', () => {
 
       // 幂等：再开一次不重跑迁移、不清数据
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(8);
+      expect(db.pragma('user_version', { simple: true })).toBe(9);
       expect(db.prepare('SELECT item_id FROM market_installs WHERE item_id=?').get('clawhub:o/s')).toBeTruthy();
       db.close();
     } finally {

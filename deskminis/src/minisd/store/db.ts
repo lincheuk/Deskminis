@@ -121,6 +121,26 @@ const MIGRATIONS: string[] = [
     installed_at INTEGER NOT NULL
   );
   `,
+  // [8] H1 文本选区注释（设计稿 §1-3）：annotations 只追加新表。
+  //  迁移一经发布不可改：已发布库 user_version=8，runner 只对 v<9 的库跑 MIGRATIONS[8]。
+  //  锚定模型 = W3C TextQuoteSelector（exact + 前后文各 32 字符），锚对象是消息「渲染后纯文本」；
+  //  重锚定全在 renderer 侧完成——库里只存锚与笔记，不存任何 DOM 偏移（重渲染即失效的东西不落库）。
+  //  color 是保留字段（v1 单色）；note/color 空串语义 = 无。索引带 created_at 供 list 稳定排序。
+  `
+  CREATE TABLE annotations (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    exact TEXT NOT NULL,
+    prefix TEXT NOT NULL DEFAULT '',
+    suffix TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+  );
+  CREATE INDEX idx_annotations_session ON annotations(session_id, created_at);
+  `,
 ];
 
 export function openDb(filePath: string): Database.Database {

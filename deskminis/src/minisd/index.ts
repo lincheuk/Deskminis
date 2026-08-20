@@ -460,6 +460,35 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       chat.setModelBinding(sessionId, p.binding);
       return { ok: true };
     },
+    // ── H1 文本选区注释（免批：本地会话数据操作，与 rename 同级；变更广播供多窗口一致）──
+    'chat.annotations.list': (p: { sessionId: string }) => ({ annotations: chat.listAnnotations(assertSessionId(p.sessionId)) }),
+    'chat.annotations.add': (p: { sessionId: string; messageId: string; exact: string; prefix?: string; suffix?: string; note?: string }) => {
+      const sessionId = assertSessionId(p.sessionId);
+      // 会话必须真实存在——注释挂在会话生命周期上（deleteSession 级联），孤儿注释无人回收
+      if (!chat.getSession(sessionId)) throw new Error(`会话不存在: ${sessionId}`);
+      const messageId = typeof p.messageId === 'string' ? p.messageId.trim() : '';
+      const exact = typeof p.exact === 'string' ? p.exact : '';
+      if (!messageId) throw new Error('注释 messageId 不能为空');
+      if (!exact.trim()) throw new Error('注释 exact 不能为空');
+      const a = chat.addAnnotation({
+        sessionId, messageId, exact,
+        prefix: typeof p.prefix === 'string' ? p.prefix : '',
+        suffix: typeof p.suffix === 'string' ? p.suffix : '',
+        note: typeof p.note === 'string' ? p.note : '',
+      });
+      rpc.broadcast('chat.annotations.changed', { sessionId });
+      return a;
+    },
+    'chat.annotations.update': (p: { id: string; note: string }) => {
+      const sessionId = chat.updateAnnotationNote(String(p.id ?? ''), typeof p.note === 'string' ? p.note : '');
+      if (sessionId) rpc.broadcast('chat.annotations.changed', { sessionId });
+      return { ok: true };
+    },
+    'chat.annotations.remove': (p: { id: string }) => {
+      const sessionId = chat.removeAnnotation(String(p.id ?? ''));
+      if (sessionId) rpc.broadcast('chat.annotations.changed', { sessionId });
+      return { ok: true };
+    },
     'chat.sessions.setMemoryEnabled': (p: { sessionId: string; enabled: boolean }) => {
       const sessionId = assertSessionId(p.sessionId);
       chat.setMemoryEnabled(sessionId, p.enabled);
