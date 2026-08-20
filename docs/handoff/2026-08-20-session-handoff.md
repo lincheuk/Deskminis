@@ -89,10 +89,14 @@
 | **J** | 助手体系（cowork 化地基）：迁移[9] assistants + 一次性种子 3 + applyAssistantPreset（技能快照覆盖）+ promptFactory assistantBlock + 欢迎页助手卡 + 设置·助手管理页；**顺带修会话模型绑定休眠 bug**（裸 id 从未生效，三侧齐修） | J1 b209394 / J2 6ccc68a |
 | **K** | 定时任务（诚实版 24/7）：迁移[10] cron_jobs + schedule 纯核心（interval/once/cron，Vixie OR）+ 30s 调度器（防重入/并发防重/once 自停）+ runDoneHooks 完成钩子 + 「定时」tab + CronPanel 人话预览；边界产品化（应用运行时生效 / 权限 90s 自动拒绝文案常驻） | K1 df1abb8 / K2 7fab434 |
 | **L** | 候选池批次一（五小件）：L1 输入历史 ↑↓ / L4 FilesPanel md 预览段控 / L5 会话级 MCP pill+面板（D5 后端补 UI 入口）/ L2 @ 文件引用（受限递归 BFS ≤4 层 ≤500）/ L3 锚点导航轨；L6 目视修 pill 首拉时机真 bug | dd62c7a / d0e2eba / 0860084 / c3762ae / 3e2da98 / L6 e60abda |
+| **R** | **v0.2.0 发布就绪**（用户 /goal）：升版+CHANGELOG+README 三行+e2e-m5 修根 / build/icon.ico 补缺+tray 换蓝（纯 node 生成）/ 云端打包验证（--dir 结构+asar 态 xvfb 冒烟全通；--win 交叉构建 wine ENOENT 确定不可行）/ docs/RELEASE.md 检查单；tag 推送 403 → Release 发布时自动建 tag v0.2.0（目标 6bd9741） | R1 46f270d / R2 45f7c80 / R4 6bd9741 / R4b 965db29 |
 
-- **当前**：main HEAD `e60abda`（L 波收官）；docs 分支看最新 log。测试 **1832 例 / 154 文件**
-  （云端 1780 过 + 52 基线；Windows 待用户真机双主题目视收官）。minis.db user_version=**11**
-  （[9] assistants、[10] cron_jobs；L 波零迁移）。typecheck 零错误。守卫更名（I 波）：
+- **当前**：main HEAD `965db29`（R 波收官，**version 0.2.0**）；docs 分支看最新 log。
+  测试 **1835 例 / 155 文件**（云端 1783 过 + 52 基线；Windows 待用户真机双主题目视收官）。
+  minis.db user_version=**11**（[9] assistants、[10] cron_jobs）。typecheck 零错误。
+  **发布**：源码侧就绪，安装包构建与 Release 上传按 main 的 docs/RELEASE.md 在 Windows
+  真机执行（latest.yml 必传；私仓期间自动更新 404 静默）。版本钉测试自 R1 起为
+  m5-packaging（0.2.0）+ 六个 user_version 钉。守卫更名（I 波）：
   renderer-aurora-shell→renderer-shell-form、renderer-aurora-content→renderer-content-form；
   tokens 参考文件换 2026-08-20-aionui 版。
 - H 波技术要点（新会话动 ChatView 前必读）：锚定 = TextQuoteSelector 对「渲染后文本」，
@@ -145,7 +149,8 @@
 - polish 池：--accent-hover 档、亮色空态渐变、market provenance 补 version、fixture 环境变量
   生产门控、注释键盘打开路径（列表面板）、注释入上下文、注释同步。
 - 悬空：docs 分支合并进 main 的方式（等用户裁定）；「模型组降级」README 行仍 🟡（后端有、无 UI 入口）；
-  I7 候选待拍板；README 能力表待补 J/K/L 新面（助手/定时/@文件/md 预览——收官波统一对齐）。
+  I7 候选待拍板；**v0.2.0 Release 上架**（Windows 真机按 main docs/RELEASE.md 走：构建→
+  e2e:m5→冒烟→上传三件套并填 tag v0.2.0/目标 6bd9741）；自动更新要生效需仓库转 public（用户裁定）。
 
 ## 7. 教训镇魂碑（别再踩）
 

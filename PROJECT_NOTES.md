@@ -665,3 +665,24 @@
   空、running 未起即返回），三次里偶现一次；不盲修，待专项排查。留池四项不变
   （图片生成/内置浏览器/办公技能包/排队草稿，理由见设计稿 §6）；I7 候选仍待用户拍板。
 - 全波零迁移零新依赖；154 测试文件 / 1832 例（云端 1780 过 + 52 Windows 基线）。
+
+### R 波：v0.2.0 发布就绪（2026-08-20，用户 /goal「把他做成一个可以发布的版本」，自己做）
+- **四步全落 main**：R1 版本与叙事（46f270d，0.2.0 升版 + m5 版本钉改锚申报 +
+  e2e-m5 的 0.1.1 硬编码修根改读 package.json + README 能力表补 助手/定时/输入与导航
+  三行与测试数 + 根 CHANGELOG.md 新建）→ R2 应用图标（45f7c80，build/icon.ico 补缺
+  ——此前装出来是 Electron 默认图标；scripts/gen-app-icon.mjs 纯 node 手写 PNG+ICO
+  容器 256 单条目，圆角 4×4 超采样；tray.png 品牌色 0xB7AF96→0x155BF5 对齐 AionUi 蓝；
+  yml win.icon 接线；app-icon 守卫先红解析二进制头）→ R3 云端打包验证（无代码变更，
+  证据入册）→ R4 发布检查单 docs/RELEASE.md + R4b tag 403 申报（6bd9741/965db29）。
+- **R3 验证面**：electron-builder --dir（Linux）产物结构全对（asar 含 out/**+tray.png+
+  package.json；extraResources 桥件；better-sqlite3 解包）；**打包产物 xvfb 冒烟全通**
+  （asar 态 main→minisd→renderer→FakeProvider 一回合，r3-packed-smoke.png）；
+  --win 交叉构建实测 spawn wine ENOENT 确定失败（r3-win-crossbuild-fail.log）——
+  安装包必须 Windows 真机构建，检查单以此为前提。dist/ 770M 验后即清（磁盘配额）。
+- **裁定落地与一处受挫**：§0 裁定 3「审核方推 tag」实测 403（凭据只放行分支推送）；
+  本地 tag 删除防漂移，检查单改走「Release 发布填 tag v0.2.0 + 目标 6bd9741 自动建」，
+  发布语义不变。零新依赖红线保持（package.json 只动 version + scripts 行）。
+- **发布态**：源码侧发布就绪已到云端可做的最大面；剩余动作全在用户 Windows 真机
+  （docs/RELEASE.md 六节：构建→e2e:m5→手动冒烟→Release 三件套上传，latest.yml
+  漏传=自动更新失明；私仓期间自动更新 404 静默为既知态）。
+- 155 测试文件 / 1835 例（云端 1783 过 + 52 基线）；typecheck 0；基线逐行一致。
