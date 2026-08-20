@@ -12,19 +12,20 @@ Windows 桌面端的通用 Agent 应用。让模型在你自己的机器上读�
 
 | 能力 | 状态 |
 |---|---|
-| Agent 循环 + 工具调用 | ✅ `shell_execute` / `file_read` / `file_write` / `file_edit` / `file_list` / `file_glob` / `file_grep` / `web_fetch` / `memory_get` / `memory_write`；输出截断自动续写、点停止即时中断正在跑的工具；老程序吐的 GBK 乱码自动兜底解码 |
+| Agent 循环 + 工具调用 | ✅ `shell_execute` / `file_read` / `file_write` / `file_edit` / `file_list` / `file_glob` / `file_grep` / `web_fetch` / `web_search` / `memory_get` / `memory_write`；输出截断自动续写、点停止即时中断正在跑的工具；老程序吐的 GBK 乱码自动兜底解码 |
 | 模型接入 | ✅ OpenAI 兼容端点 / Anthropic 原生 / Gemini 原生 / Ollama 本地；模型 ID 可从端点直接拉取成下拉，不必手输；思考过程可见（Anthropic/Gemini 原生思考与 DeepSeek 类 `reasoning_content` 都渲染） |
 | 图片输入 | ✅ 粘贴 / 拖拽 / ＋ 选择图片直接进模型，Anthropic、OpenAI 兼容、Gemini 三条链路各自映射（图片字节只在请求时合成，不写进会话库） |
 | 权限网关 | ✅ 三档（每次确认 / 本会话沿用 / 完全访问）真实作用于后端并跨重启持久；常见只读命令免询问，含 `git log \| select-object -first 20` 这类受限只读管道；工作区内（含绑定的项目目录）文件直接放行；写文件审批带 diff 预览；访问网络单列一档，默认每次确认 |
 | 会话 | ✅ 首回合后自动命名，菜单可重命名 / 删除 / 绑定模型 |
 | 持久记忆 + 上下文压缩 | ✅ Markdown 记忆库、自动压缩与卸载；单指令长任务也能压缩，陈旧的大工具结果自动修剪 |
 | 技能系统 | ✅ `SKILL.md` 生态兼容，设置里可启停/删除/导入 |
+| 扩展市场 | ✅ 应用内浏览 / 搜索 / 一键安装技能与 MCP 服务器（ClawHub、官方 MCP Registry、awesome-dsh-plugin 三源）；装前确认卡展示来源、落盘清单或完整启动命令与上游安全裁定（恶意标记硬阻断）；已装项可检查更新 |
+| MCP | ✅ stdio / streamable-http 双传输；设置页添加 / 试连 / 启停 / 删除；工具以 `mcp__<服务器>__<工具>` 进会话，首次调用弹权限卡、允许后本会话同服务器免弹，也可对单个会话禁用某台；`npm run e2e:mcp` 全链路冒烟可回归 |
 | 工作区 | ✅ 每会话绑定真实项目目录（原生选择器或粘贴路径） |
 | 设备同步与接力 | ✅ 内网直连配对，会话与记忆双向同步，可暂停 |
 | 内嵌终端 / 文件树 / 产物面板 | ✅ |
 | 打包分发 | ✅ NSIS 安装包 + 便携版 + 自动更新 |
 | **浏览器 / 屏幕** | ⛔ 未实现（界面已留位并明确标注，属独立里程碑） |
-| **MCP** | ⛔ 未实现 |
 | **模型组降级** | 🟡 后端已建成，尚无界面入口 |
 
 > 诚实说明：这是个人项目，目前只在 Windows 上开发与验证过。
