@@ -30,6 +30,7 @@ import ArtifactsPanel from './components/ArtifactsPanel.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import DevicesModal from './components/DevicesModal.vue';
 import MarketPanel from './components/MarketPanel.vue';
+import CronPanel from './components/CronPanel.vue';
 
 const chat = useChat();
 
@@ -76,13 +77,14 @@ const devicesOpen = ref(false);
  *  内容属后端里程碑 M8）。G3 增 market（扩展市场，全局 tab——不随会话切换重置）。
  *  **四个内置面板的 v-show 绑定一字不动**——renderer-artifacts /
  *  renderer-files-panel / renderer-tasks-panel 三个文件锚在这些绑定上。 */
-type WbPanel = 'progress' | 'artifacts' | 'files' | 'terminal' | 'browser' | 'screen' | 'market';
+type WbPanel = 'progress' | 'artifacts' | 'files' | 'terminal' | 'browser' | 'screen' | 'market' | 'cron';
 const rightTab = ref<WbPanel>('progress');
 /** 懒挂载 + v-show 保活（首次切到才创建组件，之后切换只隐藏不销毁）——
- *  内置内容面板均走此模式（market 同例：不进「扩展」tab 不发任何 market 请求）。 */
-const visited = reactive({ progress: true, artifacts: false, files: false, terminal: false, market: false });
-function isLazy(t: WbPanel): t is 'progress' | 'artifacts' | 'files' | 'terminal' | 'market' {
-  return t === 'progress' || t === 'artifacts' || t === 'files' || t === 'terminal' || t === 'market';
+ *  内置内容面板均走此模式（market 同例：不进「扩展」tab 不发任何 market 请求；
+ *  K2 cron 同例：不进「定时」tab 不发 cron 请求）。 */
+const visited = reactive({ progress: true, artifacts: false, files: false, terminal: false, market: false, cron: false });
+function isLazy(t: WbPanel): t is 'progress' | 'artifacts' | 'files' | 'terminal' | 'market' | 'cron' {
+  return t === 'progress' || t === 'artifacts' || t === 'files' || t === 'terminal' || t === 'market' || t === 'cron';
 }
 
 /** 标签**条**改数组渲染（可关闭、可多开）；标签**体**仍是上面那组 v-show 绑定。
@@ -97,6 +99,8 @@ const BUILTIN_TABS: WbTab[] = [
   { id: 'terminal', label: '终端', panel: 'terminal', closable: false, icon: 'terminal', short: '终端' },
   // G3 扩展市场：全局 tab（不随会话切换重置），不可关闭；visited 惰性挂载（不进 tab 不发 market 请求）
   { id: 'market', label: '扩展', panel: 'market', closable: false, icon: 'book', short: '扩展' },
+  // K2 定时任务：全局 tab（market 同例），懒挂载
+  { id: 'cron', label: '定时', panel: 'cron', closable: false, icon: 'clock', short: '定时' },
   { id: 'browser', label: '浏览器', panel: 'browser', closable: true, icon: 'globe', short: '浏览' },
   // live 曾写死 true——屏幕能力根本没建，却常亮一个绿点让人以为有东西在跑。
   // 常驻位上的状态必须要么真、要么不出现（与 ProgressPanel 的上下文水位同口径）。
@@ -365,6 +369,7 @@ onBeforeUnmount(() => {
         <div v-show="rightTab === 'files'" class="rfill"><FilesPanel v-if="visited.files" /></div>
         <div v-show="rightTab === 'terminal'" class="rfill"><TerminalPanel v-if="visited.terminal" /></div>
         <div v-show="rightTab === 'market'" class="rfill"><MarketPanel v-if="visited.market" /></div>
+        <div v-show="rightTab === 'cron'" class="rfill"><CronPanel v-if="visited.cron" /></div>
         <!-- 浏览器 / 屏幕：本轮只出壳与空态，内容属后端里程碑（Playwright/CDP 与 computer use）。
              空态文案说清「为什么现在是空的、要什么才不空」，不做「敬请期待」这类无信息量占位。 -->
         <div v-show="rightTab === 'browser'" class="rfill wempty">

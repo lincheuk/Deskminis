@@ -13,6 +13,14 @@ type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
 /** J2 助手（字段对齐后端 AssistantMeta，assistants.list 原样返回）。 */
 interface UiAssistant { id: string; name: string; avatar: string; rules: string; modelBinding?: string; skillIds: string[]; prompts: string[]; sortOrder: number }
+/** K2 定时任务（字段对齐后端 CronJob，cron.list 原样返回）。 */
+interface UiCronJob {
+  id: string; name: string; prompt: string;
+  scheduleKind: 'interval' | 'once' | 'cron'; scheduleValue: string;
+  assistantId?: string; workspaceRoot?: string;
+  enabled: boolean; nextRunAt?: number; lastRunAt?: number;
+  lastSessionId?: string; lastStatus: string;
+}
 
 export const useChat = defineStore('chat', {
   state: () => ({
@@ -39,6 +47,8 @@ export const useChat = defineStore('chat', {
     /** I6 欢迎屏选择态（AionUi Guid 页语义）：选中的助手 id，**不建会话**——
      *  会话在发送首条消息时按此创建（ChatView send 消费）；换会话即失效清空。 */
     welcomeAssistantId: '' as string,
+    /** K2 定时任务列表（工作台「定时」面板数据源；变更经 cron.changed 广播回流）。 */
+    cronJobs: [] as UiCronJob[],
     /** 网络搜索 provider 状态（设置页用）：后端 get 只回 {kind, hasKey, baseUrl?}，密钥永不回显。 */
     searchProvider: null as null | { kind: string; hasKey: boolean; baseUrl?: string },
     skills: [] as UiSkill[],
@@ -151,6 +161,8 @@ export const useChat = defineStore('chat', {
       });
       // J2：助手目录变更广播（本窗口的写操作也走这条回流——单一代码路径，多窗口一致）
       rpc.on('assistants.changed', () => { void this.refreshAssistants(); });
+      // K2：调度器触发/终态/CRUD 全走 cron.changed 回流——面板「下次运行/上次状态」保持活值
+      rpc.on('cron.changed', () => { void this.refreshCronJobs(); });
       await this.refreshSessions();
       await this.refreshProviders();
       await this.refreshAssistants();
@@ -209,6 +221,28 @@ export const useChat = defineStore('chat', {
     async deleteAssistant(id: string) {
       await rpc.call('assistants.delete', { id, confirm: true });
       await this.refreshAssistants();
+    },
+    // ---- K2 定时任务（设计稿 §5）----
+    async refreshCronJobs() { this.cronJobs = await rpc.call('cron.list'); },
+    async createCronJob(input: { name: string; prompt: string; scheduleKind: string; scheduleValue: string; assistantId?: string; workspaceRoot?: string }) {
+      const j = await rpc.call('cron.create', input);
+      await this.refreshCronJobs();
+      return j;
+    },
+    async updateCronJob(id: string, patch: Record<string, unknown>) {
+      const j = await rpc.call('cron.update', { id, ...patch });
+      await this.refreshCronJobs();
+      return j;
+    },
+    /** 后端强制 confirm:true（deleteSession 同款）。 */
+    async deleteCronJob(id: string) {
+      await rpc.call('cron.delete', { id, confirm: true });
+      await this.refreshCronJobs();
+    },
+    async runCronNow(id: string) {
+      await rpc.call('cron.runNow', { id });
+      await this.refreshCronJobs();
+      await this.refreshSessions(); // 立即运行会新建会话，列表立刻可见
     },
     // ---- MU6 会话操作（消费既有 RPC，不新增方法）----
     /** 删除会话。后端强制 confirm:true——漏了它会抛错，界面表现为「点了删除没反应」。 */
