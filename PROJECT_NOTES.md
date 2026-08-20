@@ -438,3 +438,24 @@
   任何文件的任何改动（含纯导出/注释）必须申报**。
 - 偏离六条全部接受（独立 install.ts 职责分离、hash 自算、-y 补位、先红一条例外如实记录、
   rmSync 字面锚、迁移测试连带三处）。
+
+### G3 审核记录（2026-08-20，云端）+ 审核方自纠
+- **G3 过审**（0feac61，16 文件 +1285/-14）：1672→1690。云端复跑 52 失败与基线逐条一致、
+  G3 头 tsc 显式退出码 0、扫描零命中。偏离五条全部申报（G2 点名生效）且全部接受
+  （hasWarnings 透出、类型修复、titlebar 豁免到值不豁免文件、e2e 证据入库沿成例、
+  单文件+就地展开实现决策）。
+- **审核方自纠（G2 typecheck 假阳性）**：复核证实 477b4c1 上 tsc 实报 TS2304+TS7006 两错——
+  G2 轮审核命令里 `npm run typecheck && echo TYPECHECK_OK` 失败后 && 链静默断掉，
+  TYPECHECK_OK 从未打印，审核结论却写了「typecheck 零错误」。测试全绿掩盖（vitest 转译
+  不查类型）。Trae「HEAD 即有」申报属实，其修复把两错都清了（G3 头验证干净）。
+  **流程修正入册：typecheck 验证必须看到显式成功标记（echo 独立行 + 退出码）才可写入结论；
+  复合命令的 && 静默断链是审核方自己的 D4 级教训。**
+- 云端 fixture 全链路 UI 真跑（DESKMINIS_MARKET_FIXTURE_URL 注入本地 node:http fixture）：
+  扩展 tab 激活、两子 tab、源 chips、搜索防抖真发（q=pdf）、卡片流（mono 读数/verdict/
+  源徽章/浮岛形态）、Install → detail(ownerHandle 消歧) → scan(verdict 复核) → 确认卡
+  （scrim+sheet、双钮）→ 确认后 download——fixture 未配 404 时**失败红字如实透出**
+  （失败路径 UI 一并验证）。plan 阶段下载 zip 属设计内（文件清单预告）。
+  对照库内 Trae 真机七图：MCP 确认卡 §4 全项齐（完整命令原样/env 值只存在本机/必填缺失
+  橙字 gating/未扫描灰字），列表卡片流完整。
+- **G 波 G1-G3 完成**：扩展市场全链路上线（三源浏览/搜索/详情/安全确认卡/安装/已装态）。
+  G4（更新检查）设计稿标可后置，待用户裁定即做或收官。
