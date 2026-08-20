@@ -55,6 +55,8 @@ npm run typecheck
 npm run dist         # 出安装包到 deskminis/dist/
 ```
 
+发布一个新版本的完整流程（构建 → 验收 → 冒烟 → 上传 Release）见 [docs/RELEASE.md](docs/RELEASE.md)。
+
 ## 数据存在哪
 
 一切都在 `%APPDATA%\DeskMinis`：
