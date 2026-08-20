@@ -1,6 +1,6 @@
 {
   "name": "deskminis",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "",
   "main": "out/main/index.js",
   "scripts": {
@@ -22,6 +22,7 @@
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "gen:tray-icon": "node scripts/gen-tray-icon.mjs",
+    "gen:app-icon": "node scripts/gen-app-icon.mjs",
     "e2e:mu6": "node scripts/e2e-mu6-acceptance.mjs",
     "e2e:mcp": "node scripts/e2e-mcp-acceptance.mjs",
     "audit:clicks": "node scripts/ui-click-audit.mjs",

@@ -34,8 +34,8 @@ describe('M5 electron-builder.yml 静态守卫', () => {
     expect(builderYml).toMatch(/artifactName:\s*'?DeskMinis-\$\{version\}/);
   });
 
-  it('version 从 0.1.0 提升到 0.1.1（决策点 2-6）', () => {
+  it('version 提升到 0.2.0（历史锚 0.1.0→0.1.1→0.2.0；R 波发布升版，改锚已在 commit 申报）', () => {
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as { version?: string };
-    expect(pkg.version).toBe('0.1.1');
+    expect(pkg.version).toBe('0.2.0');
   });
 });

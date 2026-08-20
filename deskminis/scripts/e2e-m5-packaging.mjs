@@ -18,7 +18,7 @@
 // 若构建产物不存在，脚本给出明确「先构建」提示并以退出码 2 结束（与其它 e2e 脚本一致）。
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, cpSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,7 +31,10 @@ const isWin = process.platform === 'win32';
 // 只能把产物构建到临时目录。复核方/执行方跑本脚本时可用环境变量指向实际产物根，绕开锁。
 // 未设置时回落默认 dist/ 路径。
 const UNPACKED = process.env.DESKMINIS_M5_UNPACKED || join(CWD, 'dist', 'win-unpacked');
-const SETUP = process.env.DESKMINIS_M5_SETUP || join(CWD, 'dist', 'DeskMinis-0.1.1-Setup.exe');
+// 版本号读 package.json（R 波修根：0.1.1 曾硬编码在此，升版后默认路径悄悄失效只剩提示误导）
+const PKG_VERSION = JSON.parse(readFileSync(join(CWD, 'package.json'), 'utf8')).version;
+const SETUP_NAME = `DeskMinis-${PKG_VERSION}-Setup.exe`;
+const SETUP = process.env.DESKMINIS_M5_SETUP || join(CWD, 'dist', SETUP_NAME);
 
 async function main() {
   console.log('═'.repeat(64));
@@ -51,7 +54,7 @@ async function main() {
     console.error('  若 dist/ 被占用（EBUSY，如工具宿主已持有 resources/app.asar 句柄），');
     console.error('  请把产物构建到临时目录，并用环境变量指定产物根绕开锁：');
     console.error('    $env:DESKMINIS_M5_UNPACKED="<临时目录>/win-unpacked"');
-    console.error('    $env:DESKMINIS_M5_SETUP="<临时目录>/DeskMinis-0.1.1-Setup.exe"');
+    console.error(`    $env:DESKMINIS_M5_SETUP="<临时目录>/${SETUP_NAME}"`);
     console.error('    再运行: npm run e2e:m5');
     process.exit(2);
   }
@@ -60,7 +63,7 @@ async function main() {
   if (existsSync(SETUP)) {
     await installAndVerify(SETUP);
   } else {
-    console.log('\n[提示] 未发现 NSIS 安装器（dist/DeskMinis-0.1.1-Setup.exe），跳过 §6-1 安装段；仅验证 win-unpacked 产物面。');
+    console.log(`\n[提示] 未发现 NSIS 安装器（dist/${SETUP_NAME}），跳过 §6-1 安装段；仅验证 win-unpacked 产物面。`);
   }
 
   if (appRoot) await verifyUnpacked(appRoot);
