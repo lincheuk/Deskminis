@@ -267,7 +267,37 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   const attCache = new Map<string, string | null>();
   const attDir = opts.toolContext.paths.sessionBucket(opts.sessionId, 'attachments');
 
+  /**
+   * F1：取消短路点共用的收尾——把流式中途已展示给用户的半截文本落库，再报「已取消」。
+   * 不落的话屏幕上有、历史里没有：下轮提问模型看不到自己说过的半截话。
+   * 红线与取舍：
+   *  - text 为空（取消发生在任何 textDelta 之前）→ 什么都不落。「空 assistant 回合绝不落库」
+   *    与主路径同级红线：Anthropic 拒收 content 为空的消息，落了会让会话后续每次请求都 400。
+   *  - 只落 text part：calls 里已解析的 toolCallComplete 一律丢弃——落库 tool_use 而无配对
+   *    tool_result 等于主动制造 pairToolResults 要修的那种孤儿，Anthropic 同样每次 400 变砖。
+   *    thinking 块同理不落（历史 thinking 块只在回放时被引用，丢掉永远安全）；
+   *    已累积的半截思考走 reasoningContent（仅展示不回放），有值就带上；tokenUsage 有就带。
+   *  - streamInterruptCount=1：该字段语义即「本消息的流中断计数」（shared/types.ts RawMessage），
+   *    半截消息正是流被中断的产物；当前全链路恒写 0 且无读取方，置 1 只是把既有语义用起来。
+   *  - 先发 messagePersisted 再发 error：renderer 的 error 分支靠 open() 重取历史刷新，
+   *    顺序反了的话重取时消息还没进库，屏幕上的半截话就凭空消失了。
+   */
+  function* cancelWithPartialReply(text: string, reasoning: string, usage: TokenUsage | undefined): Generator<LoopEvent> {
+    if (text) {
+      const m = store.appendMessage({
+        id: store.newId(), sessionId: opts.sessionId, role: 'assistant', parts: [{ type: 'text', value: text }],
+        createdAt: clock.next(), streamInterruptCount: 1,
+        reasoningContent: reasoning || undefined, tokenUsage: usage,
+      });
+      yield { kind: 'messagePersisted', messageId: m.id };
+    }
+    yield { kind: 'error', message: '已取消' };
+  }
+
   for (let turn = 0; turn < maxTurns; turn++) {
+    // F1 侦察结论：此处不接半截落库——text 在流循环内累积、turn 头尚未开流，本轮恒空；
+    // 能 continue 回到这里的路径（压缩/空响应两路/maxTokens 续写）里，非空文本要么早已
+    // 正常落库（续写路径在上一轮就 persist 过），要么本就为空（空响应路径的定义）。
     if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
     const history = store.listMessages(opts.sessionId);
     clock.observe(history);
@@ -388,7 +418,8 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
         } catch (e) {
           // 取消优先于重试梯：provider 把 AbortError 也包成 retryable ProviderError，
           // 若不在这里短路，取消会退化成「睡一觉再重试」。
-          if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
+          // F1：此处 text 持有本 attempt 已展示给用户的半截文本——取消时先落库再终止。
+          if (opts.signal?.aborted) { yield* cancelWithPartialReply(text, reasoning, usage); return; }
           const err = e instanceof ProviderError ? e : new ProviderError(String(e), { retryable: false });
           // fallbackable 错误：不重试，立刻降级
           if (isFallbackable(err)) {
@@ -408,7 +439,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
           const d = retryLadder[attempt];
           yield { kind: 'retry', attempt: attempt + 1, delayMs: d, reason: err.message };
           await delay(d);
-          if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
+          // F1：重试等待期取消——text 仍是失败 attempt 的半截文本（要到下次 attempt 开头才清空），
+          // 屏幕上已展示过它，取消时同样先落库再终止。
+          if (opts.signal?.aborted) { yield* cancelWithPartialReply(text, reasoning, usage); return; }
         }
       }
 

@@ -40,6 +40,21 @@ class ScriptedProvider implements AgentProvider {
   }
 }
 
+/** F1 用：流中途取消的 stub——先吐脚本事件，再把测试侧 controller 置 aborted、抛 AbortError
+ *  形态错误（真实 provider 收到 abort 信号就是这个形态）。ScriptedProvider 的 error 槽只装
+ *  ProviderError、也做不到「吐完事件才 abort」，故单独自定义，不动它。 */
+class CancellingProvider implements AgentProvider {
+  readonly name = 'cancel-stub'; readonly modelId = 'fake';
+  constructor(private events: AgentStreamEvent[], private controller: AbortController) {}
+  async *streamAgentMessage(): AsyncIterable<AgentStreamEvent> {
+    for (const e of this.events) yield e;
+    this.controller.abort();
+    const err = new Error('The operation was aborted');
+    err.name = 'AbortError';
+    throw err;
+  }
+}
+
 const echoTool: ToolExecutor = {
   definition: { name: 'echo', description: 'echo', parameters: { text: { type: 'string', description: 't' }, tool_title: { type: 'string', description: 't' } }, required: ['text', 'tool_title'] },
   async execute(input) { return { output: `echo:${String(input.text)}`, success: true }; },
@@ -133,6 +148,68 @@ describe('runAgentLoop', () => {
     expect(events.at(-1)).toEqual({ kind: 'error', message: '已取消' });
     expect(provider.calls).toBe(1);
     expect(events.some(e => e.kind === 'retry')).toBe(false);
+  });
+
+  // ── F1：取消流式后已展示的半截回复落库 ──
+
+  it('F1 取消落半截: 两个 textDelta 后取消 → 半截文本进历史, messagePersisted 先于 error', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '你好' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const controller = new AbortController();
+    const provider = new CancellingProvider([
+      { kind: 'textDelta', text: '你好' }, { kind: 'textDelta', text: '，世界' },
+    ], controller);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider, tools, toolContext, systemPrompt: 'sys', signal: controller.signal,
+    }));
+    // 收尾仍是「已取消」——取消语义不变
+    expect(events.at(-1)).toEqual({ kind: 'error', message: '已取消' });
+    // 落库广播必须先于 error：renderer 的 error 分支靠 open() 重取历史刷新，
+    // 顺序反了的话重取时消息还没进库，屏幕上的半截话就凭空消失了
+    expect(events.filter(e => e.kind === 'messagePersisted' || e.kind === 'error').map(e => e.kind))
+      .toEqual(['messagePersisted', 'error']);
+    // 半截回复进了历史：下轮提问模型能看到自己说过的半截话
+    const msgs = store.listMessages(sessionId);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1].role).toBe('assistant');
+    expect(msgs[1].parts).toEqual([{ type: 'text', value: '你好，世界' }]);
+    // streamInterruptCount=1：字段语义即「本消息流中断计数」，半截消息正是流被中断的产物
+    expect(msgs[1].streamInterruptCount).toBe(1);
+  });
+
+  it('F1 取消落半截: 任何 textDelta 之前取消 → text 为空不落库(空 assistant 绝不落库红线)', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'x' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const controller = new AbortController();
+    const provider = new CancellingProvider([], controller);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider, tools, toolContext, systemPrompt: 'sys', signal: controller.signal,
+    }));
+    expect(events.at(-1)).toEqual({ kind: 'error', message: '已取消' });
+    expect(events.some(e => e.kind === 'messagePersisted')).toBe(false);
+    // 只剩原始 user 消息——空 assistant 回合绝不落库（Anthropic 拒收空 content，落了会话变砖）
+    expect(store.listMessages(sessionId)).toHaveLength(1);
+  });
+
+  it('F1 取消落半截: 已解析的 toolCallComplete 一律丢弃, 落库消息只含 text part', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: 'do' }], createdAt: store.nowEpoch(), streamInterruptCount: 0 });
+    const controller = new AbortController();
+    const provider = new CancellingProvider([
+      { kind: 'textDelta', text: '半截' },
+      { kind: 'toolCallComplete', toolUseId: 'T1', name: 'echo', input: '{"text":"hi","tool_title":"回声"}' },
+    ], controller);
+    const events = await collect(runAgentLoop(store, {
+      sessionId, provider, tools, toolContext, systemPrompt: 'sys', signal: controller.signal,
+    }));
+    expect(events.at(-1)).toEqual({ kind: 'error', message: '已取消' });
+    // 取消短路在工具执行之前——绝不发 toolStart
+    expect(events.some(e => e.kind === 'toolStart')).toBe(false);
+    const msgs = store.listMessages(sessionId);
+    expect(msgs).toHaveLength(2);
+    // 只有 text part：落库 tool_use 而无配对 tool_result = 主动制造孤儿，
+    // Anthropic 会对该会话后续每次请求 400（与「空 assistant 绝不落库」同级红线）
+    expect(msgs[1].parts).toEqual([{ type: 'text', value: '半截' }]);
   });
 
   it('空响应不落库(否则会话永久变砖)', async () => {
