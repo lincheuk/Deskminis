@@ -394,7 +394,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* E2 极光底：background-color 与 background-image 分两属性写——--aurora-ground 是 image
-   列表，并进 background 简写会把颜色冲掉。纯 CSS 渐变无 blur 零开销，两主题自动跟随（E1 色板分叉） */
+   列表，并进 background 简写会把颜色冲掉。I2（AionUi 换向）：--aurora-1..3 已全透明，
+   斑不再显形，但结构保留——将来若回极光只动参考文件，这里一行不用改 */
 .shell {
   display: flex; flex-direction: column; height: 100vh;
   background-color: var(--bg); background-image: var(--aurora-ground);
@@ -406,10 +407,9 @@ onBeforeUnmount(() => {
 .taskbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
   height: 34px; padding: 0 12px;
-  /* E2 HUD 化：玻璃底 + 顶缘内高光（玻璃「有厚度」的关键）。任务条直接贴 .shell 极光底，
-     透出斑色才有「流光」；它身上没有弹层，不在 §5 永久禁用清单（POPUP_OWNERS）内 */
-  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
-  box-shadow: inset 0 1px 0 var(--glass-edge);
+  /* I2 平面化：实色底 + 底边框（AionUi 卡片语言）。玻璃/受光边退场是对 2026-08-10
+     「苹果磨砂」要求的覆盖性偏离（设计稿 2026-08-20 §0，用户新指令优先） */
+  background: var(--surface-1);
   border-bottom: 1px solid var(--separator);
 }
 .tb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-quaternary); flex: 0 0 auto; }
@@ -434,8 +434,8 @@ onBeforeUnmount(() => {
 /* 图标轨（折叠态）——来源 AionUi 工作视图：进入工作态后会话列表压成纯图标 */
 .rail {
   width: 52px; flex: 0 0 52px;
-  /* E2 玻璃轨：直接贴 .shell 极光底透斑；身上无弹层（设置/设备都走模态），§5 白名单内 */
-  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
+  /* I2 平面化：实色轨（AionUi 侧栏白底语言） */
+  background: var(--surface-1);
   border-right: 1px solid var(--separator);
   display: flex; flex-direction: column; align-items: center; gap: 5px;
   padding: 9px 0; overflow: hidden;
@@ -495,8 +495,8 @@ onBeforeUnmount(() => {
    与 MU2b 的等分四枚不同——标签按内容宽度排，才容得下多开的文件名。 */
 .wtabs {
   display: flex; align-items: center; gap: 3px; padding: 7px 10px 0;
-  /* E2 玻璃页签条（§5 白名单内；身上无弹层） */
-  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
+  /* I2 平面化：实色页签条 */
+  background: var(--surface-1);
   border-bottom: 1px solid var(--separator); overflow-x: auto;
 }
 .wtab {

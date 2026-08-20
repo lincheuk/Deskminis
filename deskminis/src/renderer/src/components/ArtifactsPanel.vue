@@ -38,10 +38,10 @@ function openInFiles(path: string): void {
 </template>
 
 <style scoped>
-/* E2 轻玻璃：本面板没有头部/工具条，玻璃落在面板容器本身——恰好一处，blur 面恒定（§5 纪律） */
+/* I2 平面化：实色面板底（AionUi 语言，玻璃退场——设计稿 2026-08-20 §0 申报） */
 .apanel {
   flex: 1; min-height: 0; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px;
-  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
+  background: var(--bg);
 }
 .ahint { font-size: 12px; color: var(--label-tertiary); padding: 24px 12px; text-align: center; line-height: 1.6; }
 .acard {

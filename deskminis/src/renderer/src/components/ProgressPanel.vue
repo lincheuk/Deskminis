@@ -171,48 +171,42 @@ function fmt(n: number): string {
 </template>
 
 <style scoped>
-/* 磨砂玻璃（2026-08-10 用户要求）。三条落地要点，缺一条就只是「加了个看不见的 blur」：
-   ① 面板底给极淡渐变——半透明卡片背后得有东西可透，压在纯色上模糊了也等于没模糊；
-   ② 标题做**吸顶**，卡片从它下面滚过去，这才是 backdrop-filter 真正显形的地方；
-   ③ 卡片靠「半透明 + 顶部内高光 + 柔和投影」造厚度，而不是描边——边框是平面语言。 */
+/* I2 平面化（AionUi 换向）：磨砂玻璃退场——2026-08-10「苹果磨砂」要求被 2026-08-20
+   「按 AionUi 重做」新指令覆盖（设计稿 §0 申报）。卡片语言反转为：实色白卡 + 1px 边
+   ——「边框是平面语言」当年是玻璃的反例，如今正是要的东西。吸顶标题保留（实色不透）。 */
 .ppanel {
   /* 顶部内边距归零：吸顶标题自带内边距并撑满面板，面板再给上边距只会和它打架。
      归零后也顺带**去掉了标题的负上边距**——负外边距会参与 flex 的外边距盒计算，
      把它与首卡之间的间距吃掉（实测 16px 只剩 6px，肉眼即「粘连」）。 */
   flex: 1; min-height: 0; overflow: auto; padding: 0 12px 16px;
   display: flex; flex-direction: column; gap: 12px;
-  background: var(--glass-ground);
+  background: var(--bg);
 }
 .phint { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 12px; text-align: center; line-height: 1.6; }
-/* 吸顶玻璃头：负外边距把它撑到面板边缘，top:0 贴住滚动视口顶。
+/* 吸顶标题头（I2 起实色）：负外边距把它撑到面板边缘，top:0 贴住滚动视口顶。
    z-index 只在 .ppanel 内部生效——本面板没有弹出层，不会重演 TitleBar 的层叠上下文陷阱。 */
 /* 左内边距 26 = 面板 12 + 卡片 14：**标题与卡片内文字共用一条左边界**。
    原来标题是 16、卡片文字是 26，差 10px——整屏看着就是「歪」（用户 2026-08-11 实测指出）。
    margin-bottom 4 叠在面板 gap 12 上 = 与首卡隔开 16px：卡片化设计的分离感来自间距，
-   而标题带磨砂背景、卡片也带，贴太近两层玻璃会糊成一片（「步骤粘连在新会话」）。 */
+   贴太近标题头与首卡会糊成一片（「步骤粘连在新会话」，玻璃时代实测，平面同理）。 */
 .ptask {
   position: sticky; top: 0; z-index: 2;
   margin: 0 -12px 8px; padding: 14px 26px 12px;
   font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); line-height: 1.4;
-  background: var(--glass-thick);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  background: var(--surface-1);
   border-bottom: .5px solid var(--separator);
 }
 .psec {
-  background: var(--glass-thin);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-radius: var(--r-sheet);
+  background: var(--surface-1);
+  border: 1px solid var(--separator);
+  border-radius: var(--r-card);
   /* 上下对称：原来是 12/12 但内部末行还带 3~4px 的行内边距，视觉重心偏上
      （用户：「格子内字体不居中」）。这里收口为「卡片 14 上下 + 内部行零外扩」。 */
   padding: 14px 14px;
-  /* 顶部那道内高光是「有厚度」的关键：比加一圈边框克制，也更像玻璃的受光边 */
-  box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow-fab);
 }
 .psec.pending {
   border-left: 3px solid var(--state-warn);
-  background: color-mix(in oklch, var(--state-warn-bg) 55%, var(--glass-thin));
+  background: var(--state-warn-bg);
 }
 .pending-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pending-text { font-size: var(--fs-ui); color: var(--label); line-height: 1.5; }

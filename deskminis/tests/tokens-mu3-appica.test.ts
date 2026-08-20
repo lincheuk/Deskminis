@@ -214,9 +214,9 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
     // 凡是身上有下拉菜单/弹层的组件用了它，弹层就会被压在下面。
     // TitleBar 当年就是这么中招的（renderer-titlebar-stacking 有实测取证），
     // MU5 §15 又刚因为同族问题（容器裁剪弹层）吃过一次「点了没反应」。
-    // E2 扩容（设计稿 §5 表）：App 的 taskbar/rail/wtabs 三处壳层 + ArtifactsPanel/FilesPanel
-    // 面板头登记入册——壳层数量恒定、身上无弹层，blur 开销 O(1)（blur 面恒定 ≤6 的性能纪律不变）
-    const ALLOW = ['ProgressPanel', 'App', 'ArtifactsPanel', 'FilesPanel'];
+    // I2 缩容为空集（AionUi 换向，设计稿 2026-08-20 §6）：玻璃消费全面退场，白名单清零。
+    // 白名单机制与 POPUP_OWNERS 双保险保留——将来谁想再上 blur，仍要过这道闸逐个登记
+    const ALLOW: string[] = [];
     // 这些组件自带弹出层/浮层，永久禁用——加进 ALLOW 也不行，下面单独再断言一次
     const POPUP_OWNERS = ['TitleBar', 'ModelPicker', 'PermissionPicker', 'SettingsModal', 'DevicesModal', 'ChatView', 'SessionList', 'MarketPanel'];
     const offenders: string[] = [];

@@ -121,8 +121,8 @@ onMounted(() => {
 .fhead {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; border-bottom: .5px solid var(--separator); flex: 0 0 auto;
-  /* E2 轻玻璃：面板头一处（恰好一处，克制；无弹层，§5 白名单内） */
-  background: var(--glass-thin); backdrop-filter: var(--glass-blur);
+  /* I2 平面化：实色面板头（AionUi 语言，玻璃退场——设计稿 2026-08-20 §0 申报） */
+  background: var(--surface-1);
 }
 .ftitle { font-size: 13px; font-weight: 600; color: var(--label-strong); }
 .fbtn {
