@@ -40,6 +40,9 @@ interface ClawHubDetailBody {
     description?: string;
     stats?: { downloads?: number; stars?: number };
   };
+  /** G4 更新检查数据源：源内最新版本（resolve 端点 match 实测恒 null——g4-probe-run5b.txt
+   *  六样本全 null，hash 比对改走 download 字节自算；latestVersion 只作版本串展示）。 */
+  latestVersion?: { version?: string };
   owner?: { handle?: string };
 }
 
@@ -116,9 +119,10 @@ export class ClawHubSource implements MarketSource {
     return page;
   }
 
-  async detail(id: string): Promise<MarketDetail> {
+  async detail(id: string, opts?: { ttlMs?: number }): Promise<MarketDetail> {
     // id 是全形态 clawhub:{ownerHandle}/{slug}（适配器统一接口：detail 收归一 id，自剥本源前缀）
     // ——ownerHandle 是详情/scan 端点的消歧必参数（裸 slug 会 409）。
+    // opts.ttlMs：checkUpdates 传 0 强制条件请求（新版本/新裁定不被 24h 缓存挡住）。
     const m = /^clawhub:([^/]+)\/(.+)$/.exec(id);
     if (!m) throw new Error(`非法 clawhub 条目 id: ${id}`);
     const [, owner, slug] = m;
@@ -126,7 +130,7 @@ export class ClawHubSource implements MarketSource {
     const detailKey = `clawhub:detail:${owner}/${slug}`;
     const detailUrl = `${BASE}/api/v1/skills/${encodeURIComponent(slug)}?ownerHandle=${encodeURIComponent(owner)}`;
     const detailEntry = await this.cache.getText(detailKey, detailUrl, {
-      maxBytes: DETAIL_MAX_BYTES, ttlMs: DETAIL_TTL_MS,
+      maxBytes: DETAIL_MAX_BYTES, ttlMs: opts?.ttlMs ?? DETAIL_TTL_MS,
     });
     let body: ClawHubDetailBody;
     try {
@@ -137,12 +141,13 @@ export class ClawHubSource implements MarketSource {
     const skill = body.skill ?? {};
 
     // scan 是详情的富化而非前置：失败/缺失 → unscanned，不拖垮详情（读侧不该被扫描端点拖死）。
+    // scan 的 TTL 同样受 opts 覆盖：更新检查必须看到最新裁定（恶意新版本不能被旧缓存洗白）。
     let scan: ClawHubScanBody | undefined;
     try {
       const scanKey = `clawhub:scan:${owner}/${slug}`;
       const scanUrl = `${BASE}/api/v1/skills/${encodeURIComponent(slug)}/scan?ownerHandle=${encodeURIComponent(owner)}`;
       const scanEntry = await this.cache.getText(scanKey, scanUrl, {
-        maxBytes: DETAIL_MAX_BYTES, ttlMs: DETAIL_TTL_MS,
+        maxBytes: DETAIL_MAX_BYTES, ttlMs: opts?.ttlMs ?? DETAIL_TTL_MS,
       });
       scan = JSON.parse(scanEntry.body) as ClawHubScanBody;
     } catch {
@@ -167,7 +172,10 @@ export class ClawHubSource implements MarketSource {
       sourceTier: 'community',
       raw,
     };
-    return { item, readme, stale: detailEntry.stale || undefined };
+    return {
+      item, readme, stale: detailEntry.stale || undefined,
+      latestVersion: body.latestVersion?.version ?? undefined,
+    };
   }
 }
 

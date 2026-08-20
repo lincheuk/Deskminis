@@ -37,11 +37,14 @@ export interface MarketPage {
   stale?: boolean;
 }
 
-/** 详情：item（归一字段）+ readme（SKILL.md 全文 / description），README 只在 detail 拉取不进列表。 */
+/** 详情：item（归一字段）+ readme（SKILL.md 全文 / description），README 只在 detail 拉取不进列表。
+ *  latestVersion（G4）：源内最新版本串（ClawHub latestVersion.version / registry server.version），
+ *  无版本概念的源不填——checkUpdates 的「可更新 vX→vY」标记数据源。 */
 export interface MarketDetail {
   item: MarketItem;
   readme: string;
   stale?: boolean;
+  latestVersion?: string;
 }
 
 /** 适配器统一接口（设计 §2）：三源各实现一份，聚合层（service）只认这个接口。 */
@@ -54,8 +57,10 @@ export interface MarketSource {
   kinds: readonly MarketKind[];
   /** 搜索；cursor 语义由适配器自定（上游游标透传或本地偏移），limit 为调用方页配额。 */
   search(q: string, kind: MarketKind, cursor?: string, limit?: number): Promise<MarketPage>;
-  /** 定点详情；id 是归一全形态（含本源前缀，适配器自剥）；失败要响亮（detail 是用户点名要看的东西）。 */
-  detail(id: string): Promise<MarketDetail>;
+  /** 定点详情；id 是归一全形态（含本源前缀，适配器自剥）；失败要响亮（detail 是用户点名要看的东西）。
+   *  opts.ttlMs（G4）：缓存 TTL 覆盖——checkUpdates 传 0 强制走条件请求（详情缓存 24h，
+   *  刚发布的更新不能被缓存挡住）；缺省用适配器端点档位。 */
+  detail(id: string, opts?: { ttlMs?: number }): Promise<MarketDetail>;
 }
 
 /** sources.list 的单源报告：available=源是否启用（B 计划占位时 false），

@@ -5,6 +5,10 @@
  *  游标透传）+ 详情（面板内就地展开——既有 UI 无面板内滑层成例，设置模态的 section
  *  切换即就地换内容，照此惯例；README 只在详情态请求，复用 MarkdownView）+
  *  安装确认卡（§4 全项，scrim+sheet 照 SettingsModal 成例）+ 已装态（market.installed 比对）。
+ *  G4 更新检查（§6）：chips 行「检查更新」按钮（仅手动触发，无后台轮询）→ checkUpdates
+ *  结果区（可更新条目 mc-upd mono 标记 + Update 钮走 openConfirm 原路——确认卡/verdict/
+ *  malicious 硬阻断全套复用，无独立 update 通道；unsupported 灰字；均为最新一句话）；
+ *  MCP env 已存键「保留原值」（envPrefilled，更新不丢用户配置）。
  *
  *  Aurora 语言：全部实心浮岛，零 backdrop-filter（内容面板纪律；本组件在例 8
  *  POPUP_OWNERS 永久禁 blur 名单内——自带确认卡弹层）。verdict 徽章全走既有
@@ -46,10 +50,17 @@ interface MarketInstallPlan {
   files?: string[]; contentHash?: string;
   command?: { command: string; args: string[] };
   url?: string; serverName?: string; env?: MarketEnvDecl[];
+  /** G4 更新流：已存有值的声明键（键名，无值）——确认卡提示「保留原值」，必填项不再强制重输。 */
+  envPrefilled?: string[];
   gating?: { envMissing?: string[]; binsMissing?: string[] };
   manualOnly?: true;
 }
 interface MarketInstalledItem { id: string; kind: MarketKind; localRef: string }
+/** G4 market.checkUpdates 的单条可更新报告（服务端 MarketUpdateItem 同构）。 */
+interface MarketUpdateItem {
+  id: string; kind: MarketKind; name: string;
+  current: string; latest: string; verdict: MarketVerdict;
+}
 
 const VERDICT_LABEL: Record<MarketVerdict, string> = {
   ok: '安全', warn: '可疑', malicious: '恶意', unscanned: '未扫描',
@@ -170,6 +181,30 @@ async function refreshInstalled(): Promise<void> {
   } catch { /* 比对失败不阻塞浏览：卡片按未装显示，安装时服务端仍复核 */ }
 }
 
+// ── G4 更新检查（§6：仅手动触发，v1 无后台轮询） ────────────────────────────
+const checking = ref(false);
+const checkResult = ref<{ updates: MarketUpdateItem[]; unsupported: string[]; errors: number } | null>(null);
+const checkError = ref('');
+/** 可更新条目索引：Update 行禁用判定（恶意新版本双保险）与 doInstall 收尾共用。 */
+const updatesById = computed(() => new Map((checkResult.value?.updates ?? []).map(u => [u.id, u])));
+
+async function doCheckUpdates(): Promise<void> {
+  if (checking.value) return;
+  checking.value = true; checkError.value = ''; checkResult.value = null;
+  try {
+    const r = await rpc.call('market.checkUpdates');
+    checkResult.value = {
+      updates: (r?.updates ?? []) as MarketUpdateItem[],
+      unsupported: r?.unsupported ?? [],
+      errors: typeof r?.errors === 'number' ? r.errors : 0,
+    };
+  } catch (e) {
+    checkError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    checking.value = false;
+  }
+}
+
 // ── 详情（就地展开；README 只在此态请求） ────────────────────────────────────
 const detail = ref<MarketItem | null>(null);
 const detailReadme = ref('');
@@ -208,8 +243,10 @@ async function openDetail(it: MarketItem): Promise<void> {
 }
 function closeDetail(): void { detail.value = null; }
 
-// ── 安装确认卡（§4 全项） ────────────────────────────────────────────────────
-const confirmFor = ref<MarketItem | null>(null);
+// ── 安装确认卡（§4 全项；G4 更新流同卡复用——无独立 update 通道） ─────────────
+/** 确认卡目标：列表/详情条目或 checkUpdates 的可更新条目（结构同构子集）。 */
+type ConfirmTarget = Pick<MarketItem, 'id' | 'kind' | 'name' | 'verdict'>;
+const confirmFor = ref<ConfirmTarget | null>(null);
 const plan = ref<MarketInstallPlan | null>(null);
 const planLoading = ref(false);
 const planError = ref('');
@@ -217,10 +254,16 @@ const warnAck = ref(false);
 const envValues = ref<Record<string, string>>({});
 const installing = ref(false);
 const installError = ref('');
+/** 本次确认卡是更新流（标题/收尾 toast/已装拦截豁免）。 */
+const isUpdate = ref(false);
 
-/** malicious 条目根本不出确认卡——Install 钮直接禁用（卡片层），此函数是唯一开口。 */
-function openConfirm(it: MarketItem): void {
-  if (it.verdict === 'malicious' || installedIds.value.has(it.id)) return;
+/** malicious 条目根本不出确认卡——Install 钮直接禁用（卡片层），此函数是唯一开口。
+ *  opts.update（G4）：更新流豁免「已装拦截」（条目本来就已装）——安全闸一分不少：
+ *  verdict 照判、确认卡照弹，malicious 照拦。 */
+function openConfirm(it: ConfirmTarget, opts?: { update?: boolean }): void {
+  if (it.verdict === 'malicious') return;
+  if (!opts?.update && installedIds.value.has(it.id)) return;
+  isUpdate.value = opts?.update === true;
   confirmFor.value = it;
   plan.value = null; planError.value = ''; installError.value = '';
   warnAck.value = false; envValues.value = {};
@@ -232,9 +275,12 @@ function openConfirm(it: MarketItem): void {
 }
 function closeConfirm(): void { confirmFor.value = null; }
 
-/** 必填 env 实时缺口（确认闸 + gating 提示共用）。 */
+/** 必填 env 实时缺口（确认闸 + gating 提示共用）。
+ *  更新流排除 envPrefilled（已存值保留原值，不必重输——服务端 mergeEnvForUpdate 同规则）。 */
 const envMissingNow = computed(() =>
-  (plan.value?.env ?? []).filter(d => d.required && !(envValues.value[d.name] ?? '').trim()).map(d => d.name));
+  (plan.value?.env ?? []).filter(d => d.required
+    && !(envValues.value[d.name] ?? '').trim()
+    && !(plan.value?.envPrefilled ?? []).includes(d.name)).map(d => d.name));
 
 const canConfirm = computed(() =>
   !!plan.value && !planLoading.value && !installing.value
@@ -250,8 +296,18 @@ async function doInstall(): Promise<void> {
   try {
     await rpc.call('market.install', { id: it.id, confirm: true, env: envValues.value });
     installedIds.value = new Set([...installedIds.value, it.id]);
-    closeConfirm();
-    showToast(`已安装「${it.name}」`);
+    if (isUpdate.value) {
+      // 更新收尾：从可更新清单移除（标记消失）+ toast 报新版本（服务端 provenance 已刷新）
+      const u = updatesById.value.get(it.id);
+      if (checkResult.value) {
+        checkResult.value = { ...checkResult.value, updates: checkResult.value.updates.filter(x => x.id !== it.id) };
+      }
+      closeConfirm();
+      showToast(`已更新「${it.name}」${u ? `至 ${u.latest}` : ''}`);
+    } else {
+      closeConfirm();
+      showToast(`已安装「${it.name}」`);
+    }
     void refreshInstalled();
     if (it.kind === 'skill') void chat.refreshAllSkills();
   } catch (e) {
@@ -311,7 +367,8 @@ function fmtNum(n: number): string {
       />
     </div>
 
-    <!-- 源过滤 chips（market.sources.list 动态生成；不可达源标灰）+ stale 标注 -->
+    <!-- 源过滤 chips（market.sources.list 动态生成；不可达源标灰）+ stale 标注 +
+         G4 检查更新（仅手动触发，覆盖全部已装条目，不分子 tab） -->
     <div class="mkchips">
       <button type="button" class="chip" :class="{ on: sourceFilter === 'all' }" @click="setSource('all')">全部</button>
       <template v-for="s in sourcesForKind" :key="s.id">
@@ -322,8 +379,49 @@ function fmtNum(n: number): string {
           @click="setSource(s.id)"
         >{{ s.name }}</button>
       </template>
+      <button
+        type="button" class="chip mkupd-btn" :disabled="checking"
+        :title="'检查全部已装条目是否有新版本（awesome-dsh 直装条目不支持）'"
+        @click="doCheckUpdates"
+      ><span v-if="checking" class="mkspin" aria-hidden="true"></span>{{ checking ? '检查中…' : '检查更新' }}</button>
     </div>
     <div v-if="stale" class="mkstalebar">离线缓存——网络不可达，以下为上次抓取的结果</div>
+
+    <!-- G4 更新检查结果（aria-live：检查完成播报；结果区常驻至下次检查） -->
+    <div v-if="checking || checkError || checkResult" class="mkupd" aria-live="polite">
+      <div v-if="checking" class="mkupd-line"><span class="mkspin" aria-hidden="true"></span>正在检查已装条目的更新…</div>
+      <div v-else-if="checkError" class="mkerr">{{ checkError }}</div>
+      <template v-else-if="checkResult">
+        <div
+          v-if="checkResult.updates.length === 0 && checkResult.unsupported.length === 0 && checkResult.errors === 0"
+          class="mkupd-all"
+        >均为最新</div>
+        <template v-else>
+          <template v-for="it in checkResult.updates" :key="it.id">
+            <div class="updrow">
+              <span class="updname">{{ it.name }}</span>
+              <span class="mc-upd mono">可更新 {{ it.current ? `${it.current}→` : '' }}{{ it.latest }}</span>
+              <span class="vb" :class="'vb-' + it.verdict">{{ VERDICT_LABEL[it.verdict] }}</span>
+              <button
+                type="button" class="mc-install"
+                :disabled="updatesById.get(it.id)!.verdict === 'malicious'"
+                :title="updatesById.get(it.id)!.verdict === 'malicious' ? '上游安全裁定为恶意，更新已被硬阻断' : '更新到新版本（走安装确认卡）'"
+                @click="openConfirm(it, { update: true })"
+              >Update</button>
+            </div>
+            <p v-if="updatesById.get(it.id)!.verdict === 'malicious'" class="upd-blocknote">
+              新版本被上游裁定为恶意，更新已禁用（服务端安装层同样硬阻断）。
+            </p>
+          </template>
+          <div v-if="checkResult.unsupported.length > 0" class="mkupd-uns">
+            {{ checkResult.unsupported.length }} 个已装条目来自 awesome-dsh（GitHub 直装），此源不支持更新检查
+          </div>
+          <div v-if="checkResult.errors > 0" class="mkupd-err">
+            {{ checkResult.errors }} 项检查失败已跳过（可稍后重试）
+          </div>
+        </template>
+      </template>
+    </div>
 
     <!-- 详情（就地展开，替换列表区） -->
     <div v-if="detail" class="mkdetail">
@@ -387,12 +485,12 @@ function fmtNum(n: number): string {
       <div v-if="loadingMore" class="mkloading">加载更多…</div>
     </div>
 
-    <!-- 安装确认卡（§4；scrim+sheet 照 SettingsModal 成例） -->
+    <!-- 安装确认卡（§4；scrim+sheet 照 SettingsModal 成例。G4：更新流同卡复用） -->
     <div v-if="confirmFor" class="mask" @click.self="closeConfirm">
-      <div class="sheet" role="dialog" aria-label="安装确认">
+      <div class="sheet" role="dialog" :aria-label="isUpdate ? '更新确认' : '安装确认'">
         <div class="shhead">
-          <span class="shtitle">安装 {{ confirmFor.name }}</span>
-          <button class="xbtn" type="button" title="关闭" aria-label="关闭安装确认" @click="closeConfirm">✕</button>
+          <span class="shtitle">{{ isUpdate ? '更新' : '安装' }} {{ confirmFor.name }}</span>
+          <button class="xbtn" type="button" title="关闭" :aria-label="isUpdate ? '关闭更新确认' : '关闭安装确认'" @click="closeConfirm">✕</button>
         </div>
         <div class="shbody">
           <div v-if="planLoading" class="mkloading">正在组装确认数据…</div>
@@ -442,17 +540,24 @@ function fmtNum(n: number): string {
               该条目无白名单内的一键安装命令，需手动配置（设置 → MCP 页手动添加）。
             </div>
 
-            <!-- §4-5 MCP env 声明（只带键名与说明；值在此本地收集，isSecret 密文输入） -->
+            <!-- §4-5 MCP env 声明（只带键名与说明；值在此本地收集，isSecret 密文输入）。
+                 G4 更新流：envPrefilled 键提示「保留原值」——留空即沿用已存值（更新不丢用户配置） -->
             <template v-if="plan.env && plan.env.length > 0">
               <div class="shlabel envhead">环境变量（值只存在本机，绝不来自注册表）</div>
               <template v-for="d in plan.env" :key="d.name">
                 <div class="envrow">
                   <label class="envname mono" :for="'env-' + d.name">
-                    {{ d.name }}<span v-if="d.required" class="envreq">必填</span>
+                    {{ d.name }}<span v-if="d.required" class="envreq">必填</span><span
+                      v-if="(plan.envPrefilled ?? []).includes(d.name)" class="envsaved"
+                      title="已保存的值将保留原样，留空即沿用"
+                    >保留原值</span>
                   </label>
                   <input
                     :id="'env-' + d.name" v-model="envValues[d.name]" class="envinput"
-                    :type="d.isSecret ? 'password' : 'text'" :placeholder="d.description || d.name"
+                    :type="d.isSecret ? 'password' : 'text'"
+                    :placeholder="(plan.envPrefilled ?? []).includes(d.name)
+                      ? `已保存——留空沿用原值（${d.description || d.name}）`
+                      : (d.description || d.name)"
                   />
                 </div>
               </template>
@@ -479,7 +584,7 @@ function fmtNum(n: number): string {
             type="button" class="shok" :disabled="!canConfirm"
             :title="plan?.manualOnly ? '需手动配置' : ''"
             @click="doInstall"
-          >{{ plan?.manualOnly ? '需手动配置' : '确认安装' }}</button>
+          >{{ plan?.manualOnly ? '需手动配置' : (isUpdate ? '确认更新' : '确认安装') }}</button>
         </div>
       </div>
     </div>
@@ -536,6 +641,39 @@ function fmtNum(n: number): string {
   background: var(--state-warn-bg); color: var(--label-secondary);
   font-size: var(--fs-micro);
 }
+
+/* G4 更新检查：按钮（chips 行右端）+ 结果区 */
+.mkupd-btn { margin-left: auto; }
+.mkupd-btn:disabled { opacity: var(--opacity-disabled); cursor: default; }
+.mkupd {
+  flex: 0 0 auto; margin: 0 14px 8px; padding: 6px 10px;
+  border: .5px solid var(--separator); border-radius: var(--r-control);
+  background: var(--surface-1);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.mkupd-line { display: flex; align-items: center; gap: 8px; color: var(--label-secondary); font-size: var(--fs-micro); }
+.mkupd-all { color: var(--state-ok); font-size: var(--fs-micro); }
+.mkupd-uns { color: var(--label-quaternary); font-size: var(--fs-micro); }
+.mkupd-err { color: var(--state-warn); font-size: var(--fs-micro); }
+.updrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.updname {
+  flex: 0 1 auto; min-width: 0; font-size: var(--fs-ui); font-weight: 600; color: var(--label);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 可更新标记（mono）：action 色系——可执行的动作信号，非警告语义 */
+.mc-upd {
+  flex: 0 0 auto; padding: 1px 8px; border-radius: var(--r-pill);
+  border: .5px solid var(--action); color: var(--action); font-weight: 600;
+}
+.upd-blocknote { margin: 0; font-size: var(--fs-micro); color: var(--state-err); }
+/* 转圈：既有令牌上色的细环（零新色） */
+.mkspin {
+  flex: 0 0 auto; width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--fill-tertiary); border-top-color: var(--action);
+  animation: mkspin-rot .8s linear infinite;
+}
+@keyframes mkspin-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mkspin { animation-duration: 2.4s; } }
 
 /* 卡片流 */
 .mklist {
@@ -672,6 +810,8 @@ function fmtNum(n: number): string {
 .envrow { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
 .envname { font-size: var(--fs-micro); color: var(--label-secondary); }
 .envreq { margin-left: 6px; color: var(--state-warn); font-size: var(--fs-micro); }
+/* G4 更新流「保留原值」徽标：已存值沿用（state-ok 系，零新色） */
+.envsaved { margin-left: 6px; color: var(--state-ok); font-size: var(--fs-micro); }
 .envinput {
   padding: 5px 10px; border: .5px solid var(--separator); border-radius: var(--r-input);
   background: var(--surface-1); color: var(--label); font-size: var(--fs-ui);

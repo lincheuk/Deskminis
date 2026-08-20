@@ -879,6 +879,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     'market.installPlan': (p: { id?: unknown }) => marketInstaller.installPlan(p ?? {}),
     'market.install': (p: { id?: unknown; confirm?: unknown; env?: unknown }) => marketInstaller.install(p ?? {}),
     'market.installed': (p: { kind?: unknown }) => marketInstaller.installed(p ?? {}),
+    // ---- G4 市场更新检查 RPC（设计 §6）：checkUpdates 只读上游比对（免批），仅手动触发
+    // （UI 按钮，无后台轮询）；detail 走 ttlMs=0 条件请求。Update 流复用 installPlan/install
+    // （状态变更照走确认卡 + verdict 复核，无独立 update 通道）。----
+    'market.checkUpdates': () => marketInstaller.checkUpdates(),
     // ---- M6 Task 4：审计查询面 audit.list（决策点 2-2：只留 RPC 接缝，不出 UI）----
     // 透传 AuditLogger.list 过滤参数；payload 防御性再脱敏一次（double-redact，红线：密钥材料不出现在任何出口）。
     'audit.list': (p: AuditListOpts) => {

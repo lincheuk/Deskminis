@@ -128,15 +128,18 @@ export class SkillImporter {
     mkdirSync(this.skillsRoot, { recursive: true });
   }
 
-  /** 立即登记任务并返回 taskId；导入在后台跑（脱离 UI 生命周期）。 */
-  startImport(kind: ImportKind, source: string): { taskId: string } {
+  /** 立即登记任务并返回 taskId；导入在后台跑（脱离 UI 生命周期）。
+   *  opts.overwriteId（G4 市场更新流）：zip 导入指定同 id 覆盖重装——技能目录原位覆盖、
+   *  SkillStore 保留 installed_at/use_count/is_enabled（更新不重置使用痕迹）。缺省 uniqueId
+   *  全新安装（既有调用方行为不变）。 */
+  startImport(kind: ImportKind, source: string, opts?: { overwriteId?: string }): { taskId: string } {
     const taskId = randomUUID().toUpperCase();
     const t: ImportProgress = { taskId, kind, source, state: 'running', total: 0, completed: 0, succeeded: [], failures: [] };
     this.tasks.set(taskId, t);
     void (async () => {
       try {
         if (kind === 'github-url') await this.importGithub(t, source);
-        else if (kind === 'zip') await this.importZip(t, source);
+        else if (kind === 'zip') await this.importZip(t, source, opts?.overwriteId);
         else await this.importFolder(t, source);
         t.state = 'done';
       } catch (e) {
@@ -179,12 +182,14 @@ export class SkillImporter {
     return id;
   }
 
-  /** 把内存文件集（相对路径 → 字节）落成 skillsRoot/<id>/ 并入库。SKILL.md 原样写字节，不改写。 */
-  private installFiles(files: Map<string, Buffer>, importSource: string, fallbackName: string): string {
+  /** 把内存文件集（相对路径 → 字节）落成 skillsRoot/<id>/ 并入库。SKILL.md 原样写字节，不改写。
+   *  overwriteId（G4）：指定 id 覆盖重装（rmSync 原位清目录后重写；store.upsert 保留
+   *  installed_at/use_count/is_enabled）；缺省 uniqueId 全新安装。 */
+  private installFiles(files: Map<string, Buffer>, importSource: string, fallbackName: string, overwriteId?: string): string {
     const mdKey = [...files.keys()].find(k => k.toLowerCase() === 'skill.md');
     if (!mdKey) throw new Error('根层没有 SKILL.md');
     const meta = parseSkillMd(files.get(mdKey)!.toString('utf8'));
-    const id = this.store.uniqueId(meta.name ?? fallbackName);
+    const id = overwriteId ?? this.store.uniqueId(meta.name ?? fallbackName);
     const destRoot = join(this.skillsRoot, id);
     rmSync(destRoot, { recursive: true, force: true });
     for (const [rel, data] of files) {
@@ -214,10 +219,10 @@ export class SkillImporter {
     this.emit(t);
   }
 
-  private async importZip(t: ImportProgress, source: string): Promise<void> {
+  private async importZip(t: ImportProgress, source: string, overwriteId?: string): Promise<void> {
     const files = await unzipToMemory(readFileSync(resolve(source)));
     t.total = 1;
-    t.succeeded.push(this.installFiles(files, `zip:${basename(source)}`, basename(source).replace(/\.zip$/i, '')));
+    t.succeeded.push(this.installFiles(files, `zip:${basename(source)}`, basename(source).replace(/\.zip$/i, ''), overwriteId));
     t.completed = 1;
     this.emit(t);
   }

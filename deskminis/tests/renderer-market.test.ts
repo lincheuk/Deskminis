@@ -155,3 +155,41 @@ describe('G3 例 8 双保险：POPUP_OWNERS 收录 MarketPanel', () => {
     expect(mu3).toMatch(/POPUP_OWNERS\s*=\s*\[[^\]]*'MarketPanel'/);
   });
 });
+
+// ── G4 更新检查 UI 锚（任务步骤 C/D-7）───────────────────────────────────────
+
+describe('G4 MarketPanel.vue：更新检查 UI 锚', () => {
+  it('「检查更新」按钮 + market.checkUpdates 调用（手动触发，无后台轮询）', () => {
+    expect(panel).toContain('检查更新');
+    expect(panel).toContain('market.checkUpdates');
+    // 反向锚：无定时轮询（v1 仅手动触发）
+    expect(panel).not.toContain('setInterval');
+  });
+
+  it('可更新标记 mono（mc-upd mono 同元素）+ Update 钮走 openConfirm 原路', () => {
+    expect(panel).toContain('mc-upd mono');
+    expect(panel).toContain('Update');
+    // Update 复用安装确认卡（installPlan/install 原路），无独立 update 通道
+    expect(panel).toContain('openConfirm(it, { update: true })');
+    expect(panel).not.toContain('market.update');
+  });
+
+  it('unsupported 灰字说明 + 全部最新「均为最新」提示', () => {
+    expect(panel).toContain('此源不支持更新检查');
+    expect(panel).toContain('均为最新');
+  });
+
+  it('可更新条目的恶意新版本：Update 钮禁用（服务端硬阻断之外的双保险）', () => {
+    // updatesById 条目 verdict=malicious 时 Update 禁用 + 红字说明
+    expect(panel).toMatch(/updatesById\.get\(it\.id\)!\.verdict === 'malicious'|verdict === 'malicious'[^%]*disabled|:disabled="[^"]*malicious[^"]*"/s);
+  });
+
+  it('env 已存键提示保留原值（更新不丢用户配置的 UI 面）', () => {
+    expect(panel).toContain('envPrefilled');
+    expect(panel).toContain('保留原值');
+  });
+
+  it('更新完成 toast 区分安装/更新', () => {
+    expect(panel).toContain('已更新');
+  });
+});

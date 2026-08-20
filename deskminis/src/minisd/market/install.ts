@@ -116,6 +116,9 @@ export interface MarketInstallPlan {
   serverName?: string;
   /** MCP：env 需求（只带键名与说明，绝无值）。 */
   env?: MarketEnvDecl[];
+  /** 更新流（G4）：已存有值的声明键（键名，无值）——确认卡对这些键提示「已保存」，
+   *  必填项不再强制重输（env 保留：更新不丢用户配置）。 */
+  envPrefilled?: string[];
   /** gating（§4-4）：必填 env 未收集到的键、启动命令二进制缺失。 */
   gating?: { envMissing?: string[]; binsMissing?: string[] };
   /** 白名单外 stdio 命令：UI 显示「需手动配置」，不给一键装（§1-6）。 */
@@ -136,6 +139,49 @@ export interface MarketInstalledItem {
   localRef: string;
   contentHash?: string;
   installedAt: number;
+}
+
+/** market.checkUpdates 的单条可更新报告（§6/G4）：current 为本地可考证的版本串
+ *  （技能=SKILL.md frontmatter；MCP 的 content_hash 是 sha256(包名@版本) 不可逆 → 空）。 */
+export interface MarketUpdateItem {
+  id: string;
+  kind: MarketKind;
+  name: string;
+  current: string;
+  latest: string;
+  /** 上游最新版的安全裁定（更新到恶意版本的硬阻断数据面——ClawHavoc 二次投毒）。 */
+  verdict: MarketItem['verdict'];
+}
+
+/** market.checkUpdates 返回：updates=可更新条目；unsupported=源不支持更新检查的条目 id
+ *  （awesome-dsh GitHub URL 装载无版本概念，不猜不装样子）；errors=单条检查失败计数
+ *  （静默跳过不拖垮整体）。 */
+export interface MarketUpdateReport {
+  updates: MarketUpdateItem[];
+  unsupported: string[];
+  errors: number;
+}
+
+/** 更新流 env 保留合并（纯函数，表驱动可测，任务步骤 B）：
+ *  - 旧值保留：已存的用户 env 值原样带过（更新不得丢用户配置——含密钥，用户不必重输）；
+ *  - 新增必填检出：新版本声明且旧值没有的必填键 → needInput（确认卡要求补填）；
+ *  - 移除的键清理：旧值有但新版本不再声明的键 → 丢弃（与「只收声明过的键」锚一致）；
+ *  - provided（本次确认卡输入）优先于 existing（已存值）。
+ *  existing 取自 servers.json 现存条目（用户此前经确认卡收集的值）——不是注册表数据，
+ *  env 反向锚（注册表 env 值绝不入 servers.json）不受影响。 */
+export function mergeEnvForUpdate(
+  existing: Record<string, string> | undefined,
+  decls: MarketEnvDecl[],
+  provided: Record<string, string>,
+): { env: Record<string, string>; needInput: string[] } {
+  const env: Record<string, string> = {};
+  const needInput: string[] = [];
+  for (const d of decls) {
+    if (provided[d.name] !== undefined) env[d.name] = provided[d.name];
+    else if (existing?.[d.name] !== undefined) env[d.name] = existing[d.name]!;
+    else if (d.required) needInput.push(d.name); // 新增必填：旧值没有 → 确认卡补填
+  }
+  return { env, needInput }; // existing 里未被新版本声明的键天然不进 env（移除清理）
 }
 
 // ── 内部工具 ──────────────────────────────────────────────────────────────────
@@ -276,6 +322,7 @@ interface InstallRow {
 export class MarketInstaller {
   private readonly stmtUpsert: Database.Statement;
   private readonly stmtSelect: Database.Statement;
+  private readonly stmtSelectOne: Database.Statement;
   private readonly stmtDelete: Database.Statement;
 
   constructor(private readonly opts: MarketInstallerOptions) {
@@ -286,6 +333,8 @@ export class MarketInstaller {
         content_hash=excluded.content_hash, installed_at=excluded.installed_at`);
     this.stmtSelect = opts.db.prepare(
       'SELECT item_id, kind, local_ref, content_hash, installed_at FROM market_installs WHERE kind = ? ORDER BY installed_at DESC, item_id ASC');
+    this.stmtSelectOne = opts.db.prepare(
+      'SELECT item_id, kind, local_ref, content_hash, installed_at FROM market_installs WHERE item_id = ?');
     this.stmtDelete = opts.db.prepare('DELETE FROM market_installs WHERE item_id = ?');
   }
 
@@ -294,7 +343,9 @@ export class MarketInstaller {
    *  SKILL.md）；MCP 给完整启动命令（白名单外标 manualOnly）。 */
   async installPlan(p: { id?: unknown }): Promise<MarketInstallPlan> {
     const id = parseItemId(p.id, this.opts.sources);
-    const detail = await id.source.detail(id.full); // 服务端重取（含 scan 裁定）
+    // 服务端重取（含 scan 裁定），ttlMs=0 条件请求：确认卡必须展示当前上游态——
+    // checkUpdates 之后上游再变更（含新版本裁定）不能被 24h 详情缓存挡住。
+    const detail = await id.source.detail(id.full, { ttlMs: 0 });
     const item = detail.item;
     const base: MarketInstallPlan = {
       id: id.full,
@@ -326,8 +377,12 @@ export class MarketInstaller {
     const shape = deriveMcp(id, raw, this.opts.bridgeNodePath);
     const plan: MarketInstallPlan = { ...base, serverName: shape.serverName, env: shape.envDecls };
     const gating: { envMissing?: string[]; binsMissing?: string[] } = {};
-    // plan 阶段 env 尚未收集：全部必填键如实列为缺失（确认卡渲染输入框）
-    const envMissing = shape.envDecls.filter(d => d.required).map(d => d.name);
+    // plan 阶段 env 尚未收集：必填键如实列为缺失（确认卡渲染输入框）——
+    // 更新流除外：已存值的必填键不列缺失（env 保留，install 层 mergeEnvForUpdate 同规则）。
+    const existingEnv = this.opts.mcpStore.list().find(e => e.name === shape.serverName)?.env;
+    const prefilled = shape.envDecls.filter(d => existingEnv?.[d.name] !== undefined).map(d => d.name);
+    if (prefilled.length > 0) plan.envPrefilled = prefilled;
+    const envMissing = shape.envDecls.filter(d => d.required && existingEnv?.[d.name] === undefined).map(d => d.name);
     if (envMissing.length > 0) gating.envMissing = envMissing;
     if (shape.manualOnly) return { ...plan, manualOnly: true };
     if (shape.stdio) {
@@ -345,7 +400,12 @@ export class MarketInstaller {
    *  多传的未知键一律无视（行为不因多余参数而改变）。 */
   async install(p: { id?: unknown; confirm?: unknown; env?: unknown }): Promise<MarketInstallResult> {
     const id = parseItemId(p.id, this.opts.sources);
-    const detail = await id.source.detail(id.full); // 服务端复核 verdict——重取，不信任传参
+    // 服务端复核 verdict——重取，不信任传参。ttlMs=0 条件请求：安装是状态变更，裁定必须
+    // 对得上将装的内容——更新流（G4）尤其如此：checkUpdates 标记可更新后、install 执行前，
+    // 上游把干净包换成恶意版本（ClawHavoc 二次投毒主通道），24h 详情缓存会拿旧裁定洗白
+    // 新字节——条件请求保证 install 时刻看到的是最新裁定。ClawHub 的 detail+scan 与 registry
+    // 的 detail 均受 opts.ttlMs 覆盖（适配器既有参数，G4 前已就位）。
+    const detail = await id.source.detail(id.full, { ttlMs: 0 });
     const item = detail.item;
     if (item.verdict === 'malicious') {
       // 无论 confirm 与否、无论多传什么键，一律拦（ClawHavoc 教训：绕过通道在接口上不存在）
@@ -363,6 +423,11 @@ export class MarketInstaller {
       if (!m) throw new Error(`非法 clawhub 条目 id: ${id.full}`);
       const bytes = await this.downloadClawhubZip(m[1], m[2]);
       const contentHash = sha256Hex(bytes);
+      // 更新流（G4）：provenance 已登记且本体仍在 → 同 id 覆盖重装（importer 重装覆盖，
+      // SkillStore 保留 installed_at/use_count/is_enabled——更新不重置使用痕迹）；
+      // 本体已删则按全新安装走 uniqueId。
+      const prior = this.stmtSelectOne.get(id.full) as InstallRow | undefined;
+      const overwriteId = prior && this.opts.skillStore.get(prior.local_ref) ? prior.local_ref : undefined;
       // 复用 SkillImporter zip kind（走既有进度广播）；临时文件名固定 skill.zip
       //（importSource=zip:skill.zip，与手动导入同形态）。零自动执行：只落盘+入库。
       const tmpDir = mkdtempSync(join(tmpdir(), 'dm-market-dl-'));
@@ -370,7 +435,7 @@ export class MarketInstaller {
       try {
         const zipPath = join(tmpDir, 'skill.zip');
         writeFileSync(zipPath, bytes);
-        localRef = await this.runImport('zip', zipPath);
+        localRef = await this.runImport('zip', zipPath, overwriteId);
       } finally {
         // 临时目录清理失败不影响安装结果（tmpdir 下次系统清理兜底）。
         // 注：刻意不带删失败选项——本文件不得出现该字样（G2 类型层锚：绕过通道在物理上不存在）。
@@ -408,26 +473,26 @@ export class MarketInstaller {
         provided[k] = v;
       }
     }
-    // gating 硬校验（§4-4）：必填 env 缺失 → 拒
-    const missing = shape.envDecls.filter(d => d.required && provided[d.name] === undefined).map(d => d.name);
-    if (missing.length > 0) throw new Error(`必填环境变量缺失: ${missing.join(', ')}`);
+    // 更新流 env 保留（G4）：现存同名条目的用户 env 值原样保留（更新不得丢用户配置），
+    // 仅新增必填要求确认卡补填。existing 来自 servers.json（用户此前经确认卡收集的值），
+    // 不是注册表数据——env 反向锚（注册表 env 值绝不入 servers.json）不受影响。
+    const existingEntry = this.opts.mcpStore.list().find(e => e.name === shape.serverName);
+    const merged = mergeEnvForUpdate(existingEntry?.env, shape.envDecls, provided);
+    // gating 硬校验（§4-4）：必填 env 缺失（旧值也没有、本次也没补）→ 拒
+    if (merged.needInput.length > 0) throw new Error(`必填环境变量缺失: ${merged.needInput.join(', ')}`);
 
     let entry: Record<string, unknown>;
     let contentHash: string | undefined;
     if (shape.stdio?.whitelisted) {
-      // env 反向锚：值只能来自本次 install 参数，且只收声明过的键——
-      // 注册表数据里的任何 env 值（value 字段、packages[].env）绝不带入
-      const env: Record<string, string> = {};
-      for (const d of shape.envDecls) {
-        if (provided[d.name] !== undefined) env[d.name] = provided[d.name];
-      }
+      // env 反向锚（值域收窄为两源）：本次 install 参数 + 现存条目已存值，且只收声明过的
+      // 键——注册表数据里的任何 env 值（value 字段、packages[].env）绝不带入
       entry = {
         name: shape.serverName,
         transport: 'stdio',
         command: shape.stdio.command.command,
         args: shape.stdio.command.args,
       };
-      if (Object.keys(env).length > 0) entry.env = env;
+      if (Object.keys(merged.env).length > 0) entry.env = merged.env;
       contentHash = sha256Hex(`${shape.stdio.pkg.identifier ?? ''}@${shape.stdio.pkg.version ?? ''}`);
     } else if (shape.remoteUrl) {
       entry = { name: shape.serverName, transport: 'streamable-http', url: shape.remoteUrl };
@@ -467,15 +532,105 @@ export class MarketInstaller {
     return { items };
   }
 
+  /** market.checkUpdates()（§6/G4，仅手动触发）：遍历 market_installs（先复用 installed
+   *  双向核对清理已删条目），按源逐条目查上游最新态做 hash 比对。
+   *  - ClawHub：download 字节 sha256 与本地 content_hash 比对（resolve 端点 match 实测恒
+   *    null——g4-probe-run5b.txt 六样本全 null，match 不可依赖；字节比对即 Update 将装的
+   *    同一物，一致即最新）；不一致才打 detail（ttlMs=0 条件请求）取 latestVersion 与最新
+   *    scan 裁定——一致时零 detail 往返；
+   *  - MCP registry：fresh detail（ttlMs=0）重算 sha256(包名@版本)（远端条目为
+   *    sha256(url)）与本地比对；
+   *  - awesome-dsh：GitHub URL 装载无版本概念 → unsupported（零上游请求，不猜不装样子）；
+   *  - 并发：逐条目 Promise.allSettled，单条失败静默跳过并计 errors；上游并发由
+   *    MarketClient 信号量 ≤2 约束（下载与详情同走该预算）。 */
+  async checkUpdates(): Promise<MarketUpdateReport> {
+    const rows = [
+      ...this.installed({ kind: 'skill' }).items,
+      ...this.installed({ kind: 'mcp' }).items,
+    ];
+    const updates: MarketUpdateItem[] = [];
+    const unsupported: string[] = [];
+    let errors = 0;
+    const settled = await Promise.allSettled(rows.map((r) => this.checkOne(r)));
+    settled.forEach((s) => {
+      if (s.status === 'rejected') { errors++; return; } // 单条失败不拖垮整体
+      if (s.value.kind === 'update') updates.push(s.value.item);
+      else if (s.value.kind === 'unsupported') unsupported.push(s.value.id);
+    });
+    return { updates, unsupported, errors };
+  }
+
+  /** 单条目检查（checkUpdates 内部）。返回值：update=可更新；latest=最新；unsupported=源不支持。 */
+  private async checkOne(r: MarketInstalledItem): Promise<
+    { kind: 'update'; item: MarketUpdateItem } | { kind: 'latest' } | { kind: 'unsupported'; id: string }
+  > {
+    const prefix = r.id.slice(0, r.id.indexOf(':'));
+    if (prefix === 'awesome-dsh') return { kind: 'unsupported', id: r.id };
+    if (prefix === 'clawhub') return this.checkOneClawhub(r);
+    if (prefix === 'mcp-registry') return this.checkOneRegistry(r);
+    return { kind: 'unsupported', id: r.id }; // 未知源前缀：与 unsupported 同路（防御，正常不可达）
+  }
+
+  private async checkOneClawhub(r: MarketInstalledItem): Promise<
+    { kind: 'update'; item: MarketUpdateItem } | { kind: 'latest' }
+  > {
+    const m = /^clawhub:([^/]+)\/(.+)$/.exec(r.id);
+    if (!m) throw new Error(`非法 clawhub 条目 id: ${r.id}`);
+    // 下载即比对基准：Update 装的就是这份字节（不走缓存——fetchBytes 定点直取）
+    const bytes = await this.downloadClawhubZip(m[1], m[2]);
+    const latestHash = sha256Hex(bytes);
+    // content_hash 缺失（异常登记）按可更新处理：重装即修复 provenance
+    if (r.contentHash !== undefined && latestHash === r.contentHash) return { kind: 'latest' };
+    // 有更新才打 detail（ttlMs=0：条件请求绕过 24h 缓存，新版本/新裁定不被挡）
+    const detail = await this.opts.sources.find(s => s.id === 'clawhub')!.detail(r.id, { ttlMs: 0 });
+    return {
+      kind: 'update',
+      item: {
+        id: r.id,
+        kind: 'skill',
+        name: detail.item.name,
+        current: this.opts.skillStore.get(r.localRef)?.version ?? '',
+        latest: detail.latestVersion ?? '',
+        verdict: detail.item.verdict,
+      },
+    };
+  }
+
+  private async checkOneRegistry(r: MarketInstalledItem): Promise<
+    { kind: 'update'; item: MarketUpdateItem } | { kind: 'latest' }
+  > {
+    const detail = await this.opts.sources.find(s => s.id === 'mcp-registry')!.detail(r.id, { ttlMs: 0 });
+    const id = parseItemId(r.id, this.opts.sources);
+    const shape = deriveMcp(id, detail.item.raw, this.opts.bridgeNodePath);
+    // 与 installMcp 同一 hash 生成规则（单一事实源）：stdio 包 sha256(包名@版本)、远端 sha256(url)
+    let latestHash: string | undefined;
+    if (shape.stdio?.whitelisted) latestHash = sha256Hex(`${shape.stdio.pkg.identifier ?? ''}@${shape.stdio.pkg.version ?? ''}`);
+    else if (shape.remoteUrl) latestHash = sha256Hex(shape.remoteUrl);
+    // 新版本既无白名单 stdio 也无远端（源侧退化）→ 无法比对，按最新处理（不制造假更新信号）
+    if (latestHash === undefined || latestHash === r.contentHash) return { kind: 'latest' };
+    return {
+      kind: 'update',
+      item: {
+        id: r.id,
+        kind: 'mcp',
+        name: detail.item.name,
+        current: '', // content_hash 是 sha256(包名@版本) 不可逆——本地版本串不可考证
+        latest: detail.latestVersion ?? '',
+        verdict: detail.item.verdict,
+      },
+    };
+  }
+
   private async downloadClawhubZip(owner: string, slug: string): Promise<Buffer> {
     const url = `${CLAWHUB_BASE}/api/v1/download?slug=${encodeURIComponent(slug)}&ownerHandle=${encodeURIComponent(owner)}`;
     const r = await this.opts.client.fetchBytes(url, { maxBytes: DOWNLOAD_MAX_BYTES });
     return r.bytes;
   }
 
-  /** 等 SkillImporter 后台任务收口（导入脱离 UI 生命周期，靠轮询 status；失败/超时响亮抛错）。 */
-  private async runImport(kind: ImportKind, source: string): Promise<string> {
-    const { taskId } = this.opts.importer.startImport(kind, source);
+  /** 等 SkillImporter 后台任务收口（导入脱离 UI 生命周期，靠轮询 status；失败/超时响亮抛错）。
+   *  overwriteId（G4 更新流）：指定同 id 覆盖重装（zip kind）——缺省 uniqueId 全新安装。 */
+  private async runImport(kind: ImportKind, source: string, overwriteId?: string): Promise<string> {
+    const { taskId } = this.opts.importer.startImport(kind, source, overwriteId ? { overwriteId } : undefined);
     const deadline = Date.now() + IMPORT_TIMEOUT_MS;
     for (;;) {
       const t = this.opts.importer.status(taskId);

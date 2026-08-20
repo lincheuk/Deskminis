@@ -93,14 +93,17 @@ export class McpRegistrySource implements MarketSource {
     return page;
   }
 
-  async detail(id: string): Promise<MarketDetail> {
+  async detail(id: string, opts?: { ttlMs?: number }): Promise<MarketDetail> {
     // id 是全形态 mcp-registry:{反向 DNS 名}（适配器统一接口：自剥本源前缀）。
     // detail 是定点查询：失败要响亮（404 直接抛）。
+    // opts.ttlMs（G4）：checkUpdates 传 0 强制条件请求（新版本不被 24h 详情缓存挡住）。
     if (!id.startsWith('mcp-registry:') || id === 'mcp-registry:') throw new Error(`非法 mcp-registry 条目 id: ${id}`);
     const name = id.slice('mcp-registry:'.length);
     const key = `mcp-registry:detail:${name}`;
     const url = `${BASE}/v0.1/servers/${encodeURIComponent(name)}/versions/latest`;
-    const entry = await this.cache.getText(key, url, { maxBytes: DETAIL_MAX_BYTES, ttlMs: DETAIL_TTL_MS });
+    const entry = await this.cache.getText(key, url, {
+      maxBytes: DETAIL_MAX_BYTES, ttlMs: opts?.ttlMs ?? DETAIL_TTL_MS,
+    });
 
     let body: { server?: RegistryServerEntry };
     try {
@@ -113,6 +116,7 @@ export class McpRegistrySource implements MarketSource {
       item: entryToItem({ ...s, name: s.name ?? name }), // 详情响应可能缺 name（实抓有；缺则用条目名补）
       readme: s.description ?? '', // 注册表无 README，description 即全部说明文字
       stale: entry.stale || undefined,
+      latestVersion: s.version ?? undefined, // G4：server.version 即注册表内最新版本串
     };
   }
 }
