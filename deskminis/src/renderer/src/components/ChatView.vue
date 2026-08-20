@@ -5,6 +5,7 @@
 import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue';
 import { useChat } from '../stores/chat';
 import { matchQuote, resolveOffsets, absoluteOffset, type WalkNode } from '../lib/annotations/anchor';
+import { isBlankState } from '../lib/welcome/blank';
 import ToolLine from './ToolLine.vue';
 import PermissionCard from './PermissionCard.vue';
 import EmptyState from './EmptyState.vue';
@@ -151,7 +152,8 @@ function groupTitle(name: string, n: number): string { return GROUP_PHRASE[name]
 const hasLive = computed(() =>
   chat.running || !!chat.streamingText || chat.toolCards.length > 0 || chat.pendingPerms.length > 0 || !!chat.retryNote,
 );
-const isEmpty = computed(() => chat.messages.length === 0 && !hasLive.value && chat.eventNotes.length === 0);
+/** I3：空态判据抽到 lib/welcome/blank 与 App.vue（欢迎态收工作台）共用——双写必漂移 */
+const isEmpty = computed(() => isBlankState(chat));
 
 // ---- 回合结构（MU2a Task 5，设计 v2 §2.1）----
 // 一回合 = 用户消息 + 其后助手工作区。仅承载工具结果的合成 user 消息不产生新回合。
@@ -541,7 +543,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 </script>
 
 <template>
-  <div ref="paneEl" class="pane-c">
+  <div ref="paneEl" class="pane-c" :class="{ welcome: isEmpty }">
     <div ref="streamEl" class="stream" @scroll="onScroll" @mouseup="onStreamMouseUp">
       <EmptyState v-if="isEmpty" @fill="fillInput" />
       <template v-else>
@@ -1023,6 +1025,17 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
   font-weight: 600; cursor: pointer; padding: 4px 12px; border-radius: var(--r-control);
 }
 .annodel:focus-visible, .annosave:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* I3 欢迎态（AionUi Guid 页形态，设计稿 §5）：hero 空态 + composer 作为一组垂直居中。
+   justify-content 用 safe center——EmptyState 自己就踩过「center 把溢出内容顶出滚动
+   原点」的坑（其 <style> 头注），小窗口下这里同样会溢出，safe 让它退回 start 可滚。
+   ⚠️ 本组规则必须排在文件末尾：多个源码守卫用「首个 `.composer {`/`.stream {` 匹配」
+   取规则块，welcome 变体若排在原始块之前会被守卫误当主块（i3 实测踩中）。 */
+.pane-c.welcome { justify-content: safe center; }
+.pane-c.welcome .stream { flex: 0 1 auto; }
+/* composer 自带 width:min(792px,100%-32px) + margin auto 居中，欢迎态只补重心上移：
+   底边距抬高整组（AionUi 首页 -5vh 的等效），封顶防高窗过抬 */
+.pane-c.welcome .composer { margin-bottom: min(10vh, 96px); }
 </style>
 
 <style>

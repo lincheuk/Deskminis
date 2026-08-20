@@ -15,6 +15,7 @@
  *  menu:open-settings/menu:toggle-right 死通道经 preload 两订阅接通；主题偏好持久化。 */
 import { onMounted, onBeforeUnmount, ref, computed, provide, reactive, watch } from 'vue';
 import { useChat } from './stores/chat';
+import { isBlankState } from './lib/welcome/blank';
 import { clampPaneWidth, nextWidth } from './lib/pane/drag';
 import { loadTheme, saveTheme, type ThemeMode } from './lib/settings/theme';
 import { fmtElapsed } from './lib/time/elapsed';
@@ -47,6 +48,11 @@ const sidebarExpanded = ref(isLargeScreen);
  *  左区可以整个隐掉（它是导航，不是内容）。 */
 const chatOpen = ref(true);
 const workbenchOpen = ref(true);
+/** I3 欢迎态（设计稿 2026-08-20 §5，AionUi Guid 页形态）：会话流完全空白时工作台退场、
+ *  对话列铺满、ChatView 渲染 hero 居中空态。判据与 ChatView 的空态共用 isBlankState
+ *  纯模块——两处各写一份布尔式必然漂移。workbenchOpen/Expanded 的用户偏好不动，
+ *  只在 v-show 上叠条件：发首条消息 welcomeMode 翻 false，工作台按原状态回场。 */
+const welcomeMode = computed(() => isBlankState(chat));
 /** 工作台第三态：折叠为 40px 图标条——与侧栏的 52px 图标轨同一个模式。
  *  为什么需要：完全隐藏后「开了哪些文件标签、进度上有没有待批准橙点」全都看不见了，
  *  而侧栏折叠成图标轨时这些信息都还在。折叠是为了省地方，不是为了失明。 */
@@ -281,6 +287,7 @@ onBeforeUnmount(() => {
   <div class="shell">
     <TitleBar
       :title="activeTitle"
+      :welcome="welcomeMode"
       @toggle-sidebar="railOpen = !railOpen"
       @toggle-chat="toggleChat"
       @toggle-right="toggleWorkbench"
@@ -315,11 +322,13 @@ onBeforeUnmount(() => {
       <aside v-show="railOpen && sidebarExpanded" class="pane-l">
         <SessionList @collapse="sidebarExpanded = false" />
       </aside>
-      <main v-show="chatOpen" class="pane-chat" :style="workbenchOpen && workbenchExpanded ? { width: chatW + 'px', flex: '0 0 ' + chatW + 'px' } : {}">
+      <!-- I3：welcomeMode 下三处同步——工作台隐、折叠条隐、对话列解除定宽铺满。
+           少一处就是「工作台隐了、对话列还钉在 336px」的死白（H 波教训 2 同族）。 -->
+      <main v-show="chatOpen" class="pane-chat" :style="workbenchOpen && workbenchExpanded && !welcomeMode ? { width: chatW + 'px', flex: '0 0 ' + chatW + 'px' } : {}">
         <ChatView />
         <div class="cdrag" @mousedown="startCDrag"></div>
       </main>
-      <section v-show="workbenchOpen && workbenchExpanded" class="pane-w">
+      <section v-show="workbenchOpen && workbenchExpanded && !welcomeMode" class="pane-w">
         <div class="wtabs">
           <div
             v-for="t in openTabs" :key="t.id"
@@ -374,7 +383,7 @@ onBeforeUnmount(() => {
               （VS Code / Slack / Discord / AionUi 的边栏全是图标轨，没人竖排）。
            定形：**图标 + 2 字短名**。图标给形状记忆，短名消歧义——
            单靠图标会撞（产物与文件都是文件系语义），单靠文字在 56px 里放不下全名。 -->
-      <nav v-show="workbenchOpen && !workbenchExpanded" class="wbrail">
+      <nav v-show="workbenchOpen && !workbenchExpanded && !welcomeMode" class="wbrail">
         <button
           v-for="t in openTabs" :key="t.id" type="button"
           class="wbr" :class="{ on: activeTabId === t.id }" :title="t.label"

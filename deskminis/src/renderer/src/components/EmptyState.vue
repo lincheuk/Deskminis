@@ -23,7 +23,8 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
 
 <template>
   <div class="empty">
-    <h2>开始新的对话</h2>
+    <!-- I3 hero 问候（AionUi Guid 页「Hi, what's your plan for today?」的中文位） -->
+    <h2>你好，今天想做点什么？</h2>
     <p class="sub">让 DeskMinis 帮你读写文件、执行命令、完成任务</p>
 
     <div class="cards">
@@ -63,16 +64,17 @@ function rel(s: S): string { return s.updatedAt ? fmtRelative(s.updatedAt, Date.
      就该从顶部开始、可滚），此时顶部留白就是唯一的呼吸位，24 太紧。 */
   padding: 40px 24px calc(24px + min(10vh, 72px));
 }
-.empty h2 { font-size: 22px; font-weight: 700; color: var(--label-emphasis); }
+/* I3：hero 规格对齐 AionUi 欢迎标题（text-2xl/600），从面板题升为页面题 */
+.empty h2 { font-size: 26px; font-weight: 600; color: var(--label-emphasis); }
 .sub { font-size: 15px; color: var(--label-secondary); }
 
 /* 示例指令卡：横排三张（窄了自动换行），点击填入输入框 */
-/* E3（Aurora §4）：示例卡浮岛化（首屏门面）——顶缘高光 + 柔影；实心材质不用 blur */
+/* I3 平面化（AionUi 助手卡语言）：白卡 + 1px 边 + 柔影，受光边退场 */
 .cards { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; justify-content: center; }
 .excard {
   width: 218px; display: flex; gap: 10px; align-items: flex-start; padding: 12px;
-  border: .5px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  border: 1px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
+  box-shadow: 0 2px 8px var(--shadow-color);
   cursor: pointer; color: var(--label-secondary);
 }
 .excard:hover { background: var(--fill-quaternary); color: var(--label); }

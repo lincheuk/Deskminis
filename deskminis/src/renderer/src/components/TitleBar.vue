@@ -7,7 +7,9 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useChat } from '../stores/chat';
 import Icon from './Icon.vue';
 
-defineProps<{ title: string }>();
+/** I3：welcome = 欢迎态（App.vue 的 welcomeMode）。欢迎态下工作台被整体隐藏，
+ *  开关必须 disabled + 说明——隐藏后开关点了没反应是 MU5 §15 同族问题（.wctl 成例）。 */
+const props = defineProps<{ title: string; welcome?: boolean }>();
 const emit = defineEmits<{
   (e: 'toggle-sidebar'): void;
   (e: 'toggle-chat'): void;
@@ -64,6 +66,8 @@ function hover(id: string): void { if (openId.value !== null) openId.value = id;
 
 function run(item: MenuItem): void {
   openId.value = null;
+  // 欢迎态下工作台整体隐藏，菜单里的开关与 tb-seg 同规则失效（视觉上也置灰）
+  if (item.act === 'right' && props.welcome) return;
   switch (item.act) {
     case 'new': void chat.newSession(); break;
     case 'quit': window.close(); break;
@@ -98,7 +102,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
     <div class="tb-segs">
       <button class="tb-seg" type="button" title="切换侧栏（Ctrl+B）" @click="emit('toggle-sidebar')"><Icon name="sidebar" :size="16" /></button>
       <button class="tb-seg" type="button" title="切换对话列" @click="emit('toggle-chat')">对话</button>
-      <button class="tb-seg" type="button" title="切换工作台" @click="emit('toggle-right')">工作台</button>
+      <button class="tb-seg" type="button" :disabled="welcome" :title="welcome ? '欢迎页无工作台——发出第一条消息后可用' : '切换工作台'" @click="emit('toggle-right')">工作台</button>
     </div>
     <div class="menubar" @click.stop>
       <div
@@ -111,7 +115,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
           <div class="mpop">
             <template v-for="(it, i) in mn.items" :key="i">
               <div v-if="it.sep" class="sep"></div>
-              <div v-else class="it" :class="{ danger: it.danger }" @click.stop="run(it)" tabindex="0" role="menuitem" @keydown.enter.prevent="run(it)" @keydown.space.prevent="run(it)">
+              <div v-else class="it" :class="{ danger: it.danger, off: it.act === 'right' && welcome }" :title="it.act === 'right' && welcome ? '欢迎页无工作台——发出第一条消息后可用' : undefined" @click.stop="run(it)" tabindex="0" role="menuitem" @keydown.enter.prevent="run(it)" @keydown.space.prevent="run(it)">
                 {{ it.label }}<span v-if="it.kbd" class="kbd">{{ it.kbd }}</span>
               </div>
             </template>
@@ -149,6 +153,8 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
   font-size: var(--fs-micro); white-space: nowrap;
 }
 .tb-seg:hover { background: var(--fill-quaternary); color: var(--label); }
+.tb-seg:disabled { opacity: var(--opacity-disabled); cursor: default; }
+.tb-seg:disabled:hover { background: none; color: var(--label-secondary); }
 .tb-seg:focus-visible { outline: 2px solid var(--ring); outline-offset: -1px; }
 .tb-seg :deep(svg) { stroke: var(--label-secondary); }
 .menubar { display: flex; gap: 1px; }
@@ -170,6 +176,9 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 .it:hover { background: var(--accent); color: var(--on-action); }
 .it:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .it.danger { color: var(--red); }
+/* I3：欢迎态下失效的菜单项——置灰 + hover 不上色（run() 同规则拦截） */
+.it.off { opacity: var(--opacity-disabled); cursor: default; }
+.it.off:hover { background: none; color: var(--label); }
 .it .kbd { margin-left: auto; font-size: 12px; color: var(--label-tertiary); font-family: var(--font-mono); }
 .it:hover .kbd { color: var(--on-action); opacity: .7; }
 .sep { height: .5px; background: var(--separator); margin: 5px 8px; }
