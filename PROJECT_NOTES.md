@@ -626,3 +626,18 @@
   i6-*.png 四图入册。K 波施工为此让路暂停后恢复。
 - 遗留：用户第三张截图（会话视图：文件预览中心化 + View Steps 折叠 + 工作区树右栏）
   属会话视图对齐——比欢迎屏面大，列 **I7 候选**待拍板。
+
+### K 波：定时任务——24/7 叙事的诚实版（2026-08-20，自己做）
+- **两步全落 main + 终验**：K1 后端（df1abb8，迁移[10] cron_jobs + schedule 纯核心
+  （5 段解析/Vixie 日周 OR/本机时区逐分钟扫 366 天上限/interval ≥5 分钟）+ CronStore +
+  30s 调度器（unref + tick 防重入 + 任务级并发防重 skipped-running）+ 裸 methods 直调
+  chat.prompt + runDoneHooks 完成钩子——顺带治理「loop 抛错仅广播不落库」无痕缺口；
+  once 自动停用、错过补跑门在启动首查）→ K2 前端（7fab434，「定时」全局 tab +
+  CronPanel 三态表单带实时人话预览 + describe 纯模块「描述不了回落原文不硬编」）。
+- **诚实边界产品化**：面板头常驻「应用运行时生效（不驻留后台不假装 24/7）」+
+  「无人值守权限卡 90s 自动拒绝，要全自动请全局切完全访问（慎用）」——设计稿 §0
+  两裁定的用户可见面。会话形态：⏰ 前缀 + sessions.source='cron'（迁移[0] 预留列
+  首次启用）+ 可绑 J 波助手（applyAssistantPreset 复用，J/K 拼积木实证）。
+- **xvfb 全链路实证**（k3-*.png 五图）：建任务（interval+绑定通用协作）→ 立即运行 →
+  ⏰ 会话建立 → FakeProvider 实跑回复 → last_status ok 回流 → 查看会话跳转全通。
+- 版本钉六文件 10→11 随动申报（assistants-store 亦钉版本，「五文件」清单自此修正为六）。
