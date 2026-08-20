@@ -21,8 +21,8 @@ beforeEach(() => {
 });
 
 describe('迁移 [9] assistants', () => {
-  it('新库 user_version=10 且 assistants 表就位、列全', () => {
-    expect(db.pragma('user_version', { simple: true })).toBe(10);
+  it('新库 user_version=11 且 assistants 表就位、列全（K1 追加 [10] 后最新版是 11）', () => {
+    expect(db.pragma('user_version', { simple: true })).toBe(11);
     const cols = db.prepare('PRAGMA table_info(assistants)').all() as { name: string }[];
     expect(cols.map(c => c.name)).toEqual(expect.arrayContaining(
       ['id', 'name', 'avatar', 'rules', 'model_binding', 'skill_ids_json', 'prompts_json', 'sort_order', 'created_at', 'updated_at'],

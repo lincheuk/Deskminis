@@ -47,6 +47,7 @@ import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
 import { AssistantStore, applyAssistantPreset } from './assistants/store';
 import { buildAssistantBlock } from './assistants/prompt';
+import { CronStore, type CronJob } from './cron/store';
 import { SkillImporter, type ImportKind } from './skills/importer';
 import { MarketService } from './market/service';
 import { MarketClient } from './market/client';
@@ -362,6 +363,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // ---- J1 助手体系（设计稿 2026-08-20-assistants-design.md）：命名预设目录 + 一次性种子 ----
   const assistantStore = new AssistantStore(db);
   assistantStore.ensureSeeds(settings);
+  // ---- K1 定时任务（设计稿 2026-08-20-cron-design.md）：存储在此、调度器在 RpcServer 之后 ----
+  const cronStore = new CronStore(db);
   /** 会话 → 生效助手（悬空绑定查无回 undefined，注入侧即跳过——删助手不杀会话）。 */
   const assistantOf = (sessionId: string) => {
     const aid = chat.getSession(sessionId)?.assistantId;
@@ -392,6 +395,9 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
    *  交错落库出 Anthropic 直接 400 的消息序列（tool_use 没有配对的 tool_result）。 */
   const inFlight = new Set<string>();
   const controllers = new Map<string, AbortController>();
+  /** K1 回合完成接缝（设计稿 §0）：一次性钩子，chat.prompt 的 IIFE finally 消费——
+   *  调度器借此写 last_status，顺带治理「loop 抛错仅广播不落库、无人值守失败无痕」缺口。 */
+  const runDoneHooks = new Map<string, (err?: string) => void>();
   /** 正在自动命名的会话。命名是 fire-and-forget 的，没有这道闸，
    *  同一会话前后两轮的命名请求会并发跑、互相覆盖标题。 */
   const titling = new Set<string>();
@@ -474,6 +480,30 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       if (p.confirm !== true) throw new Error('删除助手需要 confirm: true 确认');
       assistantStore.remove(p.id);
       rpc.broadcast('assistants.changed', {});
+      return { ok: true };
+    },
+    // ---- K1 定时任务 RPC（读免批同 skills.list 档；写操作广播 cron.changed 供面板刷新）----
+    'cron.list': () => cronStore.list(),
+    'cron.create': (p: { name: string; prompt: string; scheduleKind: 'interval' | 'once' | 'cron'; scheduleValue: string; assistantId?: string; workspaceRoot?: string }) => {
+      const j = cronStore.create(p);
+      rpc.broadcast('cron.changed', {});
+      return j;
+    },
+    'cron.update': (p: { id: string; name?: string; prompt?: string; scheduleKind?: 'interval' | 'once' | 'cron'; scheduleValue?: string; assistantId?: string; workspaceRoot?: string; enabled?: boolean }) => {
+      const j = cronStore.update(p.id, p);
+      rpc.broadcast('cron.changed', {});
+      return j;
+    },
+    'cron.delete': (p: { id: string; confirm?: boolean }) => {
+      if (p.confirm !== true) throw new Error('删除定时任务需要 confirm: true 确认');
+      cronStore.remove(p.id);
+      rpc.broadcast('cron.changed', {});
+      return { ok: true };
+    },
+    'cron.runNow': (p: { id: string }) => {
+      const j = cronStore.get(p.id);
+      if (!j) throw new Error(`任务不存在: ${p.id}`);
+      runCronJob(j);
       return { ok: true };
     },
     'chat.sessions.delete': (p: { sessionId: string; confirm?: boolean }) => {
@@ -647,6 +677,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       chat.appendMessage({ id: chat.newId(), sessionId, role: 'user', parts: userParts, createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
       paths.ensureSessionDirs(sessionId);
       void (async () => {
+        let runErr: string | undefined; // K1：完成钩子的终态入参（undefined = 正常收尾）
         let pendingRebind: string | undefined; // 降级候选 instanceId，等 turnEnd 才落库
         let rebound = false; // 是否已改写绑定（只改一次）
         // 自动命名要发给「这轮最后真正在跑的那个 provider」：降级换过 slot 后仍拿初始 provider，
@@ -696,8 +727,17 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
             if (event.kind === 'turnEnd') void autoTitle(sessionId, p.text, activeProvider);
             rpc.broadcast('chat.event', { sessionId, event });
           }
-        } catch (e) { rpc.broadcast('chat.event', { sessionId, event: { kind: 'error', message: String(e) } }); }
-        finally { inFlight.delete(sessionId); controllers.delete(sessionId); }
+        } catch (e) {
+          runErr = String(e);
+          rpc.broadcast('chat.event', { sessionId, event: { kind: 'error', message: String(e) } });
+        }
+        finally {
+          inFlight.delete(sessionId); controllers.delete(sessionId);
+          // K1：一次性完成钩子（定时任务写终态用）；先摘再调，钩子抛错不影响清理
+          const hook = runDoneHooks.get(sessionId);
+          runDoneHooks.delete(sessionId);
+          try { hook?.(runErr); } catch { /* 钩子自身的错误不外溢 */ }
+        }
       })();
       return { ok: true };
     },
@@ -987,6 +1027,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     'control.status': () => ({ syncPaused: settings.getBool(SYNC_PAUSE_KEY, false) }),
   };
 
+  // K1：捕获**包装前**的 chat.prompt 裸引用——guardBusinessMethod 包装体读 conn.authMode，
+  // 调度器是进程内调用没有 conn；处理器本身不用第二参（调研核实），裸调即等价本地调用。
+  const rawChatPrompt = methods['chat.prompt'] as (p: { sessionId: string; text: string }) => Promise<{ ok: boolean }>;
+
   const authToken = randomUUID().toUpperCase();
 
   // M4 Task 4：diagnostics.dryRun RPC 方法（authMode=local，仅本机渲染进程/CLI 可调）
@@ -1049,6 +1093,67 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   Object.assign(methods, syncMethods);
 
   rpc = new RpcServer(methods, authToken, additionalVerify);
+
+  // ---- K1 调度器（设计稿 §3）：30s tick + 启动即查一次（once 错过补跑门）----
+  // 运行边界（§0 裁定）：minisd 随 app 生命周期，应用没开就不跑——interval/cron 错过
+  // 跳过重算（markRun 从当下起算，天然如此），once 错过则 next 停在过去、启动首查捞到补跑。
+  function runCronJob(job: CronJob): void {
+    try {
+      // 并发防重：上次会话还在跑就跳过本次，重算下一次（不排队不叠跑）
+      if (job.lastSessionId && inFlight.has(job.lastSessionId)) {
+        cronStore.markRun(job.id, job.lastSessionId); // 重算 next（once 会因此停用——正确：它已在跑）
+        cronStore.markDone(job.id, 'skipped-running：上一次触发还在运行');
+        rpc.broadcast('cron.changed', {});
+        return;
+      }
+      const stamp = new Date();
+      const mm = String(stamp.getMonth() + 1).padStart(2, '0');
+      const dd = String(stamp.getDate()).padStart(2, '0');
+      const hh = String(stamp.getHours()).padStart(2, '0');
+      const mi = String(stamp.getMinutes()).padStart(2, '0');
+      const s = chat.createSession(`⏰ ${job.name} ${mm}-${dd} ${hh}:${mi}`, settings.get(WORKSPACE_LAST_KEY), 'cron');
+      let statusNote = '';
+      if (job.assistantId) {
+        const a = assistantStore.get(job.assistantId);
+        if (a) applyAssistantPreset({ chat, skills: skillStore }, s.id, a);
+        else statusNote += '助手已删，按无助手跑；';
+      }
+      if (job.workspaceRoot) {
+        if (existsSync(job.workspaceRoot)) chat.setWorkspaceRoot(s.id, job.workspaceRoot);
+        else statusNote += '工作区目录不存在，用默认；';
+      }
+      cronStore.markRun(job.id, s.id);
+      if (statusNote) cronStore.markDone(job.id, `running（${statusNote.replace(/；$/, '')}）`);
+      // 完成钩子：写终态并广播——无人值守失败不再无痕（设计稿 §0 治理项）
+      runDoneHooks.set(s.id, (err) => {
+        cronStore.markDone(job.id, err ? `error: ${err.slice(0, 200)}` : 'ok');
+        rpc.broadcast('cron.changed', {});
+      });
+      rpc.broadcast('chat.sessions.changed', {});
+      rpc.broadcast('cron.changed', {});
+      void rawChatPrompt({ sessionId: s.id, text: job.prompt }).catch((e: unknown) => {
+        // 同步拒绝（并发闸/空文本等）走不到 IIFE 的 finally——钩子在这里收尾
+        runDoneHooks.delete(s.id);
+        cronStore.markDone(job.id, `error: ${String(e).slice(0, 200)}`);
+        rpc.broadcast('cron.changed', {});
+      });
+    } catch (e) {
+      // create/markRun 阶段的失败也要留痕（任务不存在除外——那是调用方的错）
+      try { cronStore.markDone(job.id, `error: ${String(e).slice(0, 200)}`); } catch { /* 任务已删 */ }
+      rpc.broadcast('cron.changed', {});
+    }
+  }
+  let cronTicking = false;
+  function cronTick(): void {
+    if (cronTicking) return; // tick 防重入（上一轮建会话/写库还没完时不叠加）
+    cronTicking = true;
+    try { for (const job of cronStore.dueJobs(Date.now())) runCronJob(job); }
+    finally { cronTicking = false; }
+  }
+  const cronTimer = setInterval(cronTick, 30_000);
+  cronTimer.unref(); // McpManager 巡检同款：定时器不阻止进程退出
+  const cronBoot = setTimeout(cronTick, 3_000); // 启动首查延后 3s，等装配稳定
+  cronBoot.unref();
   // M3c Task 4：端口持久化（必改 4b）——读 minisd-port.json 复用 → 占用回退随机 → 写文件
   const listenHost = opts?.host ?? '127.0.0.1';
   const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p), authToken);
@@ -1074,6 +1179,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       for (const c of controllers.values()) c.abort();
       for (const { timer } of pendingPerms.values()) clearTimeout(timer);
       pendingPerms.clear();
+      clearInterval(cronTimer); clearTimeout(cronBoot); // K1：调度器随进程收尾
       terminals.disposeAll(); shells.disposeAll(); mcpManager.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
     },
   };

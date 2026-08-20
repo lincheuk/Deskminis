@@ -34,7 +34,7 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
 
   it('user_version 演进到 9，既有表结构不被破坏', () => {
     const db = openDb(':memory:');
-    expect(db.pragma('user_version', { simple: true })).toBe(10); // 10 条迁移 [0..9]（[8] = H1 注释表；[9] = J1 助手表）
+    expect(db.pragma('user_version', { simple: true })).toBe(11); // 11 条迁移 [0..10]（[9] = J1 助手表；[10] = K1 定时任务表）
     // 既有 6 张表仍在
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
     for (const t of ['sessions', 'messages', 'compact_markers', 'skills', 'session_skill_overrides', 'sync_orphan_markers']) {
@@ -46,7 +46,7 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
   // 上面四条走的都是 openDb(':memory:')，即 user_version=0 的新建库一次跑完 [0..7]。
   // 但真实用户库停在 user_version=4（M3b 之后 / M6 之前），M6 首次启动才补跑 [4]——
   // 这才是「MIGRATIONS 纯追加」红线要保护的路径，必须单独覆盖。
-  it('已有 user_version=4 的库重开：补跑 [4][5][6][7][8][9] 到 10，既有数据不丢，且幂等', () => {
+  it('已有 user_version=4 的库重开：补跑 [4]..[10] 到 11，既有数据不丢，且幂等', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dm-mig6-'));
     const file = join(dir, 'test.db');
     try {
@@ -55,7 +55,7 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
       // 造老库要把**每一条**后续迁移的产物都撤掉，只撤最后一条不够：
       // [4] 建的两张表 + [5] 加的 workspace_root 列 + [6] 建的 market_cache 表 + [7] 建的 market_installs 表。
       // 漏撤列会在重开时报「duplicate column name」，漏撤表报「table already exists」。
-      db.exec('DROP TABLE IF EXISTS audit_logs; DROP TABLE IF EXISTS settings; DROP TABLE IF EXISTS market_cache; DROP TABLE IF EXISTS market_installs; DROP TABLE IF EXISTS annotations; DROP TABLE IF EXISTS assistants;');
+      db.exec('DROP TABLE IF EXISTS audit_logs; DROP TABLE IF EXISTS settings; DROP TABLE IF EXISTS market_cache; DROP TABLE IF EXISTS market_installs; DROP TABLE IF EXISTS annotations; DROP TABLE IF EXISTS assistants; DROP TABLE IF EXISTS cron_jobs;');
       db.exec('ALTER TABLE sessions DROP COLUMN workspace_root;');
       db.pragma('user_version = 4');
       const now = Date.now() / 1000;
@@ -72,7 +72,7 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
 
       // 关键动作：当前 openDb 重开该库
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(10);
+      expect(db.pragma('user_version', { simple: true })).toBe(11);
       const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[])
         .map(t => t.name);
       expect(tables).toEqual(expect.arrayContaining(['audit_logs', 'settings']));
@@ -96,7 +96,7 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
 
       // 幂等：再开一次不重跑迁移、不清数据
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(10);
+      expect(db.pragma('user_version', { simple: true })).toBe(11);
       expect(db.prepare('SELECT id FROM audit_logs WHERE id=?').get('A_NEW')).toBeTruthy();
       expect((db.prepare('SELECT value FROM settings WHERE key=?').get('sync.paused') as { value: string }).value).toBe('1');
       db.close();

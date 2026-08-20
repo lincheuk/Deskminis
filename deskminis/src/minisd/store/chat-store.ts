@@ -55,12 +55,13 @@ export class ChatStore {
   nowEpoch(): number { return Date.now() / 1000; }
   newId(): string { return randomUUID().toUpperCase(); }
 
-  /** workspaceRoot 由调用方传入（index.ts 读全局「上次用过的」），缺省即回落沙箱桶。 */
-  createSession(title = '新会话', workspaceRoot?: string): SessionMeta {
+  /** workspaceRoot 由调用方传入（index.ts 读全局「上次用过的」），缺省即回落沙箱桶。
+   *  source（K1 首次启用迁移[0] 预留列）：'cron' = 定时任务触发的会话，供回溯与后续 UI 标记。 */
+  createSession(title = '新会话', workspaceRoot?: string, source?: string): SessionMeta {
     const s: SessionMeta = { id: this.newId(), title, createdAt: this.nowEpoch(), updatedAt: this.nowEpoch() };
     if (workspaceRoot) s.workspaceRoot = workspaceRoot;
-    this.db.prepare('INSERT INTO sessions (id, title, created_at, updated_at, workspace_root) VALUES (?,?,?,?,?)')
-      .run(s.id, s.title, s.createdAt, s.updatedAt, workspaceRoot ?? null);
+    this.db.prepare('INSERT INTO sessions (id, title, created_at, updated_at, workspace_root, source) VALUES (?,?,?,?,?,?)')
+      .run(s.id, s.title, s.createdAt, s.updatedAt, workspaceRoot ?? null, source ?? null);
     return s;
   }
 

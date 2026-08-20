@@ -161,6 +161,31 @@ const MIGRATIONS: string[] = [
     updated_at REAL NOT NULL
   );
   `,
+  // [10] K1 定时任务（设计稿 2026-08-20-cron-design.md §1）：cron_jobs 只追加新表。
+  //  迁移一经发布不可改：已发布库 user_version=10，runner 只对 v<11 的库跑 MIGRATIONS[10]。
+  //  三态调度：schedule_kind 'interval'（分钟数 ≥5）/'once'（epoch 秒）/'cron'（5 段，
+  //  本机时区，日/周 OR 语义）；next_run_at 在 create/update/跑完时算定（epoch 秒），
+  //  调度器 tick 只查 enabled=1 AND next_run_at<=now。会话形态：每次触发新建会话
+  //  （sessions.source='cron' 首次启用迁移[0] 预留列），可绑助手（J 波预设三件随之应用）。
+  //  权限档不入表：无人值守权限卡 90s 超时自动拒绝是既有语义（设计稿 §0，不静默扩权）。
+  `
+  CREATE TABLE cron_jobs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    schedule_kind TEXT NOT NULL,
+    schedule_value TEXT NOT NULL,
+    assistant_id TEXT,
+    workspace_root TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at REAL,
+    last_run_at REAL,
+    last_session_id TEXT,
+    last_status TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+  );
+  `,
 ];
 
 export function openDb(filePath: string): Database.Database {
