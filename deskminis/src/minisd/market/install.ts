@@ -24,7 +24,7 @@ import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { MarketClient } from './client';
 import type { MarketItem, MarketKind, MarketSource } from './types';
-import { unzipToMemory, type ImportKind } from '../skills/importer';
+import { unzipToMemory, type ImportKind, type SkillImporter } from '../skills/importer';
 import type { SkillStore } from '../skills/store';
 import type { McpServersStore } from '../mcp/config';
 
@@ -46,8 +46,6 @@ export interface StdioWhitelistResult { ok: boolean; reason?: string }
 
 /** 允许的裸命令集合：包执行器三类。桥 node 是唯一允许的路径形态（见下）。 */
 const STDIO_COMMAND_ALLOWLIST: readonly string[] = ['npx', 'uvx', 'docker'];
-/** npx 的 shell 逃逸形态（goose 精确拦截成例）：-c/--call 直接执行任意字符串。 */
-const NPX_ESCAPE_FLAGS: readonly string[] = ['-c', '--call'];
 
 /** stdio 启动命令白名单闸：npx/uvx/docker 裸命令放行；桥 node 与 resolveBridgeNode 结果
  *  全等才放行（仿冒路径不认）；绝对路径 / 含路径分隔符的任意二进制一律拦。 */
@@ -58,8 +56,10 @@ export function checkStdioWhitelist(command: string, args: string[], opts?: Stdi
     return { ok: false, reason: `stdio 命令不允许路径形态（仅裸命令 npx/uvx/docker 或桥 node）: ${command}` };
   }
   if (STDIO_COMMAND_ALLOWLIST.includes(command)) {
-    if (command === 'npx' && args.some(a => NPX_ESCAPE_FLAGS.includes(a))) {
-      return { ok: false, reason: `npx 的 ${args.find(a => NPX_ESCAPE_FLAGS.includes(a))} 是 shell 逃逸形态，已拦截` };
+    // npx 的 shell 逃逸形态（goose 精确拦截成例）：-c/--call 与 --call= 等号连写一律拦
+    const escape = args.find(a => a === '-c' || a === '--call' || a.startsWith('--call='));
+    if (command === 'npx' && escape) {
+      return { ok: false, reason: `npx 的 ${escape} 是 shell 逃逸形态，已拦截` };
     }
     return { ok: true };
   }

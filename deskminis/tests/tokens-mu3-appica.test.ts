@@ -216,7 +216,7 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
     // 面板头登记入册——壳层数量恒定、身上无弹层，blur 开销 O(1)（blur 面恒定 ≤6 的性能纪律不变）
     const ALLOW = ['ProgressPanel', 'App', 'ArtifactsPanel', 'FilesPanel'];
     // 这些组件自带弹出层/浮层，永久禁用——加进 ALLOW 也不行，下面单独再断言一次
-    const POPUP_OWNERS = ['TitleBar', 'ModelPicker', 'PermissionPicker', 'SettingsModal', 'DevicesModal', 'ChatView', 'SessionList'];
+    const POPUP_OWNERS = ['TitleBar', 'ModelPicker', 'PermissionPicker', 'SettingsModal', 'DevicesModal', 'ChatView', 'SessionList', 'MarketPanel'];
     const offenders: string[] = [];
     const usedGlass: string[] = [];
     for (const f of vueFiles) {

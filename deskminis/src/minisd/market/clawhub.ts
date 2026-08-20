@@ -44,7 +44,7 @@ interface ClawHubDetailBody {
 }
 
 interface ClawHubScanBody {
-  security?: { status?: string };
+  security?: { status?: string; hasWarnings?: boolean };
 }
 
 /** scan security.status → verdict。未扫/未知一律 unscanned——消费端不猜。 */
@@ -150,6 +150,9 @@ export class ClawHubSource implements MarketSource {
     }
 
     const readme = skill.description ?? skill.summary ?? '';
+    // G3 申报偏离：透出 scan 的 hasWarnings（security.status=clean 但带警告）——
+    // 确认卡/详情辅助提示行数据源（G1 审核记的候选）。只加一个归一布尔，不改裁定映射。
+    const raw = { ...body, scanHasWarnings: scan?.security?.hasWarnings === true };
     const item: MarketItem = {
       id: `clawhub:${owner}/${slug}`,
       kind: 'skill',
@@ -162,7 +165,7 @@ export class ClawHubSource implements MarketSource {
       },
       verdict: verdictFromScan(scan),
       sourceTier: 'community',
-      raw: body,
+      raw,
     };
     return { item, readme, stale: detailEntry.stale || undefined };
   }
