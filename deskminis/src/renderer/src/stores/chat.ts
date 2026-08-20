@@ -27,7 +27,8 @@ export const useChat = defineStore('chat', {
     // 字段与后端 SessionMeta 对齐：chat.sessions.list 本就返回 memoryEnabled / modelBinding，
     // 此前本地只声明了四项，导致「有数据但界面读不到」——MU6 会话操作正需要这两项显示当前状态。
     sessions: [] as { id: string; title: string; updatedAt?: number; pinnedAt?: number;
-                      memoryEnabled?: boolean; modelBinding?: string; assistantId?: string }[],
+                      memoryEnabled?: boolean; modelBinding?: string; assistantId?: string;
+                      mcpDisabled?: string[] }[],
     activeId: '' as string,
     messages: [] as UiMessage[],
     streamingText: '' as string,
@@ -271,6 +272,12 @@ export const useChat = defineStore('chat', {
     /** binding 传 undefined / 空串即解绑（后端 setModelBinding 的取值约定）。 */
     async setSessionModelBinding(id: string, binding?: string) {
       await rpc.call('chat.sessions.setModelBinding', { sessionId: id, binding });
+      await this.refreshSessions();
+    },
+    /** L5 会话级 MCP 禁用名单整体覆写（D5 后端语义即全量替换，非增量）。
+     *  写后重拉列表镜像最新事实——与同组 action 一致，不就地改本地态。 */
+    async setSessionMcpDisabled(id: string, servers: string[]) {
+      await rpc.call('chat.sessions.setMcpDisabled', { sessionId: id, servers });
       await this.refreshSessions();
     },
     // ---- MU6 技能管理（消费既有 RPC，不新增方法）----

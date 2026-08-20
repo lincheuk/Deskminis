@@ -71,6 +71,34 @@ async function resetWs(): Promise<void> {
   wsErr.value = '';
   try { await chat.resetWorkspace(); } catch (e) { wsErr.value = e instanceof Error ? e.message : String(e); }
 }
+
+// ---- L5 会话级 MCP 勾选（pool-batch §5：D5 后端全通，这里是唯一 renderer 入口）----
+const mcpOpen = ref(false);
+// 组件创建即拉取一次：pill 显隐取决于「存在已启用 server」，不拉则 mcpServers 恒为空、入口永不出现。
+// 设置页的增删改走同一 store（写后重拉），两处天然同步，无需订阅。
+void chat.fetchMcpServers();
+const enabledMcpServers = computed(() => chat.mcpServers.servers.filter(s => s.enabled));
+const mcpPillVisible = computed(() => !!chat.activeId && enabledMcpServers.value.length > 0);
+const sessionMcpDisabled = computed(() => chat.sessions.find(s => s.id === chat.activeId)?.mcpDisabled ?? []);
+// 计数只数「已启用 ∩ 已禁用」：名单里可能残留已全局删除/停用的 server 名，光标数会对不上可见行
+const mcpDisabledCount = computed(() => enabledMcpServers.value.filter(s => sessionMcpDisabled.value.includes(s.name)).length);
+const mcpLabel = computed(() => mcpDisabledCount.value > 0 ? `MCP · 禁 ${mcpDisabledCount.value}` : 'MCP');
+// 两个行内面板互斥展开：同时开会把 composer 顶出可视区（wspanel 挤压事故的教训，窄列 336px）
+function toggleWs(): void {
+  mcpOpen.value = false;
+  wsOpen.value = !wsOpen.value;
+}
+function toggleMcp(): void {
+  wsOpen.value = false;
+  mcpOpen.value = !mcpOpen.value;
+}
+/** 翻转单个 server 的会话禁用位（AssistantSettings 技能勾选同一成例：按当前态翻转，不读事件）。
+ *  整表覆写是后端 setMcpDisabled 的语义；顺带把残留的幽灵名单项一并保留原样（不越权清理）。 */
+async function toggleSessionMcp(name: string): Promise<void> {
+  const cur = sessionMcpDisabled.value;
+  const next = cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name];
+  await chat.setSessionMcpDisabled(chat.activeId, next);
+}
 const streamEl = ref<HTMLElement | null>(null);
 const fieldEl = ref<HTMLTextAreaElement | null>(null);
 
@@ -723,8 +751,13 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
         <button class="attach" type="button" title="添加附件" @click="openAttach"><Icon name="plus" :size="15" /></button>
         <button
           class="cpill wsbtn" type="button" :title="`工作区：${chat.workspaceRoot || '未设置'}`"
-          @click="wsOpen = !wsOpen"
+          @click="toggleWs"
         ><Icon name="folder" :size="14" /><span>{{ workspaceLabel }}</span></button>
+        <button
+          v-if="mcpPillVisible" class="cpill mcpbtn" type="button"
+          :title="`MCP 服务器：本会话已禁用 ${mcpDisabledCount} 个`"
+          @click="toggleMcp"
+        ><Icon name="globe" :size="14" /><span>{{ mcpLabel }}</span></button>
         <PermissionPicker />
         <ModelPicker />
         <button v-if="!chat.running" class="send" :disabled="!canSend" @click="send"><Icon name="send" :size="17" /></button>
@@ -760,6 +793,18 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
           <button v-if="!chat.workspaceIsDefault" class="wsreset" type="button" @click="resetWs">恢复默认沙箱</button>
         </div>
         <div v-if="wsErr" class="wserr">{{ wsErr }}</div>
+      </div>
+      <!-- L5 会话级 MCP 面板：同 wspanel 走行内展开（.ctools overflow 会裁浮层，老坑不再踩） -->
+      <div v-if="mcpOpen" class="mcpanel">
+        <div class="mchead">
+          <span class="mclabel">MCP 服务器</span>
+          <span class="mctag">勾选 = 本会话禁用</span>
+        </div>
+        <label v-for="s in enabledMcpServers" :key="s.name" class="mcrow">
+          <input type="checkbox" :checked="sessionMcpDisabled.includes(s.name)" @change="toggleSessionMcp(s.name)" />
+          <span class="mcname">{{ s.name }}</span>
+        </label>
+        <div class="mchint">勾选即落库，下一回合起不再向模型提供该 server 的工具（进行中的回合里调用也会被拒）。全局启停在 设置 → MCP。</div>
       </div>
     </div>
     <!-- I6 欢迎屏下半区（AionUi Guid 页次序：hero → composer → 助手区）：
@@ -809,6 +854,19 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .wsfoot { display: flex; align-items: center; gap: 8px; }
 .wshint { font-size: var(--fs-micro); color: var(--label-tertiary); line-height: 1.5; }
 .wserr { font-size: var(--fs-micro); color: var(--state-err); line-height: 1.5; }
+/* L5 会话级 MCP 行内面板（wspanel 同款视觉，行结构对齐 AssistantSettings 技能勾选） */
+.mcpanel {
+  margin: 8px 10px 2px; padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--fill-quaternary); border: .5px solid var(--separator);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.mchead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: var(--fs-micro); }
+.mclabel { color: var(--label-tertiary); }
+.mctag { color: var(--label-secondary); font-weight: 600; }
+.mcrow { display: flex; align-items: center; gap: 8px; font-size: var(--fs-micro); cursor: pointer; }
+.mcrow input { accent-color: var(--action); }
+.mcname { color: var(--label); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mchint { font-size: var(--fs-micro); color: var(--label-tertiary); line-height: 1.5; }
 .pane-c { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; position: relative; }
 /* scrollbar-gutter 对称预留：滚动条 15px 会让正文在「减掉滚动条」的宽里居中，
    而输入卡在完整宽里居中，两者左缘差 8px（实测）。both-edges 让两边各留一份，
