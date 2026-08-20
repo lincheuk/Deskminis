@@ -24,6 +24,8 @@ import { groupToolCards, isGroup, type ToolGroup } from '../lib/toolline/group';
 import { eventCopy } from '../lib/eventnote/copy';
 import { rowsFor } from '../lib/composer/autogrow';
 import { histStep } from '../lib/composer/history';
+import { atToken, atMatch, applyAt, collectFiles } from '../lib/composer/at-files';
+import { rpc } from '../rpc';
 import { downsampleImageFile } from '../lib/attach/downsample';
 import type { MdNode } from '../lib/markdown/parse';
 
@@ -324,6 +326,7 @@ async function send(): Promise<void> {
   }
   input.value = '';
   histCursor.value = -1; // L1：发送即离开历史态（下次 ↑ 从最新一条重新进）
+  atQuery.value = null;  // L2：发送即离开 @ 态（keyup 兜底之外的确定复位）
   // 附件以 attachments 参数进模型（后端落 mediaRef part + 请求侧合成 base64），发送后清空
   pendingAttachments.value = [];
   await chat.send(t, atts.length ? atts : undefined);
@@ -384,7 +387,56 @@ function slashPick(name: string): void {
 function onEnterKey(): void {
   const s = slashOpen.value ? slashItems.value[slashIndex.value] : undefined;
   if (s) { slashPick(s.name); return; } // 菜单开着时 Enter = 选中，不是发送
+  const f = atOpen.value ? atItems.value[atIndex.value] : undefined;
+  if (f) { atPick(f); return; }
   void send();
+}
+
+// ---- L2 @ 文件引用（pool-batch §2）：光标处 token 语义，slashmenu 同款 UI、独立状态 ----
+// 缓存会话工作区文件全量（受限递归拉一次），菜单首开时拉、会话切换失效
+const atQuery = ref<string | null>(null);
+const atIndex = ref(0);
+const atFiles = ref<string[] | null>(null);
+const atTruncated = ref(false);
+const atLoading = ref(false);
+/** 光标或内容一动就重判 token：读 DOM 现值而非 input ref——@input 监听与 v-model
+ *  同挂一个事件，执行顺序不保证，读 ref 可能拿到上一拍的旧文本。 */
+function updateAt(): void {
+  const el = fieldEl.value;
+  const text = el ? el.value : input.value;
+  const caret = el?.selectionStart ?? text.length;
+  atQuery.value = atToken(text.slice(0, caret));
+  if (atQuery.value !== null && atFiles.value === null && !atLoading.value && chat.activeId) void loadAtFiles();
+}
+async function loadAtFiles(): Promise<void> {
+  atLoading.value = true;
+  const sid = chat.activeId;
+  try {
+    const r = await collectFiles((dir) => rpc.call('files.list', { sessionId: sid, dir }));
+    // 拉取期间可能已切会话：旧会话的名单不能污染新会话（工作区是每会话各自的）
+    if (sid === chat.activeId) { atFiles.value = r.paths; atTruncated.value = r.truncated; }
+  } catch { /* @ 是纯输入辅助：拉不到就不弹菜单，不打扰输入 */ }
+  finally { atLoading.value = false; }
+}
+const atItems = computed(() => {
+  if (slashOpen.value || atQuery.value === null || !atFiles.value) return []; // slash 优先：两菜单互斥
+  return atMatch(atFiles.value, atQuery.value);
+});
+const atOpen = computed(() => atItems.value.length > 0);
+watch(atItems, () => { atIndex.value = 0; });
+watch(() => chat.activeId, () => { atFiles.value = null; atTruncated.value = false; atQuery.value = null; });
+function atPick(p: string): void {
+  const el = fieldEl.value;
+  const caret = el?.selectionStart ?? input.value.length;
+  const r = applyAt(input.value, caret, p);
+  atQuery.value = null;
+  if (!r) return;
+  input.value = r.text;
+  void nextTick(() => { el?.focus(); el?.setSelectionRange(r.caret, r.caret); });
+}
+function closeMenus(): void {
+  slashOpen.value = false;
+  atQuery.value = null;
 }
 // ---- L1 输入历史上翻（设计稿 pool-batch §1）：↑↓ 的第二职责，斜杠菜单开着时让位 ----
 // 数据源含乐观 local- 消息——刚发出去的那条最该能一键召回
@@ -399,20 +451,33 @@ const userTexts = computed<string[]>(() => chat.messages
 watch(() => chat.activeId, () => { histCursor.value = -1; });
 
 function onSlashNav(delta: number, e: KeyboardEvent): void {
-  if (!slashOpen.value) {
-    // 历史态判定在纯模块里：不应用（有草稿/越界/编辑过）就返回 null，按键回归光标本职
-    const r = histStep(userTexts.value, input.value, histCursor.value, delta as -1 | 1);
-    if (r) { e.preventDefault(); input.value = r.text; histCursor.value = r.cursor; }
+  // 优先级：slash 菜单 > @ 文件菜单 > 输入历史 > 光标本职
+  if (slashOpen.value) {
+    e.preventDefault();
+    slashIndex.value = (slashIndex.value + delta + slashItems.value.length) % slashItems.value.length;
     return;
   }
-  e.preventDefault();
-  slashIndex.value = (slashIndex.value + delta + slashItems.value.length) % slashItems.value.length;
+  if (atOpen.value) {
+    e.preventDefault();
+    atIndex.value = (atIndex.value + delta + atItems.value.length) % atItems.value.length;
+    return;
+  }
+  // 历史态判定在纯模块里：不应用（有草稿/越界/编辑过）就返回 null，按键回归光标本职
+  const r = histStep(userTexts.value, input.value, histCursor.value, delta as -1 | 1);
+  if (r) { e.preventDefault(); input.value = r.text; histCursor.value = r.cursor; }
 }
 function onSlashTab(e: KeyboardEvent): void {
-  if (!slashOpen.value) return;
-  e.preventDefault();
-  const s = slashItems.value[slashIndex.value];
-  if (s) slashPick(s.name);
+  if (slashOpen.value) {
+    e.preventDefault();
+    const s = slashItems.value[slashIndex.value];
+    if (s) slashPick(s.name);
+    return;
+  }
+  if (atOpen.value) {
+    e.preventDefault();
+    const f = atItems.value[atIndex.value];
+    if (f) atPick(f);
+  }
 }
 
 // ---- H2 文本选区注释（设计稿 §2）：选区浮条（引用/标注）+ 高亮重锚定渲染 ----
@@ -727,6 +792,18 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
           <span class="sdesc">{{ s.description }}</span>
         </button>
       </div>
+      <!-- L2 @ 文件菜单：slashmenu 同款视觉复用 .slashitem，独立状态（slash 优先，互斥见 atItems） -->
+      <div v-if="atOpen" class="atmenu">
+        <button
+          v-for="(p, i) in atItems" :key="p" type="button"
+          class="slashitem" :class="{ on: i === atIndex }"
+          @mousedown.prevent="atPick(p)" @mouseenter="atIndex = i"
+        >
+          <Icon name="file" :size="14" />
+          <span class="sname">{{ p }}</span>
+        </button>
+        <div v-if="atTruncated" class="attail">工作区文件过多，仅收录前 500 项</div>
+      </div>
       <div v-if="pendingAttachments.length" class="achips">
         <div v-for="(a, i) in pendingAttachments" :key="a.path" class="achip">
           <img :src="a.dataUrl" :alt="a.path" />
@@ -741,7 +818,10 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
         @keydown.up="onSlashNav(-1, $event)"
         @keydown.down="onSlashNav(1, $event)"
         @keydown.tab="onSlashTab"
-        @keydown.esc="slashOpen = false"
+        @keydown.esc="closeMenus"
+        @input="updateAt"
+        @click="updateAt"
+        @keyup="updateAt"
         @paste="onPaste"
         @drop="onDrop"
         @dragover.prevent
@@ -983,6 +1063,16 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .slashitem :deep(svg) { stroke: var(--label-secondary); flex: 0 0 auto; }
 .sname { font-weight: 600; flex: 0 0 auto; color: var(--label-strong); }
 .sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* L2 @ 文件菜单：容器与 slashmenu 同款（独立类名，slashmenu 守卫锚不动）；行内路径用等宽 */
+.atmenu {
+  position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
+  display: flex; flex-direction: column; padding: 6px; gap: 2px; max-height: 260px; overflow: auto;
+  background: var(--surface-1);
+  border: .5px solid var(--separator); border-radius: var(--r-md);
+  box-shadow: 0 8px 28px var(--shadow-color);
+}
+.atmenu .sname { font-weight: 400; font-family: var(--font-mono); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attail { padding: 4px 10px 2px; font-size: var(--fs-micro); color: var(--label-tertiary); }
 .field {
   /* MU5：卡片本身即边界，输入框自己不再描边——去掉「框中框」 */
   background: none; border: none; border-radius: var(--r-control);

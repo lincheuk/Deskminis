@@ -46,6 +46,24 @@ describe('L1 接线：ChatView 历史上翻挂 onSlashNav（斜杠菜单优先�
   });
 });
 
+describe('L2 接线：ChatView @ 文件菜单（slashmenu 同款、独立状态、slash 优先）', () => {
+  it('at-files 纯模块接线 + 菜单/截断尾行/光标事件挂点', () => {
+    const cv = read('src/renderer/src/components/ChatView.vue');
+    expect(cv).toContain("from '../lib/composer/at-files'");
+    expect(cv).toContain('atToken(');
+    expect(cv).toContain('atMatch(');
+    expect(cv).toContain('applyAt(');
+    expect(cv).toContain('collectFiles(');
+    expect(cv).toContain('class="atmenu"');
+    expect(cv).toContain('仅收录前 500 项'); // 截断明示（设计 §2：上限不静默）
+    expect(cv).toContain('@click="updateAt"'); // 光标处 token 语义：点击移光标也要重判
+    // slash 优先：@ 菜单在 slashOpen 时让位（两菜单互斥）
+    expect(cv).toMatch(/if \(slashOpen\.value[^)]*\) return \[\];/);
+    // 会话切换失效缓存（工作区各会话各自的，跨会话复用必错）
+    expect(cv).toMatch(/chat\.activeId, \(\) => \{[^}]*atFiles\.value = null/);
+  });
+});
+
 describe('L4 FilesPanel md 预览：走既有零依赖渲染器 + 渲染/源码段控', () => {
   it('parseMarkdown → MarkdownView 接线；段控仅 md 出现；零 v-html 红线不碰', () => {
     const fp = read('src/renderer/src/components/FilesPanel.vue');
