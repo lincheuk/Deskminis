@@ -24,14 +24,17 @@
 | 2 | 市场 UI 位置 | **工作台新标签「扩展」**——市场是大面积浏览界面，设置模态放不下；已装管理仍留设置页（技能第 5 页 / MCP 页），市场页提供跳转 |
 | 3 | 技能主源 | **ClawHub API 主源**（规模 + 装前扫描/安全裁定现成）+ 内置精选层；首跑核实其域名在用户本机可达（调研环境代理封锁过 skills.sh），不可达则 B 计划：自建精选清单（仿 awesome-dsh YAML 管线）先行 |
 | 4 | MCP 目录源 | **官方注册表** registry.modelcontextprotocol.io（/v0.1/servers 实测过）+ goose 精选 servers.json 叠加 endorsed 标 |
+| 4b | **awesome-dsh-plugin 源**（立项初心，用户点名） | **收，作为社区层第三源**：只过滤收录其 MCP 与技能类条目（主题/DSH 代码插件类不进列表——前者不适用、后者不兼容）；无上游扫描 → 条目一律 `unscanned` + 社区徽章，安装照走 §4 确认卡。数据形态首跑核实：优先吃其站点 JSON 索引（build 管线产物，调研经 dshmarket 快照证实存在 JSON 形态），仅 YAML 可用时以窄解析器处理固定字段（零新依赖红线，不引 YAML 库） |
 | 5 | marketplace.json 兼容（自定义市场） | **v2 再做**；v1 源集合为内置白名单，不接受任意 URL 源 |
 | 6 | stdio 安装命令白名单 | `npx` / `uvx` / `docker` + 桥随包 node 四类；学 goose 精确拦截 `npx -c` 类逃逸形态；白名单外命令的条目显示「需手动配置」不给一键装 |
 | 7 | agentskills.io showcase 申请 | 对外动作与代码无关，列为可选不排期 |
 
 ## §2 市场客户端（minisd 新模块 `src/minisd/market/`）
 
-- **源适配器**两个：`clawhub.ts`（search/detail/readme/scan 裁定/resolve 内容 hash）、
-  `mcp-registry.ts`（servers 列表/详情，goose 精选叠加）。源清单是**编译期常量白名单**
+- **源适配器**三个：`clawhub.ts`（search/detail/readme/scan 裁定/resolve 内容 hash）、
+  `mcp-registry.ts`（servers 列表/详情，goose 精选叠加）、`awesome-dsh.ts`（静态索引拉取 +
+  kind 过滤：仅 MCP/技能类条目入列，主题与 DSH 代码插件类丢弃；全部 verdict='unscanned'、
+  sourceTier='community'）。源清单是**编译期常量白名单**
   （域名 + 端点），fetch 只打白名单域名——「URL 查询串即外泄通道」纪律沿用，请求不带任何
   本机标识/密钥（两家 API 均免 key）。
 - **缓存**：SQLite 追加式新表 `market_cache`（key=源+端点+查询、etag、body、fetched_at）；
@@ -105,8 +108,9 @@
 | **G3** | 市场 UI：工作台「扩展」tab + MarketPanel 两子 tab + 卡片/详情/确认卡/已装态 | renderer 源码守卫 + 双主题截图 |
 | **G4**（可后置） | 更新检查：checkUpdates + hash 比对 + Update 流 + polish 收尾 | 更新例 |
 
-首跑核实项（G1 步内第一件事）：ClawHub API 在用户本机的可达性与当日字段实抓；
-不可达即启动 B 计划（内置精选清单）并申报。
+首跑核实项（G1 步内第一件事）：①ClawHub API 在用户本机的可达性与当日字段实抓，
+不可达即启动 B 计划（内置精选清单）并申报；②awesome-dsh-plugin 线上 JSON 索引实抓
+（站点产物路径与字段），仅 YAML 可用则窄解析方案定型后再动手。
 
 ## §9 商标与合规
 
