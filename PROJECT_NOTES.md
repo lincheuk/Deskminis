@@ -641,3 +641,27 @@
 - **xvfb 全链路实证**（k3-*.png 五图）：建任务（interval+绑定通用协作）→ 立即运行 →
   ⏰ 会话建立 → FakeProvider 实跑回复 → last_status ok 回流 → 查看会话跳转全通。
 - 版本钉六文件 10→11 随动申报（assistants-store 亦钉版本，「五文件」清单自此修正为六）。
+
+### L 波：候选池批次一——五小件打包（2026-08-20，自己做）
+- **六 commit 全落 main + 终验**：L1 输入历史（dd62c7a，lib/composer/history 纯模块——
+  草稿不抢/到最旧停住不回绕/编辑即退出历史态，↑↓ 挂 onSlashNav 第二职责）→
+  L4 md 预览（d0e2eba，FilesPanel 走既有零依赖 AST 渲染器 + 渲染/源码段控，
+  零 v-html 红线不碰）→ L5 会话级 MCP 勾选（0860084，D5 后端全通纯补 UI：composer
+  「MCP」pill（禁用数>0 显「MCP · 禁 N」，只数已启用∩已禁用防幽灵虚标）+ 行内
+  .mcpanel 面板，工作区/MCP 两面板互斥展开）→ L2 @ 文件引用（c3762ae，
+  lib/composer/at-files 纯模块：光标处 token 语义（slash 是整行首 token）+ 文件名
+  前缀加权匹配 + files.list 前端受限递归 BFS 深度≤4/总数≤500/七目录跳过名单，
+  截断尾行明示；键序 slash > @ > 历史 > 光标本职）→ L3 锚点导航轨（3e2da98，
+  turn 节 data-turn-id + 右缘 .trail 竖点 ≥3 回合显示、welcome 隐藏、实时回合
+  railpulse 脉动点，scrollIntoView 平滑跳）→ L6 目视修缺（e60abda）。
+- **L6 目视逮到真 bug**：MCP pill 首拉挂在 ChatView 组件创建时，rpc 彼时未 connect
+  （init 才连）→ 静默失败 → pill 永不出现。改挂 watch(activeId, immediate)——有会话
+  即证明 rpc 就绪，空名单才重拉（会话切换自愈）。**「守卫全绿 ≠ 能用」再添一证：
+  接线守卫锚得住调用存在，锚不住调用时机**。
+- **xvfb 全链路实证**（l6-*.png 九图入册，drive-l6.mjs 带 sendMsg 落库校验重试）：
+  ↑↑ 召回第二条 → @no 弹 notes.md、Enter 补全相对路径 → 三回合三点 title=首 24 字 →
+  md 渲染态标题/列表/行内码 + 源码态回落 pre → pill 开面板勾选后「MCP · 禁 1」。
+- 候选池新条目：**首发竞态**——紧跟启动的首条 Enter 偶发被吞（driver 实测，lastError
+  空、running 未起即返回），三次里偶现一次；不盲修，待专项排查。留池四项不变
+  （图片生成/内置浏览器/办公技能包/排队草稿，理由见设计稿 §6）；I7 候选仍待用户拍板。
+- 全波零迁移零新依赖；154 测试文件 / 1832 例（云端 1780 过 + 52 Windows 基线）。
