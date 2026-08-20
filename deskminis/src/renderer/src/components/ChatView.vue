@@ -2,8 +2,9 @@
 /** 中栏 · 对话流（设计 v2 §2.1）——回合结构：用户消息无气泡标签行（你 · HH:MM + hover 复制），
  *  助手回合容器（分隔线 + 间距），工具胶囊、内联权限卡、浮动输入区。
  *  渲染对 parts 全程空值兜底：parts.ts 允许 value:null 的 part，绝不解引用崩溃。 */
-import { ref, computed, nextTick, watch } from 'vue';
+import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue';
 import { useChat } from '../stores/chat';
+import { matchQuote, resolveOffsets, absoluteOffset, type WalkNode } from '../lib/annotations/anchor';
 import ToolLine from './ToolLine.vue';
 import PermissionCard from './PermissionCard.vue';
 import EmptyState from './EmptyState.vue';
@@ -354,11 +355,136 @@ function onSlashTab(e: KeyboardEvent): void {
   const s = slashItems.value[slashIndex.value];
   if (s) slashPick(s.name);
 }
+
+// ---- H2 文本选区注释（设计稿 §2）：选区浮条（引用/标注）+ 高亮重锚定渲染 ----
+const paneEl = ref<HTMLElement | null>(null);
+const annoBar = ref<{ x: number; y: number } | null>(null);
+// 待定选区：exact/prefix/suffix 取自容器 textContent（与重锚定同一文本域）；
+// quoteText 单独取 selection.toString()——它带可读换行，引用块要的是这份
+let pendingSel: { messageId: string; exact: string; prefix: string; suffix: string; quoteText: string } | null = null;
+
+function hideAnnoBar(): void { annoBar.value = null; pendingSel = null; }
+
+function annoRootOf(n: Node | null): HTMLElement | null {
+  let el: HTMLElement | null = n instanceof HTMLElement ? n : (n?.parentElement ?? null);
+  for (; el; el = el.parentElement) {
+    if (el.hasAttribute('data-anno-root')) return el;
+    if (el === streamEl.value) return null;
+  }
+  return null;
+}
+
+function onStreamMouseUp(): void {
+  // mouseup 一刻选区可能尚未定稿（双击/三击选词选段）：推一帧再读才是最终选区
+  requestAnimationFrame(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { hideAnnoBar(); return; }
+    const r = sel.getRangeAt(0);
+    const root = annoRootOf(r.startContainer);
+    // 两端点必须同一正文根：跨消息/跨工具行的选区两个动作语义都不成立
+    if (!root || root !== annoRootOf(r.endContainer)) { hideAnnoBar(); return; }
+    const mid = root.getAttribute('data-mid') ?? '';
+    // 乐观消息 id（local- 前缀）落库后会被正式 id 换掉，此刻建的注释必成孤儿——不给入口
+    if (!mid || mid.startsWith('local-')) { hideAnnoBar(); return; }
+    const raw = root.textContent ?? '';
+    const s = absoluteOffset(root as WalkNode, r.startContainer as unknown as WalkNode, r.startOffset);
+    const e = absoluteOffset(root as WalkNode, r.endContainer as unknown as WalkNode, r.endOffset);
+    if (e <= s || !raw.slice(s, e).trim()) { hideAnnoBar(); return; }
+    pendingSel = {
+      messageId: mid,
+      exact: raw.slice(s, e),
+      prefix: raw.slice(Math.max(0, s - 32), s),
+      suffix: raw.slice(e, e + 32),
+      quoteText: sel.toString(),
+    };
+    const rect = r.getBoundingClientRect();
+    const host = paneEl.value?.getBoundingClientRect();
+    if (!host) { hideAnnoBar(); return; }
+    // 74 ≈ 浮条半宽：translate(-50%) 锚中点，夹紧到半宽才保证整条不捅出对话列
+    annoBar.value = {
+      x: Math.min(Math.max(rect.left + rect.width / 2 - host.left, 74), host.width - 74),
+      y: Math.max(rect.top - host.top - 8, 8),
+    };
+  });
+}
+
+function quoteSelection(): void {
+  const p = pendingSel;
+  if (!p) return;
+  const quote = p.quoteText.split('\n').map(l => '> ' + l).join('\n') + '\n\n';
+  // 追加不覆盖：用户已敲的草稿排在引用块前面
+  input.value = input.value.trim() ? input.value.replace(/\s+$/, '') + '\n\n' + quote : quote;
+  hideAnnoBar();
+  window.getSelection()?.removeAllRanges();
+  void nextTick(() => fieldEl.value?.focus());
+}
+
+function annotateSelection(): void {
+  const p = pendingSel;
+  hideAnnoBar();
+  window.getSelection()?.removeAllRanges();
+  // 本地态不就地改：add 落库后 changed 广播回流刷新 store，高亮随 watch 重算（单一代码路径）
+  if (p) void chat.addAnnotation(p.messageId, { exact: p.exact, prefix: p.prefix, suffix: p.suffix });
+}
+
+// 选区塌缩（点击别处 / Esc）即收浮条；document 级监听，卸载时摘除
+function onSelectionChange(): void {
+  const sel = window.getSelection();
+  if ((!sel || sel.isCollapsed) && annoBar.value) hideAnnoBar();
+}
+document.addEventListener('selectionchange', onSelectionChange);
+onBeforeUnmount(() => { document.removeEventListener('selectionchange', onSelectionChange); });
+
+/** 高亮渲染：CSS Custom Highlight API——零 DOM 改写（跨节点 <mark> 包裹会破坏 Vue 视图一致性），
+ *  重渲染后只需重算 Range。API 缺失（理论不发生，Chromium 140）只是无着色，数据面不受影响。 */
+function repaintHighlights(): void {
+  const HL = (window as unknown as { Highlight?: new (...r: Range[]) => unknown }).Highlight;
+  const registry = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
+  if (!HL || !registry) return;
+  const all: Range[] = [];
+  const noted: Range[] = [];
+  const stream = streamEl.value;
+  if (stream && chat.annotations.length) {
+    const byMid = new Map<string, typeof chat.annotations>();
+    for (const a of chat.annotations) {
+      const list = byMid.get(a.messageId) ?? [];
+      list.push(a);
+      byMid.set(a.messageId, list);
+    }
+    for (const [mid, list] of byMid) {
+      // mid 是 UUID（hex + 连字符），attr 选择器字面拼接安全
+      const roots = stream.querySelectorAll(`[data-anno-root][data-mid="${mid}"]`);
+      for (const a of list) {
+        for (const root of roots) {
+          const m = matchQuote(root.textContent ?? '', a);
+          if (!m) continue;
+          const pts = resolveOffsets(root as WalkNode, m.start, m.end);
+          if (!pts) continue;
+          const range = document.createRange();
+          range.setStart(pts.start.node as Node, pts.start.offset);
+          range.setEnd(pts.end.node as Node, pts.end.offset);
+          all.push(range);
+          if (a.note) noted.push(range);
+          break; // 每条注释锚进首个命中的正文根
+        }
+      }
+    }
+  }
+  registry.set('dm-anno', new HL(...all));
+  registry.set('dm-anno-noted', new HL(...noted));
+}
+// 重算只由消息/注释/会话切换触发（输入框键入零重算），nextTick + rAF 合帧
+let repaintQueued = false;
+watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
+  if (repaintQueued) return;
+  repaintQueued = true;
+  void nextTick(() => requestAnimationFrame(() => { repaintQueued = false; repaintHighlights(); }));
+});
 </script>
 
 <template>
-  <div class="pane-c">
-    <div ref="streamEl" class="stream" @scroll="onScroll">
+  <div ref="paneEl" class="pane-c">
+    <div ref="streamEl" class="stream" @scroll="onScroll" @mouseup="onStreamMouseUp">
       <EmptyState v-if="isEmpty" @fill="fillInput" />
       <template v-else>
         <!-- 回合流：用户消息（无气泡标签行）+ 助手工作区（无名称行，回合容器承载归属） -->
@@ -370,7 +496,7 @@ function onSlashTab(e: KeyboardEvent): void {
                 <span v-if="t.user.msg.originDeviceId" class="devmark" :style="{ color: deviceColor(t.user.msg.originDeviceId) }" :title="`来自 ${t.user.msg.originDeviceId}`">● {{ deviceShortName(t.user.msg.originDeviceId) }}</span>
                 <button class="uops" type="button" title="复制" @click="copyUser(t.user!.text)"><Icon name="copy" :size="13" /></button>
               </div>
-              <div class="utext">{{ t.user.text }}</div>
+              <div class="utext" data-anno-root :data-mid="t.user.msg.id">{{ t.user.text }}</div>
               <!-- 历史附件 chip：📎 + 文件名（元数据渲染，不加载图片字节） -->
               <div v-if="userAttachments(t.user.msg).length" class="uchips">
                 <span
@@ -386,7 +512,10 @@ function onSlashTab(e: KeyboardEvent): void {
               <!-- 历史思考块：reasoningContent 落库字段，默认收起（「已思考」），置正文前 -->
               <ThinkingBlock v-if="m.reasoningContent" :text="m.reasoningContent" />
               <template v-for="(p, i) in (Array.isArray(m.parts) ? m.parts : [])" :key="i">
-                <MarkdownView v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" :nodes="mdOf(`${m.id}:${i}`)" />
+                <!-- 锚域 = 单个文本 part 的渲染根：工具行的展开/收起会改 textContent，绝不能进锚域 -->
+                <div v-if="p && p.type === 'text' && typeof p.value === 'string' && p.value" class="anno-root" data-anno-root :data-mid="m.id">
+                  <MarkdownView :nodes="mdOf(`${m.id}:${i}`)" />
+                </div>
                 <ToolLine
                   v-else-if="p && p.type === 'toolUse' && p.value"
                   :name="isRec(p.value) ? p.value.name : ''"
@@ -448,6 +577,12 @@ function onSlashTab(e: KeyboardEvent): void {
       v-if="!following" class="back-bottom" type="button"
       title="回到底部" aria-label="回到底部" @click="backToBottom"
     ><Icon name="chevron-down" :size="16" /></button>
+
+    <!-- 选区浮条：mousedown.prevent 是必须的——默认 mousedown 会先塌掉选区，click 就永远打不到 -->
+    <div v-if="annoBar" class="annobar" role="toolbar" aria-label="选区操作" :style="{ left: annoBar.x + 'px', top: annoBar.y + 'px' }">
+      <button type="button" class="annobtn" aria-label="引用到输入框" @mousedown.prevent="quoteSelection"><Icon name="copy" :size="13" /><span>引用</span></button>
+      <button type="button" class="annobtn" aria-label="添加标注" @mousedown.prevent="annotateSelection"><Icon name="book" :size="13" /><span>标注</span></button>
+    </div>
 
     <div class="composer">
       <div v-if="slashOpen" class="slashmenu">
@@ -766,4 +901,36 @@ function onSlashTab(e: KeyboardEvent): void {
 .devmark-line { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; }
 .devdot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .devname { font-size: var(--fs-micro); font-family: var(--font-mono); opacity: .8; }
+
+/* H2 选区注释：锚域包装继承 .md 的伸展（否则窄于 .abody，选区高亮右缘裁切） */
+.anno-root { align-self: stretch; min-width: 0; }
+/* 浮条：实底浮岛（ChatView 不在 blur 白名单例 8 的 ALLOW，也不申请扩——零 blur 纪律） */
+.annobar {
+  position: absolute; z-index: 30; transform: translate(-50%, -100%);
+  /* width: max-content 是必须的：absolute 盒按「left 到右缘」shrink-to-fit，
+     选区靠右时可用宽塌缩，CJK 按钮文字会逐字竖排（真机截图逮到的） */
+  width: max-content; white-space: nowrap;
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 8px 28px var(--shadow-color);
+}
+.annobtn {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+  border: none; background: none; border-radius: var(--r-control); cursor: pointer;
+  color: var(--label); font-family: var(--font-ui); font-size: var(--fs-micro);
+}
+.annobtn:hover { background: var(--fill-tertiary); }
+.annobtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.annobtn :deep(svg) { stroke: var(--label-secondary); }
+</style>
+
+<style>
+/* H2 标注高亮（设计稿 §1-2/§1-9）。::highlight 是文档级伪元素：scoped 会给选择器
+   缀 [data-v-*] 使其永不匹配，这一块必须非 scoped。着色只叠 accent 低透明度底，
+   正文对比度由原文字色保证（AA 口径）；有笔记的一档加深并带虚线下划线作可点提示。 */
+::highlight(dm-anno) { background-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+::highlight(dm-anno-noted) {
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  text-decoration: underline dotted;
+}
 </style>

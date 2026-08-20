@@ -57,6 +57,10 @@ export const useChat = defineStore('chat', {
       statuses: { name: string; status: 'connected' | 'error' | 'idle'; lastError?: string; toolCount: number }[];
       configError: boolean;
     },
+    /** H2 文本选区注释：当前会话的注释集（高亮重锚定的数据源）。
+     *  变更一律经 chat.annotations.changed 广播回流刷新——add/update/remove 不就地改本地态，
+     *  单一代码路径，多窗口天然一致。 */
+    annotations: [] as { id: string; messageId: string; exact: string; prefix: string; suffix: string; note: string; color: string }[],
     // 循环报错（API Key 错误、provider 故障…）必须看得见，否则界面就是「按了没反应」
     lastError: '' as string,
     // 透明重试期间的提示；下一个 textDelta / turnEnd 清掉
@@ -110,6 +114,10 @@ export const useChat = defineStore('chat', {
           return;
         }
         if (sessionId === this.activeId) this.onEvent(event);
+      });
+      // H2：注释变更广播（本窗口的写操作也走这条回流——见 annotations 状态注释）
+      rpc.on('chat.annotations.changed', (p: { sessionId?: string }) => {
+        if (p?.sessionId === this.activeId) void this.refreshAnnotations();
       });
       // M3c Task 7：sync.dirty notify → syncState='syncing' → 2s 后回 'idle'
       rpc.on('sync.dirty', () => {
@@ -301,7 +309,25 @@ export const useChat = defineStore('chat', {
       }
       this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.streamingThinking = ''; this.toolCards = [];
       void this.refreshSkills(); // 会话覆盖会改变生效启用集，换会话必须重取
+      void this.refreshAnnotations(); // H2：注释随会话装载（高亮重锚定数据源）
       await this.refreshWorkspace();
+    },
+    // ── H2 文本选区注释（写操作不就地改本地态，统一靠 changed 广播回流刷新）──
+    async refreshAnnotations() {
+      if (!this.activeId) { this.annotations = []; return; }
+      const id = this.activeId;
+      const r = await rpc.call('chat.annotations.list', { sessionId: id });
+      if (this.activeId === id) this.annotations = r?.annotations ?? []; // 等待期间换了会话就丢弃，防串台
+    },
+    async addAnnotation(messageId: string, sel: { exact: string; prefix: string; suffix: string }) {
+      if (!this.activeId) return;
+      await rpc.call('chat.annotations.add', { sessionId: this.activeId, messageId, ...sel });
+    },
+    async updateAnnotationNote(id: string, note: string) {
+      await rpc.call('chat.annotations.update', { id, note });
+    },
+    async removeAnnotation(id: string) {
+      await rpc.call('chat.annotations.remove', { id });
     },
     async send(text: string, attachments?: string[]) {
       this.streamingText = ''; this.streamingThinking = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';
