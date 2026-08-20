@@ -557,3 +557,42 @@
   的价值实证入册。
 - 随动申报：H1 四个迁移版本钉测试 8→9 + 旧库回退块补撤 annotations（G1/G2 同款成例）。
 - v1 边界（后续候选）：气泡键盘打开路径（注释列表面板）、注释入模型上下文、注释同步。
+
+### I 波：AionUi 换向 UI 重做——调研/设计/实现/审核全由审核方执行（2026-08-20，用户当日指令）
+- **指令与立项**：用户 2026-08-20「喜欢 AionUi 的 UI，按照它重做 UI、现有功能完美集成；
+  项目要不止 coding、像 cowork 一样；搜集其功能评估复用」。原 I 波 genui 延后进候选池。
+  立项材料入 docs：调研报告（docs/research/2026-08-20-aionui-survey.md，7 路并行代码调研
+  iOfficeAI/AionUi v2.1.59 + 截图目视 + 一手精读）+ 设计稿（docs/specs/
+  2026-08-20-ui-redo-aionui-design.md）+ 换向色板参考文件（伴生，26+1 对预验算全过）。
+- **四步全落 main**：I1 色板换向（c965365，A 区四段替换 AionUi 蓝白系 + B 区圆角三挡
+  card 12/input 24/sheet 16 + mu3 例 1/2/3/7 与 evolution 抽样锚改锚；对比度守卫 26+1
+  零改动全过——「改色板必过 AA 闸」资产兑现）→ I2 壳层平面化（39ad8b0，玻璃/受光边/极光
+  消费退场：App 三壳层 + Progress/Artifacts/Files 实色化；例 8 白名单缩容空集、
+  renderer-aurora-shell 改造更名 renderer-shell-form）→ I3 欢迎态（ef3ff93，
+  welcomeMode：空会话工作台退场 + hero「你好，今天想做点什么？」+ composer 居中；
+  判据抽纯模块 lib/welcome/blank 供 App/ChatView 共用；TitleBar 开关 disabled+说明；
+  新守卫 renderer-welcome 9 例）→ I4 内容区平面形态（384e965，用户消息右对齐浅蓝气泡
+  （--secondary-subtle + 方向切角，锚域一字未动）+ 助手满行宽平铺 + ThinkingBlock 浅渐变
+  + SessionList 行平面化 + 设置四页/市场受光边全站清零 + xterm 兜底三值换算；
+  renderer-aurora-content 改造更名 renderer-content-form 10 例）。
+  每步 TDD 先红存档、npm test 全量对 Linux 52 例基线 diff 为空、tsc 真实退出码 0。
+- **I5 终验（无独立代码 commit）**：设置/市场/弹窗的 AionUi 形态由 I1 色板 + I4 受光边
+  收敛自动获得，xvfb 目视确认达标故不加改动（最小改动面）。build 后 xvfb 七张截图
+  （欢迎浅/暗、会话浅/暗、工具行、设置浅/暗）入 docs specs/audit-shots/i5-*.png；
+  driver 入 handoff/driver/drive-i5.mjs。机制探针：欢迎态 hero 在/工作台+折叠条隐、
+  发首条消息工作台回场、气泡 bg=oklch(0.537 0.239 262.8/0.1) 右对齐 flex-end 全实测。
+- **事故与教训入册**：①I2 提交链短路——`git add` 对已 rm 文件的 pathspec 报错后，
+  换行使 `git commit -F 过期消息文件` 独立执行，把守卫删除以「I1:」误标半提交推出
+  （c335ae4，内容无害；39ad8b0 内申报并补齐）。教训：**多命令提交链里 add/commit 必须
+  同一 && 链，消息文件写入与提交分开两条 Bash**；②守卫 ruleBlock「首个选择器匹配」陷阱：
+  `.pane-c.welcome .composer` 置于原 `.composer` 之前时被守卫误当主块（i3 全量首跑逮到），
+  欢迎态变体规则一律置样式末尾并注释成因；③FakeProvider「重放历史首条」再次兑现：
+  同会话第二条 __tool__ 不生效致权限卡未目视（file_write 沙箱内自动放行属权限档正常行为），
+  PermissionCard 本波仅摘受光边、守卫锚全绿，真机收官时用户可补目视。
+- **红线兑现**：零新 npm 依赖（driver 的 playwright-core 装在审核方 scratchpad，项目
+  package.json 一字未动）；README 能力表零变化（纯视觉波无能力增删）；DB 零迁移；
+  「苹果磨砂」2026-08-10 要求按用户新指令覆盖性退场（设计稿 §0 申报）。
+- **后续排期建议（待用户裁定）**：J 波助手体系（名称/头像/规则/默认技能/模型/权限档的
+  命名预设 + 欢迎页助手卡，cowork 化地基）→ K 波定时任务（interval/once/cron 三态 +
+  绑定会话/模型/技能）；候选池增补见调研报告 §2 表 Ⅲ 档（文件预览增强/@文件/输入历史/
+  锚点导航轨/会话级 MCP 勾选/图片生成/内置浏览器升格/办公技能包）。

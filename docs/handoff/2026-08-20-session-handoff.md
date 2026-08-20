@@ -81,9 +81,12 @@
 | G | 扩展市场：三源(ClawHub/MCP Registry/awesome-dsh)/白名单闸/malicious 硬阻断/装→用闭环实证 | c4691a5→8824ed4 |
 | 收官 | README 能力表对齐（审核方直推 main 首例） | 032a117 |
 | **H** | **文本选区注释（自己做首波）**：迁移[8] annotations + RPC 四件 → anchor 骨架锚定 + 浮条(引用/标注) + CSS Custom Highlight API → 注释气泡 | H1 2e5c086 / H2 5fa33d1 / H3 933d4c3 |
+| **I** | **AionUi 换向 UI 重做**（用户 2026-08-20 指令，原 genui 延后）：色板蓝白系 + 壳层/内容区平面化（玻璃/极光退场）+ 欢迎态 welcomeMode；立项材料 docs/research/2026-08-20-aionui-survey.md + specs/2026-08-20-ui-redo-aionui-design.md | I1 c965365 / I2 39ad8b0(+c335ae4 误标半提交，已申报) / I3 ef3ff93 / I4 384e965 |
 
-- **当前**：main HEAD `933d4c3`；docs HEAD `f722087`（H 波波结）。测试 **1750 例 / 144 文件**
-  （Windows 全绿；云端 1698 过 + 52 基线）。minis.db user_version=**9**。typecheck 零错误。
+- **当前**：main HEAD `384e965`（I 波收官）；docs 分支看最新 log。测试 **1761 例 / 145 文件**
+  （云端 1709 过 + 52 基线；Windows 待用户真机双主题目视收官）。minis.db user_version=**9**
+  （I 波零迁移）。typecheck 零错误。守卫更名：renderer-aurora-shell→renderer-shell-form、
+  renderer-aurora-content→renderer-content-form；tokens 参考文件换 2026-08-20-aionui 版。
 - H 波技术要点（新会话动 ChatView 前必读）：锚定 = TextQuoteSelector 对「渲染后文本」，
   匹配域 = **去尽空白骨架 + 偏移映射**（`lib/annotations/anchor.ts` 纯核心，12 例单测）；
   高亮 = CSS Custom Highlight API 零 DOM 改写（`::highlight` 样式必须在**非 scoped** 块）；
@@ -112,9 +115,10 @@
 
 ## 6. 排期与候选池
 
-- **下一件：I 波 genui 内联交互组件**（用户三大件立项 ②）——agent 输出渲染交互 UI。
-  **安全敏感**：不可信内容执行面需沙箱、渲染管线新 part 类型、provider 协议面。先出设计稿。
-- 之后：J 波多窗口对话墙（架构级：布局骨架、多会话并发订阅、渲染性能）。
+- **下一件（建议，待用户裁定）：J 波助手体系**（cowork 化地基，AionUi 调研 §4）：
+  名称/emoji 头像/规则/默认技能勾选/默认模型/默认权限档的命名预设 + 欢迎页助手卡接线。
+- 之后：K 波定时任务（interval/once/cron 三态调度 + 绑定会话/模型/技能 + run-now）。
+- 顺延候选：genui 内联交互组件（原 I 波，安全敏感先出设计稿）、多窗口对话墙。
 - 候选池（需求信号序）：用量与成本面板（DSH 生态 150+ 同类，最强信号）、Ctrl+K 命令面板、
   非图像文件附件、模型选择器搜索、消息内文件路径可点击、已完成回合自动折叠、规划模式。
 - polish 池：--accent-hover 档、亮色空态渐变、market provenance 补 version、fixture 环境变量
