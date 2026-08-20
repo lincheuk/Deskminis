@@ -23,6 +23,7 @@ import { fmtHHMM } from '../lib/time/hhmm';
 import { groupToolCards, isGroup, type ToolGroup } from '../lib/toolline/group';
 import { eventCopy } from '../lib/eventnote/copy';
 import { rowsFor } from '../lib/composer/autogrow';
+import { histStep } from '../lib/composer/history';
 import { downsampleImageFile } from '../lib/attach/downsample';
 import type { MdNode } from '../lib/markdown/parse';
 
@@ -294,6 +295,7 @@ async function send(): Promise<void> {
     else await chat.newSession();
   }
   input.value = '';
+  histCursor.value = -1; // L1：发送即离开历史态（下次 ↑ 从最新一条重新进）
   // 附件以 attachments 参数进模型（后端落 mediaRef part + 请求侧合成 base64），发送后清空
   pendingAttachments.value = [];
   await chat.send(t, atts.length ? atts : undefined);
@@ -356,8 +358,25 @@ function onEnterKey(): void {
   if (s) { slashPick(s.name); return; } // 菜单开着时 Enter = 选中，不是发送
   void send();
 }
+// ---- L1 输入历史上翻（设计稿 pool-batch §1）：↑↓ 的第二职责，斜杠菜单开着时让位 ----
+// 数据源含乐观 local- 消息——刚发出去的那条最该能一键召回
+const histCursor = ref(-1);
+const userTexts = computed<string[]>(() => chat.messages
+  .filter(m => m.role === 'user')
+  .map(m => {
+    const p = Array.isArray(m.parts) ? m.parts.find((x: { type?: string }) => x?.type === 'text') : undefined;
+    return typeof p?.value === 'string' ? p.value : '';
+  })
+  .filter(t => t !== ''));
+watch(() => chat.activeId, () => { histCursor.value = -1; });
+
 function onSlashNav(delta: number, e: KeyboardEvent): void {
-  if (!slashOpen.value) return;
+  if (!slashOpen.value) {
+    // 历史态判定在纯模块里：不应用（有草稿/越界/编辑过）就返回 null，按键回归光标本职
+    const r = histStep(userTexts.value, input.value, histCursor.value, delta as -1 | 1);
+    if (r) { e.preventDefault(); input.value = r.text; histCursor.value = r.cursor; }
+    return;
+  }
   e.preventDefault();
   slashIndex.value = (slashIndex.value + delta + slashItems.value.length) % slashItems.value.length;
 }
