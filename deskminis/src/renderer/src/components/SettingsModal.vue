@@ -204,7 +204,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 .syncbox {
   margin-top: 14px; padding: 12px; border-radius: var(--r-card);
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 .syncrow { display: flex; align-items: center; gap: 12px; }
 .synctxt { flex: 1; min-width: 0; }
@@ -263,7 +263,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px;
   border: .5px solid var(--separator); border-radius: var(--r-card); cursor: pointer;
   background: var(--surface-1);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 .opt:hover { background: var(--fill-quaternary); }
 .opt.on { border-color: var(--action); }

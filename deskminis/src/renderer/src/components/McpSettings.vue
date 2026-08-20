@@ -300,7 +300,7 @@ async function onRemove(name: string): Promise<void> {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; border-radius: var(--r-card);
   border: .5px solid var(--separator); background: var(--surface-1);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 .mxrow.mxoff { opacity: .62; }
 .mxdot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--label-quaternary); }
@@ -358,7 +358,7 @@ async function onRemove(name: string): Promise<void> {
   display: flex; flex-direction: column; gap: 6px;
   padding: 12px; border-radius: var(--r-card);
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 .mxftitle { font-size: var(--fs-ui); font-weight: 700; color: var(--label); margin-bottom: 4px; }
 .mxflabel { font-size: var(--fs-micro); font-weight: 600; color: var(--label-secondary); margin-top: 4px; }

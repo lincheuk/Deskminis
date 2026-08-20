@@ -27,13 +27,13 @@ function readTheme() {
   const cs = getComputedStyle(document.documentElement);
   const v = (name: string) => cs.getPropertyValue(name).trim();
   return {
-    // E2 兜底值换 Aurora 暗段等值（E1 审核换算，取值见 aurora 参考文件 .dark 块）：
-    //   底类 → #1e2532（--background-strong）；前景类 → #d0d6df（--foreground 基准）；
-    //   次前景/selection 类 → #a2adbd（--foreground-muted）。正常路径读得到 tokens，兜底只是保险丝。
-    background: v('--bg') || '#1e2532',
-    foreground: v('--label') || '#d0d6df',
-    cursor: v('--label') || '#d0d6df',
-    selectionBackground: v('--fill') || '#a2adbd',
+    // I4 兜底值换 AionUi 暗段等值（换算见 2026-08-20-aionui 参考文件 .dark 块）：
+    //   底类 → #0e0e0e（--background）；前景类 → #e8eaee（--foreground-strong，--label 的目标）；
+    //   selection 类 → #262626（--background-strong，--fill 的目标）。正常路径读得到 tokens，兜底只是保险丝。
+    background: v('--bg') || '#0e0e0e',
+    foreground: v('--label') || '#e8eaee',
+    cursor: v('--label') || '#e8eaee',
+    selectionBackground: v('--fill') || '#262626',
   };
 }
 

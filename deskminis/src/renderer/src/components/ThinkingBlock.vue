@@ -43,11 +43,13 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
 </template>
 
 <style scoped>
-/* E3（Aurora §4）：思考块细描边卡——surface-1 底 + separator 细描边即可（实心，不用 blur）；
+/* I4（AionUi 换向）：思考块换浅渐变条——AionUi thought-gradient 的令牌化写法
+   （原料全是语义令牌，主题自动分叉；渐变结构非颜色字面量，例 9 零硬编码依然成立）；
    2px 内边距让行内 hover 底色不顶到卡缘 */
 .tkwrap {
   display: flex; flex-direction: column; gap: 2px; max-width: 100%; align-self: stretch;
-  background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-card);
+  background: linear-gradient(90deg, var(--secondary-subtle), var(--fill-quaternary));
+  border-radius: var(--r-card);
   padding: 2px;
 }
 .tkline {

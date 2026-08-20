@@ -686,7 +686,7 @@ function fmtNum(n: number): string {
   display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
   border: .5px solid var(--separator); border-radius: var(--r-card);
   background: var(--surface-1); cursor: pointer;
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 .mcard:hover { background: var(--fill-quaternary); }
 .mcard:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }

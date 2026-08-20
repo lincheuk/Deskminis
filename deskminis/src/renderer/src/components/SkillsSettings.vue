@@ -132,7 +132,7 @@ async function onDelete(id: string): Promise<void> {
   display: flex; flex-direction: column; gap: 6px;
   padding: 12px; border-radius: var(--r-card);
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 .implabel { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
 .improw { display: flex; gap: 8px; }
@@ -164,7 +164,7 @@ async function onDelete(id: string): Promise<void> {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; border-radius: var(--r-card);
   border: .5px solid var(--separator); background: var(--surface-1);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 .row.off { opacity: .62; }
 .rmain { flex: 1; min-width: 0; }

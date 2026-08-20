@@ -807,8 +807,9 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .turn { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
 .turn + .turn { border-top: .5px solid var(--separator); margin-top: var(--sp-6); padding-top: var(--sp-6); }
 
-/* 用户消息：无气泡，左对齐标签行「你 · HH:MM」+ hover 复制钮（Codex 式回合归属） */
-.ublock { display: flex; flex-direction: column; gap: 4px; }
+/* I4（AionUi 换向）：用户消息右对齐浅蓝气泡——「谁说的」由方位编码（右=你，左=助手），
+   标签行随块右对齐。右上角收平是 AionUi 的方向切角（指向发话者）。 */
+.ublock { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 .urow { display: flex; align-items: center; gap: 8px; min-height: 20px; }
 .utag { font-size: var(--fs-ui); font-weight: 600; color: var(--label-secondary); }
 .utime { font-weight: 400; font-size: var(--fs-caption); color: var(--label-tertiary); }
@@ -820,7 +821,12 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .ublock:hover .uops, .uops:focus-visible { opacity: 1; }
 .uops:hover { color: var(--label); background: var(--fill-tertiary); }
 .uops:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.utext { font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.utext {
+  font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  background: var(--secondary-subtle);
+  border-radius: var(--r-control) 0 var(--r-control) var(--r-control);
+  padding: 8px 12px; max-width: 86%; text-align: left;
+}
 /* 历史附件 chip（mediaRef）：样式随 .cpill 同款 chip token；只显示文件名不显示图 */
 .uchips { display: flex; flex-wrap: wrap; gap: 6px; }
 .uchip {
@@ -836,14 +842,11 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .aname { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); }
 /* MU5：文档式排版——行高 1.55 → 1.72（来源 AionUi 会话视图：助手输出按文档排，不进气泡）。
    气泡本身 MU2a 就已去掉（.msg-a{padding:0}），本轮补的是「读起来像文档」的那一半。 */
-/* E3（Aurora §4）：助手消息卡**实心浮岛化**——不透明 surface + 顶缘高光 + 柔影。
-   红线：消息卡数量随会话增长，全程不用 blur/滤镜（§5 blur 白名单零扩），
-   质感一律由「实心底 + inset 高光 + 浅影」模拟；inset 写法不占布局、零位移。 */
+/* I4（AionUi 换向）：助手输出**无背景满行宽平铺**——文档式排版回归（E3 浮岛卡退场）。
+   AionUi 的会话语言：用户是气泡、助手是文档；层次由方位与排版承担，不靠卡片框。 */
 .abody {
   font-size: var(--fs-body); line-height: 1.72; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
-  align-self: stretch; padding: 10px 12px; border-radius: var(--r-card);
-  background: var(--surface-1); border: .5px solid var(--separator);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  align-self: stretch;
 }
 
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; }
@@ -861,16 +864,15 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
   width: min(792px, 100% - 32px); margin: 0 auto 16px;
   border-radius: var(--r-input); background: var(--surface-1);
   border: .5px solid var(--separator);
-  /* MU5：卡片浮起（来源 AionUi 输入区）——此前是平贴的容器，与对话流没有层次差 */
-  /* E3：浮岛三件套补齐顶缘高光（inset 写法与柔影并列，零位移） */
-  box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow-fab);
+  /* I4：受光边退场——AionUi 输入大卡 = 白底 + 1px 边 + 柔影（24px 圆角随 I1 --r-input） */
+  box-shadow: var(--shadow-fab);
   padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
   position: relative;
 }
-/* E3（Aurora §4）：输入卡是视觉主角——聚焦时外光 2px --glow-accent 一档，
-   叠加在原浮岛影上而不是替换，失焦即回到常态（:focus-within 覆盖卡内全部控件） */
+/* 输入卡是视觉主角——聚焦时外光 2px --glow-accent 一档（I1 起为蓝，AionUi 聚焦光环位），
+   叠加在柔影上而不是替换，失焦即回到常态（:focus-within 覆盖卡内全部控件） */
 .composer:focus-within {
-  box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow-fab), 0 0 0 2px var(--glow-accent);
+  box-shadow: var(--shadow-fab), 0 0 0 2px var(--glow-accent);
 }
 .slashmenu {
   position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
@@ -986,7 +988,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
   width: max-content; white-space: nowrap;
   display: inline-flex; gap: 2px; padding: 3px;
   background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-md);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 8px 28px var(--shadow-color);
+  box-shadow: 0 8px 28px var(--shadow-color);
 }
 .annobtn {
   display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
@@ -1001,7 +1003,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
   position: absolute; z-index: 30; transform: translateX(-50%);
   width: 260px; display: flex; flex-direction: column; gap: 8px; padding: 10px;
   background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-md);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 8px 28px var(--shadow-color);
+  box-shadow: 0 8px 28px var(--shadow-color);
 }
 .annoquote {
   font-size: var(--fs-micro); color: var(--label-secondary); line-height: 1.5;

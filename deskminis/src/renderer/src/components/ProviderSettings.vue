@@ -216,7 +216,7 @@ async function saveSearchProvider(): Promise<void> {
 .group {
   background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-card);
   padding: 8px; display: flex; flex-direction: column; gap: 6px;
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 2px 8px var(--shadow-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 .hint { font-size: 13px; color: var(--label-tertiary); padding: 6px; }
 .prow { display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: var(--r-control); }
