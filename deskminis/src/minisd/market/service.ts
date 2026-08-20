@@ -50,10 +50,12 @@ export class MarketService {
   private readonly cache: MarketCache;
   private readonly sources: MarketSource[];
 
-  constructor(db: Database.Database) {
-    const client = new MarketClient();
-    this.cache = new MarketCache(db, client);
-    this.sources = [
+  /** G2 起支持注入共享装配（client/cache/sources）：index.ts 让读侧服务与安装链路
+   *  （MarketInstaller）共用同一份缓存与并发预算；不传时自建（单测/独立用法同 G1 行为）。 */
+  constructor(db: Database.Database, opts?: { client?: MarketClient; cache?: MarketCache; sources?: MarketSource[] }) {
+    const client = opts?.client ?? new MarketClient();
+    this.cache = opts?.cache ?? new MarketCache(db, client);
+    this.sources = opts?.sources ?? [
       new ClawHubSource(this.cache),
       new McpRegistrySource(this.cache),
       new AwesomeDshSource(this.cache),

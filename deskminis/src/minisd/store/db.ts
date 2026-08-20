@@ -106,6 +106,21 @@ const MIGRATIONS: string[] = [
     fetched_at INTEGER NOT NULL
   );
   `,
+  // [7] G2 市场安装登记（provenance，设计稿 §3/§7）：market_installs 只追加新表。
+  //  迁移一经发布不可改：已发布库 user_version=7，runner 只对 v<8 的库跑 MIGRATIONS[7]。
+  //  item_id=源前缀:条目id（主键——同条目重装走 upsert 覆盖）；kind='skill'|'mcp'；
+  //  local_ref=技能 id（SkillStore）或 MCP server 名（servers.json）；content_hash=安装物
+  //  内容哈希（技能=下载字节自算 sha256；MCP=注册表包版本哈希；无来源可空）——
+  //  供 market.installed 双向核对（本体已删→清理登记行）与 G4 更新检查比对。
+  `
+  CREATE TABLE market_installs (
+    item_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    local_ref TEXT NOT NULL,
+    content_hash TEXT,
+    installed_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(filePath: string): Database.Database {

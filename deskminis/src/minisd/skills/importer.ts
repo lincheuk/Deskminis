@@ -64,8 +64,9 @@ function readEntry(zf: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buffer> {
 
 /** 解压到内存（统一正斜杠相对路径）→ 剥一层公共包装目录 → 丢弃穿越/绝对路径项。
  *  已知局限：yauzl 遇穿越项即硬停（emittedError 置位后不再发任何事件），穿越项之后的合法条目会丢失
- *  ——含穿越项的 zip 本就是恶意或损坏的，部分导入可接受；条目序在穿越项之前的（如测试用例）不受影响。 */
-async function unzipToMemory(buf: Buffer): Promise<Map<string, Buffer>> {
+ *  ——含穿越项的 zip 本就是恶意或损坏的，部分导入可接受；条目序在穿越项之前的（如测试用例）不受影响。
+ *  G2 起导出：市场安装链路（installPlan）复用同一解压/防穿越纪律来预告将落盘的文件清单。 */
+export async function unzipToMemory(buf: Buffer): Promise<Map<string, Buffer>> {
   const zf = await openZip(buf);
   let out = new Map<string, Buffer>();
   await new Promise<void>((done, reject) => {

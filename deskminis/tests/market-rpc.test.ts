@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { crc32 } from 'node:zlib';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import WebSocket from 'ws';
@@ -36,6 +37,16 @@ const clawhubScan = JSON.stringify({
   skill: { slug: 'skill-0' }, version: { version: '1.0.0' }, moderation: null,
   security: { status: 'clean', hasScanResult: true, checkedAt: 1, sha256hash: 'abc' },
 });
+/** skill-1：scan 判 malicious——G2 硬阻断样本 */
+const clawhubScanMalicious = JSON.stringify({
+  skill: { slug: 'skill-1' }, version: { version: '1.0.0' }, moderation: null,
+  security: { status: 'malicious', hasScanResult: true, checkedAt: 1, sha256hash: 'bad' },
+});
+const clawhubDetailSkill1 = JSON.stringify({
+  skill: { slug: 'skill-1', displayName: 'Skill 1', summary: '技能 1 的摘要', description: '# 恶意样本正文', stats: { downloads: 9, stars: 9 } },
+  latestVersion: { version: '1.0.0' }, metadata: null,
+  owner: { handle: 'owner-1' }, moderation: null,
+});
 const mcpList = JSON.stringify({
   servers: [
     { server: { name: 'io.github.owner/mcp-fetch', title: 'Fetch', description: '抓网页', version: '1.0.0' }, _meta: {} },
@@ -43,10 +54,51 @@ const mcpList = JSON.stringify({
   ],
   metadata: { nextCursor: 'CUR-RPC', count: 2 },
 });
+/** G2：packages/remotes 照实抓形态（g2-probe-run.txt）——npm stdio 包 + 远端 + env 声明 */
 const mcpDetail = JSON.stringify({
-  server: { name: 'io.github.owner/mcp-fetch', title: 'Fetch', description: '抓网页的 MCP 服务器', version: '2.0.0' },
+  server: {
+    name: 'io.github.owner/mcp-fetch', title: 'Fetch', description: '抓网页的 MCP 服务器', version: '2.0.0',
+    packages: [{
+      registryType: 'npm', registryBaseUrl: 'https://registry.npmjs.org',
+      identifier: '@owner/mcp-fetch', version: '2.0.0', transport: { type: 'stdio' },
+      environmentVariables: [{ name: 'FETCH_KEY', description: '密钥', isRequired: true, isSecret: true }],
+    }],
+    remotes: [{ type: 'streamable-http', url: 'https://mcp.example.com/mcp' }],
+  },
   _meta: {},
 });
+/** G2 安装样本技能包：真 zip 字节（照实抓，download 端点回 application/zip） */
+const SKILL_MD_RPC = '---\nname: market-skill-rpc\ndescription: 市场技能\nversion: 1.0.0\n---\n# Market\n正文。\n';
+function buildZip(entries: { name: string; data: Buffer }[]): Buffer {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const e of entries) {
+    const nameB = Buffer.from(e.name, 'utf8');
+    const crc = crc32(e.data) >>> 0;
+    const lh = Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6);
+    lh.writeUInt16LE(0, 8); lh.writeUInt16LE(0, 10); lh.writeUInt16LE(0, 12);
+    lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(e.data.length, 18); lh.writeUInt32LE(e.data.length, 22);
+    lh.writeUInt16LE(nameB.length, 26); lh.writeUInt16LE(0, 28);
+    locals.push(lh, nameB, e.data);
+    const ch = Buffer.alloc(46);
+    ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0x0800, 8);
+    ch.writeUInt16LE(0, 10); ch.writeUInt16LE(0, 12); ch.writeUInt16LE(0, 14);
+    ch.writeUInt32LE(crc, 16); ch.writeUInt32LE(e.data.length, 20); ch.writeUInt32LE(e.data.length, 24);
+    ch.writeUInt16LE(nameB.length, 28); ch.writeUInt16LE(0, 30); ch.writeUInt16LE(0, 32);
+    ch.writeUInt16LE(0, 34); ch.writeUInt16LE(0, 36); ch.writeUInt32LE(0, 38); ch.writeUInt32LE(offset, 42);
+    centrals.push(ch, nameB);
+    offset += 30 + nameB.length + e.data.length;
+  }
+  const cd = Buffer.concat(centrals);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8); eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(cd.length, 12); eocd.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, cd, eocd]);
+}
+const SKILL_ZIP_RPC = buildZip([{ name: 'SKILL.md', data: Buffer.from(SKILL_MD_RPC) }]);
 const awesomeIndex = JSON.stringify({
   name: 'awesome-dsh-plugin', count: 3,
   plugins: [
@@ -99,14 +151,23 @@ beforeAll(async () => {
   // 本地 fixture：三源端点共用一个 server（路径不冲突：/api/v1/* /v0.1/* /plugins.json）
   fixtureServer = createServer((req: IncomingMessage, res: ServerResponse) => {
     const u = new URL(req.url ?? '/', 'https://fixture');
-    res.writeHead(200, { 'content-type': 'application/json' });
-    if (u.pathname === '/.well-known/clawhub.json') return res.end('{"apiBase":"https://clawhub.ai"}');
-    if (u.pathname === '/api/v1/search') return res.end(clawhubSearch(u.searchParams.get('q') ?? ''));
-    if (u.pathname === '/api/v1/skills/skill-0/scan') return res.end(clawhubScan);
-    if (u.pathname === '/api/v1/skills/skill-0') return res.end(clawhubDetail);
-    if (u.pathname === '/v0.1/servers') return res.end(mcpList);
-    if (u.pathname === '/v0.1/servers/io.github.owner%2Fmcp-fetch/versions/latest') return res.end(mcpDetail);
-    if (u.pathname === '/plugins.json') return res.end(awesomeIndex);
+    // json helper 按分支调用（顶部无条件 writeHead 会让 download 分支的二次 writeHead 抛
+    // ERR_HTTP_HEADERS_SENT——请求永远不回包，客户端只能等超时）
+    const json = (s: string) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(s); };
+    if (u.pathname === '/.well-known/clawhub.json') return json('{"apiBase":"https://clawhub.ai"}');
+    if (u.pathname === '/api/v1/search') return json(clawhubSearch(u.searchParams.get('q') ?? ''));
+    if (u.pathname === '/api/v1/skills/skill-0/scan') return json(clawhubScan);
+    if (u.pathname === '/api/v1/skills/skill-0') return json(clawhubDetail);
+    if (u.pathname === '/api/v1/skills/skill-1/scan') return json(clawhubScanMalicious);
+    if (u.pathname === '/api/v1/skills/skill-1') return json(clawhubDetailSkill1);
+    // G2 下载端点：application/zip（照实抓——zip 根层 SKILL.md）
+    if (u.pathname === '/api/v1/download') {
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="skill.zip"' });
+      return res.end(SKILL_ZIP_RPC);
+    }
+    if (u.pathname === '/v0.1/servers') return json(mcpList);
+    if (u.pathname === '/v0.1/servers/io.github.owner%2Fmcp-fetch/versions/latest') return json(mcpDetail);
+    if (u.pathname === '/plugins.json') return json(awesomeIndex);
     res.writeHead(404, { 'content-type': 'application/json' });
     res.end('{"error":"not found"}');
   });
@@ -219,5 +280,75 @@ describe('market.detail', () => {
   it('未知源前缀 / 缺 id → 报错', async () => {
     expect((await rpcCall('market.detail', { id: 'unknown:x' })).error).toBeTruthy();
     expect((await rpcCall('market.detail', {})).error).toBeTruthy();
+  });
+});
+
+describe('market.installPlan（G2 确认卡数据）', () => {
+  it('mcp 条目：启动命令原样 + env 只带键名与说明 + 来源层级（§4 全项）', async () => {
+    const r = (await rpcCall('market.installPlan', { id: 'mcp-registry:io.github.owner/mcp-fetch' })).result;
+    expect(r.kind).toBe('mcp');
+    expect(r.source).toEqual({ id: 'mcp-registry', name: 'MCP 官方注册表', tier: 'community' });
+    expect(r.verdict).toBe('unscanned');
+    expect(r.command).toEqual({ command: 'npx', args: ['-y', '@owner/mcp-fetch'] });
+    expect(r.env).toEqual([{ name: 'FETCH_KEY', description: '密钥', required: true, isSecret: true }]);
+    expect(r.serverName).toBe('io.github.owner-mcp-fetch');
+    expect(r.manualOnly).toBeUndefined();
+  });
+
+  it('skill 条目：zip 文件清单 + verdict（服务端重取，不信任 renderer 传参）', async () => {
+    const r = (await rpcCall('market.installPlan', { id: 'clawhub:owner-0/skill-0' })).result;
+    expect(r.kind).toBe('skill');
+    expect(r.verdict).toBe('ok');
+    expect(r.files).toEqual(['SKILL.md']);
+  });
+});
+
+describe('market.install（G2 安装执行——服务端层，绕过 renderer 直调 RPC 也拦）', () => {
+  it('malicious 硬阻断：confirm/force 全都无通道，直接报错', async () => {
+    const r = await rpcCall('market.install', { id: 'clawhub:owner-1/skill-1', confirm: true, force: true });
+    expect(r.error).toBeTruthy();
+    expect(String(r.error.message)).toContain('malicious');
+    // 未落任何东西
+    expect((await rpcCall('market.installed', { kind: 'skill' })).result.items).toEqual([]);
+  });
+
+  it('技能安装：下载 zip → SkillImporter 落盘 → skills.list 可见 + provenance 登记', async () => {
+    const r = (await rpcCall('market.install', { id: 'clawhub:owner-0/skill-0', confirm: true })).result;
+    expect(r.ok).toBe(true);
+    expect(r.kind).toBe('skill');
+    const skills = (await rpcCall('skills.list', {})).result;
+    expect(skills.some((s: any) => s.id === r.localRef && s.name === 'market-skill-rpc')).toBe(true);
+    const inst = (await rpcCall('market.installed', { kind: 'skill' })).result.items;
+    expect(inst.length).toBe(1);
+    expect(inst[0].id).toBe('clawhub:owner-0/skill-0');
+    expect(inst[0].localRef).toBe(r.localRef);
+    expect(inst[0].contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('MCP 安装：stdio 白名单内命令生成 servers.json 条目（env 值只来自 install 参数）', async () => {
+    const r = (await rpcCall('market.install', {
+      id: 'mcp-registry:io.github.owner/mcp-fetch', confirm: true, env: { FETCH_KEY: 'rpc-typed' },
+    })).result;
+    expect(r.ok).toBe(true);
+    const servers = (await rpcCall('mcp.servers.list', {})).result.servers;
+    const e = servers.find((s: any) => s.name === r.localRef);
+    expect(e).toBeTruthy();
+    expect(e.transport).toBe('stdio');
+    expect(e.command).toBe('npx');
+    expect(e.args).toEqual(['-y', '@owner/mcp-fetch']);
+    expect(e.env).toEqual({ FETCH_KEY: 'rpc-typed' });
+  });
+
+  it('缺 confirm / 拒任意 URL / 未知源前缀 → 报错', async () => {
+    expect((await rpcCall('market.install', { id: 'clawhub:owner-0/skill-0' })).error).toBeTruthy();
+    expect((await rpcCall('market.install', { id: 'https://clawhub.ai/api/v1/download?slug=x', confirm: true })).error).toBeTruthy();
+    expect((await rpcCall('market.install', { id: 'unknown:x', confirm: true })).error).toBeTruthy();
+  });
+
+  it('installed 双向核对：技能删除后登记行清理', async () => {
+    const r = (await rpcCall('market.install', { id: 'clawhub:owner-0/skill-0', confirm: true })).result;
+    expect((await rpcCall('market.installed', { kind: 'skill' })).result.items.length).toBe(1);
+    await rpcCall('skills.delete', { id: r.localRef, confirm: true });
+    expect((await rpcCall('market.installed', { kind: 'skill' })).result.items).toEqual([]);
   });
 });

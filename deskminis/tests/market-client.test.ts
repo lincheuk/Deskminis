@@ -119,6 +119,46 @@ describe('预算上限（C 波纪律沿用）', () => {
     expect(peak).toBeLessThanOrEqual(2);
     expect(peak).toBeGreaterThanOrEqual(2); // 真并发了（否则信号量形同虚设）
   });
+
+  it('G2 名额转交式信号量：release/acquire 交错窗口内新请求不得插队——在飞峰值恒 ≤2（5 并发）', async () => {
+    // 可控 resolve 的 fake fetch：每个请求挂起直到测试放行门；记录真实在飞峰值
+    let inflight = 0; let peak = 0;
+    const gates: Array<() => void> = [];
+    const flightPromises: Promise<Response>[] = [];
+    const fakeFetch = (() => {
+      const p = (async () => {
+        inflight++; peak = Math.max(peak, inflight);
+        await new Promise<void>((res) => gates.push(res));
+        inflight--;
+        return new Response('{}');
+      })();
+      flightPromises.push(p);
+      return p;
+    }) as typeof fetch;
+    const c = new MarketClient(fakeFetch);
+    const opts = { maxBytes: 1024 };
+    const p1 = c.fetchText('https://clawhub.ai/a', opts);
+    const p2 = c.fetchText('https://clawhub.ai/b', opts);
+    const p3 = c.fetchText('https://clawhub.ai/c', opts);
+    const p4 = c.fetchText('https://clawhub.ai/d', opts);
+    await new Promise((r) => setTimeout(r, 0)); // 让 p1/p2 起飞（p3/p4 排队）
+
+    // 竞态注入：fetch1 完成时，fetchText-1 的续体（含 release）先跑，本 then 挂钩排在其后、
+    // 被唤醒排队者（p3）的续体之前——恰落在「release 已动计数、被唤醒者尚未补计数」的窗口。
+    // 旧实现（先减计数再唤醒、唤醒者在微任务里补计数）在此窗口放行新请求 → 瞬时并发 3。
+    const p5 = flightPromises[0].then(() => c.fetchText('https://clawhub.ai/e', opts));
+    gates[0](); // 放行 fetch1 → release → 唤醒排队者 → 窗口内 p5 尝试插队
+
+    // 逐步放行剩余在途请求，直到 5 个全部完成
+    let resolved = 1;
+    for (let i = 0; i < 100 && resolved < 5; i++) {
+      await new Promise((r) => setTimeout(r, 2));
+      while (resolved < gates.length && resolved < 5) { gates[resolved](); resolved++; }
+    }
+    await Promise.all([p1, p2, p3, p4, p5]);
+    expect(peak).toBeLessThanOrEqual(2); // 名额转交：窗口内新请求照样排队
+    expect(peak).toBeGreaterThanOrEqual(2); // 真并发了（否则信号量形同虚设）
+  });
 });
 
 describe('请求卫生与条件请求', () => {

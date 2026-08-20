@@ -47,6 +47,13 @@ import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
 import { SkillImporter, type ImportKind } from './skills/importer';
 import { MarketService } from './market/service';
+import { MarketClient } from './market/client';
+import { MarketCache } from './market/cache';
+import { ClawHubSource } from './market/clawhub';
+import { McpRegistrySource } from './market/mcp-registry';
+import { AwesomeDshSource } from './market/awesome-dsh';
+import { MarketInstaller } from './market/install';
+import type { MarketSource } from './market/types';
 import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath, resolveBridgeNode } from './bridge/server';
 import { detectBridgeTriggers } from './bridge/detect';
 import { makeBridgeDispatcher } from './bridge/handlers';
@@ -350,9 +357,23 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // agent 直写目录的孤儿回收（设计 §5.1）：skillsRoot 下存在但不在表里的含 SKILL.md 目录入库
   importer.adoptOrphans();
 
-  // ---- G1 扩展市场读侧（设计 §2/§6）：三源适配器 + market_cache 缓存 + 读 RPC。
-  //  SQLite 走既有 db 连接不新开；读操作免批（与 skills.list 同档）；install 链路属 G2。----
-  const market = new MarketService(db);
+  // ---- G1/G2 扩展市场（设计 §2/§3/§6）：三源适配器 + market_cache 缓存 + 读 RPC + 安装链路。
+  //  client/cache/sources 共享装配：读侧服务与安装链路共用同一份缓存与并发预算（≤2）。
+  //  SQLite 走既有 db 连接不新开；读操作免批（与 skills.list 同档）；install 属状态变更——
+  //  确认卡 confirm + 服务端 verdict 复核（不信任 renderer 传参），malicious 硬阻断。----
+  const marketClient = new MarketClient();
+  const marketCache = new MarketCache(db, marketClient);
+  const marketSources: MarketSource[] = [
+    new ClawHubSource(marketCache),
+    new McpRegistrySource(marketCache),
+    new AwesomeDshSource(marketCache),
+  ];
+  const market = new MarketService(db, { client: marketClient, cache: marketCache, sources: marketSources });
+  const marketInstaller = new MarketInstaller({
+    db, sources: marketSources, client: marketClient, importer, skillStore, mcpStore: mcpServers,
+    bridgeNodePath: bridgeNode, // 与 diagnostics/终端桥同一 resolveBridgeNode 结果（白名单闸第四类命令）
+    onSkillsChanged: () => rpc.broadcast('skills.changed', {}),
+  });
 
   const fakeEnabled = process.env.DESKMINIS_FAKE_PROVIDER === '1';
 
@@ -847,11 +868,17 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       rpc.broadcast('skills.changed', {});
       return { ok: true };
     },
-    // ---- G1 市场读侧 RPC（设计 §6）：读操作免批（与 skills.list 同档）；install 属 G2 ----
+    // ---- G1 市场读侧 RPC（设计 §6）：读操作免批（与 skills.list 同档）----
     'market.sources.list': () => market.sourcesList(),
     'market.search': (p: { kind?: unknown; q?: unknown; category?: unknown; cursor?: unknown }) =>
       market.search(p ?? {}),
     'market.detail': (p: { id?: unknown }) => market.detail(p ?? {}),
+    // ---- G2 市场安装链路 RPC（设计 §3/§4/§6）：installPlan 确认卡数据 / install 执行 /
+    //  installed 双向核对。install 是状态变更：确认卡 confirm + 服务端 verdict 复核
+    //  （malicious 硬阻断，无任何跳过参数）；技能装后广播 skills.changed，零自动执行。----
+    'market.installPlan': (p: { id?: unknown }) => marketInstaller.installPlan(p ?? {}),
+    'market.install': (p: { id?: unknown; confirm?: unknown; env?: unknown }) => marketInstaller.install(p ?? {}),
+    'market.installed': (p: { kind?: unknown }) => marketInstaller.installed(p ?? {}),
     // ---- M6 Task 4：审计查询面 audit.list（决策点 2-2：只留 RPC 接缝，不出 UI）----
     // 透传 AuditLogger.list 过滤参数；payload 防御性再脱敏一次（double-redact，红线：密钥材料不出现在任何出口）。
     'audit.list': (p: AuditListOpts) => {

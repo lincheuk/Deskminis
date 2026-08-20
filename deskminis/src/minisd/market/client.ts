@@ -52,20 +52,24 @@ export interface MarketFetchResult {
   truncated: boolean;
 }
 
-/** 并发 ≤2 的简单信号量：市场是后台读侧，不该挤占用户主动网络。 */
+/** 并发 ≤2 的简单信号量：市场是后台读侧，不该挤占用户主动网络。
+ *  G2 名额转交式（G1 审核发现的竞态修复）：release 把名额直接转交给队首排队者
+ *  （唤醒其 acquire 续体，计数不减），无排队者才减计数。旧实现先减计数再唤醒、
+ *  被唤醒者在微任务里补计数——同步窗口内新 acquire 看到已减的计数直接进入，
+ *  瞬时并发可到 3；转交式下计数在窗口内仍含已转交名额，插队不可能。 */
 class Semaphore {
   private inflight = 0;
   private readonly queue: (() => void)[] = [];
   constructor(private readonly max: number) {}
   async acquire(): Promise<void> {
     if (this.inflight < this.max) { this.inflight++; return; }
+    // 名额由 release 转交而来（计数已保留）——被唤醒路径不再补计数
     await new Promise<void>((res) => this.queue.push(res));
-    this.inflight++;
   }
   release(): void {
-    this.inflight--;
     const next = this.queue.shift();
-    if (next) next();
+    if (next) next();            // 名额直接转交给排队者，计数不减
+    else this.inflight--;
   }
 }
 
@@ -148,6 +152,43 @@ export class MarketClient {
       etag,
       truncated,
     };
+  }
+
+  /** 取二进制响应（G2 安装物下载，实抓裁定 clawhub /api/v1/download 回 application/zip）：
+   *  闸 → 信号量 → fetch → 读流计数——与 fetchText 同一套预算纪律，但不经缓存层
+   *  （安装物要内容哈希，每次定点直取）且失败要响亮：非 2xx / 超体积直接 throw，
+   *  无降级语义（半截 zip 落盘比失败更糟）。 */
+  async fetchBytes(url: string, opts: MarketFetchOpts): Promise<{ bytes: Buffer; etag?: string }> {
+    assertWhitelisted(url);
+    const headers: Record<string, string> = { accept: 'application/octet-stream' };
+    if (opts.etag) headers['if-none-match'] = opts.etag;
+    const timeoutMs = opts.timeoutMs ?? this.defaultTimeoutMs;
+
+    await this.sem.acquire();
+    let res: Response;
+    try {
+      res = await this.fetchImpl(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    } finally {
+      this.sem.release();
+    }
+    if (res.status < 200 || res.status >= 300 || !res.body) {
+      throw new Error(`安装物下载失败（HTTP ${res.status}）: ${url}`);
+    }
+    const reader = res.body.getReader();
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const buf = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+      chunks.push(buf);
+      total += buf.length;
+      if (total > opts.maxBytes) {
+        await reader.cancel().catch(() => { /* 取消失败不影响抛错 */ });
+        throw new Error(`安装物超过体积上限（${opts.maxBytes} 字节）: ${url}`);
+      }
+    }
+    return { bytes: Buffer.concat(chunks, total), etag: res.headers.get('etag') ?? undefined };
   }
 }
 
