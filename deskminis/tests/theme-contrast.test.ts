@@ -50,6 +50,7 @@ const PAIRS: [string, string, number, string][] = [
   ['--c-link', '--c-bg', 4.5, '链接/舞台底'],
   ['--c-err', '--c-bg', 3, '错误色/舞台底'],
   ['--c-ok', '--c-bg', 3, '成功色/舞台底'],
+  ['--c-err-ink', '--c-err', 4.5, '危险按钮文字'],
 ];
 
 for (const [scope, label] of [[':root', '浅色'], [':root[data-theme="dark"]', '深色']] as const) {

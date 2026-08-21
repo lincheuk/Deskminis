@@ -39,7 +39,8 @@
   --c-link: #165dff;
   --c-ok: #009a29;
   --c-warn: #ff7d00;
-  --c-err: #f53f3f;
+  --c-err: #cb2634;        /* red-7 而非 red-6：red-6 做按钮底时白字仅 3.7:1 */
+  --c-err-ink: #ffffff;      /* 危险底上的文字 */
   --c-ok-soft: #e8ffea;
   --c-warn-soft: #fff7e8;
   --c-err-soft: #ffece8;
@@ -88,7 +89,7 @@
   --w-rail: 248px;
   --w-aside: 320px;
   --w-stage: 760px;      /* 舞台内容定宽，两侧留白——长行难读是旧 UI 的通病 */
-  --h-topbar: 36px;
+  --h-topbar: 40px;   /* 对齐 main 的 titleBarOverlay height:40——系统在右上角画 min/max/close */
 }
 
 /* 深色：只改色，形与字一律继承——主题不该改变节奏 */
@@ -114,6 +115,7 @@
   --c-ok: #23c343;
   --c-warn: #ff9a2e;
   --c-err: #f76965;
+  --c-err-ink: #1a1a1a;      /* 深色下危险色偏亮，白字不达标，改深字 */
   --c-ok-soft: #1a2a1c;
   --c-warn-soft: #2a2114;
   --c-err-soft: #2a1a1a;
@@ -142,6 +144,7 @@
     --c-ok: #23c343;
     --c-warn: #ff9a2e;
     --c-err: #f76965;
+    --c-err-ink: #1a1a1a;
     --c-ok-soft: #1a2a1c;
     --c-warn-soft: #2a2114;
     --c-err-soft: #2a1a1a;
@@ -179,7 +182,9 @@ body {
 *:hover::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, .1); }
 :root[data-theme="dark"] *:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .1); }
 
-/* 线性图标统一描边（组件内 <svg> 只写路径） */
+/* 线性图标统一描边（组件内 <svg> 只写路径）。
+   注意：stroke 颜色由组件自己给 currentColor——这里给 fill:none 却不给 stroke，
+   漏写的图标就是全透明（T2 实拍逮到一次）。 */
 svg { stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 
 /* 焦点环：键盘可见、鼠标不可见 */
