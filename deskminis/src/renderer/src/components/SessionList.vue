@@ -257,7 +257,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .newbtn {
   flex: 1; min-width: 0;
   display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-control);
-  background: none; color: var(--label); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  background: none; color: var(--label); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .newbtn:hover { background: var(--fill-tertiary); }
 /* MU3 §2-5 焦点环 */
@@ -265,7 +265,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .newbtn :deep(svg) { stroke: var(--label); }
 .list { flex: 1; min-height: 0; overflow: auto; padding: 0 6px 8px; }
 .datehead {
-  position: sticky; top: 0; z-index: 1; padding: 6px 10px; font-size: 12px; font-weight: 600;
+  position: sticky; top: 0; z-index: 1; padding: 6px 10px; font-size: 12px; font-weight: var(--fw-medium);
   color: var(--label-secondary); background: var(--surface-1); display: flex; align-items: center; gap: 4px;
 }
 /* MU5：会话行由「两行任务卡」压成单行「状态点 + 标题 + 右对齐相对时间」
@@ -299,7 +299,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
   font-size: var(--fs-ui); font-weight: 500; color: var(--label-strong);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.scard.on .stitle { color: var(--action); font-weight: 600; }
+.scard.on .stitle { color: var(--action); font-weight: var(--fw-medium); }
 /* E3：产物计数是「计数读数」，走 mono（Aurora §4 读数面） */
 .scount { flex: 0 0 auto; font-size: var(--fs-micro); color: var(--label-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 /* 时间右对齐：等宽数字让各行的时间列自然对齐，不需要固定宽度 */
@@ -321,7 +321,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 /* 行内操作区：撑在会话行下方，不是浮层——.list 的 overflow:auto 会把浮层裁掉 */
 .smenu {
   margin: 2px 4px 6px; padding: 4px; border-radius: var(--r-md);
-  background: var(--fill-quaternary); border: .5px solid var(--separator);
+  background: var(--fill-quaternary); border: 1px solid var(--separator);
   display: flex; flex-direction: column; gap: 2px;
 }
 .smenu-item {
@@ -334,7 +334,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .smenu-val { margin-left: auto; color: var(--label-tertiary); }
 .smenu-sel { cursor: default; }
 .smenu-select {
-  margin-left: auto; max-width: 108px; border: .5px solid var(--separator);
+  margin-left: auto; max-width: 108px; border: 1px solid var(--separator);
   border-radius: var(--r-control); background: var(--surface-1); color: var(--label);
   font-size: var(--fs-micro); padding: 2px 4px; cursor: pointer;
 }
@@ -347,7 +347,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 /* 重命名输入行：与 .smenu-select 同一套外观令牌，免得菜单里两种输入控件长得不像一家 */
 .smenu-input {
   flex: 1; min-width: 0; padding: 4px 6px;
-  border: .5px solid var(--separator); border-radius: var(--r-control);
+  border: 1px solid var(--separator); border-radius: var(--r-control);
   background: var(--surface-1); color: var(--label); font-size: var(--fs-micro);
 }
 .smenu-input:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
@@ -358,13 +358,13 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 .smenu-err { padding: 4px 8px 2px; font-size: var(--fs-micro); color: var(--state-err); line-height: 1.5; }
 .smenu-row { display: flex; gap: 4px; }
 .smenu-row .smenu-item { flex: 1; justify-content: center; }
-.smenu-keep { background: var(--surface-1); border: .5px solid var(--separator); }
+.smenu-keep { background: var(--surface-1); border: 1px solid var(--separator); }
 
 /* 后端选择器：常驻的「当前在哪台机器跑」。本轮是纯指示（无交互元素，
    故不需要 button）——切换执行端的能力尚不存在，不做假的下拉箭头。 */
 .bkrow {
   flex: 0 0 auto; display: flex; align-items: center; gap: 7px;
-  padding: 7px 14px; border-top: .5px solid var(--separator);
+  padding: 7px 14px; border-top: 1px solid var(--separator);
   font-size: var(--fs-micro); color: var(--label-secondary);
 }
 .bk-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--state-ok); flex: 0 0 auto; }
@@ -373,7 +373,7 @@ const activeArtifactCount = computed(() => artifactCountOf(chat.messages));
 /* 底部固定入口：设置（独立模态）/ 设备（DevicesModal，Task 7 已填实） */
 .lfoot {
   flex: 0 0 auto; display: flex; gap: 2px; padding: 8px 10px;
-  border-top: .5px solid var(--separator);
+  border-top: 1px solid var(--separator);
 }
 .lfbtn {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;

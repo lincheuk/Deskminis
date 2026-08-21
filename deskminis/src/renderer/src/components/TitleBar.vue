@@ -130,7 +130,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 .titlebar {
   height: 40px; display: flex; align-items: center; gap: 2px; padding: 0 4px 0 10px;
   background: var(--bg);
-  border-bottom: .5px solid var(--separator);
+  border-bottom: 1px solid var(--separator);
   -webkit-app-region: drag; user-select: none; flex: 0 0 40px;
   /* MU3 材质全退场：毛玻璃改实底，滤镜摘除。
      下面的 position/z-index 保留为「防御性层级槽位」（论证见 renderer-titlebar-stacking.test.ts 头注）：
@@ -163,7 +163,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 .mi:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 230px; }
 .mpop {
-  background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-md);
+  background: var(--grouped-bg-secondary); border: 1px solid var(--separator); border-radius: var(--r-md);
   padding: 5px; box-shadow: var(--shadow-pop);
 }
 .it {
@@ -180,7 +180,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeAll); window.
 .it:hover .kbd { color: var(--on-action); opacity: .7; }
 .sep { height: .5px; background: var(--separator); margin: 5px 8px; }
 .tb-title {
-  flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: var(--label-strong);
+  flex: 1; text-align: center; font-size: 13px; font-weight: var(--fw-medium); color: var(--label-strong);
   letter-spacing: .01em; pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* 右上角留给系统原生窗口控制（titleBarOverlay），此占位保证自绘内容不被遮挡 */

@@ -178,7 +178,7 @@ function statusTone(s: string): string {
 }
 .crow.off { opacity: .68; }
 .crtxt { flex: 1; min-width: 0; }
-.crname { font-size: var(--fs-ui); font-weight: 600; color: var(--label); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.crname { font-size: var(--fs-ui); font-weight: var(--fw-strong); color: var(--label); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .crsched { font-size: var(--fs-micro); font-weight: 500; color: var(--accent); font-family: var(--font-mono); }
 .crassist { font-size: var(--fs-micro); font-weight: 500; color: var(--label-tertiary); }
 .crsub { margin-top: 3px; font-size: var(--fs-micro); color: var(--label-tertiary); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
@@ -199,7 +199,7 @@ function statusTone(s: string): string {
 .cnew {
   align-self: flex-start; display: inline-flex; align-items: center; gap: 6px;
   margin-top: 2px; padding: 7px 14px; border: none; border-radius: var(--r-control);
-  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .cnew :deep(svg) { stroke: currentColor; }
 .cform {
@@ -221,6 +221,6 @@ function statusTone(s: string): string {
 .cfops { display: flex; justify-content: flex-end; gap: 8px; }
 .cfsave {
   padding: 6px 16px; border: none; border-radius: var(--r-control);
-  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 </style>

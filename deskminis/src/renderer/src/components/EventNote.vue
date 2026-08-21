@@ -32,7 +32,7 @@ const emit = defineEmits<{ retry: [] }>();
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; margin: 3px 0;
   border-radius: var(--r-md); font-size: var(--fs-mono); line-height: 1.45;
-  border: .5px solid var(--separator);
+  border: 1px solid var(--separator);
   background: var(--grouped-bg-secondary);
   color: var(--label-secondary);
   max-width: 100%;
@@ -63,6 +63,6 @@ const emit = defineEmits<{ retry: [] }>();
 /* 重试钮：文本级，继承条色调 */
 .eretry {
   background: none; border: none; padding: 0 2px; cursor: pointer; flex: 0 0 auto;
-  font-size: var(--fs-mono); font-weight: 600; color: inherit; text-decoration: underline;
+  font-size: var(--fs-mono); font-weight: var(--fw-medium); color: inherit; text-decoration: underline;
 }
 </style>

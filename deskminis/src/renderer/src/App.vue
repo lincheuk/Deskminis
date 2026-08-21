@@ -441,7 +441,7 @@ onBeforeUnmount(() => {
 .tb-pend {
   flex: 0 0 auto; padding: 2px 9px; border-radius: var(--r-pill);
   border: none; background: var(--accent);
-  color: var(--on-action); font-size: var(--fs-micro); font-weight: 600; cursor: pointer;
+  color: var(--on-action); font-size: var(--fs-micro); font-weight: var(--fw-medium); cursor: pointer;
 }
 .tb-pend:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
@@ -458,7 +458,7 @@ onBeforeUnmount(() => {
   position: relative; flex: 0 0 auto; width: 34px; height: 34px;
   border-radius: var(--r-md); border: 1px solid transparent; background: none;
   display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 600; color: var(--label-tertiary); cursor: pointer;
+  font-size: 13px; font-weight: var(--fw-medium); color: var(--label-tertiary); cursor: pointer;
 }
 .rl:hover { background: var(--fill-quaternary); color: var(--label); }
 /* MU5 §5 红线 6：新增交互元素一律原生 button + :focus-visible 环，不再新增 div @click */
@@ -485,7 +485,7 @@ onBeforeUnmount(() => {
 .rsp { flex: 1; }
 
 .pane-l {
-  width: 240px; flex: 0 0 240px; background: var(--surface-1); border-right: .5px solid var(--separator);
+  width: 240px; flex: 0 0 240px; background: var(--surface-1); border-right: 1px solid var(--separator);
   display: flex; flex-direction: column; overflow: hidden;
 }
 /* 对话列外壳。**类名不能叫 .pane-c**——ChatView 的根元素正是 .pane-c，而 Vue 的
@@ -500,7 +500,7 @@ onBeforeUnmount(() => {
 }
 /* 工作台：承担弹性——它装网页与截图，越宽越有用 */
 .pane-w {
-  flex: 1; min-width: 0; border-left: .5px solid var(--separator); background: var(--bg);
+  flex: 1; min-width: 0; border-left: 1px solid var(--separator); background: var(--bg);
   display: flex; flex-direction: column; overflow: hidden;
 }
 /* 6px 拖拽热区：跨骑在对话列右缘（border 上），绝对定位不占布局 */
@@ -536,11 +536,11 @@ onBeforeUnmount(() => {
   background: var(--surface-1); border-color: var(--separator);
   box-shadow: inset 0 -2px 0 var(--accent);
 }
-.wtab.on .wtab-main { color: var(--label); font-weight: 600; }
+.wtab.on .wtab-main { color: var(--label); font-weight: var(--fw-medium); }
 /* 实时标签活动点（屏幕/浏览器这类会持续变化的视图）；E2 换青（Aurora 单强调色） */
 .lv { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
 .wtab-more {
-  flex: 0 0 auto; margin-left: 2px; padding: 4px 8px; border: .5px solid var(--separator);
+  flex: 0 0 auto; margin-left: 2px; padding: 4px 8px; border: 1px solid var(--separator);
   border-radius: var(--r-control); background: none; cursor: pointer;
   font-size: var(--fs-micro); color: var(--label-secondary);
 }
@@ -553,15 +553,15 @@ onBeforeUnmount(() => {
 /* 模式段控 + 地址 + 右对齐动作行（来源 AionUi 预览区头部） */
 .wctl {
   display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-  border-bottom: .5px solid var(--separator); background: var(--surface-1); flex: 0 0 auto;
+  border-bottom: 1px solid var(--separator); background: var(--surface-1); flex: 0 0 auto;
 }
 .wctl .seg button:disabled, .wctl .wact button:disabled { opacity: var(--opacity-disabled); cursor: default; }
-.seg { display: flex; border: .5px solid var(--separator); border-radius: var(--r-control); overflow: hidden; }
+.seg { display: flex; border: 1px solid var(--separator); border-radius: var(--r-control); overflow: hidden; }
 .seg button {
   border: none; background: none; cursor: pointer;
   padding: 3px 10px; font-size: var(--fs-micro); color: var(--label-secondary);
 }
-.seg button.on { background: var(--action); color: var(--on-action); font-weight: 600; }
+.seg button.on { background: var(--action); color: var(--on-action); font-weight: var(--fw-medium); }
 .seg button:focus-visible, .wact button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .wurl {
   flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-micro);
@@ -586,7 +586,7 @@ onBeforeUnmount(() => {
 /* 工作台折叠条（第三态）——与 .rail 同一个模式，只是竖排的是标签不是会话 */
 .wbrail {
   flex: 0 0 56px; width: 56px; background: var(--bg-secondary);
-  border-left: .5px solid var(--separator);
+  border-left: 1px solid var(--separator);
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 8px 0; overflow: hidden;
 }
@@ -615,7 +615,7 @@ onBeforeUnmount(() => {
 
 /* 未启用能力的空态：说清「为什么空、要什么才不空」 */
 .wempty { align-items: center; justify-content: center; text-align: center; padding: 0 32px; }
-.we-t { margin: 0 0 8px; font-size: var(--fs-title); font-weight: 600; color: var(--label-secondary); }
+.we-t { margin: 0 0 8px; font-size: var(--fs-title); font-weight: var(--fw-strong); color: var(--label-secondary); }
 .we-d { margin: 0; font-size: var(--fs-ui); line-height: 1.7; color: var(--label-tertiary); }
 .rfill { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 </style>

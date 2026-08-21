@@ -66,12 +66,12 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
 .md-h2 { font-size: 1.25em; }
 .md-h3 { font-size: 1.1em; }
 .md-code {
-  border: .5px solid var(--separator); border-radius: var(--r-md);
+  border: 1px solid var(--separator); border-radius: var(--r-md);
   background: var(--grouped-bg-secondary); overflow: hidden; max-width: 100%;
 }
 .md-codebar {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 4px 6px 4px 10px; border-bottom: .5px solid var(--separator);
+  padding: 4px 6px 4px 10px; border-bottom: 1px solid var(--separator);
   color: var(--label-secondary); font-size: var(--fs-micro);
 }
 .md-lang { font-family: var(--font-mono); }
@@ -94,8 +94,8 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
 }
 .md-table { border-collapse: collapse; font-size: var(--fs-ui); max-width: 100%; }
 .md-table th, .md-table td {
-  border: .5px solid var(--separator); padding: 5px 10px; text-align: left; vertical-align: top;
+  border: 1px solid var(--separator); padding: 5px 10px; text-align: left; vertical-align: top;
 }
-.md-table th { background: var(--grouped-bg-secondary); font-weight: 600; }
-.md-hr { border: none; border-top: .5px solid var(--separator); margin: 4px 0; }
+.md-table th { background: var(--grouped-bg-secondary); font-weight: var(--fw-strong); }
+.md-hr { border: none; border-top: 1px solid var(--separator); margin: 4px 0; }
 </style>

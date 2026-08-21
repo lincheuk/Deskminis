@@ -133,7 +133,7 @@ const durText = computed(() => props.duration ?? (elapsedMs.value != null ? fmtD
 .tchev { display: inline-flex; color: var(--label-tertiary); flex: 0 0 auto; }
 .texpand { margin: 2px 0 4px 23px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .tblock { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.tlabel { font-size: var(--fs-micro); font-weight: 600; color: var(--label-secondary); }
+.tlabel { font-size: var(--fs-micro); font-weight: var(--fw-medium); color: var(--label-secondary); }
 .texpand pre {
   font-family: var(--font-mono); font-size: var(--fs-mono); line-height: 1.5; color: var(--label);
   white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; margin: 0;

@@ -207,23 +207,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
    （§5：SettingsModal 在 POPUP_OWNERS 永久禁用清单内） */
 .syncbox {
   margin-top: 14px; padding: 12px; border-radius: var(--r-card);
-  background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
+  background: var(--grouped-bg-secondary); border: 1px solid var(--separator);
   box-shadow: 0 2px 8px var(--shadow-color);
 }
 .syncrow { display: flex; align-items: center; gap: 12px; }
 .synctxt { flex: 1; min-width: 0; }
-.synclabel { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
+.synclabel { font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label); }
 .syncsub { margin-top: 2px; font-size: var(--fs-micro); line-height: 1.6; color: var(--label-secondary); }
 .syncbtn {
   flex: 0 0 auto; padding: 6px 14px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
-  font-size: var(--fs-ui); font-weight: 600; color: var(--label); cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--separator); background: var(--surface-1);
+  font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label); cursor: pointer; white-space: nowrap;
 }
 .syncbtn.paused { border-color: var(--state-warn); color: var(--state-warn); }
 .syncbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 /* 命门文案：不写清楚的话，用户会以为这个开关能停下正在跑的 agent 回合 */
 .syncwarn { margin-top: 10px; font-size: var(--fs-micro); line-height: 1.7; color: var(--label-tertiary); }
-.syncwarn strong { color: var(--label-secondary); font-weight: 600; }
+.syncwarn strong { color: var(--label-secondary); font-weight: var(--fw-strong); }
 .mask {
   position: fixed; inset: 0; z-index: 100; background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
@@ -238,7 +238,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 }
 .snav {
   width: 180px; flex: 0 0 180px; padding: 14px 10px; background: var(--grouped-bg-secondary);
-  border-right: .5px solid var(--separator); display: flex; flex-direction: column; gap: 2px;
+  border-right: 1px solid var(--separator); display: flex; flex-direction: column; gap: 2px;
 }
 .shead { font-size: var(--fs-title); font-weight: 700; color: var(--label-emphasis); padding: 4px 10px 12px; }
 .sitem {
@@ -247,7 +247,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 }
 .sitem:hover { background: var(--fill-quaternary); }
 /* E3：活跃导航项左缘 2px accent 指示线（inset 零位移），沿用既有 .on 机制只加缘线 */
-.sitem.on { background: var(--fill-tertiary); color: var(--label); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+.sitem.on { background: var(--fill-tertiary); color: var(--label); font-weight: var(--fw-medium); box-shadow: inset 2px 0 0 var(--accent); }
 /* MU3 §2-5 焦点环 */
 .sitem:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .sbody { flex: 1; min-width: 0; overflow: auto; padding: 18px 20px; }
@@ -265,7 +265,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 /* E3：选项行（外观/权限分组卡）浮岛化——顶缘高光 + 柔影 */
 .opt {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px;
-  border: .5px solid var(--separator); border-radius: var(--r-card); cursor: pointer;
+  border: 1px solid var(--separator); border-radius: var(--r-card); cursor: pointer;
   background: var(--surface-1);
   box-shadow: 0 2px 8px var(--shadow-color);
 }
@@ -273,15 +273,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 .opt.on { border-color: var(--action); }
 .opt:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .otxt { flex: 1; min-width: 0; }
-.olabel { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
+.olabel { font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label); }
 .osub { font-size: var(--fs-caption); color: var(--label-secondary); margin-top: 2px; }
 .opt.danger .olabel, .opt.danger .osub { color: var(--state-err); }
 .ochk { color: var(--action); flex: 0 0 auto; }
 .snote { font-size: var(--fs-caption); color: var(--label-tertiary); line-height: 1.6; padding: 8px 2px; }
 /* E3：页内主钮（管理设备/立即检查更新）青底——accent 底 + on-action 字，两主题自动对（§4） */
 .devbtn {
-  margin-top: 8px; padding: 8px 14px; border: .5px solid var(--accent); border-radius: var(--r-control);
-  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  margin-top: 8px; padding: 8px 14px; border: 1px solid var(--accent); border-radius: var(--r-control);
+  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .devbtn:hover { background: var(--accent); }
 .devbtn:disabled { opacity: var(--opacity-disabled); cursor: default; }

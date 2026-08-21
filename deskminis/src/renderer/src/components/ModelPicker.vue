@@ -52,13 +52,13 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 .wrap { position: relative; }
 .cpill {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
-  border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  border: 1px solid var(--separator); background: var(--grouped-bg-secondary);
   font-size: 13px; color: var(--label-strong); cursor: pointer;
 }
 .menu {
   /* 左对齐胶囊（与 PermissionPicker 一致）；right:0 会让弹层从胶囊右缘向左伸出、看着没对齐 */
   position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; min-width: 240px;
-  background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-card);
+  background: var(--grouped-bg-secondary); border: 1px solid var(--separator); border-radius: var(--r-card);
   padding: 6px; box-shadow: var(--shadow-pop);
 }
 .mhead { font-size: 12px; color: var(--label-secondary); padding: 8px 10px; }

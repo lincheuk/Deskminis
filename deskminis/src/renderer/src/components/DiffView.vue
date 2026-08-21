@@ -37,13 +37,13 @@ const displayLines = computed(() => (expanded.value ? props.lines : collapseCtx(
 
 <style scoped>
 .diff {
-  border: .5px solid var(--separator); border-radius: var(--r-md); overflow: hidden;
+  border: 1px solid var(--separator); border-radius: var(--r-md); overflow: hidden;
   background: var(--grouped-bg-secondary); max-width: 100%;
 }
 /* 文件头槽：相对路径 mono + 增删徽标 */
 .diff-head {
   display: flex; align-items: center; gap: 8px; padding: 5px 10px;
-  background: var(--grouped-bg-tertiary); border-bottom: .5px solid var(--separator);
+  background: var(--grouped-bg-tertiary); border-bottom: 1px solid var(--separator);
 }
 .path {
   font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--label-strong);

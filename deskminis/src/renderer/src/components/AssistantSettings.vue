@@ -131,7 +131,7 @@ function modelLabel(a: { modelBinding?: string }): string {
 }
 .aravatar { flex: 0 0 auto; font-size: 18px; }
 .artxt { flex: 1; min-width: 0; }
-.arname { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
+.arname { font-size: var(--fs-ui); font-weight: var(--fw-strong); color: var(--label); }
 .arsub { font-size: var(--fs-micro); color: var(--label-tertiary); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arbtn {
   flex: 0 0 auto; padding: 5px 10px; border: 1px solid var(--separator); border-radius: var(--r-control);
@@ -143,7 +143,7 @@ function modelLabel(a: { modelBinding?: string }): string {
 .arbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .newbtn {
   align-self: flex-start; margin-top: 4px; padding: 7px 14px; border: none; border-radius: var(--r-control);
-  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .newbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .aform {
@@ -169,7 +169,7 @@ function modelLabel(a: { modelBinding?: string }): string {
 .afops { display: flex; justify-content: flex-end; gap: 8px; }
 .afsave {
   padding: 6px 16px; border: none; border-radius: var(--r-control);
-  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--on-action); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .afsave:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 </style>

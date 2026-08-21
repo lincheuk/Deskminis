@@ -192,9 +192,9 @@ function fmt(n: number): string {
 .ptask {
   position: sticky; top: 0; z-index: 2;
   margin: 0 -12px 8px; padding: 14px 26px 12px;
-  font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); line-height: 1.4;
+  font-size: var(--fs-title); font-weight: var(--fw-medium); color: var(--label-strong); line-height: 1.4;
   background: var(--surface-1);
-  border-bottom: .5px solid var(--separator);
+  border-bottom: 1px solid var(--separator);
 }
 .psec {
   background: var(--surface-1);
@@ -212,10 +212,10 @@ function fmt(n: number): string {
 .pending-text { font-size: var(--fs-ui); color: var(--label); line-height: 1.5; }
 .gobtn {
   flex: 0 0 auto; border: none; border-radius: var(--r-control); padding: 4px 10px; cursor: pointer;
-  background: var(--action); color: var(--on-action); font-size: var(--fs-caption); font-weight: 600;
+  background: var(--action); color: var(--on-action); font-size: var(--fs-caption); font-weight: var(--fw-medium);
 }
 .phead {
-  font-size: var(--fs-caption); font-weight: 600; color: var(--label-secondary);
+  font-size: var(--fs-caption); font-weight: var(--fw-medium); color: var(--label-secondary);
   letter-spacing: .02em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
 }
 .eicon { font-weight: 700; }

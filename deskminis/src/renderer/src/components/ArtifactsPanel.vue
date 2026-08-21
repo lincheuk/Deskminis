@@ -46,7 +46,7 @@ function openInFiles(path: string): void {
 .ahint { font-size: 12px; color: var(--label-tertiary); padding: 24px 12px; text-align: center; line-height: 1.6; }
 .acard {
   display: flex; align-items: center; gap: 8px; padding: 8px 10px; text-align: left;
-  background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-card);
+  background: var(--grouped-bg-secondary); border: 1px solid var(--separator); border-radius: var(--r-card);
   cursor: pointer; color: var(--label);
 }
 .acard:hover { background: var(--fill-quaternary); }

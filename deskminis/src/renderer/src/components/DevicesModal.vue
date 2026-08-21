@@ -216,10 +216,10 @@ onBeforeUnmount(() => {
 .empty { font-size: var(--fs-caption); color: var(--label-tertiary); padding: 10px 2px; }
 .devcard {
   display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 6px;
-  border: .5px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
+  border: 1px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
 }
 .dtxt { flex: 1; min-width: 0; }
-.dname { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
+.dname { font-size: var(--fs-ui); font-weight: var(--fw-strong); color: var(--label); }
 .dmeta { display: flex; align-items: center; gap: 10px; margin-top: 3px; }
 .dfp { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--label-secondary); }
 .dtime { font-size: var(--fs-micro); color: var(--label-tertiary); }
@@ -228,7 +228,7 @@ onBeforeUnmount(() => {
 .dot.off { background: var(--label-tertiary); opacity: .5; }
 .codewrap {
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px;
-  border: .5px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
+  border: 1px solid var(--separator); border-radius: var(--r-card); background: var(--surface-1);
 }
 .code { font-family: var(--font-mono); font-size: 32px; font-weight: 700; letter-spacing: 8px; color: var(--label-intense); }
 .codestate { font-size: var(--fs-caption); color: var(--label-secondary); font-variant-numeric: tabular-nums; }
@@ -236,13 +236,13 @@ onBeforeUnmount(() => {
 .pairrow { display: flex; gap: 8px; margin-top: 8px; }
 .pbtn {
   padding: 8px 16px; border: none; border-radius: var(--r-control); background: var(--action);
-  color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  color: var(--on-action); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .pbtn:disabled { opacity: .45; cursor: default; }
 .pbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .rbtn {
   display: flex; align-items: center; gap: 5px; padding: 6px 12px; flex: 0 0 auto;
-  border: .5px solid var(--separator); border-radius: var(--r-control); background: var(--surface-1);
+  border: 1px solid var(--separator); border-radius: var(--r-control); background: var(--surface-1);
   color: var(--label-secondary); font-size: var(--fs-caption); cursor: pointer;
 }
 .rbtn:hover { background: var(--fill-quaternary); color: var(--label); }
@@ -250,7 +250,7 @@ onBeforeUnmount(() => {
 .rbtn.danger { color: var(--state-err); border-color: var(--state-err); }
 .joinrow { display: flex; gap: 8px; }
 .codeinput {
-  flex: 1; min-width: 0; padding: 8px 12px; border: .5px solid var(--separator); border-radius: var(--r-control);
+  flex: 1; min-width: 0; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--r-control);
   background: var(--bg-tertiary); color: var(--label); font-family: var(--font-mono); font-size: var(--fs-ui);
   letter-spacing: 2px;
 }

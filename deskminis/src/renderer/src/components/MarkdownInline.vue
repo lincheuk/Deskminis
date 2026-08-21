@@ -19,7 +19,7 @@ defineProps<{ nodes: MdInline[] }>();
 </template>
 
 <style scoped>
-.md-b { font-weight: 600; }
+.md-b { font-weight: var(--fw-strong); }
 .md-icode {
   font-family: var(--font-mono); font-size: .88em;
   background: var(--fill-quaternary); border-radius: 4px; padding: 1px 5px;

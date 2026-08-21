@@ -287,11 +287,11 @@ async function onRemove(name: string): Promise<void> {
 /* configError 警示条：固定文案（脱敏），视觉对齐同步页的命门文案条 */
 .mxwarn {
   padding: 8px 12px; border-radius: var(--r-card);
-  border: .5px solid var(--state-warn); background: var(--grouped-bg-secondary);
+  border: 1px solid var(--state-warn); background: var(--grouped-bg-secondary);
   font-size: var(--fs-micro); line-height: 1.6; color: var(--state-warn);
 }
 .mxnote { font-size: var(--fs-ui); line-height: 1.7; color: var(--label-secondary); }
-.mxnote strong { color: var(--label); font-weight: 600; }
+.mxnote strong { color: var(--label); font-weight: var(--fw-strong); }
 .mxempty { font-size: var(--fs-ui); color: var(--label-tertiary); padding: 12px 0; }
 
 /* 列表行（形态对齐技能页：状态点 + 主区 + 操作钮排） */
@@ -299,7 +299,7 @@ async function onRemove(name: string): Promise<void> {
 .mxrow {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; border-radius: var(--r-card);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   box-shadow: 0 2px 8px var(--shadow-color);
 }
 .mxrow.mxoff { opacity: .62; }
@@ -309,11 +309,11 @@ async function onRemove(name: string): Promise<void> {
 .mxmain { flex: 1; min-width: 0; }
 .mxname {
   display: flex; align-items: center; gap: 8px;
-  font-size: var(--fs-ui); font-weight: 600; color: var(--label);
+  font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label);
 }
 .mxbadge {
   font-size: var(--fs-micro); font-weight: 400; color: var(--label-tertiary);
-  border: .5px solid var(--separator); border-radius: var(--r-control); padding: 0 6px;
+  border: 1px solid var(--separator); border-radius: var(--r-control); padding: 0 6px;
 }
 /* E3：工具数是「计数读数」，走 mono（Aurora §4 读数面） */
 .mxtools { font-size: var(--fs-micro); font-weight: 400; color: var(--label-tertiary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -323,13 +323,13 @@ async function onRemove(name: string): Promise<void> {
 
 .mxtestbtn, .mxedit, .mxkeep {
   flex: 0 0 auto; padding: 4px 10px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: none;
+  border: 1px solid var(--separator); background: none;
   font-size: var(--fs-micro); color: var(--label-secondary); cursor: pointer; white-space: nowrap;
 }
 .mxtestbtn:disabled { color: var(--label-quaternary); cursor: default; }
 .mxtoggle {
   flex: 0 0 auto; padding: 4px 12px; border-radius: var(--r-pill);
-  border: .5px solid var(--separator); background: none;
+  border: 1px solid var(--separator); background: none;
   font-size: var(--fs-micro); color: var(--label-secondary); cursor: pointer; white-space: nowrap;
 }
 .mxtoggle.mxon { border-color: var(--state-ok); color: var(--state-ok); }
@@ -347,7 +347,7 @@ async function onRemove(name: string): Promise<void> {
 .mxaddrow { display: flex; }
 .mxadd {
   padding: 7px 16px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   font-size: var(--fs-ui); color: var(--label); cursor: pointer;
 }
 .mxadd:hover { background: var(--fill-quaternary); }
@@ -357,14 +357,14 @@ async function onRemove(name: string): Promise<void> {
 .mxform {
   display: flex; flex-direction: column; gap: 6px;
   padding: 12px; border-radius: var(--r-card);
-  background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
+  background: var(--grouped-bg-secondary); border: 1px solid var(--separator);
   box-shadow: 0 2px 8px var(--shadow-color);
 }
 .mxftitle { font-size: var(--fs-ui); font-weight: 700; color: var(--label); margin-bottom: 4px; }
-.mxflabel { font-size: var(--fs-micro); font-weight: 600; color: var(--label-secondary); margin-top: 4px; }
+.mxflabel { font-size: var(--fs-micro); font-weight: var(--fw-medium); color: var(--label-secondary); margin-top: 4px; }
 .mxinput {
   width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   color: var(--label); font-size: var(--fs-ui);
 }
 .mxinput:disabled { color: var(--label-tertiary); }
@@ -372,16 +372,16 @@ async function onRemove(name: string): Promise<void> {
 .mxinput:focus-visible, .mxta:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
 .mxta {
   width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   color: var(--label); font-size: var(--fs-ui); resize: vertical;
 }
 .mxtypes { display: flex; gap: 8px; }
 .mxtype {
   flex: 1; padding: 7px 10px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   font-size: var(--fs-ui); color: var(--label-secondary); cursor: pointer;
 }
-.mxtype.mxon { border-color: var(--action); color: var(--label); font-weight: 600; }
+.mxtype.mxon { border-color: var(--action); color: var(--label); font-weight: var(--fw-medium); }
 .mxkvrow { display: flex; gap: 6px; align-items: center; }
 .mxkvrow .mxinput { flex: 1; min-width: 0; }
 .mxkvdel {
@@ -395,19 +395,19 @@ async function onRemove(name: string): Promise<void> {
 }
 .mxhint { font-size: var(--fs-micro); line-height: 1.6; color: var(--label-tertiary); }
 .mxadv { margin-top: 4px; font-size: var(--fs-micro); color: var(--label-secondary); }
-.mxadv summary { cursor: pointer; font-weight: 600; }
+.mxadv summary { cursor: pointer; font-weight: var(--fw-medium); }
 .mxferr { font-size: var(--fs-micro); line-height: 1.6; color: var(--state-err); }
 .mxbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .mxcancel {
   padding: 7px 14px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   font-size: var(--fs-ui); color: var(--label); cursor: pointer;
 }
 /* E3：主钮青底——accent 底 + on-action 字（§4），两主题自动对 */
 .mxsave {
   padding: 7px 16px; border-radius: var(--r-control); border: none;
   background: var(--accent); color: var(--on-action);
-  font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .mxsave:disabled { background: var(--label-quaternary); cursor: default; }
 </style>

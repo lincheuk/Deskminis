@@ -132,11 +132,11 @@ onMounted(() => {
 .fpanel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .fhead {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; border-bottom: .5px solid var(--separator); flex: 0 0 auto;
+  padding: 8px 12px; border-bottom: 1px solid var(--separator); flex: 0 0 auto;
   /* I2 平面化：实色面板头（AionUi 语言，玻璃退场——设计稿 2026-08-20 §0 申报） */
   background: var(--surface-1);
 }
-.ftitle { font-size: 13px; font-weight: 600; color: var(--label-strong); }
+.ftitle { font-size: 13px; font-weight: var(--fw-strong); color: var(--label-strong); }
 .fbtn {
   background: none; border: none; color: var(--label-secondary); cursor: pointer;
   display: inline-flex; padding: 4px; border-radius: var(--r-control);
@@ -147,10 +147,10 @@ onMounted(() => {
 .fhint.err { color: var(--red); }
 .fprev {
   flex: 0 0 auto; max-height: 45%; display: flex; flex-direction: column;
-  border-top: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  border-top: 1px solid var(--separator); background: var(--grouped-bg-secondary);
 }
 .phead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px 4px; }
-.pname { font-size: 12px; font-weight: 600; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pname { font-size: 12px; font-weight: var(--fw-strong); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pmeta { font-size: 11px; color: var(--label-tertiary); padding: 0 12px 6px; font-variant-numeric: tabular-nums; }
 .pbody {
   flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0 12px 10px;
@@ -160,11 +160,11 @@ onMounted(() => {
 /* L4 md 渲染预览：滚动容器同 pbody，正文交给 MarkdownView 既有排版 */
 .pmd { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 10px; }
 /* 「渲染/源码」段控（.seg 成例的局部版）：只在 md 文件出现 */
-.pseg { display: inline-flex; margin-left: 8px; border: .5px solid var(--separator); border-radius: var(--r-control); overflow: hidden; }
+.pseg { display: inline-flex; margin-left: 8px; border: 1px solid var(--separator); border-radius: var(--r-control); overflow: hidden; }
 .pseg button {
   border: none; background: none; cursor: pointer;
   padding: 1px 8px; font-size: var(--fs-micro); color: var(--label-secondary);
 }
-.pseg button.on { background: var(--action); color: var(--on-action); font-weight: 600; }
+.pseg button.on { background: var(--action); color: var(--on-action); font-weight: var(--fw-medium); }
 .pseg button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 </style>

@@ -210,11 +210,11 @@ async function saveSearchProvider(): Promise<void> {
 
 <style scoped>
 .settings { display: flex; flex-direction: column; gap: 12px; }
-.title3 { font-size: 20px; font-weight: 600; }
-.grouphead { font-size: 15px; font-weight: 600; color: var(--label-strong); margin-top: 4px; }
+.title3 { font-size: 20px; font-weight: var(--fw-strong); }
+.grouphead { font-size: 15px; font-weight: var(--fw-strong); color: var(--label-strong); margin-top: 4px; }
 /* E3（Aurora §4）：分组卡浮岛化——圆角升 --r-card + 顶缘高光 + 柔影；实心材质不用 blur */
 .group {
-  background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-card);
+  background: var(--grouped-bg-secondary); border: 1px solid var(--separator); border-radius: var(--r-card);
   padding: 8px; display: flex; flex-direction: column; gap: 6px;
   box-shadow: 0 2px 8px var(--shadow-color);
 }
@@ -222,8 +222,8 @@ async function saveSearchProvider(): Promise<void> {
 .prow { display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: var(--r-control); }
 .prow.on { background: var(--fill-quaternary); }
 .pinfo { flex: 1; min-width: 0; }
-.pname { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.badge { font-size: 11px; font-weight: 500; color: var(--accent); border: .5px solid var(--accent); border-radius: var(--r-pill); padding: 0 6px; }
+.pname { font-size: 15px; font-weight: var(--fw-strong); display: flex; align-items: center; gap: 6px; }
+.badge { font-size: 11px; font-weight: 500; color: var(--accent); border: 1px solid var(--accent); border-radius: var(--r-pill); padding: 0 6px; }
 .pmodel { font-size: 12px; color: var(--label-secondary); font-family: var(--font-mono); margin-top: 2px; }
 .miss { color: var(--orange); }
 .act { background: none; border: none; color: var(--label-tertiary); cursor: pointer; padding: 4px; display: inline-flex; border-radius: var(--r-control); }
@@ -249,7 +249,7 @@ async function saveSearchProvider(): Promise<void> {
 .modelrow { display: flex; gap: 6px; }
 .modelrow .inp { flex: 1; min-width: 0; }
 .fetchbtn {
-  padding: 8px 12px; border-radius: var(--r-control); border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  padding: 8px 12px; border-radius: var(--r-control); border: 1px solid var(--separator); background: var(--grouped-bg-secondary);
   color: var(--label-secondary); font-size: 13px; cursor: pointer; font-family: var(--font-ui); white-space: nowrap;
 }
 .fetchbtn:hover { background: var(--fill-quaternary); }
@@ -259,14 +259,14 @@ async function saveSearchProvider(): Promise<void> {
 /* E3：主钮青底——accent 底 + on-action 字（§4）；
    confirm 变体（可疑地址二次确认）换警示色系，accent 底上橙字不可读，故整体换成警示底+橙字 */
 .addbtn {
-  flex: 1; padding: 9px; border-radius: var(--r-control); border: .5px solid var(--accent); background: var(--accent);
-  color: var(--on-action); font-size: 15px; font-weight: 600; cursor: pointer; font-family: var(--font-ui);
+  flex: 1; padding: 9px; border-radius: var(--r-control); border: 1px solid var(--accent); background: var(--accent);
+  color: var(--on-action); font-size: 15px; font-weight: var(--fw-medium); cursor: pointer; font-family: var(--font-ui);
 }
 .addbtn:hover { background: var(--accent); }
 .addbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .addbtn.confirm { background: var(--state-warn-bg); border-color: var(--orange); color: var(--orange); }
 .cancelbtn {
-  padding: 9px 14px; border-radius: var(--r-control); border: .5px solid var(--separator); background: transparent;
+  padding: 9px 14px; border-radius: var(--r-control); border: 1px solid var(--separator); background: transparent;
   color: var(--label-secondary); font-size: 15px; cursor: pointer; font-family: var(--font-ui);
 }
 .cancelbtn:hover { background: var(--fill-quaternary); }

@@ -125,20 +125,20 @@ async function onDelete(id: string): Promise<void> {
   font-family: var(--font-mono); font-size: var(--fs-micro);
   background: var(--fill-quaternary); padding: 1px 5px; border-radius: var(--r-control);
 }
-.snote strong { color: var(--label); font-weight: 600; }
+.snote strong { color: var(--label); font-weight: var(--fw-strong); }
 
 /* E3（Aurora §4）：导入卡浮岛化——顶缘高光 + 柔影；实心材质不用 blur */
 .imp {
   display: flex; flex-direction: column; gap: 6px;
   padding: 12px; border-radius: var(--r-card);
-  background: var(--grouped-bg-secondary); border: .5px solid var(--separator);
+  background: var(--grouped-bg-secondary); border: 1px solid var(--separator);
   box-shadow: 0 2px 8px var(--shadow-color);
 }
-.implabel { font-size: var(--fs-ui); font-weight: 600; color: var(--label); }
+.implabel { font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label); }
 .improw { display: flex; gap: 8px; }
 .impinput {
   flex: 1; min-width: 0; padding: 7px 10px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   color: var(--label); font-size: var(--fs-ui); font-family: var(--font-mono);
 }
 .impinput:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
@@ -146,7 +146,7 @@ async function onDelete(id: string): Promise<void> {
 .impbtn {
   flex: 0 0 auto; padding: 7px 16px; border-radius: var(--r-control); border: none;
   background: var(--accent); color: var(--on-action);
-  font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .impbtn:disabled { background: var(--label-quaternary); cursor: default; }
 .impbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
@@ -163,14 +163,14 @@ async function onDelete(id: string): Promise<void> {
 .row {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; border-radius: var(--r-card);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   box-shadow: 0 2px 8px var(--shadow-color);
 }
 .row.off { opacity: .62; }
 .rmain { flex: 1; min-width: 0; }
 .rname {
   display: flex; align-items: center; gap: 8px;
-  font-size: var(--fs-ui); font-weight: 600; color: var(--label);
+  font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label);
 }
 /* E3：调用次数是「计数读数」，走 mono（Aurora §4 读数面） */
 .rcount { font-size: var(--fs-micro); font-weight: 400; color: var(--label-tertiary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -180,7 +180,7 @@ async function onDelete(id: string): Promise<void> {
 }
 .rtoggle {
   flex: 0 0 auto; padding: 4px 12px; border-radius: var(--r-pill);
-  border: .5px solid var(--separator); background: none;
+  border: 1px solid var(--separator); background: none;
   font-size: var(--fs-micro); color: var(--label-secondary); cursor: pointer; white-space: nowrap;
 }
 .rtoggle.on { border-color: var(--state-ok); color: var(--state-ok); }
@@ -196,7 +196,7 @@ async function onDelete(id: string): Promise<void> {
 /* 红线 6：确认态里「取消」排在危险项之前，默认焦点不落在删除上 */
 .rkeep {
   flex: 0 0 auto; padding: 5px 10px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   font-size: var(--fs-micro); color: var(--label-secondary); cursor: pointer; white-space: nowrap;
 }
 </style>

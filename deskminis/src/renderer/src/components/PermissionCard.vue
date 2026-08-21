@@ -69,7 +69,7 @@ const previewCounts = computed(() => countAddDel(previewLines.value));
 
 <style scoped>
 .perm {
-  background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-card);
+  background: var(--surface-1); border: 1px solid var(--separator); border-radius: var(--r-card);
   /* E3（Aurora §4）：浮岛卡 + 左缘 3px accent 警示线——警示线/顶缘高光全走 inset 阴影，
      不占布局零位移（border-left 会把内容右推 3px）；柔影给浮起感。实心材质，不用 blur（§5）。 */
   /* I4：受光边退场，左缘警示线与柔影保留（平面卡语言） */
@@ -80,23 +80,23 @@ const previewCounts = computed(() => countAddDel(previewLines.value));
 .shield { display: inline-flex; color: var(--state-warn); }
 .shield.danger { color: var(--state-err); }
 .htext { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.title { font-size: 17px; font-weight: 600; color: var(--label-strong); }
+.title { font-size: 17px; font-weight: var(--fw-strong); color: var(--label-strong); }
 .sub { font-size: 12.5px; color: var(--label-secondary); }
 /* 右上 mono 读秒；urgent（≤10s）变橙 */
 .countdown { font-family: var(--font-mono); font-size: 13px; color: var(--label-secondary); }
-.countdown.urgent { color: var(--state-warn); font-weight: 600; }
+.countdown.urgent { color: var(--state-warn); font-weight: var(--fw-medium); }
 .args {
   background: var(--surface-2); border-radius: var(--r-md); padding: 10px 12px;
   display: flex; flex-direction: column; gap: 6px;
 }
-.k { font-size: 13px; font-weight: 600; color: var(--label-secondary); }
+.k { font-size: 13px; font-weight: var(--fw-medium); color: var(--label-secondary); }
 /* 逐字完整、可换行、绝不截断 */
 .v { font-size: 13px; font-family: var(--font-mono); color: var(--label-intense); word-break: break-all; white-space: pre-wrap; line-height: 1.5; }
 .triggers {
-  background: var(--state-warn-bg); border: .5px solid var(--state-warn-border); border-radius: var(--r-md);
+  background: var(--state-warn-bg); border: 1px solid var(--state-warn-border); border-radius: var(--r-md);
   padding: 8px 12px; display: flex; flex-direction: column; gap: 4px;
 }
-.tk { font-size: 12.5px; font-weight: 600; color: var(--state-warn); }
+.tk { font-size: 12.5px; font-weight: var(--fw-medium); color: var(--state-warn); }
 .tv { font-size: 12.5px; color: var(--label); }
 .tv::before { content: '· '; color: var(--state-warn); }
 /* 窄列折行治理：nowrap 禁止按钮文字折断（「本会话允/许」这种断法比按钮换行难看得多），
@@ -104,9 +104,9 @@ const previewCounts = computed(() => countAddDel(previewLines.value));
    basis 是 0，没有最小宽约束时三颗按钮永远「挤得下」，wrap 永远不触发。 */
 .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn {
-  flex: 1; min-width: 96px; padding: 10px; border-radius: var(--r-control); border: .5px solid var(--separator);
+  flex: 1; min-width: 96px; padding: 10px; border-radius: var(--r-control); border: 1px solid var(--separator);
   background: var(--surface-1); color: var(--label); font-family: var(--font-ui);
-  font-size: 15px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  font-size: 15px; font-weight: var(--fw-medium); cursor: pointer; white-space: nowrap;
 }
 .btn:hover { background: var(--fill-quaternary); }
 /* MU3 §2-5 焦点环：允许/会话允许走 --ring；拒绝钮走 --ring-danger */

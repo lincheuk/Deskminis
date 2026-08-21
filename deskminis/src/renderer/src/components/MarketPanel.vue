@@ -607,16 +607,16 @@ function fmtNum(n: number): string {
   flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
   padding: 10px 14px 8px;
 }
-.mkseg { display: flex; border: .5px solid var(--separator); border-radius: var(--r-control); overflow: hidden; flex: 0 0 auto; }
+.mkseg { display: flex; border: 1px solid var(--separator); border-radius: var(--r-control); overflow: hidden; flex: 0 0 auto; }
 .mkseg button {
   border: none; background: none; cursor: pointer;
   padding: 4px 14px; font-size: var(--fs-ui); color: var(--label-secondary);
 }
-.mkseg button.on { background: var(--action); color: var(--on-action); font-weight: 600; }
+.mkseg button.on { background: var(--action); color: var(--on-action); font-weight: var(--fw-medium); }
 .mkseg button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .mksearch {
   flex: 1; min-width: 0; padding: 5px 10px;
-  border: .5px solid var(--separator); border-radius: var(--r-input);
+  border: 1px solid var(--separator); border-radius: var(--r-input);
   background: var(--surface-1); color: var(--label);
   font-size: var(--fs-ui);
 }
@@ -627,17 +627,17 @@ function fmtNum(n: number): string {
 .mkchips { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 0 14px 8px; flex-wrap: wrap; }
 .chip {
   padding: 2px 10px; border-radius: var(--r-pill);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   color: var(--label-secondary); font-size: var(--fs-micro); cursor: pointer;
 }
-.chip.on { border-color: var(--action); color: var(--action); font-weight: 600; }
+.chip.on { border-color: var(--action); color: var(--action); font-weight: var(--fw-medium); }
 .chip.off { color: var(--label-quaternary); }
 .chip:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* stale 离线缓存提示条 */
 .mkstalebar {
   flex: 0 0 auto; margin: 0 14px 8px; padding: 5px 10px;
-  border: .5px solid var(--state-warn-border); border-radius: var(--r-control);
+  border: 1px solid var(--state-warn-border); border-radius: var(--r-control);
   background: var(--state-warn-bg); color: var(--label-secondary);
   font-size: var(--fs-micro);
 }
@@ -647,7 +647,7 @@ function fmtNum(n: number): string {
 .mkupd-btn:disabled { opacity: var(--opacity-disabled); cursor: default; }
 .mkupd {
   flex: 0 0 auto; margin: 0 14px 8px; padding: 6px 10px;
-  border: .5px solid var(--separator); border-radius: var(--r-control);
+  border: 1px solid var(--separator); border-radius: var(--r-control);
   background: var(--surface-1);
   display: flex; flex-direction: column; gap: 4px;
 }
@@ -657,13 +657,13 @@ function fmtNum(n: number): string {
 .mkupd-err { color: var(--state-warn); font-size: var(--fs-micro); }
 .updrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .updname {
-  flex: 0 1 auto; min-width: 0; font-size: var(--fs-ui); font-weight: 600; color: var(--label);
+  flex: 0 1 auto; min-width: 0; font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* 可更新标记（mono）：action 色系——可执行的动作信号，非警告语义 */
 .mc-upd {
   flex: 0 0 auto; padding: 1px 8px; border-radius: var(--r-pill);
-  border: .5px solid var(--action); color: var(--action); font-weight: 600;
+  border: 1px solid var(--action); color: var(--action); font-weight: var(--fw-medium);
 }
 .upd-blocknote { margin: 0; font-size: var(--fs-micro); color: var(--state-err); }
 /* 转圈：既有令牌上色的细环（零新色） */
@@ -684,7 +684,7 @@ function fmtNum(n: number): string {
 /* 浮岛卡片：实心面 + 静态阴影（性能纪律：无逐卡阴影动画）+ 顶缘内高光 */
 .mcard {
   display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
-  border: .5px solid var(--separator); border-radius: var(--r-card);
+  border: 1px solid var(--separator); border-radius: var(--r-card);
   background: var(--surface-1); cursor: pointer;
   box-shadow: 0 2px 8px var(--shadow-color);
 }
@@ -693,7 +693,7 @@ function fmtNum(n: number): string {
 .mcard.blocked { border-color: var(--state-err-border); }
 .mc-top { display: flex; align-items: center; gap: 8px; }
 .mc-name {
-  flex: 1; min-width: 0; font-size: var(--fs-ui); font-weight: 600; color: var(--label);
+  flex: 1; min-width: 0; font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .mc-author {
@@ -710,12 +710,12 @@ function fmtNum(n: number): string {
 .mc-install {
   padding: 3px 14px; border: none; border-radius: var(--r-control);
   background: var(--action); color: var(--on-action);
-  font-size: var(--fs-micro); font-weight: 600; cursor: pointer;
+  font-size: var(--fs-micro); font-weight: var(--fw-medium); cursor: pointer;
 }
 .mc-install:disabled { opacity: var(--opacity-disabled); cursor: default; background: var(--fill); color: var(--label-tertiary); }
 .mc-install:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .mc-installed {
-  padding: 3px 14px; border: .5px solid var(--state-ok-border); border-radius: var(--r-control);
+  padding: 3px 14px; border: 1px solid var(--state-ok-border); border-radius: var(--r-control);
   background: var(--state-ok-bg); color: var(--label-secondary);
   font-size: var(--fs-micro); cursor: default;
 }
@@ -726,20 +726,20 @@ function fmtNum(n: number): string {
 .mkunscanned { margin: 6px 0; font-size: var(--fs-micro); color: var(--label-tertiary); }
 
 /* verdict 徽章：四态全走既有 state/label 令牌，零新色 */
-.vb { flex: 0 0 auto; padding: 1px 8px; border-radius: var(--r-pill); font-size: var(--fs-micro); font-weight: 600; }
-.vb-ok { color: var(--state-ok); border: .5px solid var(--state-ok-border); background: var(--state-ok-bg); }
-.vb-warn { color: var(--state-warn); border: .5px solid var(--state-warn-border); background: var(--state-warn-bg); }
-.vb-malicious { color: var(--state-err); border: .5px solid var(--state-err-border); background: var(--state-err-bg); }
-.vb-unscanned { color: var(--label-tertiary); border: .5px solid var(--separator); background: var(--surface-2); }
+.vb { flex: 0 0 auto; padding: 1px 8px; border-radius: var(--r-pill); font-size: var(--fs-micro); font-weight: var(--fw-medium); }
+.vb-ok { color: var(--state-ok); border: 1px solid var(--state-ok-border); background: var(--state-ok-bg); }
+.vb-warn { color: var(--state-warn); border: 1px solid var(--state-warn-border); background: var(--state-warn-bg); }
+.vb-malicious { color: var(--state-err); border: 1px solid var(--state-err-border); background: var(--state-err-bg); }
+.vb-unscanned { color: var(--label-tertiary); border: 1px solid var(--separator); background: var(--surface-2); }
 
 /* 源徽章 */
 .srcbadge {
-  padding: 0 6px; border-radius: var(--r-pill); border: .5px solid var(--separator);
+  padding: 0 6px; border-radius: var(--r-pill); border: 1px solid var(--separator);
   font-size: var(--fs-micro); color: var(--label-tertiary);
 }
 .tierbadge { padding: 0 6px; border-radius: var(--r-pill); font-size: var(--fs-micro); }
-.tier-official { color: var(--state-ok); border: .5px solid var(--state-ok-border); }
-.tier-community { color: var(--label-tertiary); border: .5px solid var(--separator); }
+.tier-official { color: var(--state-ok); border: 1px solid var(--state-ok-border); }
+.tier-community { color: var(--label-tertiary); border: 1px solid var(--separator); }
 
 .mono { font-family: var(--font-mono); font-size: var(--fs-mono); }
 .mkloading { grid-column: 1 / -1; padding: 18px 0; text-align: center; color: var(--label-tertiary); font-size: var(--fs-ui); }
@@ -759,16 +759,16 @@ function fmtNum(n: number): string {
 .mkdmeta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; color: var(--label-secondary); font-size: var(--fs-micro); }
 .mkinstall {
   padding: 4px 18px; border: none; border-radius: var(--r-control);
-  background: var(--action); color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  background: var(--action); color: var(--on-action); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .mkinstall:disabled { opacity: var(--opacity-disabled); cursor: default; background: var(--fill); color: var(--label-tertiary); }
 .mkinstall:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .mkmanage {
-  padding: 4px 14px; border: .5px solid var(--state-ok-border); border-radius: var(--r-control);
+  padding: 4px 14px; border: 1px solid var(--state-ok-border); border-radius: var(--r-control);
   background: var(--state-ok-bg); color: var(--label-secondary); font-size: var(--fs-micro); cursor: pointer;
 }
 .mkmanage:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.mkreadme { border-top: .5px solid var(--separator); padding-top: 12px; }
+.mkreadme { border-top: 1px solid var(--separator); padding-top: 12px; }
 
 /* 安装确认卡：scrim + sheet（照 SettingsModal 成例；z-index 同档 100） */
 .mask {
@@ -782,7 +782,7 @@ function fmtNum(n: number): string {
 }
 .shhead {
   flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
-  padding: 14px 16px 10px; border-bottom: .5px solid var(--separator);
+  padding: 14px 16px 10px; border-bottom: 1px solid var(--separator);
 }
 .shtitle { flex: 1; min-width: 0; font-size: var(--fs-title); font-weight: 700; color: var(--label-emphasis); }
 .xbtn {
@@ -797,11 +797,11 @@ function fmtNum(n: number): string {
 .shlabel { font-size: var(--fs-micro); color: var(--label-tertiary); flex: 0 0 auto; }
 .filelist {
   max-height: 140px; overflow-y: auto; padding: 8px 10px;
-  border: .5px solid var(--separator); border-radius: var(--r-control); background: var(--surface-1);
+  border: 1px solid var(--separator); border-radius: var(--r-control); background: var(--surface-1);
 }
 .hashline { color: var(--label-tertiary); }
 .cmdline {
-  display: block; padding: 8px 10px; border: .5px solid var(--separator);
+  display: block; padding: 8px 10px; border: 1px solid var(--separator);
   border-radius: var(--r-control); background: var(--surface-1); color: var(--label);
   word-break: break-all;
 }
@@ -813,7 +813,7 @@ function fmtNum(n: number): string {
 /* G4 更新流「保留原值」徽标：已存值沿用（state-ok 系，零新色） */
 .envsaved { margin-left: 6px; color: var(--state-ok); font-size: var(--fs-micro); }
 .envinput {
-  padding: 5px 10px; border: .5px solid var(--separator); border-radius: var(--r-input);
+  padding: 5px 10px; border: 1px solid var(--separator); border-radius: var(--r-input);
   background: var(--surface-1); color: var(--label); font-size: var(--fs-ui);
 }
 .envinput:focus-visible { outline: 2px solid var(--ring-input); outline-offset: -1px; }
@@ -821,16 +821,16 @@ function fmtNum(n: number): string {
 .mkprogress { margin: 8px 0; font-size: var(--fs-micro); color: var(--label-secondary); }
 .shfoot {
   flex: 0 0 auto; display: flex; justify-content: flex-end; gap: 8px;
-  padding: 10px 16px 14px; border-top: .5px solid var(--separator);
+  padding: 10px 16px 14px; border-top: 1px solid var(--separator);
 }
 .shcancel {
-  padding: 5px 16px; border: .5px solid var(--separator); border-radius: var(--r-control);
+  padding: 5px 16px; border: 1px solid var(--separator); border-radius: var(--r-control);
   background: none; color: var(--label-secondary); font-size: var(--fs-ui); cursor: pointer;
 }
 .shcancel:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .shok {
   padding: 5px 18px; border: none; border-radius: var(--r-control);
-  background: var(--action); color: var(--on-action); font-size: var(--fs-ui); font-weight: 600; cursor: pointer;
+  background: var(--action); color: var(--on-action); font-size: var(--fs-ui); font-weight: var(--fw-medium); cursor: pointer;
 }
 .shok:disabled { opacity: var(--opacity-disabled); cursor: default; }
 .shok:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
@@ -839,7 +839,7 @@ function fmtNum(n: number): string {
 .mktoast {
   position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
   padding: 7px 16px; border-radius: var(--r-pill);
-  background: var(--surface-2); border: .5px solid var(--separator);
+  background: var(--surface-2); border: 1px solid var(--separator);
   box-shadow: var(--shadow-pop); color: var(--label); font-size: var(--fs-ui);
   z-index: 5;
 }

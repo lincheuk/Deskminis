@@ -139,7 +139,7 @@ function pickAssistant(id: string): void {
 .ascard:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .ascard.on {
   background: var(--surface-1); border-color: var(--accent); color: var(--label);
-  box-shadow: 0 2px 8px var(--shadow-color); font-weight: 600;
+  box-shadow: 0 2px 8px var(--shadow-color); font-weight: var(--fw-medium);
 }
 .aavatar { font-size: 15px; line-height: 1; }
 .acname { line-height: 1; }
@@ -169,7 +169,7 @@ function pickAssistant(id: string): void {
 .excard:hover { background: var(--fill-quaternary); color: var(--label); }
 .excard :deep(svg) { flex: 0 0 auto; margin-top: 2px; }
 .extxt { min-width: 0; text-align: left; }
-.extitle { font-size: var(--fs-ui); font-weight: 600; color: var(--label-strong); }
+.extitle { font-size: var(--fs-ui); font-weight: var(--fw-strong); color: var(--label-strong); }
 .exsub {
   font-size: var(--fs-caption); color: var(--label-tertiary); margin-top: 3px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -177,7 +177,7 @@ function pickAssistant(id: string): void {
 
 /* 最近任务：标题 + 相对时间，点击直达会话 */
 .recent { margin-top: 16px; width: 452px; max-width: 100%; }
-.rhead { font-size: 12px; font-weight: 600; color: var(--label-tertiary); padding: 0 4px 6px; text-align: left; }
+.rhead { font-size: 12px; font-weight: var(--fw-strong); color: var(--label-tertiary); padding: 0 4px 6px; text-align: left; }
 .ritem {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-control);
   cursor: pointer; color: var(--label-secondary);

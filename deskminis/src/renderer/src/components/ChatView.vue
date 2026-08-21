@@ -927,7 +927,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .wsbtn { cursor: pointer; }
 .wspanel {
   margin: 8px 10px 2px; padding: 10px 12px; border-radius: var(--r-md);
-  background: var(--fill-quaternary); border: .5px solid var(--separator);
+  background: var(--fill-quaternary); border: 1px solid var(--separator);
   display: flex; flex-direction: column; gap: 8px;
 }
 .wsnow { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: var(--fs-micro); }
@@ -943,7 +943,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
   /* min-width 给下限：flex 默认 min-width:auto 会被兄弟挤到只剩几像素。
      宁可整行换行，也不要一个压成缝的输入框。 */
   flex: 1 1 auto; min-width: 140px; padding: 5px 8px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--surface-1);
+  border: 1px solid var(--separator); background: var(--surface-1);
   color: var(--label); font-size: var(--fs-micro); font-family: var(--font-mono);
 }
 .wsinput:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
@@ -953,10 +953,10 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 }
 /* 主操作独占一行：文案在没有会话时会变长（「新建会话并选目录…」），
    与输入框同排必然把后者挤没 */
-.wsbtn-main { width: 100%; border: none; background: var(--action); color: var(--on-action); font-weight: 600; }
-.wsbtn-apply { border: .5px solid var(--separator); background: var(--surface-1); color: var(--label); }
+.wsbtn-main { width: 100%; border: none; background: var(--action); color: var(--on-action); font-weight: var(--fw-medium); }
+.wsbtn-apply { border: 1px solid var(--separator); background: var(--surface-1); color: var(--label); }
 .wsbtn-main:disabled, .wsbtn-apply:disabled { opacity: var(--opacity-disabled); cursor: default; }
-.wsreset { border: .5px solid var(--separator); background: none; color: var(--label-secondary); margin-left: auto; }
+.wsreset { border: 1px solid var(--separator); background: none; color: var(--label-secondary); margin-left: auto; }
 .wsbtn-main:focus-visible, .wsbtn-apply:focus-visible, .wsreset:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .wsfoot { display: flex; align-items: center; gap: 8px; }
 .wshint { font-size: var(--fs-micro); color: var(--label-tertiary); line-height: 1.5; }
@@ -964,12 +964,12 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 /* L5 会话级 MCP 行内面板（wspanel 同款视觉，行结构对齐 AssistantSettings 技能勾选） */
 .mcpanel {
   margin: 8px 10px 2px; padding: 10px 12px; border-radius: var(--r-md);
-  background: var(--fill-quaternary); border: .5px solid var(--separator);
+  background: var(--fill-quaternary); border: 1px solid var(--separator);
   display: flex; flex-direction: column; gap: 6px;
 }
 .mchead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: var(--fs-micro); }
 .mclabel { color: var(--label-tertiary); }
-.mctag { color: var(--label-secondary); font-weight: 600; }
+.mctag { color: var(--label-secondary); font-weight: var(--fw-medium); }
 .mcrow { display: flex; align-items: center; gap: 8px; font-size: var(--fs-micro); cursor: pointer; }
 .mcrow input { accent-color: var(--action); }
 .mcname { color: var(--label); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -986,7 +986,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
   width: 32px; height: 32px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--surface-1);
-  border: .5px solid var(--separator); color: var(--label-secondary);
+  border: 1px solid var(--separator); color: var(--label-secondary);
   cursor: pointer; box-shadow: 0 4px 16px var(--shadow-color);
 }
 .back-bottom:hover { color: var(--label); background: var(--fill-tertiary); }
@@ -1019,13 +1019,13 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
    改成管住 .stream 的全部直接子元素，一处定义、处处对齐。 */
 .stream > * { width: 100%; max-width: 792px; margin-inline: auto; }
 .turn { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
-.turn + .turn { border-top: .5px solid var(--separator); margin-top: var(--sp-6); padding-top: var(--sp-6); }
+.turn + .turn { border-top: 1px solid var(--separator); margin-top: var(--sp-6); padding-top: var(--sp-6); }
 
 /* I4（AionUi 换向）：用户消息右对齐浅蓝气泡——「谁说的」由方位编码（右=你，左=助手），
    标签行随块右对齐。右上角收平是 AionUi 的方向切角（指向发话者）。 */
 .ublock { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 .urow { display: flex; align-items: center; gap: 8px; min-height: 20px; }
-.utag { font-size: var(--fs-ui); font-weight: 600; color: var(--label-secondary); }
+.utag { font-size: var(--fs-ui); font-weight: var(--fw-medium); color: var(--label-secondary); }
 .utime { font-weight: 400; font-size: var(--fs-caption); color: var(--label-tertiary); }
 .uops {
   opacity: 0; transition: opacity .12s ease-out;
@@ -1047,7 +1047,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .uchips { display: flex; flex-wrap: wrap; gap: 6px; }
 .uchip {
   display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--r-pill);
-  border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  border: 1px solid var(--separator); background: var(--grouped-bg-secondary);
   font-size: var(--fs-ui); color: var(--label-secondary); max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -1055,7 +1055,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .msg-a { padding: 0; }
 .ahead { display: flex; align-items: center; gap: 8px; }
 .aicon { width: 18px; height: 18px; border-radius: 5px; background: var(--assistant-gradient); flex: 0 0 auto; }
-.aname { font-size: var(--fs-title); font-weight: 600; color: var(--label-strong); }
+.aname { font-size: var(--fs-title); font-weight: var(--fw-strong); color: var(--label-strong); }
 /* MU5：文档式排版——行高 1.55 → 1.72（来源 AionUi 会话视图：助手输出按文档排，不进气泡）。
    气泡本身 MU2a 就已去掉（.msg-a{padding:0}），本轮补的是「读起来像文档」的那一半。 */
 /* I4（AionUi 换向）：助手输出**无背景满行宽平铺**——文档式排版回归（E3 浮岛卡退场）。
@@ -1103,7 +1103,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
   position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
   display: flex; flex-direction: column; padding: 6px; gap: 2px; max-height: 260px; overflow: auto;
   background: var(--surface-1);
-  border: .5px solid var(--separator); border-radius: var(--r-md);
+  border: 1px solid var(--separator); border-radius: var(--r-md);
   box-shadow: 0 8px 28px var(--shadow-color);
 }
 .slashitem {
@@ -1114,14 +1114,14 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .slashitem.on { background: var(--fill-tertiary); }
 .slashitem:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .slashitem :deep(svg) { stroke: var(--label-secondary); flex: 0 0 auto; }
-.sname { font-weight: 600; flex: 0 0 auto; color: var(--label-strong); }
+.sname { font-weight: var(--fw-medium); flex: 0 0 auto; color: var(--label-strong); }
 .sdesc { color: var(--label-tertiary); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* L2 @ 文件菜单：容器与 slashmenu 同款（独立类名，slashmenu 守卫锚不动）；行内路径用等宽 */
 .atmenu {
   position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
   display: flex; flex-direction: column; padding: 6px; gap: 2px; max-height: 260px; overflow: auto;
   background: var(--surface-1);
-  border: .5px solid var(--separator); border-radius: var(--r-md);
+  border: 1px solid var(--separator); border-radius: var(--r-md);
   box-shadow: 0 8px 28px var(--shadow-color);
 }
 .atmenu .sname { font-weight: 400; font-family: var(--font-mono); font-size: var(--fs-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1140,7 +1140,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .achips { display: flex; gap: 8px; flex-wrap: wrap; }
 .achip {
   position: relative; width: 48px; height: 48px; border-radius: var(--r-control);
-  overflow: hidden; border: .5px solid var(--separator); flex: 0 0 auto;
+  overflow: hidden; border: 1px solid var(--separator); flex: 0 0 auto;
 }
 .achip img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .adel {
@@ -1191,7 +1191,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .attachinput { display: none; }
 .attach {
   flex: 0 0 auto; width: 26px; height: 26px; padding: 0;
-  border-radius: var(--r-control); border: .5px solid var(--separator); background: none;
+  border-radius: var(--r-control); border: 1px solid var(--separator); background: none;
   color: var(--label-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .attach:hover { background: var(--fill-quaternary); color: var(--label); }
@@ -1199,7 +1199,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .attach :deep(svg) { stroke: var(--label-secondary); }
 .cpill {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
-  border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  border: 1px solid var(--separator); background: var(--grouped-bg-secondary);
   font-size: var(--fs-ui); color: var(--label-secondary);
 }
 .cpill.static { cursor: default; }
@@ -1227,7 +1227,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
      选区靠右时可用宽塌缩，CJK 按钮文字会逐字竖排（真机截图逮到的） */
   width: max-content; white-space: nowrap;
   display: inline-flex; gap: 2px; padding: 3px;
-  background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-md);
+  background: var(--surface-1); border: 1px solid var(--separator); border-radius: var(--r-md);
   box-shadow: 0 8px 28px var(--shadow-color);
 }
 .annobtn {
@@ -1242,7 +1242,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .annopop {
   position: absolute; z-index: 30; transform: translateX(-50%);
   width: 260px; display: flex; flex-direction: column; gap: 8px; padding: 10px;
-  background: var(--surface-1); border: .5px solid var(--separator); border-radius: var(--r-md);
+  background: var(--surface-1); border: 1px solid var(--separator); border-radius: var(--r-md);
   box-shadow: 0 8px 28px var(--shadow-color);
 }
 .annoquote {
@@ -1252,7 +1252,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 }
 .annonote {
   resize: none; padding: 6px 8px; border-radius: var(--r-control);
-  border: .5px solid var(--separator); background: var(--bg); color: var(--label);
+  border: 1px solid var(--separator); background: var(--bg); color: var(--label);
   font-family: var(--font-ui); font-size: var(--fs-micro); line-height: 1.5;
 }
 .annonote:focus-visible { outline: 2px solid var(--ring-input); outline-offset: 1px; }
@@ -1264,7 +1264,7 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .annodel:hover { background: var(--fill-tertiary); }
 .annosave {
   border: none; background: var(--action); color: var(--on-action); font-size: var(--fs-micro);
-  font-weight: 600; cursor: pointer; padding: 4px 12px; border-radius: var(--r-control);
+  font-weight: var(--fw-medium); cursor: pointer; padding: 4px 12px; border-radius: var(--r-control);
 }
 .annodel:focus-visible, .annosave:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 

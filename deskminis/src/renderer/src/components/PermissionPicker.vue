@@ -52,12 +52,12 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 .wrap { position: relative; }
 .cpill {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
-  border: .5px solid var(--separator); background: var(--grouped-bg-secondary);
+  border: 1px solid var(--separator); background: var(--grouped-bg-secondary);
   font-size: 13px; color: var(--label-secondary); cursor: pointer;
 }
 .menu {
   position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; min-width: 300px;
-  background: var(--grouped-bg-secondary); border: .5px solid var(--separator); border-radius: var(--r-card);
+  background: var(--grouped-bg-secondary); border: 1px solid var(--separator); border-radius: var(--r-card);
   padding: 6px; box-shadow: var(--shadow-pop);
 }
 .mhead { font-size: 12px; color: var(--label-secondary); padding: 8px 10px 6px; }
@@ -66,7 +66,7 @@ onBeforeUnmount(() => document.removeEventListener('click', close));
 /* MU3 §2-5 焦点环 */
 .mrow:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .mtxt { flex: 1; min-width: 0; }
-.mt { font-size: 15px; font-weight: 600; color: var(--label-strong); }
+.mt { font-size: 15px; font-weight: var(--fw-strong); color: var(--label-strong); }
 .ms { font-size: 13px; color: var(--label-secondary); margin-top: 2px; }
 .chk { margin-left: auto; color: var(--accent); flex: 0 0 auto; margin-top: 2px; }
 .mrow.danger .mt, .mrow.danger .ms { color: var(--red); }
