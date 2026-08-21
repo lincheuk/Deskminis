@@ -47,16 +47,24 @@
   --c-line: #e5e6eb;      /* 唯一分隔线色，一律 1px */
 
   /* 文字四档（对比度见 tests/theme-contrast） */
-  --c-ink: #1d2129;       /* 主文字 */
-  --c-ink-2: #4e5969;     /* 次文字 */
+  --c-ink: #000000;       /* 主文字——他们用纯黑，比 #1d2129 更有力 */
+  --c-ink-2: #454d5f;     /* 次文字（他们把对比度加深到 ~7.5:1） */
   --c-ink-3: #86909c;     /* 弱文字、占位符 */
   --c-ink-4: #c9cdd4;     /* 禁用 */
 
-  /* 主色：石板灰蓝。选中/焦点/主按钮用它，**不是**用来点缀的亮色 */
-  --c-brand: #4e5969;
+  /* 主色 —— **此前读错了源码**：我把 AionUi 的 --bg-8(#4e5969) 当成主色，
+     那只是灰阶里的一档（他们拿它做次文字），结果整个界面灰扑扑没精神。
+     他们真正的语义主色是 --primary #165dff；另有一条 --aou-* 紫色品牌阶梯
+     （文件抬头就写着 "AOU Purple Theme"），品牌标记走紫、交互走蓝，分工明确。 */
+  --c-brand: #165dff;             /* 交互主色：主按钮、发送、选中、焦点 */
   --c-brand-ink: #ffffff;         /* 主色底上的文字 */
-  --c-brand-soft: #eff0f6;        /* 主色浅底：选中行、聚焦晕 */
-  --c-brand-line: #b5bcd6;        /* 主色描边 */
+  --c-brand-soft: #e9efff;        /* 主色浅底：选中行、用户消息底（他们的 --message-user-bg） */
+  --c-brand-line: #b7cdff;        /* 主色描边 */
+  /* AOU 品牌紫灰阶：品牌标记与装饰位用它，与交互蓝分开——全用一个色会失焦 */
+  --c-aou: #7583b2;
+  --c-aou-soft: #eff0f6;
+  --c-aou-bar: #eaecf7;           /* 助手选择条底（他们的 --color-guid-agent-bar） */
+  --c-tips: #f0f4ff;              /* 提示条底 */
 
   /* 语义色：仅在必须表意时出现 */
   --c-link: #165dff;
@@ -139,10 +147,14 @@
   --c-ink-3: #86909c;
   --c-ink-4: #5a5a5a;
 
-  --c-brand: #a1aacb;
-  --c-brand-ink: #1a1a1a;
-  --c-brand-soft: #262c41;
-  --c-brand-line: #3f4868;
+  --c-brand: #4d9fff;
+  --c-brand-ink: #1a1a1a;         /* 深色下主色偏亮，白字仅 2.7:1，故取深字 */
+  --c-brand-soft: #1e2a3a;
+  --c-brand-line: #3f5878;
+  --c-aou: #a1aacb;
+  --c-aou-soft: #3d4150;
+  --c-aou-bar: #3d4150;
+  --c-tips: #1e2a3a;
 
   --c-link: #4d9fff;
   --c-ok: #23c343;
@@ -170,10 +182,14 @@
     --c-ink-2: #ced3da;
     --c-ink-3: #86909c;
     --c-ink-4: #5a5a5a;
-    --c-brand: #a1aacb;
+    --c-brand: #4d9fff;
     --c-brand-ink: #1a1a1a;
-    --c-brand-soft: #262c41;
-    --c-brand-line: #3f4868;
+    --c-brand-soft: #1e2a3a;
+    --c-brand-line: #3f5878;
+    --c-aou: #a1aacb;
+    --c-aou-soft: #3d4150;
+    --c-aou-bar: #3d4150;
+    --c-tips: #1e2a3a;
     --c-link: #4d9fff;
     --c-ok: #23c343;
     --c-warn: #ff9a2e;

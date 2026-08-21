@@ -156,7 +156,8 @@ watch(() => props.narrow, stickBottom);
 .urow { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-1); }
 .ubub {
   max-width: 82%; padding: var(--sp-4) var(--sp-5);
-  background: var(--c-bg-2); color: var(--c-ink);
+  /* 浅蓝紫底（AionUi --message-user-bg）：用户消息要一眼分得出来源，灰底混在界面里 */
+  background: var(--c-brand-soft); color: var(--c-ink);
   /* 右上缺角：来源侧一目了然（AionUi 同形） */
   border-radius: var(--r-m) 4px var(--r-m) var(--r-m);
   white-space: pre-wrap; word-break: break-word;

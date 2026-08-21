@@ -102,7 +102,11 @@ const SAMPLES = [
 .block { display: flex; flex-direction: column; gap: var(--sp-2); }
 .bhead { color: var(--c-ink-3); padding: 0 var(--sp-1); }
 
-.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
+.grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4);
+  /* AOU 紫调托底（他们的 --color-guid-agent-bar）：助手区是欢迎页的重点，给它一块地 */
+  padding: var(--sp-4); border-radius: var(--r-l); background: var(--c-aou-bar);
+}
 @media (max-width: 700px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .acard {
   display: flex; align-items: center; gap: var(--sp-4);
@@ -115,7 +119,7 @@ const SAMPLES = [
 .ava {
   width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--c-bg-2); font-size: 16px; line-height: 1;
+  background: var(--c-aou-soft); font-size: 16px; line-height: 1;
 }
 .atxt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .aname { font-size: var(--t-item-size); line-height: var(--t-item-lh); font-weight: var(--w-md); color: var(--c-ink); }

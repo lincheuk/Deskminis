@@ -90,7 +90,8 @@ function openSession(id: string): void {
 .mark {
   width: 26px; height: 26px; border-radius: var(--r-s); flex: 0 0 auto;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--c-brand); color: var(--c-brand-ink);
+  /* 品牌标记走 AOU 紫，交互蓝留给按钮/选中——两者分工，界面才有主次 */
+  background: var(--c-aou); color: var(--c-brand-ink);
 }
 .bname { font-size: var(--t-h2-size); line-height: var(--t-h2-lh); font-weight: var(--w-bd); color: var(--c-ink); }
 

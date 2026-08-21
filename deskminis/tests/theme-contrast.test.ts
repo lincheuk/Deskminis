@@ -91,10 +91,14 @@ describe('T1 设计系统立系原则（锚意图，不锚具体值）', () => {
     const stacks = [...css.matchAll(/--f-(?:ui|mono):\s*([^;]+);/g)].map(m => m[1]).join(' ');
     expect(stacks).not.toMatch(/\bInter\b/);
   });
-  it('主色是石板灰蓝而非亮蓝（彩色是稀缺资源：亮蓝只留给 --c-link）', () => {
+  it('主色分工：交互蓝 --c-brand 与品牌紫 --c-aou 各司其职', () => {
+    // 改锚（申报）：原断言把 --bg-8(#4e5969) 钉成主色——那是**读错源码**留下的锚，
+    // 它只是灰阶一档（AionUi 拿它做次文字）。真正的语义主色是 --primary #165dff，
+    // 另有 --aou-* 紫色品牌阶梯（源码抬头即 "AOU Purple Theme"）。锚随事实修正。
     const t = tokensOf(':root');
-    expect(t['--c-brand'].toLowerCase()).toBe('#4e5969');
-    expect(t['--c-link'].toLowerCase()).toBe('#165dff');
+    expect(t['--c-brand'].toLowerCase()).toBe('#165dff');
+    expect(t['--c-aou'].toLowerCase()).toBe('#7583b2');
+    expect(t['--c-brand']).not.toBe(t['--c-aou']);   // 交互与品牌不许同色，否则界面失焦
   });
   it('边框基线设 transparent（漏写颜色的边框保持隐形，不冒黑线）', () => {
     expect(css).toMatch(/\*::before,\s*\*::after\s*\{[^}]*border-color:\s*transparent/);
