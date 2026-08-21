@@ -20,6 +20,7 @@ import StageAssistants from './StageAssistants.vue';
 import StageCron from './StageCron.vue';
 import StageDevices from './StageDevices.vue';
 import StageSearch from './StageSearch.vue';
+import StageMarket from './StageMarket.vue';
 import TerminalPane from './TerminalPane.vue';
 
 const chat = useChat();
@@ -43,7 +44,7 @@ function closeDoc(p: string): void {
   if (previewPath.value === p) previewPath.value = openDocs.value[i] ?? openDocs.value[i - 1] ?? null;
 }
 /** 主视图：chat（欢迎/会话由 activeId 决定）| cron | assistants | settings | devices */
-const view = ref<'chat' | 'search' | 'cron' | 'assistants' | 'settings' | 'devices'>('chat');
+const view = ref<'chat' | 'search' | 'cron' | 'assistants' | 'market' | 'settings' | 'devices'>('chat');
 
 /** 会话态 = 选中了会话且它已有消息；否则欢迎态。 */
 const inChat = computed(() => !!chat.activeId && chat.messages.length > 0);
@@ -95,6 +96,7 @@ function toggleTheme(): void {
         <StageSearch v-else-if="view === 'search'" @view="v => (view = v)" />
         <StageCron v-else-if="view === 'cron'" />
         <StageAssistants v-else-if="view === 'assistants'" />
+        <StageMarket v-else-if="view === 'market'" />
         <StageDevices v-else-if="view === 'devices'" />
         <StageSettings v-else />
         <TerminalPane v-if="termOpen" @close="termOpen = false" />

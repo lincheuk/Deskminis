@@ -8,7 +8,7 @@ import { groupSessions } from '../lib/nav/group';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
-const emit = defineEmits<{ (e: 'view', v: 'chat' | 'search' | 'cron' | 'assistants' | 'settings' | 'devices'): void }>();
+const emit = defineEmits<{ (e: 'view', v: 'chat' | 'search' | 'cron' | 'assistants' | 'market' | 'settings' | 'devices'): void }>();
 /** compact = 只剩图标的窄条。产出物预览打开时自动进入——舞台要让给产出物，
  *  会话列表这时不是必需品（参考图里有预览的几张，左侧都只剩一条图标栏）。 */
 const props = defineProps<{ view: string; compact?: boolean }>();
@@ -58,6 +58,9 @@ function openSession(id: string): void {
       <button class="navit" type="button" :class="{ on: props.view === 'assistants' }" @click="emit('view', 'assistants')">
         <UiIcon name="robot" :size="16" /><span v-if="!props.compact">助手</span>
         <span v-if="!props.compact && chat.assistants.length" class="cnt tnum">{{ chat.assistants.length }}</span>
+      </button>
+      <button class="navit" type="button" :class="{ on: props.view === 'market' }" @click="emit('view', 'market')">
+        <UiIcon name="puzzle" :size="16" /><span v-if="!props.compact">扩展市场</span>
       </button>
     </div>
 

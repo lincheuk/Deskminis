@@ -90,3 +90,20 @@ describe('MU2b Task 3 产物 tab：组件与接线守卫（4 例）', () => {
     expect(app).toContain("provide('switchRightTab'");
   });
 });
+
+describe('V8 · office_write 也是产物', () => {
+  /** U 波加了 office_write（产出 .docx/.xlsx/.pptx）。收集器不认它，
+   *  agent 做出来的文档在「改动」清单里就凭空消失了——数据在、界面看不见。 */
+  it('office_write 计入产物，kind 为 write', () => {
+    const out = collectArtifacts(
+      [{ parts: [{ type: 'toolUse', value: { name: 'office_write', input: JSON.stringify({ path: '周报.docx', content: '{}' }) } }] }],
+      [],
+    );
+    expect(out).toEqual([{ path: '周报.docx', kind: 'write', add: undefined, del: undefined }]);
+  });
+
+  it('实时 toolCards 侧同样认（回合跑到一半就该看得见）', () => {
+    const out = collectArtifacts([], [{ name: 'office_write', input: JSON.stringify({ path: 'a/b/表.xlsx' }) }]);
+    expect(out.map(a => a.path)).toEqual(['a/b/表.xlsx']);
+  });
+});

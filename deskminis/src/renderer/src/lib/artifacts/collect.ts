@@ -1,5 +1,5 @@
 /** 产物收集（MU2b Task 3，设计 §4.1）：本会话写/编过的文件汇总。
- *  数据源：历史 messages parts 的 toolUse（file_write/file_edit）+ 实时 toolCards（input JSON）。
+ *  数据源：历史 messages parts 的 toolUse（file_write/file_edit/office_write）+ 实时 toolCards（input JSON）。
  *  同路径去重（edit 优先）；edit 增删数 = extractEditPair + diffLines + countAddDel（Task 7 成果复用）。
  *  路径相对化经 relativizePath（guest /var/minis/<bucket>/ 与 host sessions/<sid>/<bucket>/ 双前缀）。 */
 import { extractEditPair, relativizePath } from '../diff/payload';
@@ -35,7 +35,9 @@ export function collectArtifacts(messages: MsgLike[], toolCards: ToolCardLike[])
     byPath.set(path, { path, kind, add, del });
   };
   const scan = (name: string, input: string | undefined): void => {
-    if (name === 'file_write') {
+    // office_write（U 波）与 file_write 同形：都是「整份写出去」，input.path 就是产物路径。
+    // 不认它的话，agent 做的 docx/xlsx/pptx 在产物清单里凭空消失。
+    if (name === 'file_write' || name === 'office_write') {
       push(writePath(input), 'write');
     } else if (name === 'file_edit') {
       const pair = extractEditPair(input);

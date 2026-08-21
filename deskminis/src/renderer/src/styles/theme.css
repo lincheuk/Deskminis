@@ -121,6 +121,8 @@
 
   /* 阴影：只有这两条合法 */
   --sh-pop: 0 8px 24px rgba(15, 23, 42, .12);
+  /* 模态遮罩：唯一声明处，组件一律 var(--c-scrim)——散在各组件里写 rgba 就没法整体调 */
+  --c-scrim: rgba(0, 0, 0, .38);
   --sh-focus: 0 2px 20px var(--c-brand-soft);
   --sh-paper: 0 1px 3px rgba(0, 0, 0, .10), 0 8px 24px rgba(0, 0, 0, .06);  /* 灰底上的白纸 */
 

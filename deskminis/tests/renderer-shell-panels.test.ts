@@ -48,10 +48,12 @@ describe('V5 — 任务面板', () => {
   });
 });
 
-describe('V5b — 改动清单要认 office_write', () => {
-  it('U 波加了 office_write，改动 tab 不认它就等于产出物凭空消失', () => {
+describe('V5b — 改动清单单一数据源', () => {
+  it('改动 tab 走 collectArtifacts 纯模块，不自己再扫一遍 messages', () => {
+    // 同一份数据两处各写一遍必然两处不一致；且手写那版拿不到实时 toolCards
     const ws = read('WorkspacePanel.vue');
-    expect(ws).toContain("'office_write'");
+    expect(ws).toContain('collectArtifacts(chat.messages, chat.toolCards)');
+    expect(ws).not.toContain("p?.type !== 'toolUse'");
   });
 });
 

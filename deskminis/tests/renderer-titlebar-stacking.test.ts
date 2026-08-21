@@ -34,6 +34,9 @@ const DEVICES_MODAL = 'src/renderer/src/components/DevicesModal.vue';
 /** G3 申报偏离：MarketPanel 自带安装确认卡（scrim+sheet 模态，z-index 100 与上两模态同档），
  *  是第三个模态宿主——层级序不变量里模态本就在标题栏之上，故入豁免集。 */
 const MARKET_PANEL = 'src/renderer/src/components/MarketPanel.vue';
+/** V7 申报偏离：新壳的 StageMarket 同样是「面板 + 模态宿主」混合体（安装确认卡 + toast），
+ *  照 MarketPanel 的先例做**值级**豁免（只放行 100），面板内其余元素仍须低于标题栏。 */
+const STAGE_MARKET = 'src/renderer/src/ui/StageMarket.vue';
 
 /** 取 .titlebar 规则块正文 */
 function titlebarBlock(): string {
@@ -79,6 +82,7 @@ describe('TitleBar 层级遮盖修复：源文本守卫', () => {
   it('主体内所有 z-index 必须低于标题栏（否则会盖住下拉菜单）', () => {
     const exempt = new Set([TITLEBAR, SETTINGS_MODAL, DEVICES_MODAL].map(p => path.join(root, p)));
     const marketPanelPath = path.join(root, MARKET_PANEL);
+    const stageMarketPath = path.join(root, STAGE_MARKET);
     const offenders: string[] = [];
     for (const file of walk(rendererDir)) {
       if (exempt.has(file)) continue;
@@ -86,6 +90,7 @@ describe('TitleBar 层级遮盖修复：源文本守卫', () => {
         // G3 申报偏离：MarketPanel 是面板 + 模态宿主混合体——确认卡遮罩与两模态同档（100）
         // 放行，面板内其余元素仍须低于标题栏（豁免到文件级会让面板内容失去守卫）。
         if (file === marketPanelPath && z === 100) continue;
+        if (file === stageMarketPath && z === 100) continue;
         if (z >= TITLEBAR_Z) offenders.push(`${path.relative(root, file)}: z-index ${z}`);
       }
     }

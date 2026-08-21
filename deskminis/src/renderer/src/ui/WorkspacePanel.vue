@@ -5,6 +5,7 @@
 import { computed, ref, watch } from 'vue';
 import { rpc } from '../rpc';
 import { useChat } from '../stores/chat';
+import { collectArtifacts } from '../lib/artifacts/collect';
 import UiFileTree from './UiFileTree.vue';
 import TaskPanel from './TaskPanel.vue';
 import UiIcon from './UiIcon.vue';
@@ -33,29 +34,10 @@ watch(() => chat.activeId, load, { immediate: true });
 // agent 回合结束 → 工作区可能已被改动，自动刷新（免手动）
 watch(() => chat.running, (now, prev) => { if (prev && !now) refresh(); });
 
-/** 改动清单：从工具调用里提写过的路径（file_write / file_edit），去重保序。 */
-const changes = computed(() => {
-  const seen = new Set<string>();
-  const out: { path: string; tool: string }[] = [];
-  for (const m of chat.messages) {
-    for (const p of (Array.isArray(m.parts) ? m.parts : [])) {
-      if (p?.type !== 'toolUse' || !p.value || typeof p.value !== 'object') continue;
-      const v = p.value as Record<string, unknown>;
-      const name = String(v.name ?? '');
-      // office_write 也产出文件（U 波）——不认它，agent 做的 docx/xlsx/pptx 就凭空消失
-      if (name !== 'file_write' && name !== 'file_edit' && name !== 'office_write') continue;
-      const input = typeof v.input === 'string' ? safeJson(v.input) : (v.input as Record<string, unknown> | undefined);
-      const path = typeof input?.path === 'string' ? input.path : '';
-      if (!path || seen.has(path)) continue;
-      seen.add(path);
-      out.push({ path, tool: name });
-    }
-  }
-  return out;
-});
-function safeJson(s: string): Record<string, unknown> | undefined {
-  try { return JSON.parse(s) as Record<string, unknown>; } catch { return undefined; }
-}
+/** 改动清单走 collectArtifacts 纯模块（V8）：手写的那版只扫历史 messages，
+ *  拿不到**正在跑的这一轮**（实时 toolCards），也没有 edit 的增删数与路径相对化。
+ *  同一份数据两处各写一遍的结果必然是两处不一致——统一走已有单测的那份。 */
+const changes = computed(() => collectArtifacts(chat.messages, chat.toolCards));
 </script>
 
 <template>
@@ -88,8 +70,11 @@ function safeJson(s: string): Record<string, unknown> | undefined {
       <template v-else-if="tab === 'changes'">
         <div v-if="!changes.length" class="hint">本会话还没有文件改动</div>
         <button v-for="c in changes" :key="c.path" type="button" class="chg" :class="{ on: props.selected === c.path }" @click="emit('open', c.path)">
-          <span class="tag" :class="c.tool">{{ c.tool === 'file_edit' ? '改' : '写' }}</span>
+          <span class="tag" :class="c.kind">{{ c.kind === 'edit' ? '改' : '写' }}</span>
           <span class="cpath">{{ c.path }}</span>
+          <span v-if="c.kind === 'edit' && (c.add || c.del)" class="cnum t-aux tnum">
+            <span class="a">+{{ c.add ?? 0 }}</span><span class="d">-{{ c.del ?? 0 }}</span>
+          </span>
         </button>
       </template>
 
@@ -144,9 +129,14 @@ function safeJson(s: string): Record<string, unknown> | undefined {
   font-size: 10px; font-weight: var(--w-md);
   background: var(--c-ok-soft); color: var(--c-ok);
 }
-.tag.file_edit { background: var(--c-warn-soft); color: var(--c-warn); }
+.tag.edit { background: var(--c-warn-soft); color: var(--c-warn); }
 .cpath {
   flex: 1; min-width: 0; font-family: var(--f-mono); font-size: var(--t-aux-size);
   color: var(--c-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
 }
+
+/* 编辑增删数：写是「新出现一份」，改是「动了几行」——后者的量级才需要数字 */
+.cnum { flex: 0 0 auto; display: inline-flex; gap: var(--sp-2); }
+.cnum .a { color: var(--c-ok); }
+.cnum .d { color: var(--c-err); }
 </style>
