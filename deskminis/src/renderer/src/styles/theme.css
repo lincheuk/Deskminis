@@ -40,8 +40,8 @@
   color-scheme: light;
 
   /* ===== 色：中性阶梯（层次的唯一来源） ===== */
-  --c-bg: #ffffff;        /* 舞台底 */
-  --c-bg-1: #f9fafb;      /* 导航/侧栏底 */
+  --c-bg: #ffffff;        /* 卡片/侧栏底——原图里侧栏是**纯白**，主区才略灰 */
+  --c-bg-1: #f9fafb;      /* 舞台底（比卡片略灰，衬出白卡） */
   --c-bg-2: #f2f3f5;      /* 卡片底、输入托盘 */
   --c-bg-3: #e5e6eb;      /* 更深填充、hover 实底 */
   --c-line: #e5e6eb;      /* 唯一分隔线色，一律 1px */
@@ -91,7 +91,7 @@
             "Liberation Mono", "Noto Sans SC", "Microsoft YaHei UI", monospace;
 
   /* 排版档：字号/行高成对，组件只引这七档 */
-  --t-hero-size: 24px;   --t-hero-lh: 32px;   --t-hero-w: 600;
+  --t-hero-size: 32px;   --t-hero-lh: 42px;   --t-hero-w: 600;   /* 原图标题约 34px */
   --t-h1-size: 18px;     --t-h1-lh: 26px;     --t-h1-w: 600;
   --t-h2-size: 15px;     --t-h2-lh: 22px;     --t-h2-w: 600;
   --t-chat-size: 16px;   --t-chat-lh: 24px;             /* 对话正文 */

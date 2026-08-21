@@ -22,6 +22,14 @@ const text = ref('');
 const field = ref<HTMLTextAreaElement | null>(null);
 const canSend = computed(() => text.value.trim().length > 0 && !chat.running);
 
+/** 底行胶囊：当前模型与权限档。原图这两枚常驻——用户随时看得见「谁在跑、能做多狠」。 */
+const modelLabel = computed(() => {
+  const p = chat.providers.find(x => x.id === chat.defaultProviderId) ?? chat.providers[0];
+  return p?.modelId || p?.name || '未配置模型';
+});
+const PERM_TEXT: Record<string, string> = { ask: '每次确认', session: '本会话沿用', full: '完全访问' };
+const permLabel = computed(() => PERM_TEXT[chat.permTier] ?? '每次确认');
+
 const placeholder = computed(() => {
   const a = chat.assistants.find(x => x.id === chat.welcomeAssistantId);
   return a ? `让 ${a.name} 做点什么…` : '让 DeskMinis 做点什么…';
@@ -167,11 +175,14 @@ defineExpose({ focus: () => field.value?.focus(), fill: (t: string) => { text.va
       ></textarea>
 
       <div class="tools">
-        <button class="tb" type="button" title="附件（T5 接）"><UiIcon name="plus" :size="16" /></button>
+        <button class="tb" type="button" title="附件（后续接）"><UiIcon name="plus" :size="16" /></button>
         <button class="tb" type="button" title="引用工作区文件：在输入框里打 @" @click="() => { text += (text && !text.endsWith(' ') ? ' @' : '@'); field?.focus(); syncAt(); }">
           <UiIcon name="at" :size="16" />
         </button>
         <span class="grow"></span>
+        <!-- 原图底行右侧是 模型 + 权限 两枚胶囊，再接圆形发送键 -->
+        <span class="cap" :title="modelLabel"><UiIcon name="robot" :size="13" /><span>{{ modelLabel }}</span></span>
+        <span class="cap" :title="`权限档：${permLabel}`"><UiIcon name="shield" :size="13" /><span>{{ permLabel }}</span></span>
         <button v-if="!chat.running" class="go" type="button" :disabled="!canSend" title="发送" @click="send">
           <UiIcon name="send" :size="17" />
         </button>
@@ -221,6 +232,15 @@ defineExpose({ focus: () => field.value?.focus(), fill: (t: string) => { text.va
   background: none; color: var(--c-ink-3); cursor: pointer; padding: 0;
 }
 .tb:hover { background: var(--c-bg-2); color: var(--c-ink); }
+/* 状态胶囊：只读展示，不是按钮——原图里它们也只是「看得见」，切换走各自的菜单 */
+.cap {
+  display: inline-flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto;
+  height: var(--h-mini); padding: 0 var(--sp-4); border-radius: var(--r-pill);
+  background: var(--c-bg-2); color: var(--c-ink-2);
+  font-size: var(--t-aux-size); max-width: 190px;
+}
+.cap :deep(svg) { color: var(--c-ink-3); flex: 0 0 auto; }
+.cap > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .go {
   width: var(--h-round); height: var(--h-round); border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;

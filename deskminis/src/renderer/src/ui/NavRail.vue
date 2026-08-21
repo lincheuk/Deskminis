@@ -82,7 +82,8 @@ function openSession(id: string): void {
   width: var(--w-rail); flex: 0 0 var(--w-rail);
   transition: width .16s ease, flex-basis .16s ease;
   display: flex; flex-direction: column; min-height: 0;
-  background: var(--c-bg-1);
+  /* 原图侧栏是**纯白**，只靠右侧一条线与舞台分开；我原先做成灰底，白卡浮不出来 */
+  background: var(--c-bg);
   border-right: 1px solid var(--c-line);
 }
 
@@ -99,10 +100,11 @@ function openSession(id: string): void {
   margin: 0 var(--sp-5) var(--sp-5); height: var(--h-field); flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
   border-radius: var(--r-s); cursor: pointer;
-  background: var(--c-brand); color: var(--c-brand-ink);
+  /* 原图是浅蓝底 + 深蓝字的**轻**按钮，不是实底大色块——实底在白侧栏里太抢 */
+  background: var(--c-brand-soft); color: var(--c-brand);
   font-size: var(--t-body-size); font-weight: var(--w-md); font-family: inherit;
 }
-.newbtn:hover { filter: brightness(1.08); }
+.newbtn:hover { background: var(--c-brand-line); }
 
 .nav { padding: 0 var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
 .navit {

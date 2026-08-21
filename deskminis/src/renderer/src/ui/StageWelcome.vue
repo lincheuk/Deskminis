@@ -22,6 +22,18 @@ function pick(id: string): void {
 }
 function useSample(t: string): void { composer.value?.fill(t); }
 
+/** 助手图标底色：由 id 派生稳定色相。原图每张助手卡的图标底色都不同——
+ *  满屏单色图标是界面显闷的主因之一，彩色点缀才有生气。 */
+function hueOf(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+  return h;
+}
+function avaStyle(id: string): Record<string, string> {
+  const h = hueOf(id);
+  return { background: `oklch(0.93 0.07 ${h})`, color: `oklch(0.45 0.14 ${h})` };
+}
+
 const SAMPLES = [
   '帮我读懂这个项目：从入口开始，讲清核心模块和它们的关系',
   '看一下当前工作区的目录结构，告诉我这个项目怎么跑起来',
@@ -42,14 +54,14 @@ const SAMPLES = [
       <Composer ref="composer" variant="hero" />
 
       <section v-if="chat.assistants.length" class="block">
-        <div class="bhead t-aux">选一个助手开始</div>
+        <div class="bhead t-aux">选一个助手开始任务</div>
         <div class="grid">
           <button
             v-for="a in chat.assistants" :key="a.id" type="button"
             class="acard" :class="{ on: chat.welcomeAssistantId === a.id }"
             :aria-pressed="chat.welcomeAssistantId === a.id" @click="pick(a.id)"
           >
-            <span class="ava">{{ a.avatar || '🤖' }}</span>
+            <span class="ava" :style="avaStyle(a.id)">{{ a.avatar || '🤖' }}</span>
             <span class="atxt">
               <span class="aname">{{ a.name }}</span>
               <span class="adesc">{{ a.rules.slice(0, 40) || '没有额外规则' }}</span>
@@ -100,26 +112,27 @@ const SAMPLES = [
 .sub { margin: 0; color: var(--c-ink-2); }
 
 .block { display: flex; flex-direction: column; gap: var(--sp-2); }
-.bhead { color: var(--c-ink-3); padding: 0 var(--sp-1); }
+.bhead { color: var(--c-ink-3); padding: 0 var(--sp-1); text-align: center; }
 
 .grid {
+  /* 原图：助手卡**直接铺在舞台上**，没有整块托底——托底是上面那条工具条的语言，
+     两处都铺会把版面压成两坨。 */
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4);
-  /* AOU 紫调托底（他们的 --color-guid-agent-bar）：助手区是欢迎页的重点，给它一块地 */
-  padding: var(--sp-4); border-radius: var(--r-l); background: var(--c-aou-bar);
 }
 @media (max-width: 700px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .acard {
   display: flex; align-items: center; gap: var(--sp-4);
-  padding: var(--sp-5) var(--sp-5); text-align: left; cursor: pointer;
-  background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 14px;
-  font-family: inherit; transition: border-color .15s ease, background .15s ease;
+  padding: var(--sp-4) var(--sp-5); text-align: left; cursor: pointer;
+  background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 12px;
+  font-family: inherit; transition: border-color .15s ease, box-shadow .15s ease;
 }
-.acard:hover { border-color: var(--c-brand-line); }
+.acard:hover { border-color: var(--c-brand-line); box-shadow: 0 2px 10px var(--c-aou-soft); }
 .acard.on { border-color: var(--c-brand); background: var(--c-brand-soft); }
 .ava {
-  width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%;
+  /* 原图是**圆角方块**图标底（不是圆头像），底色各卡不同 */
+  width: 34px; height: 34px; flex: 0 0 auto; border-radius: 9px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--c-aou-soft); font-size: 16px; line-height: 1;
+  font-size: 17px; line-height: 1;
 }
 .atxt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .aname { font-size: var(--t-item-size); line-height: var(--t-item-lh); font-weight: var(--w-md); color: var(--c-ink); }
