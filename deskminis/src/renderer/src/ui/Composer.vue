@@ -188,7 +188,17 @@ async function send(): Promise<void> {
   await chat.send(t, paths.length ? paths : undefined);
 }
 
-defineExpose({ focus: () => field.value?.focus(), fill: (t: string) => { text.value = t; void nextTick(() => field.value?.focus()); } });
+/** V9 引用：追加不覆盖——用户已敲的草稿排在引用块前面。 */
+function quote(block: string): void {
+  text.value = text.value.trim() ? `${text.value.replace(/\s+$/, '')}\n\n${block}` : block;
+  void nextTick(() => field.value?.focus());
+}
+
+defineExpose({
+  focus: () => field.value?.focus(),
+  fill: (t: string) => { text.value = t; void nextTick(() => field.value?.focus()); },
+  quote,
+});
 </script>
 
 <template>

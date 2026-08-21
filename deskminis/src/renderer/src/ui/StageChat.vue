@@ -9,6 +9,7 @@ import MarkdownView from '../components/MarkdownView.vue';
 import Composer from './Composer.vue';
 import StepGroup from './StepGroup.vue';
 import PermCard from './PermCard.vue';
+import AnnoLayer from './AnnoLayer.vue';
 import EventNotes from './EventNotes.vue';
 import ThinkBlock from './ThinkBlock.vue';
 import UiIcon from './UiIcon.vue';
@@ -16,9 +17,14 @@ import UiIcon from './UiIcon.vue';
 const props = withDefaults(defineProps<{ narrow?: boolean }>(), { narrow: false });
 const chat = useChat();
 const scroller = ref<HTMLElement | null>(null);
+/** V9 注释层：手势与高亮都归它，StageChat 只负责把 mouseup 转过去 + 标好正文根。 */
+const anno = ref<InstanceType<typeof AnnoLayer> | null>(null);
+const composer = ref<InstanceType<typeof Composer> | null>(null);
+function onQuote(text: string): void { composer.value?.quote(text); }
 
 type Msg = (typeof chat.messages)[number];
-interface Turn { id: string; user: Msg | null; blocks: { kind: 'text' | 'steps' | 'think'; text?: string; steps?: Step[] }[] }
+/** 块上带 mid（这条块来自哪条消息）：注释锚点按消息 id 定位，没有它锚不住。 */
+interface Turn { id: string; user: Msg | null; blocks: { kind: 'text' | 'steps' | 'think'; mid?: string; text?: string; steps?: Step[] }[] }
 interface Step { name: string; title: string; ok: boolean; output?: string | null }
 
 const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
@@ -74,11 +80,11 @@ const turns = computed<Turn[]>(() => {
     const t = out[out.length - 1];
     // V3：落库的推理内容置于本条正文之前——它是「怎么想的」，读在结论前面才有用
     if (typeof m.reasoningContent === 'string' && m.reasoningContent) {
-      t.blocks.push({ kind: 'think', text: m.reasoningContent });
+      t.blocks.push({ kind: 'think', mid: m.id, text: m.reasoningContent });
     }
     for (const p of (Array.isArray(m.parts) ? m.parts : [])) {
       if (p?.type === 'text' && typeof p.value === 'string' && p.value) {
-        t.blocks.push({ kind: 'text', text: p.value });
+        t.blocks.push({ kind: 'text', mid: m.id, text: p.value });
       } else if (p?.type === 'toolUse' && isRec(p.value)) {
         const id = typeof p.value.toolUseId === 'string' ? p.value.toolUseId : undefined;
         const r = resultOf(id);
@@ -127,7 +133,7 @@ watch(() => props.narrow, stickBottom);
 
 <template>
   <div class="stage" :class="{ narrow: props.narrow }">
-    <div ref="scroller" class="scroll" @scroll="onScroll">
+    <div ref="scroller" class="scroll" @scroll="onScroll" @mouseup="anno?.onMouseUp($event)">
       <div class="col">
         <section v-for="t in turns" :key="t.id" class="turn">
           <div v-if="t.user" class="urow">
@@ -143,7 +149,10 @@ watch(() => props.narrow, stickBottom);
             <div class="umeta t-aux tnum">{{ typeof t.user.createdAt === 'number' ? fmtHHMM(t.user.createdAt) : '' }}</div>
           </div>
           <div v-for="(b, i) in t.blocks" :key="i" class="ablock">
-            <MarkdownView v-if="b.kind === 'text'" class="t-chat" :nodes="mdOf(b.text!)" />
+            <MarkdownView
+              v-if="b.kind === 'text'" class="t-chat"
+              :nodes="mdOf(b.text!)" data-anno-root :data-mid="b.mid"
+            />
             <ThinkBlock v-else-if="b.kind === 'think'" :text="b.text!" />
             <StepGroup v-else :steps="b.steps!" />
           </div>
@@ -179,14 +188,19 @@ watch(() => props.narrow, stickBottom);
       </div>
     </div>
 
+    <AnnoLayer ref="anno" :host="scroller" @quote="onQuote" />
+
     <div class="dock">
-      <div class="col"><Composer variant="chat" /></div>
+      <div class="col"><Composer ref="composer" variant="chat" /></div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.stage {
+  /* 注释层是 absolute inset:0，需要这个定位上下文 */
+  position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
+}
 .scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .col { width: min(var(--w-stage), 100% - var(--sp-8) * 2); margin: 0 auto; }
 /* 分栏态：对话退居左侧一条，不再定宽居中——420 列里再留 24 边距就没内容位置了 */
