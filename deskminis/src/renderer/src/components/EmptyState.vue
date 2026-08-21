@@ -107,10 +107,16 @@ function pickAssistant(id: string): void {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 24px 24px 18px; text-align: center;
 }
-/* I3：hero 规格对齐 AionUi 欢迎标题（text-2xl/600） */
-.ehero h2 { font-size: 26px; font-weight: 600; color: var(--label-emphasis); }
+/* I3：hero 规格对齐 AionUi 欢迎标题（text-2xl/600）
+   S2：26 → 28px，配 --lh-tight 与 .012em 正字距。AionUi 实测欢迎标题是 24px/32px/600，
+   但那是在 800px 宽的 guidLayout 里；我们内容区宽 1000+，等比放到 28px 才是同一个「相对分量」
+   （A/B 实拍先试到 32px 偏张扬，回收一档——克制本身是这套语言的一部分）。 */
+.ehero h2 {
+  font-size: 28px; font-weight: var(--fw-strong); color: var(--label-emphasis);
+  line-height: var(--lh-tight); letter-spacing: .012em;
+}
 .aemoji { margin-right: 10px; }
-.sub { font-size: 15px; color: var(--label-secondary); }
+.sub { font-size: 16px; color: var(--label-secondary); line-height: var(--lh-normal); }
 
 /* below 部：composer 之下整组居中，内容宽对齐 composer 的 792 契约 */
 .ebelow {
@@ -124,7 +130,8 @@ function pickAssistant(id: string): void {
   padding: 6px; border-radius: var(--r-pill); background: var(--fill-tertiary);
 }
 .ascard {
-  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+  /* S2 呼吸量：5/12 → 7/14（胶囊是点击目标，紧 padding 既难点也显局促） */
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
   border-radius: var(--r-pill); border: 1px solid transparent;
   color: var(--label-secondary); font-size: var(--fs-ui); cursor: pointer; white-space: nowrap;
 }

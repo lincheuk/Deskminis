@@ -59,9 +59,10 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
 </template>
 
 <style scoped>
-.md { display: flex; flex-direction: column; gap: 8px; align-self: stretch; min-width: 0; }
+/* S2：Markdown 正文同对话正文——比例数字（等宽数字只留给 .md-pre 代码块与读数位） */
+.md { display: flex; flex-direction: column; gap: 8px; align-self: stretch; min-width: 0; font-variant-numeric: normal; }
 .md-p { margin: 0; white-space: pre-wrap; word-break: break-word; }
-.md-h2, .md-h3 { margin: 6px 0 0; line-height: 1.35; }
+.md-h2, .md-h3 { margin: 6px 0 0; line-height: var(--lh-tight); }
 .md-h2 { font-size: 1.25em; }
 .md-h3 { font-size: 1.1em; }
 .md-code {

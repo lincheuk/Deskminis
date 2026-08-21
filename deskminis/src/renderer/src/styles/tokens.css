@@ -189,12 +189,19 @@
   --shadow-fab: 0 4px 8px var(--shadow-color);
   --shadow-pop: 0 8px 24px var(--shadow-color);
   --scrim: rgba(0,0,0,.4);
-  --r-control: var(--radius-2xs);
-  --r-md: var(--radius-xs);
-  --r-card: var(--radius-sm); /* I1 AionUi：平面卡片一档 12px */
-  --r-input: var(--radius-2xl); /* I1 AionUi：输入大卡 24px，视觉主角 */
-  --r-bubble: var(--radius-xl);
-  --r-sheet: var(--radius-lg); /* I1 AionUi：弹窗 16px */
+  /* S2 圆润度上调（用户 2026-08-20「UI 都没有圆角这种感觉」）。
+     AionUi 源码实测档位（调研 docs/research/2026-08-21-aionui-typography-radius.md）：
+     8px 是绝对主力（122 处）、12px 次之（70）、16px 大卡与弹窗（36）、
+     会话输入框 20px、首页输入框 24px、圆形按钮 50%、pill 999px。
+     我们的 raw 阶梯（14px 基准派生）恰好就是 4/6/8/10/12/14/16/18/24——**够用**，
+     故不动 A 区基准（那会破坏与参考文件的逐行契约），只把语义别名各上调一档：
+     md 10→12、card 12→16。control 8 / sheet 16 / input 24 已在位，保持。 */
+  --r-control: var(--radius-2xs);        /* 8px：小控件——AionUi 主力档 */
+  --r-md: var(--radius-sm);              /* 12px（原 10px）：中卡、代码块、行内面板 */
+  --r-card: var(--radius-lg);            /* 16px（原 12px）：卡片——AionUi 大卡/弹窗档 */
+  --r-input: var(--radius-2xl);          /* 24px：输入大卡，视觉主角（AionUi 首页同值） */
+  --r-bubble: var(--radius-xl);          /* 18px：气泡 */
+  --r-sheet: var(--radius-lg);           /* 16px：弹窗（AionUi modal 同值） */
   --r-pill: 999px;
   --ring: var(--focus-ring);
   --ring-input: var(--focus-ring-input);
@@ -241,14 +248,30 @@
     var(--bg) 42%);
   /* glass:end */
 
-  /* 字号尺度（桌面密度基线 14） */
-  --fs-display: 17px;   /* 设置页标题 */
-  --fs-title:   15px;   /* 面板头、卡片标题 */
-  --fs-body:    14px;   /* 正文 */
-  --fs-ui:      13px;   /* UI 控件、列表项 */
-  --fs-caption: 12px;   /* 辅助说明 */
-  --fs-mono:    12.5px; /* 代码/读数 */
-  --fs-micro:   11px;   /* 角标、耗时 */
+  /* 字号尺度（S2 起桌面密度基线 15）。
+     原基线 14 下七档挤在 11–17px、相邻档差 1px——层次形同没有，且 UI 主力 13px、
+     胶囊 11px 在 1.5 倍屏上显局促。整体上移一档并拉开档距（A/B 实拍选定）。 */
+  --fs-display: 19px;   /* 设置页标题 */
+  --fs-title:   16px;   /* 面板头、卡片标题 */
+  --fs-chat:    16px;   /* 对话正文——AionUi 桌面聊天正文实测 16px/24px，比界面正文大一档 */
+  --fs-body:    15px;   /* 界面正文 */
+  --fs-ui:      14px;   /* UI 控件、列表项（AionUi 控件基准同为 14） */
+  --fs-caption: 12.5px; /* 辅助说明 */
+  --fs-mono:    13px;   /* 代码/读数（AionUi --code-font-size 同为 13px） */
+  --fs-micro:   12px;   /* 角标、耗时（AionUi 最高频档 12px/18px） */
+  /* 行高体系（S2 新增）。此前**全局没有 line-height**，浏览器默认 normal≈1.2——
+     中文正文行间挤成一坨，是「质感不对」的头号成因（比圆角更致命）。
+     四档取自 AionUi 实测配对（12→18=1.5、13→20=1.54、14→20=1.43、16→24=1.5、24→32=1.33，
+     markdown 正文 1.7）：标题紧、控件单行、界面正文、对话长文各取所需。 */
+  --lh-tight:   1.3;    /* 大标题、hero（AionUi 24/32） */
+  --lh-snug:    1.45;   /* UI 控件、列表行、单行标签（AionUi 14/20） */
+  --lh-normal:  1.55;   /* 界面正文、说明文字（AionUi 13/20） */
+  --lh-relaxed: 1.7;    /* 对话正文——长文阅读（AionUi markdown 同值），中文尤其吃行距 */
+  /* 字重语义（S2 新增）：组件不再硬写 600。中文在缺可变字重时 600 会被合成假粗、
+     笔画糊成一团，故强调档取 600 但**只用在真正的标题位**，行内强调走 medium。 */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 600;
   /* 间距尺度（4 的倍数） */
   --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
   --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
@@ -699,6 +722,12 @@ body {
   background: var(--bg);
   color: var(--label);
   -webkit-font-smoothing: antialiased;
+  /* S2：补上全局行高。此前缺省 normal≈1.2，中文界面通篇挤压——
+     所有单行控件自带 line-height:1 或按需覆盖，故基线取界面正文档不会撑高控件。 */
+  line-height: var(--lh-normal);
+  /* 等宽数字对读数（耗时/字节/token）是对的，对**正文**是错的——中文段落里
+     强制等宽的阿拉伯数字显机械。故全局保留（界面以读数为主），
+     由对话正文与 Markdown 正文各自显式改回比例数字（见 ChatView/MarkdownView）。 */
   font-variant-numeric: tabular-nums;
   overflow: hidden;
 }

@@ -315,17 +315,24 @@ describe('MU5 工作台标签系统：可关闭 / 可多开 / 模式段控 / 动
 });
 
 describe('MU5 对话列：文档式排版 + 输入卡片形态（2 例）', () => {
-  it('助手区行高提到 1.72（文档式排版，来源：AionUi 会话视图）', () => {
+  it('助手区行高走松档 token（文档式排版，来源：AionUi 会话视图）', () => {
     // 申报：计划 Task 1 原写「ChatView 不含气泡容器类」——该断言若照写会**先绿**，
     // 因为 MU2a 早已去掉气泡（.msg-a{padding:0}，源码注释「助手消息：无气泡」）。
     // 先绿即失去先红门控的意义，故改锚在真正会变的量上：行高 1.55 → 1.72。
-    expect(chatView).toMatch(/\.abody\s*\{[^}]*line-height:\s*1\.72/);
+    // S2 改锚（申报）：1.72 字面值并入 --lh-relaxed（=1.7，AionUi markdown 实测同值），
+    // 全局行高体系建立后字面值不该再散落在组件里。锚的意图不变：助手区必须是松档，不得回落紧档。
+    expect(chatView).toMatch(/\.abody\s*\{[^}]*line-height:\s*var\(--lh-relaxed\)/);
     expect(chatView).not.toMatch(/\.abody\s*\{[^}]*line-height:\s*1\.55/);
+    expect(chatView).not.toMatch(/\.abody\s*\{[^}]*line-height:\s*var\(--lh-snug\)/);
   });
 
-  it('输入区改带阴影卡片：卡面浮起 + 输入框自身去边框 + 附件 ＋ 钮 + 圆形发送', () => {
-    // 来源：AionUi 输入区——整体浮起成卡，底部只留 ＋ 与少量 chip，发送为圆钮。
-    expect(chatView).toMatch(/\.composer\s*\{[^}]*box-shadow:/);
+  it('输入区卡片形态：静止无影靠边框分层 + 聚焦出光晕 + 输入框自身去边框 + 附件 ＋ 钮 + 圆形发送', () => {
+    // 来源：AionUi 输入区——整体成卡，底部只留 ＋ 与少量 chip，发送为圆钮。
+    // S2 改锚（申报）：原锚「卡面浮起（box-shadow 非空）」照搬了 I 波的臆测。
+    // 调研实测 AionUi 输入卡**静止 box-shadow:none**，只在聚焦时上 0 2px 20px 的淡色晕；
+    // 卡与底的分离靠 1px 边框 + 白底，不靠投影。锚随实测改为「静止无影 + 聚焦有晕」。
+    expect(chatView).toMatch(/\.composer\s*\{[^}]*box-shadow:\s*none/);
+    expect(chatView).toMatch(/\.composer:focus-within\s*\{[^}]*box-shadow:\s*0 2px 20px/);
     // 输入框不再自带边框（卡片本身即边界），避免「框中框」
     expect(chatView).not.toMatch(/\.field\s*\{[^}]*border:\s*1px solid/);
     expect(chatView).toContain('attach');

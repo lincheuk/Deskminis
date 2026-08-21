@@ -1036,7 +1036,9 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 .uops:hover { color: var(--label); background: var(--fill-tertiary); }
 .uops:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .utext {
-  font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  /* S2：对话正文走 --lh-relaxed（中文长文吃行距）+ 比例数字（正文里等宽数字显机械） */
+  font-size: var(--fs-chat); line-height: var(--lh-relaxed); font-variant-numeric: normal;
+  white-space: pre-wrap; word-break: break-word;
   background: var(--secondary-subtle);
   border-radius: var(--r-control) 0 var(--r-control) var(--r-control);
   padding: 8px 12px; max-width: 86%; text-align: left;
@@ -1059,7 +1061,9 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 /* I4（AionUi 换向）：助手输出**无背景满行宽平铺**——文档式排版回归（E3 浮岛卡退场）。
    AionUi 的会话语言：用户是气泡、助手是文档；层次由方位与排版承担，不靠卡片框。 */
 .abody {
-  font-size: var(--fs-body); line-height: 1.72; display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  /* S2：1.72 字面值并入 --lh-relaxed（1.75，同源同调）；正文比例数字同 .utext */
+  font-size: var(--fs-chat); line-height: var(--lh-relaxed); font-variant-numeric: normal;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
   align-self: stretch;
 }
 
@@ -1077,16 +1081,23 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
      （实测宽列里只剩 339px）。显式 width 才拿得到该有的宽度。 */
   width: min(792px, 100% - 32px); margin: 0 auto 16px;
   border-radius: var(--r-input); background: var(--surface-1);
-  border: .5px solid var(--separator);
-  /* I4：受光边退场——AionUi 输入大卡 = 白底 + 1px 边 + 柔影（24px 圆角随 I1 --r-input） */
-  box-shadow: var(--shadow-fab);
+  /* S2：.5px → 1px（AionUi 全站 1px；.5px 在 100% DPI 下会被舍成时有时无的发丝线） */
+  border: 1px solid var(--separator);
+  /* S2 阴影语言修正（调研实测）：AionUi 输入卡**静止无阴影**，只在聚焦时上一层光晕——
+     常驻投影是「浮起」语言，静止态用它会让整个界面显得廉价、飘。
+     白底 + 1px 边已足够把输入卡从 --bg 上分出来（AionUi 全站靠填充分层而非投影）。 */
+  box-shadow: none;
   padding: 10px; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
   position: relative;
 }
 /* 输入卡是视觉主角——聚焦时外光 2px --glow-accent 一档（I1 起为蓝，AionUi 聚焦光环位），
    叠加在柔影上而不是替换，失焦即回到常态（:focus-within 覆盖卡内全部控件） */
+/* 聚焦光晕：AionUi 用 0 2px 20px 的**大扩散低透明**淡色晕（而非贴边硬环），
+   这是输入框「高级感」的来源。我们用 --glow-accent（主题感知）做同形状的晕，
+   叠一道 1px 同色描边替代原来的 2px 硬环——边界依然明确，但不再有硬塑料感。 */
 .composer:focus-within {
-  box-shadow: var(--shadow-fab), 0 0 0 2px var(--glow-accent);
+  border-color: var(--accent);
+  box-shadow: 0 2px 20px var(--glow-accent);
 }
 .slashmenu {
   position: absolute; left: 10px; right: 10px; bottom: calc(100% + 6px); z-index: 10;
@@ -1154,7 +1165,8 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
 /* E3：chip 文字走 mono（Aurora §4 读数面——工作区名/权限档/模型名都是「标识符读数」） */
 .cpill, .ctools :deep(.cpill) {
   flex: 0 0 auto;
-  padding: 4px 8px; font-size: var(--fs-micro); gap: 5px;
+  /* S2 呼吸量：4/8 → 6/11（S1 改换行后不必再靠挤 padding 抢宽度） */
+  padding: 6px 11px; font-size: var(--fs-micro); gap: 5px;
   font-family: var(--font-mono);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }

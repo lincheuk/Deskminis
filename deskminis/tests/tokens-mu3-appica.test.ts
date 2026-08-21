@@ -148,8 +148,8 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
       ['--shadow-pop', '0 8px 24px var(--shadow-color)'],
       ['--scrim', 'rgba(0,0,0,.4)'],
       ['--r-control', 'var(--radius-2xs)'],
-      ['--r-md', 'var(--radius-xs)'],
-      ['--r-card', 'var(--radius-sm)'], // I1 换挡：AionUi 卡片一档 12px（同例 7）
+      ['--r-md', 'var(--radius-sm)'], // S2 换挡：10→12px（同例 7）
+      ['--r-card', 'var(--radius-lg)'], // S2 换挡：12→16px，AionUi 大卡/弹窗实测档（同例 7）
       ['--r-input', 'var(--radius-2xl)'], // I1 换挡：AionUi 输入大卡 24px（同例 7）
       ['--r-bubble', 'var(--radius-xl)'],
       ['--r-sheet', 'var(--radius-lg)'], // I1 换挡：AionUi 弹窗 16px（同例 7）
@@ -200,8 +200,11 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
 
   it('7. 圆角别名：6 条映射 radius 派生阶 + --r-pill 字面值保留（§2-3）', () => {
     expect(rootLight).toContain('--r-control: var(--radius-2xs);');
-    expect(rootLight).toContain('--r-md: var(--radius-xs);');
-    expect(rootLight).toContain('--r-card: var(--radius-sm);'); // I1：AionUi 卡片一档 12px
+    // S2 改锚（申报）：用户「UI 都没有圆角这种感觉」→ 圆润度上调。AionUi 源码实测档位为
+    // 8(主力)/12/16(大卡与弹窗)/20(会话输入)/24(首页输入)，我们 raw 阶梯本就覆盖，
+    // 故**不动 A 区基准**（那会破坏例 2 的逐行契约），只把语义别名上调一档：md 10→12、card 12→16。
+    expect(rootLight).toContain('--r-md: var(--radius-sm);');
+    expect(rootLight).toContain('--r-card: var(--radius-lg);');
     expect(rootLight).toContain('--r-input: var(--radius-2xl);'); // I1：AionUi 输入大卡 24px
     expect(rootLight).toContain('--r-bubble: var(--radius-xl);');
     expect(rootLight).toContain('--r-sheet: var(--radius-lg);'); // I1：AionUi 弹窗 16px
