@@ -1,0 +1,195 @@
+/** T 波新设计系统（设计稿 docs/specs/2026-08-21-ui-rebuild-design.md §2）。
+ *
+ *  这是**推倒重做**的设计系统，不是旧 tokens.css 的演进版：
+ *  命名空间全新（--c-/--t-/--r-/--sp-/--sh-），与旧令牌零冲突，两套并存到 T6 清场。
+ *
+ *  三条立系原则（旧 UI 违反了全部三条，才有「四不像」）：
+ *  ① **层次靠明度阶梯，不靠阴影和边框**——容器分层用 bg→bg-1→bg-2→bg-3，
+ *     卡片默认零阴影零边框。阴影只有两个合法用途：浮层、输入卡聚焦。
+ *  ② **彩色是稀缺资源**——主色取石板灰蓝 #4e5969 而非亮蓝。界面主体是灰白阶梯，
+ *     饱和色只出现在必须表意处（链接、状态、危险操作）。旧 UI 满屏 #155BF5 亮蓝，
+ *     这正是「花哨而廉价」的来源。
+ *  ③ **字号与行高成对定义**——不许各调各的。七组排版档一次定死，组件只引档不写值。
+ *
+ *  数值依据：docs/research/2026-08-21-aionui-typography-radius.md（AionUi 源码实测）。 */
+
+:root {
+  color-scheme: light;
+
+  /* ===== 色：中性阶梯（层次的唯一来源） ===== */
+  --c-bg: #ffffff;        /* 舞台底 */
+  --c-bg-1: #f9fafb;      /* 导航/侧栏底 */
+  --c-bg-2: #f2f3f5;      /* 卡片底、输入托盘 */
+  --c-bg-3: #e5e6eb;      /* 更深填充、hover 实底 */
+  --c-line: #e5e6eb;      /* 唯一分隔线色，一律 1px */
+
+  /* 文字四档（对比度见 tests/theme-contrast） */
+  --c-ink: #1d2129;       /* 主文字 */
+  --c-ink-2: #4e5969;     /* 次文字 */
+  --c-ink-3: #86909c;     /* 弱文字、占位符 */
+  --c-ink-4: #c9cdd4;     /* 禁用 */
+
+  /* 主色：石板灰蓝。选中/焦点/主按钮用它，**不是**用来点缀的亮色 */
+  --c-brand: #4e5969;
+  --c-brand-ink: #ffffff;         /* 主色底上的文字 */
+  --c-brand-soft: #eff0f6;        /* 主色浅底：选中行、聚焦晕 */
+  --c-brand-line: #b5bcd6;        /* 主色描边 */
+
+  /* 语义色：仅在必须表意时出现 */
+  --c-link: #165dff;
+  --c-ok: #009a29;
+  --c-warn: #ff7d00;
+  --c-err: #f53f3f;
+  --c-ok-soft: #e8ffea;
+  --c-warn-soft: #fff7e8;
+  --c-err-soft: #ffece8;
+
+  /* ===== 字 ===== */
+  /* 不引 webfont（红线）。也**特意不放那个被 arco 默认栈排在首位的西文无衬线字体**——
+     AionUi 把它从栈里删掉了，理由写在他们源码注释里：装了它的机器上字显得过细。 */
+  --f-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+          Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --f-mono: ui-monospace, "SF Mono", Menlo, "Cascadia Code", Consolas, "Liberation Mono", monospace;
+
+  /* 排版档：字号/行高成对，组件只引这七档 */
+  --t-hero-size: 24px;   --t-hero-lh: 32px;   --t-hero-w: 600;
+  --t-h1-size: 18px;     --t-h1-lh: 26px;     --t-h1-w: 600;
+  --t-h2-size: 15px;     --t-h2-lh: 22px;     --t-h2-w: 600;
+  --t-chat-size: 16px;   --t-chat-lh: 24px;             /* 对话正文 */
+  --t-body-size: 14px;   --t-body-lh: 20px;             /* 控件基准 */
+  --t-item-size: 13px;   --t-item-lh: 20px;             /* 列表行、卡片标题 */
+  --t-aux-size: 12px;    --t-aux-lh: 18px;              /* 辅助文字 */
+  --t-code-size: 13px;   --t-code-lh: 20px;
+
+  /* 字重只有三档：400 继承 / 500 主力（层级靠它）/ 600 仅标题 */
+  --w-md: 500;
+  --w-bd: 600;
+
+  /* ===== 形 ===== */
+  --r-s: 8px;            /* 小控件、列表行、按钮——主力档 */
+  --r-m: 12px;           /* 中卡、下拉面板 */
+  --r-l: 16px;           /* 大卡、弹窗 */
+  --r-input: 20px;       /* 会话输入卡 */
+  --r-hero: 24px;        /* 欢迎页输入卡 */
+  --r-pill: 999px;       /* 胶囊选择器、进度条 */
+
+  /* 间距：只用这八档 */
+  --sp-1: 4px;  --sp-2: 6px;  --sp-3: 8px;  --sp-4: 10px;
+  --sp-5: 12px; --sp-6: 16px; --sp-7: 20px; --sp-8: 24px;
+
+  /* 控件高 */
+  --h-mini: 24px; --h-ctl: 28px; --h-round: 32px; --h-row: 34px; --h-field: 36px;
+
+  /* 阴影：只有这两条合法 */
+  --sh-pop: 0 8px 24px rgba(15, 23, 42, .12);
+  --sh-focus: 0 2px 20px var(--c-brand-soft);
+
+  /* 布局尺度 */
+  --w-rail: 248px;
+  --w-aside: 320px;
+  --w-stage: 760px;      /* 舞台内容定宽，两侧留白——长行难读是旧 UI 的通病 */
+  --h-topbar: 36px;
+}
+
+/* 深色：只改色，形与字一律继承——主题不该改变节奏 */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: #0e0e0e;
+  --c-bg-1: #1a1a1a;
+  --c-bg-2: #262626;
+  --c-bg-3: #333333;
+  --c-line: #333333;
+
+  --c-ink: #ffffff;
+  --c-ink-2: #ced3da;
+  --c-ink-3: #86909c;
+  --c-ink-4: #5a5a5a;
+
+  --c-brand: #a1aacb;
+  --c-brand-ink: #1a1a1a;
+  --c-brand-soft: #262c41;
+  --c-brand-line: #3f4868;
+
+  --c-link: #4d9fff;
+  --c-ok: #23c343;
+  --c-warn: #ff9a2e;
+  --c-err: #f76965;
+  --c-ok-soft: #1a2a1c;
+  --c-warn-soft: #2a2114;
+  --c-err-soft: #2a1a1a;
+
+  --sh-pop: 0 12px 32px rgba(0, 0, 0, .45);
+}
+
+/* 跟随系统（未显式指定 data-theme 时） */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --c-bg: #0e0e0e;
+    --c-bg-1: #1a1a1a;
+    --c-bg-2: #262626;
+    --c-bg-3: #333333;
+    --c-line: #333333;
+    --c-ink: #ffffff;
+    --c-ink-2: #ced3da;
+    --c-ink-3: #86909c;
+    --c-ink-4: #5a5a5a;
+    --c-brand: #a1aacb;
+    --c-brand-ink: #1a1a1a;
+    --c-brand-soft: #262c41;
+    --c-brand-line: #3f4868;
+    --c-link: #4d9fff;
+    --c-ok: #23c343;
+    --c-warn: #ff9a2e;
+    --c-err: #f76965;
+    --c-ok-soft: #1a2a1c;
+    --c-warn-soft: #2a2114;
+    --c-err-soft: #2a1a1a;
+    --sh-pop: 0 12px 32px rgba(0, 0, 0, .45);
+  }
+}
+
+/* ===== 基线 ===== */
+* { box-sizing: border-box; }
+/* 边框基线设 transparent 而非 currentColor：漏写颜色的边框保持隐形，
+   不会突然冒出一条黑线（AionUi preflight 同策略） */
+*, *::before, *::after { border-width: 0; border-style: solid; border-color: transparent; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--f-ui);
+  font-size: var(--t-body-size);
+  line-height: var(--t-body-lh);
+  background: var(--c-bg);
+  color: var(--c-ink);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* 等宽数字只给读数（耗时/字节/token），正文一律比例数字 */
+.tnum { font-variant-numeric: tabular-nums; }
+
+::selection { background: var(--c-brand-soft); color: var(--c-ink); }
+
+/* 滚动条：默认隐形，hover 才显——AionUi 同策略，避免细长灰条切割界面 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+*:hover::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, .1); }
+:root[data-theme="dark"] *:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .1); }
+
+/* 线性图标统一描边（组件内 <svg> 只写路径） */
+svg { stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+
+/* 焦点环：键盘可见、鼠标不可见 */
+:focus-visible { outline: 2px solid var(--c-brand); outline-offset: 2px; }
+
+/* 排版工具类：组件引档不写值 */
+.t-hero { font-size: var(--t-hero-size); line-height: var(--t-hero-lh); font-weight: var(--t-hero-w); }
+.t-h1 { font-size: var(--t-h1-size); line-height: var(--t-h1-lh); font-weight: var(--t-h1-w); }
+.t-h2 { font-size: var(--t-h2-size); line-height: var(--t-h2-lh); font-weight: var(--t-h2-w); }
+.t-chat { font-size: var(--t-chat-size); line-height: var(--t-chat-lh); }
+.t-body { font-size: var(--t-body-size); line-height: var(--t-body-lh); }
+.t-item { font-size: var(--t-item-size); line-height: var(--t-item-lh); }
+.t-aux { font-size: var(--t-aux-size); line-height: var(--t-aux-lh); }
