@@ -8,6 +8,9 @@ import { fmtHHMM } from '../lib/time/hhmm';
 import MarkdownView from '../components/MarkdownView.vue';
 import Composer from './Composer.vue';
 import StepGroup from './StepGroup.vue';
+import PermCard from './PermCard.vue';
+import EventNotes from './EventNotes.vue';
+import ThinkBlock from './ThinkBlock.vue';
 import UiIcon from './UiIcon.vue';
 
 const props = withDefaults(defineProps<{ narrow?: boolean }>(), { narrow: false });
@@ -15,7 +18,7 @@ const chat = useChat();
 const scroller = ref<HTMLElement | null>(null);
 
 type Msg = (typeof chat.messages)[number];
-interface Turn { id: string; user: Msg | null; blocks: { kind: 'text' | 'steps'; text?: string; steps?: Step[] }[] }
+interface Turn { id: string; user: Msg | null; blocks: { kind: 'text' | 'steps' | 'think'; text?: string; steps?: Step[] }[] }
 interface Step { name: string; title: string; ok: boolean; output?: string | null }
 
 const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
@@ -52,6 +55,10 @@ const turns = computed<Turn[]>(() => {
     if (m.role !== 'assistant') continue;
     if (!out.length) out.push({ id: m.id, user: null, blocks: [] });
     const t = out[out.length - 1];
+    // V3：落库的推理内容置于本条正文之前——它是「怎么想的」，读在结论前面才有用
+    if (typeof m.reasoningContent === 'string' && m.reasoningContent) {
+      t.blocks.push({ kind: 'think', text: m.reasoningContent });
+    }
     for (const p of (Array.isArray(m.parts) ? m.parts : [])) {
       if (p?.type === 'text' && typeof p.value === 'string' && p.value) {
         t.blocks.push({ kind: 'text', text: p.value });
@@ -112,12 +119,16 @@ watch(() => props.narrow, stickBottom);
           </div>
           <div v-for="(b, i) in t.blocks" :key="i" class="ablock">
             <MarkdownView v-if="b.kind === 'text'" class="t-chat" :nodes="mdOf(b.text!)" />
+            <ThinkBlock v-else-if="b.kind === 'think'" :text="b.text!" />
             <StepGroup v-else :steps="b.steps!" />
           </div>
         </section>
 
         <!-- 实时回合 -->
-        <section v-if="chat.running || chat.streamingText" class="turn">
+        <section v-if="chat.running || chat.streamingText || chat.streamingThinking" class="turn">
+          <div v-if="chat.streamingThinking" class="ablock">
+            <ThinkBlock live :text="chat.streamingThinking" />
+          </div>
           <div v-if="chat.toolCards.length" class="ablock">
             <StepGroup
               live
@@ -127,6 +138,15 @@ watch(() => props.narrow, stickBottom);
           <div v-if="streamNodes" class="ablock"><MarkdownView class="t-chat" :nodes="streamNodes" /></div>
           <div v-else-if="chat.running" class="waiting t-aux">正在思考…</div>
         </section>
+
+        <!-- V2：事件条（降级/压缩/卸载/修剪/重试/出错/同步）——出错这条带重试入口 -->
+        <EventNotes />
+
+        <!-- V1：权限卡。**没有它，agent 一请求权限就无声卡死到超时**——
+             T 波换壳时这块被落在旧组件树里，是当时最严重的一处漏接。 -->
+        <div v-for="p in chat.pendingPerms" :key="p.requestId" class="ablock">
+          <PermCard :perm="p" />
+        </div>
 
         <div v-if="chat.lastError" class="err t-body">
           <UiIcon name="alert" :size="16" /><span>{{ chat.lastError }}</span>
