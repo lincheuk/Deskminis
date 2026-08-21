@@ -34,7 +34,7 @@ function closeDoc(p: string): void {
   if (previewPath.value === p) previewPath.value = openDocs.value[i] ?? openDocs.value[i - 1] ?? null;
 }
 /** 主视图：chat（欢迎/会话由 activeId 决定）| cron | assistants | settings | devices */
-const view = ref<'chat' | 'cron' | 'assistants' | 'settings' | 'devices'>('chat');
+const view = ref<'chat' | 'search' | 'cron' | 'assistants' | 'settings' | 'devices'>('chat');
 
 /** 会话态 = 选中了会话且它已有消息；否则欢迎态。 */
 const inChat = computed(() => !!chat.activeId && chat.messages.length > 0);
@@ -80,7 +80,7 @@ function toggleTheme(): void {
               <PreviewPane v-if="previewPath" :path="previewPath" @close="closeDoc(previewPath)" />
             </div>
           </template>
-          <StageWelcome v-else />
+          <StageWelcome v-else @view="v => (view = v)" />
         </template>
         <div v-else class="todo">
           <p class="t-h2">{{ view }}</p>

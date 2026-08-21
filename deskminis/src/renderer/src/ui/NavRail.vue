@@ -8,7 +8,7 @@ import { groupSessions } from '../lib/nav/group';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
-const emit = defineEmits<{ (e: 'view', v: 'chat' | 'cron' | 'assistants' | 'settings' | 'devices'): void }>();
+const emit = defineEmits<{ (e: 'view', v: 'chat' | 'search' | 'cron' | 'assistants' | 'settings' | 'devices'): void }>();
 /** compact = 只剩图标的窄条。产出物预览打开时自动进入——舞台要让给产出物，
  *  会话列表这时不是必需品（参考图里有预览的几张，左侧都只剩一条图标栏）。 */
 const props = defineProps<{ view: string; compact?: boolean }>();
@@ -18,6 +18,13 @@ setInterval(() => { nowSec.value = Math.floor(Date.now() / 1000); }, 60_000);
 
 const groups = computed(() => groupSessions(chat.sessions, nowSec.value));
 const emojiOf = (id: string): string => chat.assistants.find(a => a.id === id)?.avatar ?? '';
+/** 会话前的彩色小图标：原图每条 conversation 都带一个彩色圆图标，
+ *  一列纯文字很难扫。没有助手 emoji 时退化成纯色圆点，色相由会话 id 派生（稳定）。 */
+function dotStyle(id: string): Record<string, string> {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+  return { background: `oklch(0.90 0.08 ${h})`, color: `oklch(0.45 0.15 ${h})` };
+}
 
 async function newChat(): Promise<void> {
   await chat.newSession();
@@ -41,6 +48,9 @@ function openSession(id: string): void {
     </button>
 
     <div class="nav">
+      <button class="navit" type="button" :class="{ on: props.view === 'search' }" @click="emit('view', 'search')">
+        <UiIcon name="search" :size="16" /><span v-if="!props.compact">搜索会话</span>
+      </button>
       <button class="navit" type="button" :class="{ on: props.view === 'cron' }" @click="emit('view', 'cron')">
         <UiIcon name="clock" :size="16" /><span v-if="!props.compact">定时任务</span>
         <span v-if="!props.compact && chat.cronJobs.length" class="cnt tnum">{{ chat.cronJobs.length }}</span>
@@ -52,6 +62,7 @@ function openSession(id: string): void {
     </div>
 
     <div v-if="!props.compact" class="list">
+      <div class="seghead">会话</div>
       <div v-if="!chat.sessions.length" class="empty">还没有会话<br />点上面「新建会话」开始</div>
       <template v-for="g in groups" :key="g.label">
         <div class="ghead">{{ g.label }}</div>
@@ -60,7 +71,7 @@ function openSession(id: string): void {
           class="srow" :class="{ on: s.id === chat.activeId && props.view === 'chat' }"
           @click="openSession(s.id)"
         >
-          <span v-if="emojiOf(String(s.assistantId ?? ''))" class="semo">{{ emojiOf(String(s.assistantId ?? '')) }}</span>
+          <span class="semo" :style="dotStyle(s.id)">{{ emojiOf(String(s.assistantId ?? '')) || '' }}</span>
           <span class="stitle">{{ s.title || '新会话' }}</span>
         </button>
       </template>
@@ -124,9 +135,15 @@ function openSession(id: string): void {
   text-align: center; padding: var(--sp-7) var(--sp-4);
 }
 .ghead {
-  font-size: var(--t-aux-size); line-height: var(--t-aux-lh); color: var(--c-ink-3);
+  font-size: var(--t-aux-size); line-height: var(--t-aux-lh); color: var(--c-ink-4);
   padding: var(--sp-4) var(--sp-4) var(--sp-1);
 }
+/* 段头（原图 Teams/Projects/Conversations 那一级）：比日期分组更高一层 */
+.seghead {
+  font-size: var(--t-aux-size); line-height: var(--t-aux-lh); color: var(--c-ink-3);
+  font-weight: var(--w-md); padding: var(--sp-5) var(--sp-4) var(--sp-1);
+}
+.rail.compact .seghead { display: none; }
 .srow {
   display: flex; align-items: center; gap: var(--sp-2); width: 100%;
   height: var(--h-row); padding: 0 var(--sp-4); border-radius: var(--r-s);
@@ -135,7 +152,11 @@ function openSession(id: string): void {
 }
 .srow:hover { background: var(--c-bg-2); color: var(--c-ink); }
 .srow.on { background: var(--c-brand-soft); color: var(--c-ink); font-weight: var(--w-md); }
-.semo { flex: 0 0 auto; font-size: 14px; line-height: 1; }
+.semo {
+  flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; line-height: 1;
+}
 .stitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .foot {

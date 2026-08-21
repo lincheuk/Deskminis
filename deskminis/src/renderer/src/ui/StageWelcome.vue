@@ -7,9 +7,11 @@ import { computed, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import { fmtRelative } from '../lib/time/relative';
 import Composer from './Composer.vue';
+import ModelBar from './ModelBar.vue';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
+const emit = defineEmits<{ (e: 'view', v: 'settings'): void }>();
 const composer = ref<InstanceType<typeof Composer> | null>(null);
 
 const picked = computed(() => chat.assistants.find(a => a.id === chat.welcomeAssistantId));
@@ -51,6 +53,7 @@ const SAMPLES = [
         </p>
       </header>
 
+      <ModelBar @manage="emit('view', 'settings')" />
       <Composer ref="composer" variant="hero" />
 
       <section v-if="chat.assistants.length" class="block">
