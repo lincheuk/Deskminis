@@ -1145,18 +1145,22 @@ watch(() => [chat.messages, chat.annotations, chat.activeId] as const, () => {
    （菜单 300×248 弹在 .ctools 盒子外 251px 处，而盒子只有 32px 高）——
    表现就是「点了没反应」。不换行由子元素自己的 nowrap + min-width:0 + 省略号保证，
    容器不必也不该裁剪，否则任何弹出层都会被闷死在里面。 */
-.ctools { display: flex; align-items: center; gap: 8px; position: relative; }
-.ctools > :deep(.wrap) { flex: 0 1 auto; min-width: 0; }
-/* 336px 里要塞下「＋ 工作区 权限档 模型 发送」，13px/11px 内边距的常规 chip 一共约 244px，
-   可用宽只有约 194px——差 50px。故在输入卡这一处收紧到 11px 字号与 8px 内边距（约省 54px）。
-   只在 .ctools 作用域内收紧，其它地方的 .cpill 不受影响。 */
+/* 窄列（336px）里「＋ 工作区 MCP 权限档 模型 发送」六件塞不下一行。
+   收缩挤压是错解：实测把「每次确认」截成「每次确…」、模型名贴上发送键（用户 2026-08-20 目视）——
+   胶囊是**语义标签**，截了就读不出当前档位，宁可换行也不能截。故改：胶囊一律不收缩、整行放不下就换行，
+   发送键 margin-left:auto 常驻行尾。唯一该截的是工作区名（用户目录名可以任意长），单独限宽。 */
+.ctools { display: flex; align-items: center; gap: 8px; position: relative; flex-wrap: wrap; }
+.ctools > :deep(.wrap) { flex: 0 0 auto; }
 /* E3：chip 文字走 mono（Aurora §4 读数面——工作区名/权限档/模型名都是「标识符读数」） */
 .cpill, .ctools :deep(.cpill) {
-  flex: 0 1 auto; min-width: 0;
+  flex: 0 0 auto;
   padding: 4px 8px; font-size: var(--fs-micro); gap: 5px;
   font-family: var(--font-mono);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* 工作区名不可控长度：限宽后 ellipsis 生效（全路径在 title 上），其余胶囊文案定长不参与截断 */
+.wsbtn { max-width: 132px; min-width: 0; }
+.send { margin-left: auto; }
 .ctools :deep(.mt) { font-size: var(--fs-micro); }
 .send { width: 28px; height: 28px; }
 /* 对话列可窄至 280px，而 PermissionPicker / ModelPicker 的弹层原本
