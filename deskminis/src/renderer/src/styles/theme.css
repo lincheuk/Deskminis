@@ -84,9 +84,11 @@
   /* 阴影：只有这两条合法 */
   --sh-pop: 0 8px 24px rgba(15, 23, 42, .12);
   --sh-focus: 0 2px 20px var(--c-brand-soft);
+  --sh-paper: 0 1px 3px rgba(0, 0, 0, .10), 0 8px 24px rgba(0, 0, 0, .06);  /* 灰底上的白纸 */
 
   /* 布局尺度 */
   --w-rail: 220px;
+  --w-rail-mini: 52px;  /* 产出物预览打开时左栏收成的图标条宽 */
   --w-aside: 244px;
   --w-chatcol: 372px;   /* 分栏态下对话列固定宽——产出物占主位时对话退居辅助 */
   --w-stage: 760px;      /* 舞台内容定宽，两侧留白——长行难读是旧 UI 的通病 */
@@ -122,6 +124,7 @@
   --c-err-soft: #2a1a1a;
 
   --sh-pop: 0 12px 32px rgba(0, 0, 0, .45);
+  --sh-paper: 0 1px 3px rgba(0, 0, 0, .5), 0 8px 24px rgba(0, 0, 0, .35);
 }
 
 /* 跟随系统（未显式指定 data-theme 时） */
@@ -150,6 +153,7 @@
     --c-warn-soft: #2a2114;
     --c-err-soft: #2a1a1a;
     --sh-pop: 0 12px 32px rgba(0, 0, 0, .45);
+    --sh-paper: 0 1px 3px rgba(0, 0, 0, .5), 0 8px 24px rgba(0, 0, 0, .35);
   }
 }
 

@@ -13,6 +13,7 @@ import NavRail from './NavRail.vue';
 import StageWelcome from './StageWelcome.vue';
 import StageChat from './StageChat.vue';
 import PreviewPane from './PreviewPane.vue';
+import TabBar from './TabBar.vue';
 import WorkspacePanel from './WorkspacePanel.vue';
 
 const chat = useChat();
@@ -21,6 +22,17 @@ const wsOpen = ref(true);
 /** 当前预览的产出物（相对工作区路径）。有值时舞台分栏：对话让到左边一条，预览占主位——
  *  这是 Cowork 形态的核心（用户 2026-08-21 参考图）：产出物是主角，对话是辅助。 */
 const previewPath = ref<string | null>(null);
+/** 打开过的产出物：每个一个标签，来回对照不用重新找（agent 一轮常产出好几个文件）。 */
+const openDocs = ref<string[]>([]);
+function openDoc(p: string): void {
+  if (!openDocs.value.includes(p)) openDocs.value.push(p);
+  previewPath.value = p;
+}
+function closeDoc(p: string): void {
+  const i = openDocs.value.indexOf(p);
+  if (i >= 0) openDocs.value.splice(i, 1);
+  if (previewPath.value === p) previewPath.value = openDocs.value[i] ?? openDocs.value[i - 1] ?? null;
+}
 /** 主视图：chat（欢迎/会话由 activeId 决定）| cron | assistants | settings | devices */
 const view = ref<'chat' | 'cron' | 'assistants' | 'settings' | 'devices'>('chat');
 
@@ -30,12 +42,12 @@ const inChat = computed(() => !!chat.activeId && chat.messages.length > 0);
 onMounted(() => { void chat.init(); });
 
 // 会话切换：上一会话的预览路径在新会话里没有意义
-watch(() => chat.activeId, () => { previewPath.value = null; });
+watch(() => chat.activeId, () => { previewPath.value = null; openDocs.value = []; });
 // 产物卡/其它入口写入的待预览路径（store 既有字段）——消费即清空
 watch(() => chat.pendingFilePreview, (p) => {
   if (!p) return;
   chat.pendingFilePreview = null;
-  previewPath.value = p;
+  openDoc(p);
 });
 
 /** 主题：跟随系统，用户可在菜单里覆写（T5 接菜单，先留接口）。 */
@@ -54,14 +66,20 @@ function toggleTheme(): void {
       @menu="toggleTheme"
     />
     <div class="body">
-      <NavRail v-show="railOpen" :view="view" @view="v => (view = v)" />
+      <NavRail v-show="railOpen" :view="view" :compact="!!previewPath" @view="v => (view = v)" />
 
       <main class="stage">
         <template v-if="view === 'chat'">
-          <div v-if="inChat" class="split" :class="{ withPreview: !!previewPath }">
-            <StageChat class="chatcol" :narrow="!!previewPath" />
-            <PreviewPane v-if="previewPath" :path="previewPath" @close="previewPath = null" />
-          </div>
+          <template v-if="inChat">
+            <TabBar
+              v-if="openDocs.length" :open="openDocs" :active="previewPath"
+              @pick="p => (previewPath = p)" @close="closeDoc"
+            />
+            <div class="split" :class="{ withPreview: !!previewPath }">
+              <StageChat class="chatcol" :narrow="!!previewPath" />
+              <PreviewPane v-if="previewPath" :path="previewPath" @close="closeDoc(previewPath)" />
+            </div>
+          </template>
           <StageWelcome v-else />
         </template>
         <div v-else class="todo">
@@ -73,7 +91,7 @@ function toggleTheme(): void {
       <WorkspacePanel
         v-show="wsOpen && view === 'chat'"
         :selected="previewPath"
-        @open="p => (previewPath = p)"
+        @open="openDoc"
       />
     </div>
   </div>

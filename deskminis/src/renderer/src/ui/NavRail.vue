@@ -9,7 +9,9 @@ import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
 const emit = defineEmits<{ (e: 'view', v: 'chat' | 'cron' | 'assistants' | 'settings' | 'devices'): void }>();
-const props = defineProps<{ view: string }>();
+/** compact = 只剩图标的窄条。产出物预览打开时自动进入——舞台要让给产出物，
+ *  会话列表这时不是必需品（参考图里有预览的几张，左侧都只剩一条图标栏）。 */
+const props = defineProps<{ view: string; compact?: boolean }>();
 
 const nowSec = ref(Math.floor(Date.now() / 1000));
 setInterval(() => { nowSec.value = Math.floor(Date.now() / 1000); }, 60_000);
@@ -28,28 +30,28 @@ function openSession(id: string): void {
 </script>
 
 <template>
-  <nav class="rail">
+  <nav class="rail" :class="{ compact: props.compact }">
     <div class="brand">
       <span class="mark"><UiIcon name="chat" :size="15" /></span>
-      <span class="bname">DeskMinis</span>
+      <span v-if="!props.compact" class="bname">DeskMinis</span>
     </div>
 
-    <button class="newbtn" type="button" @click="newChat">
-      <UiIcon name="plus" :size="16" /><span>新建会话</span>
+    <button class="newbtn" type="button" :title="props.compact ? '新建会话' : ''" @click="newChat">
+      <UiIcon name="plus" :size="16" /><span v-if="!props.compact">新建会话</span>
     </button>
 
     <div class="nav">
       <button class="navit" type="button" :class="{ on: props.view === 'cron' }" @click="emit('view', 'cron')">
-        <UiIcon name="clock" :size="16" /><span>定时任务</span>
-        <span v-if="chat.cronJobs.length" class="cnt tnum">{{ chat.cronJobs.length }}</span>
+        <UiIcon name="clock" :size="16" /><span v-if="!props.compact">定时任务</span>
+        <span v-if="!props.compact && chat.cronJobs.length" class="cnt tnum">{{ chat.cronJobs.length }}</span>
       </button>
       <button class="navit" type="button" :class="{ on: props.view === 'assistants' }" @click="emit('view', 'assistants')">
-        <UiIcon name="robot" :size="16" /><span>助手</span>
-        <span v-if="chat.assistants.length" class="cnt tnum">{{ chat.assistants.length }}</span>
+        <UiIcon name="robot" :size="16" /><span v-if="!props.compact">助手</span>
+        <span v-if="!props.compact && chat.assistants.length" class="cnt tnum">{{ chat.assistants.length }}</span>
       </button>
     </div>
 
-    <div class="list">
+    <div v-if="!props.compact" class="list">
       <div v-if="!chat.sessions.length" class="empty">还没有会话<br />点上面「新建会话」开始</div>
       <template v-for="g in groups" :key="g.label">
         <div class="ghead">{{ g.label }}</div>
@@ -66,10 +68,10 @@ function openSession(id: string): void {
 
     <div class="foot">
       <button class="navit" type="button" :class="{ on: props.view === 'settings' }" @click="emit('view', 'settings')">
-        <UiIcon name="gear" :size="16" /><span>设置</span>
+        <UiIcon name="gear" :size="16" /><span v-if="!props.compact">设置</span>
       </button>
       <button class="navit" type="button" :class="{ on: props.view === 'devices' }" @click="emit('view', 'devices')">
-        <UiIcon name="device" :size="16" /><span>设备</span>
+        <UiIcon name="device" :size="16" /><span v-if="!props.compact">设备</span>
       </button>
     </div>
   </nav>
@@ -78,6 +80,7 @@ function openSession(id: string): void {
 <style scoped>
 .rail {
   width: var(--w-rail); flex: 0 0 var(--w-rail);
+  transition: width .16s ease, flex-basis .16s ease;
   display: flex; flex-direction: column; min-height: 0;
   background: var(--c-bg-1);
   border-right: 1px solid var(--c-line);
@@ -136,4 +139,14 @@ function openSession(id: string): void {
   flex: 0 0 auto; padding: var(--sp-3); display: flex; flex-direction: column; gap: 2px;
   border-top: 1px solid var(--c-line);
 }
+
+/* ---- compact：只剩一条图标栏 ---- */
+.rail.compact { width: var(--w-rail-mini); flex: 0 0 var(--w-rail-mini); }
+.rail.compact .brand { justify-content: center; padding: var(--sp-5) 0 var(--sp-3); }
+.rail.compact .newbtn { margin: 0 auto var(--sp-5); width: var(--h-round); padding: 0; }
+.rail.compact .nav,
+.rail.compact .foot { padding-left: 0; padding-right: 0; align-items: center; }
+.rail.compact .navit { width: var(--h-round); padding: 0; justify-content: center; }
+/* compact 下 .list 不渲染，但留一段弹性把底部入口压到底 */
+.rail.compact .nav { flex: 1; justify-content: flex-start; }
 </style>

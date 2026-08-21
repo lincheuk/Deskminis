@@ -122,18 +122,27 @@ async function copyPath(): Promise<void> {
 }
 .ib:hover { background: var(--c-bg-2); }
 
-.body { flex: 1; min-height: 0; overflow: auto; }
+/* 灰底衬纸：产出物预览是「看文档」不是「看数据」，纸感来自 底色/白纸/阴影/页边距 四件套 */
+.body { flex: 1; min-height: 0; overflow: auto; background: var(--c-bg-2); }
 .hint { padding: var(--sp-8); text-align: center; color: var(--c-ink-3); }
 .hint.err { color: var(--c-err); }
 
-/* 文档态：白纸感——定宽、留白、正文排版（AionUi 文档预览同形） */
+/* 文档态：真·白纸——灰底上一张有页边距的纸，A4 比例的观感 */
 .doc {
-  width: min(720px, 100% - var(--sp-8) * 2); margin: 0 auto;
-  padding: var(--sp-8) 0 15vh;
-  font-size: var(--t-chat-size); line-height: var(--t-chat-lh); color: var(--c-ink);
+  width: min(760px, 100% - var(--sp-7) * 2);
+  margin: var(--sp-7) auto;
+  padding: 56px 64px 72px;
+  background: var(--c-bg);
+  border-radius: 2px;                 /* 纸不该有大圆角 */
+  box-shadow: var(--sh-paper);
+  font-size: var(--t-chat-size); line-height: 1.75; color: var(--c-ink);
 }
+@media (max-width: 900px) { .doc { padding: 32px 28px 48px; } }
 .src {
-  margin: 0; padding: var(--sp-6) var(--sp-7);
+  margin: var(--sp-7) auto; width: min(880px, 100% - var(--sp-7) * 2);
+  background: var(--c-bg); border-radius: var(--r-s);
+  box-shadow: var(--sh-paper);
+  padding: var(--sp-6) var(--sp-7);
   font-family: var(--f-mono); font-size: var(--t-code-size); line-height: var(--t-code-lh);
   color: var(--c-ink-2); white-space: pre-wrap; word-break: break-word;
 }

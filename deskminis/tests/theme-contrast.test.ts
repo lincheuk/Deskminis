@@ -70,7 +70,7 @@ describe('T1 设计系统立系原则（锚意图，不锚具体值）', () => {
   it('阴影只有两条合法定义：浮层与聚焦晕（卡片零阴影是硬规矩）', () => {
     // 各主题块都会改写 --sh-pop，故数个数是锚实现；锚意图 = 阴影令牌的**名字**只有这两个
     const names = new Set([...css.matchAll(/(--sh-[\w-]+):/g)].map(m => m[1]));
-    expect([...names].sort()).toEqual(['--sh-focus', '--sh-pop']);
+    expect([...names].sort()).toEqual(['--sh-focus', '--sh-paper', '--sh-pop']);
   });
   it('字号与行高成对：每个排版档都必须同时有 -size 与 -lh', () => {
     const sizes = [...css.matchAll(/--t-([\w]+)-size:/g)].map(m => m[1]).sort();
