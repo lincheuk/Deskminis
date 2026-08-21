@@ -26,6 +26,23 @@ function textOf(m: Msg): string {
   const p = Array.isArray(m.parts) ? m.parts.find((x: { type?: string }) => x?.type === 'text') : undefined;
   return typeof p?.value === 'string' ? p.value : '';
 }
+/** V6：消息里的附件（mediaRef part）。只取元数据渲染 chip——
+ *  历史里不铺原图（一屏几张就把对话挤没了），要看点开预览。
+ *  不渲染它的话，带图的那条消息在历史里会退化成一条空气泡。 */
+function attsOf(m: Msg): { path: string; name: string }[] {
+  if (!Array.isArray(m.parts)) return [];
+  const out: { path: string; name: string }[] = [];
+  for (const p of m.parts) {
+    if (p?.type !== 'mediaRef' || !isRec(p.value)) continue;
+    const rel = p.value.relativePath;
+    if (typeof rel !== 'string' || !rel) continue;
+    const name = typeof p.value.originalFileName === 'string' && p.value.originalFileName
+      ? p.value.originalFileName : (rel.split('/').pop() ?? rel);
+    out.push({ path: rel, name });
+  }
+  return out;
+}
+
 /** 仅承载工具结果的合成 user 消息不产生新回合（后端用它回传 toolResult）。 */
 function isResultCarrier(m: Msg): boolean {
   return Array.isArray(m.parts) && m.parts.length > 0
@@ -114,7 +131,15 @@ watch(() => props.narrow, stickBottom);
       <div class="col">
         <section v-for="t in turns" :key="t.id" class="turn">
           <div v-if="t.user" class="urow">
-            <div class="ubub t-chat">{{ textOf(t.user) }}</div>
+            <div v-if="attsOf(t.user).length" class="uatts">
+              <button
+                v-for="a in attsOf(t.user)" :key="a.path" type="button" class="uatt"
+                :title="a.path" @click="chat.pendingFilePreview = a.path"
+              >
+                <UiIcon name="file" :size="13" /><span>{{ a.name }}</span>
+              </button>
+            </div>
+            <div v-if="textOf(t.user)" class="ubub t-chat">{{ textOf(t.user) }}</div>
             <div class="umeta t-aux tnum">{{ typeof t.user.createdAt === 'number' ? fmtHHMM(t.user.createdAt) : '' }}</div>
           </div>
           <div v-for="(b, i) in t.blocks" :key="i" class="ablock">
@@ -195,4 +220,14 @@ watch(() => props.narrow, stickBottom);
 }
 
 .dock { flex: 0 0 auto; padding: 0 0 var(--sp-6); background: var(--c-bg); }
+
+/* V6 附件 chip：历史里只显示文件名，点开走预览区（原图铺开会把对话挤没） */
+.uatts { display: flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; margin-bottom: var(--sp-2); }
+.uatt {
+  display: inline-flex; align-items: center; gap: var(--sp-2); max-width: 220px;
+  height: var(--h-mini); padding: 0 var(--sp-3); border-radius: var(--r-s); cursor: pointer;
+  background: var(--c-bg-2); color: var(--c-ink-2); font-family: inherit; font-size: var(--t-aux-size);
+}
+.uatt:hover { background: var(--c-bg-3); color: var(--c-ink); }
+.uatt span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

@@ -6,8 +6,8 @@ import { computed } from 'vue';
 import { useChat } from '../stores/chat';
 import UiIcon from './UiIcon.vue';
 
-const props = defineProps<{ railOpen: boolean; asideOpen: boolean }>();
-const emit = defineEmits<{ (e: 'toggle-rail'): void; (e: 'toggle-aside'): void; (e: 'menu'): void }>();
+const props = defineProps<{ railOpen: boolean; asideOpen: boolean; termOpen: boolean }>();
+const emit = defineEmits<{ (e: 'toggle-rail'): void; (e: 'toggle-aside'): void; (e: 'toggle-term'): void; (e: 'menu'): void }>();
 const chat = useChat();
 
 /** 标题 = 当前会话名；无会话时显示应用名。系统同步态用一个小点表示，不占文字位。 */
@@ -37,6 +37,9 @@ const syncDot = computed(() => {
 
     <div class="side right">
       <span class="dot" :style="{ background: syncDot.c }" :title="syncDot.t"></span>
+      <button class="ib" type="button" :aria-pressed="props.termOpen" title="终端" @click="emit('toggle-term')">
+        <UiIcon name="terminal" :size="17" />
+      </button>
       <button class="ib" type="button" :aria-pressed="props.asideOpen" title="工作台" @click="emit('toggle-aside')">
         <UiIcon name="aside" :size="17" />
       </button>

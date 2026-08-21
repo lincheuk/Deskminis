@@ -13,6 +13,7 @@ import { rpc } from '../rpc';
 import { rowsFor } from '../lib/composer/autogrow';
 import { histStep } from '../lib/composer/history';
 import { atToken, atMatch, applyAt, collectFiles } from '../lib/composer/at-files';
+import { downsampleImageFile } from '../lib/attach/downsample';
 import UiIcon from './UiIcon.vue';
 
 const props = withDefaults(defineProps<{ variant?: 'hero' | 'chat' }>(), { variant: 'chat' });
@@ -20,7 +21,11 @@ const chat = useChat();
 
 const text = ref('');
 const field = ref<HTMLTextAreaElement | null>(null);
-const canSend = computed(() => text.value.trim().length > 0 && !chat.running);
+/** V6 待发附件（声明必须在 canSend 之前——computed 里引用了它）。
+ *  path 是会话相对路径（后端据此落 mediaRef part），dataUrl 只用于本地缩略图。 */
+const atts = ref<{ path: string; dataUrl: string }[]>([]);
+// 只有附件没有文字也能发（「看看这张图」的常见开法）
+const canSend = computed(() => (text.value.trim().length > 0 || atts.value.length > 0) && !chat.running);
 
 /** 底行胶囊：当前模型与权限档。原图这两枚常驻——用户随时看得见「谁在跑、能做多狠」。 */
 const modelLabel = computed(() => {
@@ -121,9 +126,57 @@ function onTab(e: KeyboardEvent): void {
 }
 function closeMenus(): void { atQuery.value = null; }
 
+// ---- V6 附件：粘贴 / 拖拽 / ＋ 钮三条入口 ----
+const fileEl = ref<HTMLInputElement | null>(null);
+const attErr = ref('');
+
+const bridge = (): { saveAttachment?: (s: string, d: string) => Promise<string> } | undefined =>
+  (window as unknown as { deskminis?: { saveAttachment?: (s: string, d: string) => Promise<string> } }).deskminis;
+
+function pickImages(list: FileList | null): File[] {
+  return Array.from(list ?? []).filter(f => f.type.startsWith('image/'));
+}
+async function saveImages(files: File[]): Promise<void> {
+  if (!files.length) return;
+  attErr.value = '';
+  if (!chat.activeId) await chat.newSession();   // 附件挂在会话目录下：先确保有会话
+  const id = chat.activeId;
+  const b = bridge();
+  if (!id || typeof b?.saveAttachment !== 'function') { attErr.value = '这个环境不支持附件'; return; }
+  for (const f of files) {
+    try {
+      // 入库前降采样：超 1568px 长边的先缩再传（gif / 边界内原字节直传，见 lib/attach/downsample）
+      const dataUrl = await downsampleImageFile(f);
+      atts.value.push({ path: await b.saveAttachment(id, dataUrl), dataUrl });
+    } catch (e) {
+      attErr.value = e instanceof Error ? e.message : String(e);
+    }
+  }
+}
+function onPaste(e: ClipboardEvent): void {
+  const files = pickImages(e.clipboardData?.files ?? null);
+  if (!files.length) return;      // 没有图片：让默认的文本粘贴照常发生
+  e.preventDefault();
+  void saveImages(files);
+}
+function onDrop(e: DragEvent): void {
+  const files = pickImages(e.dataTransfer?.files ?? null);
+  if (!files.length) return;
+  e.preventDefault();
+  void saveImages(files);
+}
+function onPick(e: Event): void {
+  const el = e.target as HTMLInputElement;
+  void saveImages(pickImages(el.files));
+  el.value = '';                  // 清空以允许连续选同一个文件
+}
+function dropAtt(i: number): void { atts.value.splice(i, 1); }
+
 async function send(): Promise<void> {
   const t = text.value.trim();
-  if (!t || chat.running) return;
+  const paths = atts.value.map(a => a.path);
+  // 只有附件没有文字也算一条消息（「看看这张图」的常见开法）
+  if ((!t && !paths.length) || chat.running) return;
   if (!chat.activeId) {
     if (chat.welcomeAssistantId) await chat.newSessionWithAssistant(chat.welcomeAssistantId);
     else await chat.newSession();
@@ -131,7 +184,8 @@ async function send(): Promise<void> {
   text.value = '';
   histCursor.value = -1;
   atQuery.value = null;
-  await chat.send(t);
+  atts.value = [];
+  await chat.send(t, paths.length ? paths : undefined);
 }
 
 defineExpose({ focus: () => field.value?.focus(), fill: (t: string) => { text.value = t; void nextTick(() => field.value?.focus()); } });
@@ -164,8 +218,17 @@ defineExpose({ focus: () => field.value?.focus(), fill: (t: string) => { text.va
         <div v-if="atTruncated" class="mtail">工作区文件过多，仅收录前 500 项</div>
       </div>
 
+      <div v-if="atts.length" class="atts">
+        <span v-for="(a, i) in atts" :key="a.path" class="att">
+          <img :src="a.dataUrl" alt="" />
+          <button type="button" class="ax" title="去掉这张" @click="dropAtt(i)"><UiIcon name="x" :size="11" /></button>
+        </span>
+      </div>
+      <p v-if="attErr" class="atterr t-aux">{{ attErr }}</p>
+
       <textarea
         ref="field" v-model="text" class="field" :rows="rowsFor(text)" :placeholder="placeholder"
+        @paste="onPaste" @drop="onDrop" @dragover.prevent
         @keydown.enter.exact.prevent="onEnter"
         @keydown.up="onNav(-1, $event)"
         @keydown.down="onNav(1, $event)"
@@ -175,7 +238,10 @@ defineExpose({ focus: () => field.value?.focus(), fill: (t: string) => { text.va
       ></textarea>
 
       <div class="tools">
-        <button class="tb" type="button" title="附件（后续接）"><UiIcon name="plus" :size="16" /></button>
+        <button class="tb" type="button" title="添加图片（也可直接粘贴或拖进来）" @click="fileEl?.click()">
+          <UiIcon name="plus" :size="16" />
+        </button>
+        <input ref="fileEl" class="hidden" type="file" accept="image/*" multiple @change="onPick" />
         <button class="tb" type="button" title="引用工作区文件：在输入框里打 @" @click="() => { text += (text && !text.endsWith(' ') ? ' @' : '@'); field?.focus(); syncAt(); }">
           <UiIcon name="at" :size="16" />
         </button>
@@ -269,4 +335,16 @@ defineExpose({ focus: () => field.value?.focus(), fill: (t: string) => { text.va
 .mdesc { color: var(--c-ink-3); font-size: var(--t-aux-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mpath { font-family: var(--f-mono); font-size: var(--t-aux-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mtail { padding: var(--sp-1) var(--sp-4); font-size: var(--t-aux-size); color: var(--c-ink-3); }
+
+/* ---- V6 附件缩略条 ---- */
+.atts { display: flex; gap: var(--sp-3); flex-wrap: wrap; padding: 0 var(--sp-2) var(--sp-3); }
+.att { position: relative; width: 56px; height: 56px; flex: 0 0 auto; }
+.att img { width: 100%; height: 100%; object-fit: cover; border-radius: var(--r-s); display: block; }
+.ax {
+  position: absolute; top: -5px; right: -5px; width: 18px; height: 18px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+  background: var(--c-ink); color: var(--c-bg);
+}
+.atterr { margin: 0 0 var(--sp-3); padding: 0 var(--sp-2); color: var(--c-err); }
+.hidden { display: none; }
 </style>

@@ -6,6 +6,7 @@ import { computed, ref, watch } from 'vue';
 import { rpc } from '../rpc';
 import { useChat } from '../stores/chat';
 import UiFileTree from './UiFileTree.vue';
+import TaskPanel from './TaskPanel.vue';
 import UiIcon from './UiIcon.vue';
 
 const props = defineProps<{ selected: string | null }>();
@@ -13,7 +14,7 @@ const emit = defineEmits<{ (e: 'open', path: string): void }>();
 const chat = useChat();
 
 interface Node { name: string; path: string; kind: 'dir' | 'file'; size: number; mtime: number }
-const tab = ref<'files' | 'changes'>('files');
+const tab = ref<'files' | 'changes' | 'tasks'>('files');
 const roots = ref<Node[] | null>(null);
 const loading = ref(false);
 const failed = ref('');
@@ -41,7 +42,8 @@ const changes = computed(() => {
       if (p?.type !== 'toolUse' || !p.value || typeof p.value !== 'object') continue;
       const v = p.value as Record<string, unknown>;
       const name = String(v.name ?? '');
-      if (name !== 'file_write' && name !== 'file_edit') continue;
+      // office_write 也产出文件（U 波）——不认它，agent 做的 docx/xlsx/pptx 就凭空消失
+      if (name !== 'file_write' && name !== 'file_edit' && name !== 'office_write') continue;
       const input = typeof v.input === 'string' ? safeJson(v.input) : (v.input as Record<string, unknown> | undefined);
       const path = typeof input?.path === 'string' ? input.path : '';
       if (!path || seen.has(path)) continue;
@@ -63,6 +65,9 @@ function safeJson(s: string): Record<string, unknown> | undefined {
       <button type="button" :class="{ on: tab === 'changes' }" @click="tab = 'changes'">
         改动<span v-if="changes.length" class="n tnum">{{ changes.length }}</span>
       </button>
+      <button type="button" :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">
+        任务<span v-if="chat.pendingPerms.length" class="n dot">·</span>
+      </button>
       <span class="grow"></span>
       <button class="ib" type="button" title="刷新" @click="refresh"><UiIcon name="refresh" :size="14" /></button>
     </div>
@@ -80,13 +85,15 @@ function safeJson(s: string): Record<string, unknown> | undefined {
         />
       </template>
 
-      <template v-else>
+      <template v-else-if="tab === 'changes'">
         <div v-if="!changes.length" class="hint">本会话还没有文件改动</div>
         <button v-for="c in changes" :key="c.path" type="button" class="chg" :class="{ on: props.selected === c.path }" @click="emit('open', c.path)">
-          <span class="tag" :class="c.tool">{{ c.tool === 'file_write' ? '写' : '改' }}</span>
+          <span class="tag" :class="c.tool">{{ c.tool === 'file_edit' ? '改' : '写' }}</span>
           <span class="cpath">{{ c.path }}</span>
         </button>
       </template>
+
+      <TaskPanel v-else />
     </div>
   </aside>
 </template>
@@ -98,23 +105,29 @@ function safeJson(s: string): Record<string, unknown> | undefined {
   background: var(--c-bg-1); border-left: 1px solid var(--c-line);
 }
 .tabs {
-  flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-1);
-  height: var(--h-field); padding: 0 var(--sp-3);
+  flex: 0 0 auto; display: flex; align-items: center; gap: 2px;
+  height: var(--h-field); padding: 0 var(--sp-2);
   border-bottom: 1px solid var(--c-line);
 }
 .tabs button {
-  height: var(--h-mini); padding: 0 var(--sp-4); border-radius: var(--r-s);
-  background: none; color: var(--c-ink-3); cursor: pointer;
+  /* 三个 tab + 刷新钮要挤进 244px：nowrap 是硬要求——不加的话
+     「文件」会被折成两行「文 / 件」（V4 实拍逮到），内边距也得收窄 */
+  height: var(--h-mini); padding: 0 var(--sp-3); border-radius: var(--r-s);
+  background: none; color: var(--c-ink-3); cursor: pointer; white-space: nowrap;
   font-size: var(--t-aux-size); font-family: inherit;
-  display: inline-flex; align-items: center; gap: var(--sp-2);
+  display: inline-flex; align-items: center; gap: var(--sp-1); flex: 0 0 auto;
 }
 .tabs button:hover { color: var(--c-ink); }
 .tabs button.on { background: var(--c-bg-2); color: var(--c-ink); font-weight: var(--w-md); }
 .n { color: var(--c-ink-3); }
+/* 有待批准请求时 tab 上点一个警示圆点：回合正卡在那儿，值得一眼看见 */
+.n.dot { color: var(--c-warn); font-weight: var(--w-bd); }
 .grow { flex: 1; }
 .ib { width: 24px; height: 24px; justify-content: center; padding: 0 !important; }
 
 .body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-2) var(--sp-3) var(--sp-4); }
+/* 任务面板自带内边距，外层再叠一层会把水位条挤窄 */
+.body:has(.tp) { padding: 0; }
 .hint { padding: var(--sp-7) var(--sp-4); text-align: center; font-size: var(--t-aux-size); line-height: 1.7; color: var(--c-ink-3); }
 .hint.err { color: var(--c-err); }
 

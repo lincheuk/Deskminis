@@ -20,10 +20,14 @@ import StageAssistants from './StageAssistants.vue';
 import StageCron from './StageCron.vue';
 import StageDevices from './StageDevices.vue';
 import StageSearch from './StageSearch.vue';
+import TerminalPane from './TerminalPane.vue';
 
 const chat = useChat();
 const railOpen = ref(true);
 const wsOpen = ref(true);
+/** 终端抽屉。默认收起——它是「需要时拉出来」的东西，常驻会白占 260px 高度。
+ *  组件只在打开时挂载（v-if 不是 v-show）：xterm 是重实例，不用时不该活着。 */
+const termOpen = ref(false);
 /** 当前预览的产出物（相对工作区路径）。有值时舞台分栏：对话让到左边一条，预览占主位——
  *  这是 Cowork 形态的核心（用户 2026-08-21 参考图）：产出物是主角，对话是辅助。 */
 const previewPath = ref<string | null>(null);
@@ -65,9 +69,10 @@ function toggleTheme(): void {
 <template>
   <div class="shell">
     <TopBar
-      :rail-open="railOpen" :aside-open="wsOpen"
+      :rail-open="railOpen" :aside-open="wsOpen" :term-open="termOpen"
       @toggle-rail="railOpen = !railOpen"
       @toggle-aside="wsOpen = !wsOpen"
+      @toggle-term="termOpen = !termOpen"
       @menu="toggleTheme"
     />
     <div class="body">
@@ -92,6 +97,7 @@ function toggleTheme(): void {
         <StageAssistants v-else-if="view === 'assistants'" />
         <StageDevices v-else-if="view === 'devices'" />
         <StageSettings v-else />
+        <TerminalPane v-if="termOpen" @close="termOpen = false" />
       </main>
 
       <WorkspacePanel
