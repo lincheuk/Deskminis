@@ -86,8 +86,9 @@
   --sh-focus: 0 2px 20px var(--c-brand-soft);
 
   /* 布局尺度 */
-  --w-rail: 248px;
-  --w-aside: 320px;
+  --w-rail: 220px;
+  --w-aside: 244px;
+  --w-chatcol: 372px;   /* 分栏态下对话列固定宽——产出物占主位时对话退居辅助 */
   --w-stage: 760px;      /* 舞台内容定宽，两侧留白——长行难读是旧 UI 的通病 */
   --h-topbar: 40px;   /* 对齐 main 的 titleBarOverlay height:40——系统在右上角画 min/max/close */
 }

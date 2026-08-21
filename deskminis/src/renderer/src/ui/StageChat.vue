@@ -10,6 +10,7 @@ import Composer from './Composer.vue';
 import StepGroup from './StepGroup.vue';
 import UiIcon from './UiIcon.vue';
 
+const props = withDefaults(defineProps<{ narrow?: boolean }>(), { narrow: false });
 const chat = useChat();
 const scroller = ref<HTMLElement | null>(null);
 
@@ -82,14 +83,26 @@ function onScroll(): void {
   if (!el) return;
   following.value = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
 }
+/** 贴底：nextTick 之后 Markdown 子树往往还没完成布局，此刻量到的 scrollHeight 是旧值——
+ *  实测表现为「发完消息助手回复停在视口外」。故再等一帧（双 rAF）确认布局提交后再滚。 */
+function stickBottom(): void {
+  if (!following.value) return;
+  void nextTick(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const el = scroller.value;
+    if (el) el.scrollTop = el.scrollHeight;
+  })));
+}
 watch(
   () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.pendingPerms.length] as const,
-  () => { if (following.value) void nextTick(() => { const el = scroller.value; if (el) el.scrollTop = el.scrollHeight; }); },
+  stickBottom,
 );
+// 分栏开合会改变列宽 → 内容重排、总高改变。不重新贴底的话，刚才还在视野里的
+// 助手回复会被顶出视口（T4 实拍逮到）。
+watch(() => props.narrow, stickBottom);
 </script>
 
 <template>
-  <div class="stage">
+  <div class="stage" :class="{ narrow: props.narrow }">
     <div ref="scroller" class="scroll" @scroll="onScroll">
       <div class="col">
         <section v-for="t in turns" :key="t.id" class="turn">
@@ -131,6 +144,10 @@ watch(
 .stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .col { width: min(var(--w-stage), 100% - var(--sp-8) * 2); margin: 0 auto; }
+/* 分栏态：对话退居左侧一条，不再定宽居中——420 列里再留 24 边距就没内容位置了 */
+.stage.narrow { border-right: 1px solid var(--c-line); }
+.stage.narrow .col { width: 100%; padding-left: var(--sp-5); padding-right: var(--sp-5); }
+.stage.narrow .ubub { max-width: 92%; }
 .scroll .col { padding: var(--sp-7) 0 var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-8); }
 
 /* 回合之间靠间距分隔，不画线——线会把对话切成表格 */

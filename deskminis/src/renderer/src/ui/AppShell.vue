@@ -6,16 +6,21 @@
  *  ② Aside **默认收起**，不再常驻挤压中栏到 336px（那是「胶囊塞不下」等一连串
  *     挤压问题的总根源）；
  *  ③ 欢迎态与会话态是 Stage 内两个**并列视图**，不再靠 v-if 在同一棵组件树上叠条件。 */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
 import TopBar from './TopBar.vue';
 import NavRail from './NavRail.vue';
 import StageWelcome from './StageWelcome.vue';
 import StageChat from './StageChat.vue';
+import PreviewPane from './PreviewPane.vue';
+import WorkspacePanel from './WorkspacePanel.vue';
 
 const chat = useChat();
 const railOpen = ref(true);
-const asideOpen = ref(false);
+const wsOpen = ref(true);
+/** 当前预览的产出物（相对工作区路径）。有值时舞台分栏：对话让到左边一条，预览占主位——
+ *  这是 Cowork 形态的核心（用户 2026-08-21 参考图）：产出物是主角，对话是辅助。 */
+const previewPath = ref<string | null>(null);
 /** 主视图：chat（欢迎/会话由 activeId 决定）| cron | assistants | settings | devices */
 const view = ref<'chat' | 'cron' | 'assistants' | 'settings' | 'devices'>('chat');
 
@@ -23,6 +28,15 @@ const view = ref<'chat' | 'cron' | 'assistants' | 'settings' | 'devices'>('chat'
 const inChat = computed(() => !!chat.activeId && chat.messages.length > 0);
 
 onMounted(() => { void chat.init(); });
+
+// 会话切换：上一会话的预览路径在新会话里没有意义
+watch(() => chat.activeId, () => { previewPath.value = null; });
+// 产物卡/其它入口写入的待预览路径（store 既有字段）——消费即清空
+watch(() => chat.pendingFilePreview, (p) => {
+  if (!p) return;
+  chat.pendingFilePreview = null;
+  previewPath.value = p;
+});
 
 /** 主题：跟随系统，用户可在菜单里覆写（T5 接菜单，先留接口）。 */
 function toggleTheme(): void {
@@ -34,9 +48,9 @@ function toggleTheme(): void {
 <template>
   <div class="shell">
     <TopBar
-      :rail-open="railOpen" :aside-open="asideOpen"
+      :rail-open="railOpen" :aside-open="wsOpen"
       @toggle-rail="railOpen = !railOpen"
-      @toggle-aside="asideOpen = !asideOpen"
+      @toggle-aside="wsOpen = !wsOpen"
       @menu="toggleTheme"
     />
     <div class="body">
@@ -44,18 +58,23 @@ function toggleTheme(): void {
 
       <main class="stage">
         <template v-if="view === 'chat'">
-          <StageChat v-if="inChat" />
+          <div v-if="inChat" class="split" :class="{ withPreview: !!previewPath }">
+            <StageChat class="chatcol" :narrow="!!previewPath" />
+            <PreviewPane v-if="previewPath" :path="previewPath" @close="previewPath = null" />
+          </div>
           <StageWelcome v-else />
         </template>
         <div v-else class="todo">
           <p class="t-h2">{{ view }}</p>
-          <p class="t-aux">这个视图在 T5 接入</p>
+          <p class="t-aux">这个视图在下一步接入</p>
         </div>
       </main>
 
-      <aside v-show="asideOpen" class="aside">
-        <div class="todo"><p class="t-aux">工作台在 T5 接入</p></div>
-      </aside>
+      <WorkspacePanel
+        v-show="wsOpen && view === 'chat'"
+        :selected="previewPath"
+        @open="p => (previewPath = p)"
+      />
     </div>
   </div>
 </template>
@@ -64,11 +83,11 @@ function toggleTheme(): void {
 .shell { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .body { flex: 1; min-height: 0; display: flex; }
 .stage { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--c-bg); overflow: hidden; }
-.aside {
-  width: var(--w-aside); flex: 0 0 var(--w-aside);
-  background: var(--c-bg-1); border-left: 1px solid var(--c-line);
-  display: flex; flex-direction: column; min-height: 0;
-}
+/* 舞台分栏：无预览时对话独占（内容自己定宽居中）；有预览时对话收成左边一条固定宽，
+   预览吃掉剩余——产出物是主角 */
+.split { flex: 1; min-height: 0; display: flex; }
+.split .chatcol { flex: 1; min-width: 0; }
+.split.withPreview .chatcol { flex: 0 0 var(--w-chatcol); }
 .todo {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: var(--sp-2); color: var(--c-ink-3);
