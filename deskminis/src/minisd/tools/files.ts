@@ -23,7 +23,8 @@ function isInsideRoot(absPath: string, root: string): boolean {
 /** 数据根之外的绝对宿主路径写入需过权限网关。
  *  buildPreview 惰性构造：工作区内的写入（绝大多数）根本不过网关，提前读原文件构造差分纯属白读；
  *  只在确认要弹权限卡时才求值。 */
-async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string, buildPreview?: () => PermPreview): Promise<string | undefined> {
+/** U4 起 office 工具复用同一道写权限门——不给新工具开后门。 */
+export async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string, buildPreview?: () => PermPreview): Promise<string | undefined> {
   if (!isInsideRoot(absPath, ctx.paths.root) && !isInsideRoot(absPath, ctx.paths.workspaceOf(ctx.sessionId))) {
     const d = await ctx.permissions.check({ kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle, preview: buildPreview?.() });
     if (d === 'deny') return `写入被用户拒绝: ${absPath}（可在设置-权限中调整）`;

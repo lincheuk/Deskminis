@@ -17,6 +17,8 @@ import { McpStdioClient } from './mcp/stdio';
 import { McpHttpClient } from './mcp/http';
 import { ToolRegistry } from './tools/registry';
 import { fileReadTool, fileWriteTool, fileEditTool } from './tools/files';
+import { officeReadTool, officeWriteTool } from './tools/office';
+import { parseOffice } from './office/parse';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
 import { ShellManager, makeShellTool } from './tools/shell';
 import { PermissionGatewayImpl, classifyShellCommand, type PermissionPrompt } from './tools/permissions';
@@ -334,6 +336,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   const shells = new ShellManager();
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
+  // U4 Office 文档：读走结构化文本、写从结构化 JSON 产出（权限门与 file_* 同一道）
+  tools.register(officeReadTool); tools.register(officeWriteTool);
   tools.register(fileListTool); tools.register(fileGlobTool); tools.register(fileGrepTool);
   tools.register(makeShellTool(shells, ctx => makeBridgeEnv(ctx.sessionId, bridgePipe, bridgeCli, bridgeNode)));
   tools.register(memoryWriteTool); tools.register(memoryGetTool);
@@ -921,6 +925,16 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     // ---- M2d: terminal.* + files.* + chat.contextInfo（水位条小型 RPC）----
     'terminal.attach': (p: { sessionId: string }) => ({ scrollback: terminals.attach(assertSessionId(p.sessionId)) }),
     'terminal.input': (p: { sessionId: string; data: string }) => { terminals.input(assertSessionId(p.sessionId), String(p.data ?? '')); return { ok: true }; },
+    /** U2：Office 文档内容预览。走与 files.read 同一套路径解析，但返回结构化内容
+     *  （段落/表格/工作表/幻灯片），由 renderer 渲染成可读预览。
+     *  **是内容预览不是版式还原**——UI 上要说明这点（设计稿 §1）。 */
+    'office.read': async (p: { sessionId: string; path: string }) => {
+      const sessionId = assertSessionId(p.sessionId);
+      const abs = paths.resolveGuestPath(sessionId, String(p.path ?? ''));
+      const buf = readFileSync(abs);
+      if (buf.length > 32 * 1024 * 1024) throw new Error('文件超过 32MB，拒绝解析');
+      return await parseOffice(abs, buf);
+    },
     'files.list': (p: { sessionId: string; dir?: string }) => filesSvc.list(assertSessionId(p.sessionId), typeof p.dir === 'string' ? p.dir : undefined),
     'files.read': (p: { sessionId: string; path: string }) => filesSvc.read(assertSessionId(p.sessionId), String(p.path ?? '')),
     // chat.contextInfo（M2a 红线：usedTokens 必须基于 buildEffectiveHistory，禁止用原始 history 直接估算）

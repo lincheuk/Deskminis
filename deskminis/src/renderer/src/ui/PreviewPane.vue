@@ -2,14 +2,17 @@
 /** T 波：产出物预览区——**主舞台**（用户 2026-08-21 参考图：对话只占左边一条，
  *  agent 做出来的东西占中间大块）。这是 Cowork 形态的核心：产出物是主角，对话是辅助。
  *
- *  能力边界（诚实）：md/文本/代码/图片本地直接渲染；.docx/.xlsx/.pptx 这类
- *  Office 二进制我们没有渲染器（AionUi 靠他们自家 OfficeCLI），故给文件信息 +
- *  路径复制，不假装能预览。 */
+ *  能力边界（诚实）：md/文本/代码/图片本地直接渲染；U2 起 .docx/.xlsx/.pptx
+ *  走 office.read 解出**内容预览**（文字/表格/大纲，非版式还原）；
+ *  legacy .doc/.xls/.ppt 与 .pdf 是另一套二进制格式，明说不支持——照 OfficeCLI
+ *  的教训，硬塞给解析器只会给用户假希望。 */
 import { computed, ref, watch } from 'vue';
 import { rpc } from '../rpc';
 import { useChat } from '../stores/chat';
 import { parseMarkdown } from '../lib/markdown/parse';
 import MarkdownView from '../components/MarkdownView.vue';
+import OfficeView from './OfficeView.vue';
+import type { OfficeDoc } from '../../../minisd/office/parse';
 import UiIcon from './UiIcon.vue';
 
 const props = defineProps<{ path: string | null }>();
@@ -18,8 +21,11 @@ const chat = useChat();
 
 interface Preview { path: string; size: number; content: string; truncated: boolean; binary: boolean }
 const data = ref<Preview | null>(null);
+/** U2：OOXML 解析结果。与 data 互斥——同一个文件不会既是文本又是 Office 文档。 */
+const officeDoc = ref<OfficeDoc | null>(null);
 const loading = ref(false);
 const failed = ref('');
+const officeFailed = ref('');
 /** 三态（原图工具条：Source | Preview | 分栏）——分栏是他们那条工具条里
  *  唯一高亮成蓝色的按钮，说明是常用态：左边源码右边渲染，边改边看。 */
 const mode = ref<'render' | 'source' | 'split'>('render');
@@ -28,7 +34,10 @@ const copied = ref(false);
 const ext = computed(() => (props.path ?? '').toLowerCase().split('.').pop() ?? '');
 const isMd = computed(() => ['md', 'markdown'].includes(ext.value));
 const isImg = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext.value));
-const isOffice = computed(() => ['docx', 'xlsx', 'xlsm', 'pptx', 'doc', 'xls', 'ppt', 'pdf'].includes(ext.value));
+/** 能解的（OOXML = ZIP + XML）与不能解的（legacy 二进制 / PDF）必须是**两个独立判定**：
+ *  合成一个就会把老格式也喂给解析器，用户拿到的是一句解析失败而不是一句"这格式不支持"。 */
+const isOoxml = computed(() => ['docx', 'xlsx', 'xlsm', 'pptx'].includes(ext.value));
+const isLegacy = computed(() => ['doc', 'xls', 'ppt', 'pdf', 'odt', 'ods', 'odp'].includes(ext.value));
 const canRender = computed(() => isMd.value && !!data.value && !data.value.binary);
 const nodes = computed(() => (canRender.value && mode.value !== 'source')
   ? parseMarkdown(data.value!.content) : null);
@@ -42,12 +51,19 @@ function fmtSize(n: number): string {
 }
 
 async function load(): Promise<void> {
-  if (!props.path || !chat.activeId) { data.value = null; return; }
-  loading.value = true; failed.value = ''; data.value = null; mode.value = 'render';
+  data.value = null; officeDoc.value = null; failed.value = ''; officeFailed.value = '';
+  if (!props.path || !chat.activeId) return;
+  loading.value = true; mode.value = 'render';
   try {
-    data.value = await rpc.call('files.read', { sessionId: chat.activeId, path: props.path });
+    if (isOoxml.value) {
+      officeDoc.value = await rpc.call('office.read', { sessionId: chat.activeId, path: props.path });
+    } else if (!isLegacy.value) {
+      data.value = await rpc.call('files.read', { sessionId: chat.activeId, path: props.path });
+    }
   } catch (e) {
-    failed.value = e instanceof Error ? e.message : String(e);
+    const msg = e instanceof Error ? e.message : String(e);
+    // 分开报：Office 解析失败要连着「换系统 Office 打开」的出路一起给
+    if (isOoxml.value) officeFailed.value = msg; else failed.value = msg;
   } finally { loading.value = false; }
 }
 watch(() => props.path, load, { immediate: true });
@@ -86,11 +102,23 @@ async function copyPath(): Promise<void> {
       <div v-if="loading" class="hint t-body">读取中…</div>
       <div v-else-if="failed" class="hint t-body err">{{ failed }}</div>
 
-      <!-- Office 二进制：没有渲染器就说没有，不拿一堆乱码假装预览 -->
-      <div v-else-if="isOffice" class="card">
+      <!-- U2：OOXML 解出内容预览；解析失败也要给出路，不是一句红字了事 -->
+      <OfficeView v-else-if="officeDoc" :doc="officeDoc" />
+      <div v-else-if="officeFailed" class="card">
+        <UiIcon name="alert" :size="28" />
+        <p class="t-h2">{{ (props.path ?? '').split('/').pop() }}</p>
+        <p class="t-body sub">{{ officeFailed }}</p>
+        <p class="t-aux sub">文件可能损坏或不是标准 OOXML。用系统 Office 打开看看。</p>
+        <button class="btn" type="button" @click="copyPath">{{ copied ? '路径已复制' : '复制完整路径' }}</button>
+      </div>
+
+      <!-- legacy 二进制 / PDF：明说不支持，别给假希望 -->
+      <div v-else-if="isLegacy" class="card">
         <UiIcon name="file" :size="28" />
         <p class="t-h2">{{ (props.path ?? '').split('/').pop() }}</p>
-        <p class="t-body sub">这类文件需要 Office 应用打开，DeskMinis 暂不内嵌渲染。</p>
+        <p class="t-body sub">
+          DeskMinis 只解 OOXML（.docx / .xlsx / .pptx）。这个是老版二进制或 PDF 格式，另一套编码，请用系统应用打开。
+        </p>
         <button class="btn" type="button" @click="copyPath">{{ copied ? '路径已复制' : '复制完整路径' }}</button>
       </div>
 
