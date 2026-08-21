@@ -20,15 +20,20 @@ interface Preview { path: string; size: number; content: string; truncated: bool
 const data = ref<Preview | null>(null);
 const loading = ref(false);
 const failed = ref('');
-const mode = ref<'render' | 'source'>('render');
+/** 三态（原图工具条：Source | Preview | 分栏）——分栏是他们那条工具条里
+ *  唯一高亮成蓝色的按钮，说明是常用态：左边源码右边渲染，边改边看。 */
+const mode = ref<'render' | 'source' | 'split'>('render');
 const copied = ref(false);
 
 const ext = computed(() => (props.path ?? '').toLowerCase().split('.').pop() ?? '');
 const isMd = computed(() => ['md', 'markdown'].includes(ext.value));
 const isImg = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext.value));
 const isOffice = computed(() => ['docx', 'xlsx', 'xlsm', 'pptx', 'doc', 'xls', 'ppt', 'pdf'].includes(ext.value));
-const nodes = computed(() => (isMd.value && mode.value === 'render' && data.value && !data.value.binary)
-  ? parseMarkdown(data.value.content) : null);
+const canRender = computed(() => isMd.value && !!data.value && !data.value.binary);
+const nodes = computed(() => (canRender.value && mode.value !== 'source')
+  ? parseMarkdown(data.value!.content) : null);
+/** 源码行号：原图编辑器左侧有行号槽，没有行号的代码块读起来没有坐标。 */
+const lines = computed(() => (data.value?.content ?? '').split('\n'));
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -64,9 +69,12 @@ async function copyPath(): Promise<void> {
       <span v-if="data" class="meta t-aux tnum">
         {{ fmtSize(data.size) }}<template v-if="data.truncated"> · 仅前缀</template>
       </span>
-      <span v-if="isMd && data && !data.binary" class="seg">
-        <button type="button" :class="{ on: mode === 'render' }" @click="mode = 'render'">渲染</button>
+      <span v-if="canRender" class="seg">
         <button type="button" :class="{ on: mode === 'source' }" @click="mode = 'source'">源码</button>
+        <button type="button" :class="{ on: mode === 'render' }" @click="mode = 'render'">渲染</button>
+        <button type="button" class="ic" :class="{ on: mode === 'split' }" title="分栏对照" @click="mode = 'split'">
+          <UiIcon name="aside" :size="14" />
+        </button>
       </span>
       <button class="ib" type="button" :title="copied ? '已复制' : '复制完整路径'" @click="copyPath">
         <UiIcon :name="copied ? 'check' : 'copy'" :size="15" />
@@ -88,8 +96,28 @@ async function copyPath(): Promise<void> {
 
       <div v-else-if="isImg" class="imgwrap"><img :src="`file://${chat.workspaceRoot}/${props.path}`" :alt="props.path ?? ''" /></div>
       <div v-else-if="data?.binary" class="hint t-body">二进制文件不可预览</div>
+
+      <!-- 分栏对照：左源码右渲染（原图工具条里唯一高亮的那个态） -->
+      <div v-else-if="mode === 'split' && canRender" class="split">
+        <div class="half">
+          <div class="halfhead t-aux">源码</div>
+          <div class="code">
+            <div class="gutter tnum"><span v-for="(l, i) in lines" :key="i">{{ i + 1 }}</span></div>
+            <pre class="codebody">{{ data!.content }}</pre>
+          </div>
+        </div>
+        <div class="half">
+          <div class="halfhead t-aux">渲染</div>
+          <div class="doc split-doc"><MarkdownView :nodes="nodes!" /></div>
+        </div>
+      </div>
+
       <div v-else-if="nodes" class="doc"><MarkdownView :nodes="nodes" /></div>
-      <pre v-else-if="data" class="src">{{ data.content }}</pre>
+      <!-- 源码态：带行号槽（原图编辑器左侧有行号，没有行号的代码没坐标） -->
+      <div v-else-if="data" class="code lone">
+        <div class="gutter tnum"><span v-for="(l, i) in lines" :key="i">{{ i + 1 }}</span></div>
+        <pre class="codebody">{{ data.content }}</pre>
+      </div>
       <div v-else class="hint t-body">选择左侧文件查看</div>
     </div>
   </section>
@@ -115,6 +143,8 @@ async function copyPath(): Promise<void> {
   font-size: var(--t-aux-size); color: var(--c-ink-2); font-family: inherit;
 }
 .seg button.on { background: var(--c-brand); color: var(--c-brand-ink); font-weight: var(--w-md); }
+.seg .ic { display: inline-flex; align-items: center; padding: 2px 7px; }
+.seg .ic :deep(svg) { color: inherit; }
 .ib {
   width: 26px; height: 26px; border-radius: var(--r-s); flex: 0 0 auto;
   display: inline-flex; align-items: center; justify-content: center;
@@ -138,13 +168,39 @@ async function copyPath(): Promise<void> {
   font-size: var(--t-chat-size); line-height: 1.75; color: var(--c-ink);
 }
 @media (max-width: 900px) { .doc { padding: 32px 28px 48px; } }
-.src {
-  margin: var(--sp-7) auto; width: min(880px, 100% - var(--sp-7) * 2);
-  background: var(--c-bg); border-radius: var(--r-s);
-  box-shadow: var(--sh-paper);
-  padding: var(--sp-6) var(--sp-7);
-  font-family: var(--f-mono); font-size: var(--t-code-size); line-height: var(--t-code-lh);
-  color: var(--c-ink-2); white-space: pre-wrap; word-break: break-word;
+/* 代码态：行号槽 + 正文，两列网格 */
+.code {
+  display: grid; grid-template-columns: auto 1fr;
+  background: var(--c-bg); font-family: var(--f-mono);
+  font-size: var(--t-code-size); line-height: var(--t-code-lh);
+}
+.code.lone {
+  margin: var(--sp-7) auto; width: min(900px, 100% - var(--sp-7) * 2);
+  border-radius: var(--r-s); box-shadow: var(--sh-paper); overflow: hidden;
+}
+.gutter {
+  display: flex; flex-direction: column; text-align: right;
+  padding: var(--sp-5) var(--sp-3); user-select: none;
+  color: var(--c-ink-4); background: var(--c-bg-1); border-right: 1px solid var(--c-line);
+}
+.codebody {
+  margin: 0; padding: var(--sp-5) var(--sp-5);
+  color: var(--c-ink-2); white-space: pre; overflow-x: auto;
+}
+
+/* 分栏对照 */
+.split { display: grid; grid-template-columns: 1fr 1fr; height: 100%; min-height: 0; }
+.half { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; background: var(--c-bg); }
+.half + .half { border-left: 1px solid var(--c-line); }
+.halfhead {
+  position: sticky; top: 0; z-index: 1; flex: 0 0 auto;
+  padding: var(--sp-3) var(--sp-5); color: var(--c-ink-3);
+  background: var(--c-bg-1); border-bottom: 1px solid var(--c-line);
+}
+.split .code { min-height: 0; }
+.split-doc {
+  width: auto; margin: 0; padding: var(--sp-6) var(--sp-6) var(--sp-8);
+  box-shadow: none; border-radius: 0;
 }
 .imgwrap { padding: var(--sp-7); display: flex; justify-content: center; }
 .imgwrap img { max-width: 100%; border-radius: var(--r-m); }
