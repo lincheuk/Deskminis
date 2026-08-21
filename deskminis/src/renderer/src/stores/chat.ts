@@ -191,7 +191,14 @@ export const useChat = defineStore('chat', {
     async refreshSessions() { this.sessions = await rpc.call('chat.sessions.list'); },
     async refreshProviders() {
       this.providers = await rpc.call('provider.instances.list');
-      // 本地默认选择未定/已失效时，回落到列表首个（与后端 create() 的默认策略一致）
+      // T5b：默认 provider 必须**从后端读回**。以前这里是「猜列表第一个」，
+      // 设置页把这个猜测显示成「当前默认」高亮——用户看到 A、后端实际用 B。
+      // getDefault 不可用（旧后端）时静默走下面的回落，刷新本身不能因此失败。
+      try {
+        const r = await rpc.call<{ id?: string }>('provider.getDefault');
+        if (r && typeof r.id === 'string' && r.id !== '') this.defaultProviderId = r.id;
+      } catch { /* 旧后端没有这个 RPC：走回落 */ }
+      // 后端未设/已失效时回落到列表首个（与后端 create() 的默认策略一致）
       if (!this.providers.some(p => p.id === this.defaultProviderId)) this.defaultProviderId = this.providers[0]?.id ?? '';
     },
     async refreshSkills() {

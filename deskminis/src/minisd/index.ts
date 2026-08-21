@@ -787,6 +787,9 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       return { ok: true };
     },
     'provider.setDefault': (p: { id: string }) => { providers.setDefaultId(p.id); return { ok: true }; },
+    /** T5b：读默认 provider。以前没有这个 RPC，渲染端只能猜「列表第一个」——
+     *  设置页把这个猜测放大成一条「当前默认」高亮，用户看到 A、后端实际用 B。 */
+    'provider.getDefault': () => ({ id: providers.getDefaultId() ?? '' }),
     /** 设置页「获取列表」：拉端点模型清单填 datalist。纯查询——不广播、不落 settings。
      *  有 id → 已存实例（密钥在 store 内部从 vault 取）；无 id → 新建未保存场景（表单临时 key，
      *  与 create 同一信任边界）。失败抛 ProviderError，由前端静默回退手输。 */

@@ -15,6 +15,11 @@ import StageChat from './StageChat.vue';
 import PreviewPane from './PreviewPane.vue';
 import TabBar from './TabBar.vue';
 import WorkspacePanel from './WorkspacePanel.vue';
+import StageSettings from './StageSettings.vue';
+import StageAssistants from './StageAssistants.vue';
+import StageCron from './StageCron.vue';
+import StageDevices from './StageDevices.vue';
+import StageSearch from './StageSearch.vue';
 
 const chat = useChat();
 const railOpen = ref(true);
@@ -82,10 +87,11 @@ function toggleTheme(): void {
           </template>
           <StageWelcome v-else @view="v => (view = v)" />
         </template>
-        <div v-else class="todo">
-          <p class="t-h2">{{ view }}</p>
-          <p class="t-aux">这个视图在下一步接入</p>
-        </div>
+        <StageSearch v-else-if="view === 'search'" @view="v => (view = v)" />
+        <StageCron v-else-if="view === 'cron'" />
+        <StageAssistants v-else-if="view === 'assistants'" />
+        <StageDevices v-else-if="view === 'devices'" />
+        <StageSettings v-else />
       </main>
 
       <WorkspacePanel
@@ -106,9 +112,4 @@ function toggleTheme(): void {
 .split { flex: 1; min-height: 0; display: flex; }
 .split .chatcol { flex: 1; min-width: 0; }
 .split.withPreview .chatcol { flex: 0 0 var(--w-chatcol); }
-.todo {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: var(--sp-2); color: var(--c-ink-3);
-}
-.todo p { margin: 0; }
 </style>

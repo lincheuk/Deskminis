@@ -249,3 +249,91 @@ svg { stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; fill: no
 .t-body { font-size: var(--t-body-size); line-height: var(--t-body-lh); }
 .t-item { font-size: var(--t-item-size); line-height: var(--t-item-lh); }
 .t-aux { font-size: var(--t-aux-size); line-height: var(--t-aux-lh); }
+
+/* ---- T5：表单原语（全局） ----
+   设置/助手/定时三页有大量同形控件。scoped 样式无法共享，各页各抄一份的结果
+   必然是「同一个输入框在三页三个样子」——这正是重做前那版 UI 的病根之一。
+   故把控件外观放在这里统一定义，页面只写布局。 */
+.f-sec { display: flex; flex-direction: column; gap: var(--sp-6); }
+.f-sec > h2 { margin: 0; font-size: var(--t-h1-size); line-height: var(--t-h1-lh); font-weight: var(--t-h1-w); color: var(--c-ink); }
+.f-note { margin: 0; font-size: var(--t-body-size); line-height: var(--t-body-lh); color: var(--c-ink-3); }
+
+.f-card {
+  display: flex; flex-direction: column; gap: var(--sp-4);
+  padding: var(--sp-6); background: var(--c-bg);
+  border: 1px solid var(--c-line); border-radius: var(--r-m);
+}
+
+.f-label {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  font-size: var(--t-item-size); line-height: var(--t-item-lh);
+  color: var(--c-ink-2); min-width: 0;
+}
+.f-label > span:first-child { font-weight: var(--w-md); color: var(--c-ink); }
+.f-hint { font-size: var(--t-aux-size); line-height: var(--t-aux-lh); color: var(--c-ink-3); }
+
+.f-input, .f-select, .f-area {
+  width: 100%; min-width: 0; font-family: inherit;
+  font-size: var(--t-body-size); line-height: var(--t-body-lh); color: var(--c-ink);
+  background: var(--c-bg); border: 1px solid var(--c-line); border-radius: var(--r-s);
+  padding: 0 var(--sp-4); height: var(--h-field);
+}
+.f-area { height: auto; min-height: 84px; padding: var(--sp-3) var(--sp-4); resize: vertical; }
+.f-input::placeholder, .f-area::placeholder { color: var(--c-ink-4); }
+.f-input:focus, .f-select:focus, .f-area:focus {
+  outline: none; border-color: var(--c-brand); box-shadow: var(--sh-focus);
+}
+.f-select { appearance: none; cursor: pointer; padding-right: var(--sp-7); }
+
+.f-row { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.f-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-5); }
+@media (max-width: 720px) { .f-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.f-btn {
+  height: var(--h-ctl); padding: 0 var(--sp-5); flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: var(--sp-2); justify-content: center;
+  border-radius: var(--r-s); cursor: pointer; font-family: inherit;
+  font-size: var(--t-item-size); font-weight: var(--w-md);
+  background: var(--c-bg-2); color: var(--c-ink);
+}
+.f-btn:hover { background: var(--c-bg-3); }
+.f-btn.primary { background: var(--c-brand); color: var(--c-brand-ink); }
+.f-btn.primary:hover { filter: brightness(1.08); }
+.f-btn.ghost { background: none; color: var(--c-ink-2); }
+.f-btn.ghost:hover { background: var(--c-bg-2); color: var(--c-ink); }
+.f-btn.danger { background: none; color: var(--c-err); }
+.f-btn.danger:hover { background: var(--c-err-soft); }
+.f-btn:disabled { opacity: .45; cursor: default; }
+.f-btn:disabled:hover { background: var(--c-bg-2); filter: none; }
+
+.f-tag {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  height: var(--h-mini); padding: 0 var(--sp-3); border-radius: var(--r-pill);
+  font-size: var(--t-aux-size); background: var(--c-bg-2); color: var(--c-ink-2);
+}
+.f-tag.on { background: var(--c-brand-soft); color: var(--c-brand); }
+.f-tag.ok { background: var(--c-ok-soft); color: var(--c-ok); }
+.f-tag.err { background: var(--c-err-soft); color: var(--c-err); }
+
+/* 开关：勾选框在密集列表里点不准，开关的命中区更大也更像「启用/停用」 */
+.f-switch { position: relative; width: 36px; height: 20px; flex: 0 0 auto; cursor: pointer; }
+.f-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.f-switch i {
+  position: absolute; inset: 0; border-radius: var(--r-pill);
+  background: var(--c-bg-3); transition: background .15s ease;
+}
+.f-switch i::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; transition: transform .15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .2);
+}
+.f-switch input:checked + i { background: var(--c-brand); }
+.f-switch input:checked + i::after { transform: translateX(16px); }
+.f-switch input:focus-visible + i { outline: 2px solid var(--c-brand); outline-offset: 2px; }
+
+/* 危险操作二次确认：删 provider / 删助手 / 解绑设备都用它，不弹系统 confirm
+   （Electron 里 window.confirm 会阻塞渲染进程，且样式无法统一） */
+.f-confirm {
+  display: inline-flex; align-items: center; gap: var(--sp-3);
+  font-size: var(--t-aux-size); color: var(--c-err);
+}
