@@ -73,3 +73,22 @@ cd deskminis && npx license-checker --production --summary
 electron-updater（MIT）、@napi-rs/keyring（MIT）、ws（MIT）、xterm（MIT）。
 各自许可文本随 npm 包分发，并由 electron-builder 打进安装包
 （`LICENSE.electron.txt` / `LICENSES.chromium.html`）。
+
+---
+
+## 4. 随包字体
+
+### Noto Sans SC（思源黑体简体中文）
+
+- 文件：`deskminis/src/renderer/src/assets/fonts/NotoSansSC-{Regular,Medium}.woff2`
+- 著作权：Copyright 2014-2021 Adobe (http://www.adobe.com/)，经 Google Fonts 分发
+- 项目：<https://fonts.google.com/noto/specimen/Noto+Sans+SC>
+- 许可：**SIL Open Font License 1.1**（<https://scripts.sil.org/OFL>）
+
+OFL 1.1 允许自由使用、修改与**随软件捆绑分发**，条件是：
+① 保留版权与许可声明（即本节）；② 不单独售卖字体本身；
+③ 若修改字体，改后的版本不得继续使用保留名称 "Noto"。
+本项目原样打包、未做任何修改（仅由 TTF 转为 woff2 容器格式，字形数据未变）。
+
+随包理由记录在 `deskminis/src/renderer/src/styles/theme.css` 的 @font-face 注释里：
+Windows 自带中文仅微软雅黑一档，随包才能保证任何机器上界面一致。

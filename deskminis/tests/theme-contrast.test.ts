@@ -78,9 +78,15 @@ describe('T1 设计系统立系原则（锚意图，不锚具体值）', () => {
     expect(sizes).toEqual(lhs);
     expect(sizes.length).toBeGreaterThanOrEqual(7);
   });
-  it('不引 webfont，且字体栈里没有 Inter（AionUi 实测：装了 Inter 反而显细）', () => {
-    expect(css).not.toContain('@font-face');
+  it('字体只从本地随包取，绝不联网；栈里没有 Inter（AionUi 实测：装了它反而显细）', () => {
+    // 改锚（申报）：原断言「一个 @font-face 都不许有」锚的是实现，把「随包字体」也一并禁了。
+    // 真正的红线是**不联网取字体**（断网即失效、首屏闪字），本地文件不在此列。
+    // 故改锚为：@font-face 的 src 必须是相对路径的本地资源，CSS 里不得出现任何字体 CDN。
     expect(css).not.toContain('fonts.googleapis');
+    expect(css).not.toContain('fonts.gstatic');
+    const srcs = [...css.matchAll(/@font-face[^}]*?src:\s*url\(([^)]+)\)/g)].map(m => m[1]);
+    expect(srcs.length).toBeGreaterThan(0);          // 随包字体必须在（否则 Windows 上只剩雅黑）
+    for (const u of srcs) expect(u).toMatch(/^"\.\.\/assets\/fonts\//);
     // 只检字体栈的**值**（注释里提到某字体名不算违规）
     const stacks = [...css.matchAll(/--f-(?:ui|mono):\s*([^;]+);/g)].map(m => m[1]).join(' ');
     expect(stacks).not.toMatch(/\bInter\b/);

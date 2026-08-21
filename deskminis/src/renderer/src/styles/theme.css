@@ -1,3 +1,26 @@
+/** 随包中文字体（思源黑体 Noto Sans SC，SIL OFL 1.1，可自由分发）。
+ *  为什么要随包：目标平台是 Windows，系统自带的中文只有微软雅黑一档，
+ *  字形偏旧、字重档位少；装没装思源全凭运气，界面在两台机器上会长得不一样。
+ *  随包 = 任何机器上一致。
+ *  **不违反「不引 webfont」红线**——那条红线针对的是**联网取字体**（离线不可用、
+ *  首屏闪字）；这里是本地文件，随 asar 打包，断网照常。
+ *  体积：两个字重各约 4MB（TTF 10MB 经 woff2 压缩），只带 400/500 两档——
+ *  600 由浏览器合成，标题位用量小，不值得再加 4MB。 */
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("../assets/fonts/NotoSansSC-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("../assets/fonts/NotoSansSC-Medium.woff2") format("woff2");
+  font-weight: 500 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 /** T 波新设计系统（设计稿 docs/specs/2026-08-21-ui-rebuild-design.md §2）。
  *
  *  这是**推倒重做**的设计系统，不是旧 tokens.css 的演进版：
@@ -46,11 +69,18 @@
   --c-err-soft: #ffece8;
 
   /* ===== 字 ===== */
-  /* 不引 webfont（红线）。也**特意不放那个被 arco 默认栈排在首位的西文无衬线字体**——
-     AionUi 把它从栈里删掉了，理由写在他们源码注释里：装了它的机器上字显得过细。 */
-  --f-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-          Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --f-mono: ui-monospace, "SF Mono", Menlo, "Cascadia Code", Consolas, "Liberation Mono", monospace;
+  /* 字体栈：**西文在前、中文在后**，浏览器逐字符回落——拉丁走 Segoe/SF，汉字走苹方/思源。
+     此前直接照搬了 AionUi 的栈，那是给 macOS 调的（他们中文首选苹方，够好所以不引字体）；
+     搬到 Windows 桌面应用上，汉字只会落到**微软雅黑**——比旧版还退一步（旧栈特意放过 Noto Sans SC）。
+     这里按目标平台重排：Windows 11 的 Segoe UI Variable 打头，中文优先思源/鸿蒙/小米三款
+     现代开源黑体，雅黑仅兜底。仍不引 webfont（红线），改为**随包附字体**保证任何机器一致。 */
+  --f-ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+          "Helvetica Neue", Arial,
+          "PingFang SC", "Noto Sans SC", "HarmonyOS Sans SC", "MiSans", "Source Han Sans SC",
+          "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  /* 等宽同理：西文等宽在前，汉字回落到上面那几款黑体（等宽字体多半不含汉字） */
+  --f-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono", Menlo, Consolas,
+            "Liberation Mono", "Noto Sans SC", "Microsoft YaHei UI", monospace;
 
   /* 排版档：字号/行高成对，组件只引这七档 */
   --t-hero-size: 24px;   --t-hero-lh: 32px;   --t-hero-w: 600;
