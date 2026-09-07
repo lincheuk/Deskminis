@@ -76,3 +76,28 @@ describe('T5 — 更新状态文案必须对得上主进程的 status 值', () =
     for (const s of new Set(statuses)) expect(about).toContain(`${s}:`);
   });
 });
+
+describe('T6a2 — 助手绑定模型必须写 provider: 前缀', () => {
+  /** J2 修过一次同样的毛病：MU6 时期 SessionList 把**裸 provider id** 写进 model_binding，
+   *  而后端只认前缀，绑定形同虚设。当时三侧齐修，并在 index.ts 留了一条兼容分支兜旧数据，
+   *  注释写着「前端已改写前缀值，新数据不再走到这里」。
+   *
+   *  T 波换壳后 StageAssistants 又写回了裸 id——**兼容分支从兜底变成了主路径**，
+   *  那条注释因此变成假话。功能没坏（兼容分支接住了），但格式又分叉了：
+   *  旧数据带前缀、新数据不带，而且裸 id 永远表达不了 `group:` 绑定。
+   *
+   *  旧守卫（renderer-assistants.test.ts）钉的正是这条，但它锚的是**旧文件**，
+   *  所以新文件把 bug 写回来时它一声不响——「守卫锚在哪个文件就只守那个文件」。 */
+  it('option 值带 provider: 前缀（后端 startsWith 只认前缀，裸值走的是兼容分支）', () => {
+    const a = read('StageAssistants.vue');
+    expect(a).toMatch(/:value="'provider:' \+ p\.id"/);
+    expect(a).not.toMatch(/:value="p\.id"/);
+  });
+
+  it('回显与列表显示都按前缀归一化，不能拿裸 id 去比', () => {
+    const a = read('StageAssistants.vue');
+    // 存的是 provider:xxx，直接 find(p => p.id === a.modelBinding) 永远匹配不上
+    expect(a).not.toMatch(/p\.id === a\.modelBinding/);
+    expect(a).toContain("'provider:'");
+  });
+});

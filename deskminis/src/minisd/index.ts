@@ -624,7 +624,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
           // J2 随动修缺（兼容分支）：MU6 起 SessionList 曾把**裸 provider id**（无前缀）写进
           // model_binding——本分支此前不存在，裸值静默落到默认 provider，绑定形同虚设。
           // 旧库存量按 provider 解；查无（provider 已删）则照 instantiate 语义抛错可见，
-          // 好过继续无声用错模型。前端已改写前缀值 + 显示侧归一化，新数据不再走到这里。
+          // 好过继续无声用错模型。
+          // T6a2 更正：这条注释一度说「新数据不再走到这里」——T 波换壳后 StageAssistants
+          // 又写回了裸 id，本分支从兜底变成了主路径，注释因此有一段时间是假话。
+          // 现已改回写前缀，但 T→W 期间产生的助手绑定仍是裸值，本分支继续兜着。
           provider = (fakeEnabled && binding === '__fake__') ? new FakeProvider() : providers.instantiate(binding);
         } else {
           // 未绑定 → 默认 provider（M1 既有行为）

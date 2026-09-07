@@ -49,6 +49,13 @@ async function onDelete(id: string): Promise<void> {
 }
 async function startWith(id: string): Promise<void> { await chat.newSessionWithAssistant(id); }
 
+/** 绑定值 → 显示名。存的是 `provider:<id>`，直接拿裸 id 去比永远匹配不上；
+ *  旧数据可能是裸 id（J2 之前的存量），两种都要认。 */
+function providerNameOf(binding: string): string {
+  const id = binding.startsWith('provider:') ? binding.slice('provider:'.length) : binding;
+  return chat.providers.find(p => p.id === id)?.name ?? '已绑模型';
+}
+
 /** 图标底色由 id 派生（与欢迎页同一算法，两处颜色必须一致，否则同一个助手在两页是两个颜色）。 */
 function avaStyle(id: string): Record<string, string> {
   let h = 0;
@@ -82,7 +89,9 @@ function avaStyle(id: string): Record<string, string> {
             <span>绑定模型（可选）</span>
             <select v-model="fModel" class="f-select">
               <option value="">用当前默认</option>
-              <option v-for="p in chat.providers" :key="p.id" :value="p.id">{{ p.name }} · {{ p.modelId }}</option>
+              <!-- 值必须带 provider: 前缀：后端 startsWith('provider:') 才认，
+                   裸 id 只会落进 J2 留的兼容分支（能跑，但格式分叉且永远表达不了 group:）。 -->
+              <option v-for="p in chat.providers" :key="p.id" :value="'provider:' + p.id">{{ p.name }} · {{ p.modelId }}</option>
             </select>
           </label>
         </div>
@@ -122,7 +131,7 @@ function avaStyle(id: string): Record<string, string> {
         <div class="abody">
           <div class="atop">
             <span class="aname">{{ a.name }}</span>
-            <span v-if="a.modelBinding" class="f-tag">{{ chat.providers.find(p => p.id === a.modelBinding)?.name ?? '已绑模型' }}</span>
+            <span v-if="a.modelBinding" class="f-tag">{{ providerNameOf(a.modelBinding) }}</span>
             <span v-if="a.prompts?.length" class="f-tag">{{ a.prompts.length }} 条开场</span>
           </div>
           <p class="arules t-aux">{{ a.rules || '没有额外规则' }}</p>
