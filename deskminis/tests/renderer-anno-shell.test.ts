@@ -46,3 +46,37 @@ describe('V9 — 注释层落位', () => {
     expect(a).toContain("startsWith('local-')");
   });
 });
+
+describe('V9/T6a — 注释层的无障碍契约（换壳时整段丢过一次）', () => {
+  const a = read('AnnoLayer.vue');
+  const c = read('StageChat.vue');
+
+  /** 旧 ChatView 把这套 role/aria 钉在 renderer-annotations.test.ts 里，
+   *  换壳时 AnnoLayer 一条都没接过来——不是「没来得及移植」，是契约整段丢了。
+   *  读屏用户看到的是两块没有名字的 div。 */
+  it('浮条与气泡有 role 与可访问名', () => {
+    expect(a).toContain('role="toolbar"');
+    expect(a).toContain('aria-label="选区操作"');
+    expect(a).toContain('role="dialog"');
+    expect(a).toContain('aria-label="标注"');
+  });
+
+  it('浮条/气泡里每个可交互元素都有可访问名', () => {
+    for (const label of ['引用到输入框', '添加标注', '标注笔记', '删除标注', '保存笔记']) {
+      expect(a, `缺 aria-label="${label}"`).toContain(`aria-label="${label}"`);
+    }
+  });
+
+  it('浮条按钮键盘可激活——只挂 @mousedown.prevent 的话回车按了没反应', () => {
+    // mousedown.prevent 必须留着（默认 mousedown 会先塌掉选区，动作就没了对象），
+    // 所以键盘通路只能另挂 keydown，不能改成 @click（会与鼠标路径重复触发）。
+    expect(a).toMatch(/@mousedown\.prevent/);
+    expect(a).toMatch(/@keydown\.enter[.\w]*="/);
+    expect(a).toMatch(/@keydown\.space[.\w]*="/);
+  });
+
+  it('键盘选中正文也能唤出浮条（不能只认 mouseup）', () => {
+    // Shift+方向键选中是键盘用户唯一的选区手段；只挂 @mouseup 等于对他们关门
+    expect(c).toMatch(/@keyup="anno\?\.onMouseUp/);
+  });
+});

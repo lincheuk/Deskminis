@@ -133,7 +133,8 @@ watch(() => props.narrow, stickBottom);
 
 <template>
   <div class="stage" :class="{ narrow: props.narrow }">
-    <div ref="scroller" class="scroll" @scroll="onScroll" @mouseup="anno?.onMouseUp($event)">
+    <!-- keyup 与 mouseup 同接：键盘用户靠 Shift+方向键选中，只认 mouseup 等于对他们关门 -->
+    <div ref="scroller" class="scroll" @scroll="onScroll" @mouseup="anno?.onMouseUp($event)" @keyup="anno?.onMouseUp($event)">
       <div class="col">
         <section v-for="t in turns" :key="t.id" class="turn">
           <div v-if="t.user" class="urow">

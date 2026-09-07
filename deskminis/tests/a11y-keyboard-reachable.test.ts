@@ -14,14 +14,38 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const COMPONENTS = path.resolve(__dirname, '..', 'src', 'renderer', 'src', 'components');
-const vueFiles = fs.readdirSync(COMPONENTS).filter(f => f.endsWith('.vue'));
+/** T6a：扫描面从 `components/` 扩到**整棵 renderer 树**（递归）。
+ *  原来只扫 `components/` 且非递归——T 波换壳后活的 UI 全在 `ui/`，
+ *  这条规则等于在扫一堆死文件，而新树从未被查过。
+ *  清场后 `components/` 只剩三个无 @click 的文件，本测试会**静默通过**——
+ *  真空不会自己变红，所以补网必须排在拆网之前。 */
+const RENDERER = path.resolve(__dirname, '..', 'src', 'renderer', 'src');
+function walk(dir: string, out: string[] = []): string[] {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walk(p, out);
+    else if (e.name.endsWith('.vue')) out.push(p);
+  }
+  return out;
+}
+const vueFiles = walk(RENDERER).map(p => path.relative(RENDERER, p));
+
+const whole = (file: string): string =>
+  fs.readFileSync(path.join(RENDERER, file), 'utf8').replace(/\r\n/g, '\n');
 
 /** 只取 <template> 段；行尾归一化（仓库强制 LF，Windows 检出仍可能带 CRLF）。 */
 function template(file: string): string {
-  const src = fs.readFileSync(path.join(COMPONENTS, file), 'utf8').replace(/\r\n/g, '\n');
+  const src = whole(file);
   const m = src.match(/<template>([\s\S]*)<\/template>/);
   return m ? m[1] : src;
+}
+
+/** 这份文件有没有「按 Esc 能关掉」的通路。两种合法写法都认：
+ *  模板上的 `@keydown.esc`，或 script 里挂的 keydown 监听 + `Escape` 判定。
+ *  只认其中一种就会把另一种写法误判成违规（旧三个模态走的正是后者）。 */
+function hasEscape(file: string): boolean {
+  const src = whole(file);
+  return /@keydown\.esc/.test(src) || (/addEventListener\(\s*'keydown'/.test(src) && /'Escape'/.test(src));
 }
 
 /** 带 @click 的 div/span/li 开标签。原生可聚焦元素（button/a/input/label）不在此列。 */
@@ -39,7 +63,10 @@ describe('键盘可达：div 型控件必须能用 Tab + Enter/Space 操作', ()
         // ② @click.self —— 模态遮罩「点空白处关闭」。它的键盘等价物是 Esc 与标题行的 X 钮，
         //    两者都已具备（见 SettingsModal / DevicesModal 的 .xbtn 与 Escape 监听）。
         const onlyStop = /@click\.stop(?!=)/.test(attrs) && !/@click(?:\.\w+)*="/.test(attrs);
-        const isBackdrop = /@click\.self=/.test(attrs) && /class="mask"/.test(attrs);
+        // 遮罩豁免**锚意图不锚类名**：原来写死 `class="mask"`，新壳把遮罩改名 `scrim`
+        // 后豁免就失效了——这正是「锚了实现而非目的」的教训（MU5 §15）。
+        // 真正的条件是「点空白关闭」必须有键盘等价物，即同文件里有 Esc 通路。
+        const isBackdrop = /@click\.self=/.test(attrs) && hasEscape(f);
         if (onlyStop || isBackdrop) continue;
         const hasTab = /tabindex=/.test(attrs);
         const hasKey = /@keydown\.enter/.test(attrs) && /@keydown\.space/.test(attrs);
@@ -63,12 +90,13 @@ describe('键盘可达：div 型控件必须能用 Tab + Enter/Space 操作', ()
   });
 
   it('已补的控件带语义 role（读屏要知道这是按钮/选项/标签页，不是一块 div）', () => {
-    // 抽查四个代表：会话行、设置导航、选项行、标题栏菜单项
+    // 抽查新树里**非原生控件**的代表。原来点名的四个（SessionList/SettingsModal/
+    // PermissionPicker/TitleBar）全在 T6 待删名单里，锚过去会随文件一起消失。
+    // 新树 117/121 处交互都用 <button>（天生有语义与键盘通路），
+    // 只有标签页的关闭区是 span——它嵌在 <button class="tab"> 里，
+    // button 套 button 非法，故走 tabindex + role 这条路。
     const cases: [string, string][] = [
-      ['SessionList.vue', 'scard'],
-      ['SettingsModal.vue', 'sitem'],
-      ['PermissionPicker.vue', 'mrow'],
-      ['TitleBar.vue', 'mi'],
+      ['ui/TabBar.vue', 'x'],
     ];
     for (const [file, cls] of cases) {
       const tpl = template(file);

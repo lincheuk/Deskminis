@@ -40,7 +40,15 @@ const baseName = (p: string): string => p.split('/').pop() ?? p;
     >
       <UiIcon name="file" :size="14" />
       <span class="tt">{{ baseName(p) }}</span>
-      <span class="x" role="button" :aria-label="`关闭 ${baseName(p)}`" @click.stop="emit('close', p)">
+      <!-- 关闭区嵌在 <button class="tab"> 里，button 套 button 是非法 HTML 且交互会坏，
+           故走 tabindex + role + keydown 这条既定路子（同 a11y 守卫头注释的先例）。
+           keydown 要 .stop：否则回车会顺着冒泡把父级「切到这个标签」也一起触发。 -->
+      <span
+        class="x" role="button" tabindex="0" :aria-label="`关闭 ${baseName(p)}`"
+        @click.stop="emit('close', p)"
+        @keydown.enter.stop.prevent="emit('close', p)"
+        @keydown.space.stop.prevent="emit('close', p)"
+      >
         <UiIcon name="x" :size="12" />
       </span>
     </button>

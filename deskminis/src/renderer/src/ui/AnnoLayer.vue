@@ -37,7 +37,11 @@ function rootOf(n: Node | null): HTMLElement | null {
   return (e as HTMLElement | null)?.closest?.('[data-anno-root]') ?? null;
 }
 
-function onMouseUp(ev: MouseEvent): void {
+/** 选区手势的统一入口。**同时接 mouseup 与 keyup**——
+ *  Shift+方向键是键盘用户唯一的选区手段，只认 mouseup 等于对他们关门。
+ *  keyup 事件没有有意义的 clientX/Y（为 0），但那两个值只在「塌缩点击命中高亮」
+ *  那条路上用，键盘选中走的是另一条，不受影响。 */
+function onMouseUp(ev: MouseEvent | KeyboardEvent): void {
   // mouseup 一刻选区可能还没定稿（双击选词 / 三击选段）：推一帧再读才是最终选区
   requestAnimationFrame(() => {
     const wasPop = pop.value !== null;
@@ -46,7 +50,8 @@ function onMouseUp(ev: MouseEvent): void {
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
       hideBar();
       // 塌缩点击：命中高亮即开气泡；刚关掉的那次点击不立刻复开（点外 = 关的手感）
-      if (!wasPop) tryOpenPopAt(ev.clientX, ev.clientY);
+      // 只有指针事件才谈得上「点在哪个高亮上」；键盘 keyup 没有坐标，跳过
+      if (!wasPop && 'clientX' in ev) tryOpenPopAt(ev.clientX, ev.clientY);
       return;
     }
     const r = sel.getRangeAt(0);
@@ -192,19 +197,35 @@ defineExpose({ onMouseUp });
 
 <template>
   <div class="anno">
-    <div v-if="bar" class="abar" :style="{ left: `${bar.x}px`, top: `${bar.y}px` }">
-      <button type="button" @mousedown.prevent="doQuote"><UiIcon name="chat" :size="13" />引用</button>
-      <button type="button" @mousedown.prevent="doAnnotate"><UiIcon name="pencil" :size="13" />注释</button>
+    <!-- mousedown.prevent 是必须的——默认 mousedown 会先塌掉选区，动作就没了对象。
+         正因为如此，键盘通路只能另挂 keydown：改成 @click 会与鼠标路径重复触发。 -->
+    <div v-if="bar" class="abar" role="toolbar" aria-label="选区操作" :style="{ left: `${bar.x}px`, top: `${bar.y}px` }">
+      <button
+        type="button" aria-label="引用到输入框"
+        @mousedown.prevent="doQuote"
+        @keydown.enter.prevent="doQuote" @keydown.space.prevent="doQuote"
+      ><UiIcon name="chat" :size="13" />引用</button>
+      <button
+        type="button" aria-label="添加标注"
+        @mousedown.prevent="doAnnotate"
+        @keydown.enter.prevent="doAnnotate" @keydown.space.prevent="doAnnotate"
+      ><UiIcon name="pencil" :size="13" />注释</button>
     </div>
 
-    <div v-if="pop" class="apop" :style="{ left: `${pop.x}px`, top: `${pop.y}px` }" @keydown.esc="closePop">
+    <div
+      v-if="pop" class="apop" role="dialog" aria-label="标注"
+      :style="{ left: `${pop.x}px`, top: `${pop.y}px` }" @keydown.esc="closePop"
+    >
       <p class="aq t-aux">「{{ pop.exact }}」</p>
-      <textarea ref="noteEl" v-model="noteText" class="an" rows="3" placeholder="写点什么（留空也行，只标记不写字）"></textarea>
+      <textarea
+        ref="noteEl" v-model="noteText" class="an" rows="3" aria-label="标注笔记"
+        placeholder="写点什么（留空也行，只标记不写字）"
+      ></textarea>
       <div class="aacts">
-        <button class="f-btn primary" type="button" @click="saveNote">保存</button>
+        <button class="f-btn primary" type="button" aria-label="保存笔记" @click="saveNote">保存</button>
         <button class="f-btn ghost" type="button" @click="closePop">取消</button>
         <span class="grow"></span>
-        <button class="f-btn danger" type="button" @click="delAnno"><UiIcon name="trash" :size="13" /></button>
+        <button class="f-btn danger" type="button" aria-label="删除标注" @click="delAnno"><UiIcon name="trash" :size="13" /></button>
       </div>
     </div>
   </div>
