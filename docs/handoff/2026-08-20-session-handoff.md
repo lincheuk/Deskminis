@@ -1,5 +1,11 @@
 # DeskMinis 会话交接文档（2026-08-20，L 波收官后）
 
+> ⚠️ **已被 `2026-09-07-session-handoff.md` 取代，勿据此开局。**
+> 本版 §5「关键文件地图」逐条指向 `components/ChatView.vue`、`EmptyState.vue`、
+> `FilesPanel.vue`、`MarketPanel.vue` 等——**这些文件在 T 波换壳（2026-08-21）后已无人引用**。
+> 拿本版开局会直奔死代码去改，改完测试还全绿（守卫也指着死文件），但界面纹丝不动。
+> 保留本文件是因为它是 L 波那一刻的真实快照，有考古价值。
+
 > 用途：新对话开局投喂。本文件同时存于 docs 分支 `docs/handoff/2026-08-20-session-handoff.md`，
 > 配套资产（52 例基线清单、审核 driver 脚本）在 `docs/handoff/` 同目录。
 
