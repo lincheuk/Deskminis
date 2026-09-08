@@ -1,10 +1,10 @@
-/** MU2a Task 2：MarkdownView 组件源文本守卫（5 例）+ MarkdownCache 纯模块（3 例）。
+/** MU2a Task 2：MarkdownView 组件源文本守卫（5 例）。
+ *  原有的 MarkdownCache 三例已随模块退场（T6e，见文末说明）。
  *  守卫：docs/plans/2026-07-31-mu2-ui-implementation.md Task 2 Step 1；
  *  XSS 红线：Markdown 全链路禁 v-html；组件禁写死颜色。 */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MarkdownCache } from '../src/renderer/src/lib/markdown/cache';
 import * as parseMod from '../src/renderer/src/lib/markdown/parse';
 
 const root = path.resolve(__dirname, '..');
@@ -81,57 +81,8 @@ describe('MU2a Task 2 MarkdownView 源文本守卫（5 例）', () => {
   });
 });
 
-describe('MU2a Task 2 MarkdownCache（纯模块，3 例）', () => {
-  it('空文本返回双空数组；同文本重复 update 返回同一结果对象且 parse 零调用', () => {
-    const c = new MarkdownCache();
-    expect(c.update('')).toEqual({ stableNodes: [], tailNodes: [] });
-    c.update('hello world');
-    const spy = vi.spyOn(parseMod, 'parseMarkdown');
-    const a = c.update('hello world');
-    const b = c.update('hello world');
-    expect(spy).not.toHaveBeenCalled();
-    expect(a).toBe(b); // 同一结果对象（身份稳定，模板 prop 不抖动）
-  });
-
-  it('连续 append 三次：parseMarkdown 只被调用于尾部区间（spy 计数 + 入参断言）', () => {
-    const c = new MarkdownCache();
-    c.update('段一\n\n');
-    const spy = vi.spyOn(parseMod, 'parseMarkdown');
-    // append 1：稳定前缀 '段一\n\n' 已缓存 → 仅解析尾部 '段二'
-    c.update('段一\n\n段二');
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenNthCalledWith(1, '段二');
-    spy.mockClear();
-    // append 2：尾部生长 → 仍只解析尾部
-    c.update('段一\n\n段二更长');
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenNthCalledWith(1, '段二更长');
-    spy.mockClear();
-    // append 3：尾部再生长
-    const r = c.update('段一\n\n段二更长尾');
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenNthCalledWith(1, '段二更长尾');
-    expect(r.stableNodes).toHaveLength(1); // '段一'
-    expect(r.tailNodes).toHaveLength(1);   // '段二更长尾'
-  });
-
-  it('稳定区推进：重解析新稳定段一次 + 尾部一次；未闭合围栏全文走尾部', () => {
-    const c = new MarkdownCache();
-    c.update('段一\n\n段二');
-    const spy = vi.spyOn(parseMod, 'parseMarkdown');
-    // 新边界推进：稳定段变 '段一\n\n段二\n\n'（重解析一次）+ 尾部 '段三'（一次）
-    const r = c.update('段一\n\n段二\n\n段三');
-    expect(spy).toHaveBeenCalledTimes(2);
-    expect(spy).toHaveBeenNthCalledWith(1, '段一\n\n段二\n\n');
-    expect(spy).toHaveBeenNthCalledWith(2, '段三');
-    expect(r.stableNodes).toHaveLength(2);
-    expect(r.tailNodes).toHaveLength(1);
-    spy.mockClear();
-    // 未闭合围栏：边界在围栏之后被回退 → stablePrefixEnd = 0 → 全文走尾部（决策 3 兜底）
-    const r2 = c.update('```js\ncode\n\nmore');
-    expect(spy).toHaveBeenCalledTimes(1); // 稳定段为空不解析；全文一次
-    expect(spy).toHaveBeenNthCalledWith(1, '```js\ncode\n\nmore');
-    expect(r2.stableNodes).toEqual([]);
-    expect(r2.tailNodes.length).toBeGreaterThan(0);
-  });
-});
+/* T6e：MarkdownCache 三例随模块退场。
+ * lib/markdown/cache 的用途是「流式渲染时缓存已解析的稳定前缀」，
+ * 服务的是旧 ChatView 的「稳定区 Markdown + 尾部淡入」双区渲染。
+ * 新树 StageChat 每次全文重解析（配双 rAF 贴底），双区结构不存在了，
+ * 缓存与它依赖的 stablePrefixEnd 一并没有消费者——**是判据随实现退场，不是漏测**。 */
