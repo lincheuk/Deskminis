@@ -104,3 +104,70 @@ describe('T1 设计系统立系原则（锚意图，不锚具体值）', () => {
     expect(css).toMatch(/\*::before,\s*\*::after\s*\{[^}]*border-color:\s*transparent/);
   });
 });
+
+describe('T6d — 两套令牌文件的同名令牌必须同值', () => {
+  /** `main.ts` 先引 theme.css 再引 tokens.css，**后加载的赢**。
+   *  两边有九个同名令牌，其中七个值不同——整套间距标尺被旧文件顶高一档，
+   *  297 处引用一直渲染的是旧值，theme.css 写的那套从未生效过。
+   *
+   *  已按「让声明追上像素」对齐（T 波界面正是在旧标尺下审过并被接受的，
+   *  反过来改要重新目视 297 处）。这道守卫钉住此后任一边都不许再漂：
+   *  一旦漂了，theme.css 就又变成一份「写了不算数」的文件，
+   *  而它自称是新设计系统的唯一真相源。
+   *
+   *  tokens.css 目前不能删——MarkdownView / MarkdownInline 还消费它 18 个变量。
+   *  但对齐之后哪天删掉它，视觉零变化。 */
+  const tokensCss = fs.readFileSync(
+    path.join(path.resolve(__dirname, '..'), 'src/renderer/src/styles/tokens.css'), 'utf8');
+
+  /** 抓一份文件里所有 `--name: value` 的**首次**声明（同名多作用域取第一处，即浅色态）。 */
+  function declaredIn(src: string): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const m of src.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
+      if (!out.has(m[1])) out.set(m[1], m[2].trim());
+    }
+    return out;
+  }
+
+  /** 解析成 px 数值再比：tokens.css 那边多是 `var(--radius-2xl)` 这类间接引用，
+   *  逐字比会把「值相同、写法不同」误判成漂移。解析不了就抛——
+   *  出现新写法要被看见，不能悄悄跳过（跳过等于守卫失效）。 */
+  function resolvePx(raw: string, table: Map<string, string>, depth = 0): number {
+    const v = raw.trim();
+    if (depth > 8) throw new Error(`令牌解析层数过深：${raw}`);
+    let m = /^(-?[\d.]+)px$/.exec(v);
+    if (m) return Number(m[1]);
+    // rem 按浏览器默认根字号 16px 折算——项目没有改 html 的 font-size
+    m = /^(-?[\d.]+)rem$/.exec(v);
+    if (m) return Number(m[1]) * 16;
+    m = /^var\((--[\w-]+)\)$/.exec(v);
+    if (m) {
+      const next = table.get(m[1]);
+      if (next === undefined) throw new Error(`引用了不存在的令牌：${m[1]}`);
+      return resolvePx(next, table, depth + 1);
+    }
+    // 只认实际用到的这一种 calc 形态：calc(var(x) * a / b)
+    m = /^calc\(\s*var\((--[\w-]+)\)\s*\*\s*([\d.]+)\s*\/\s*([\d.]+)\s*\)$/.exec(v);
+    if (m) {
+      const base = table.get(m[1]);
+      if (base === undefined) throw new Error(`calc 引用了不存在的令牌：${m[1]}`);
+      return resolvePx(base, table, depth + 1) * Number(m[2]) / Number(m[3]);
+    }
+    throw new Error(`无法解析成 px 的令牌值：${raw}（守卫需要补一条解析规则）`);
+  }
+
+  it('同名令牌解析后逐个同值（不同值 = theme.css 那份写了不算数）', () => {
+    const a = declaredIn(css);
+    const b = declaredIn(tokensCss);
+    const clash = [...a.keys()].filter(k => b.has(k)).sort();
+    // 碰撞本身是允许的（两文件并存期），值不一样才是问题
+    expect(clash.length, '两文件不再有同名令牌了？那这条守卫该退场').toBeGreaterThan(0);
+    const mismatch: string[] = [];
+    for (const k of clash) {
+      const av = resolvePx(a.get(k)!, a);
+      const bv = resolvePx(b.get(k)!, b);
+      if (av !== bv) mismatch.push(`${k}: theme.css=${a.get(k)}(${av}px) vs tokens.css=${b.get(k)}(${bv}px)`);
+    }
+    expect(mismatch).toEqual([]);
+  });
+});
