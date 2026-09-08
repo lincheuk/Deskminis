@@ -36,9 +36,16 @@ export class FilesService {
    * 把 UI 给的目录/文件引用解析为「工作区内」绝对路径。
    * resolveGuestPath 对绝对宿主路径（C:\...）与全局命名空间（/var/minis/memory）是放行的——
    * 那是 agent 工具 + 权限网关的领域；文件面板是工作区树，必须额外收死在仓内（计划决策 4）。
+   *
+   * T6b 修：围栏基准必须是 `workspaceOf`（**认每会话覆盖值**）而不是 `sessionBucket`（沙箱桶）。
+   * 本行写于 A7，那时还没有工作区覆盖；MU5 加覆盖时漏改了这里，而下一行的 resolveGuestPath
+   * 是认覆盖的——两边基准不一致，绑定自定义目录后 isInside 恒假，
+   * **文件面板整个报「只允许访问会话工作区」，一个文件都列不出来**。
+   * paths.workspaceOf() 的注释早写着「shell 的 cwd、终端启动目录、相对路径解析三处必须都走这里」，
+   * FilesService 是漏掉的第四个消费点。
    */
   private resolveInWorkspace(sessionId: string, ref?: string): { abs: string; rel: string } {
-    const base = this.paths.sessionBucket(sessionId, 'workspace');
+    const base = this.paths.workspaceOf(sessionId);
     const abs = this.paths.resolveGuestPath(sessionId, ref ?? '/var/minis/workspace');
     if (!isInside(abs, base)) throw new Error(`文件面板只允许访问会话工作区: ${ref ?? '/'}`);
     const rel = relative(base, abs).split('\\').join('/');

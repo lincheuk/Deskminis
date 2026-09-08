@@ -154,3 +154,71 @@ describe('files.* RPC（工作区文件树）', () => {
     c.close();
   });
 });
+
+describe('T6b · 绑定了自定义工作区之后，文件面板要看的是那个目录', () => {
+  /** 这条从 MU5 加工作区覆盖起就一直是坏的，只是没人测过：
+   *  `resolveInWorkspace` 里 `abs` 走 `resolveGuestPath`（**认覆盖值**），
+   *  而围栏 `base` 写死成 `sessionBucket(sessionId,'workspace')`（**沙箱桶**）。
+   *  两边基准不一致 → 绑定自定义目录后 `isInside` 恒假 →
+   *  文件面板整个报「只允许访问会话工作区」，一个文件都列不出来。
+   *
+   *  `paths.workspaceOf()` 的注释早就写着「shell 的 cwd、终端启动目录、相对路径解析
+   *  三处必须都走这里」——FilesService 是**第四个消费点**，当年漏了。 */
+  it('list 列出的是绑定目录的内容，不是沙箱桶的', async () => {
+    const { port, authToken, dataDir } = await boot();
+    const c = rpcClient(port, authToken);
+    await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+
+    // 沙箱桶里放一个文件，绑定目录里放另一个——用文件名区分列的到底是哪个目录
+    const bucket = join(dataDir, 'sessions', s.id, 'workspace');
+    mkdirSync(bucket, { recursive: true });
+    writeFileSync(join(bucket, 'ONLY-IN-SANDBOX.txt'), 'x', 'utf8');
+
+    const proj = mkdtempSync(join(tmpdir(), 'dm-proj-'));
+    writeFileSync(join(proj, 'ONLY-IN-PROJECT.txt'), 'y', 'utf8');
+
+    const set = await c.call('workspace.set', { sessionId: s.id, root: proj });
+    expect(set.error, JSON.stringify(set.error)).toBeUndefined();
+
+    const listed = await c.call('files.list', { sessionId: s.id });
+    expect(listed.error, `files.list 报错了：${JSON.stringify(listed.error)}`).toBeUndefined();
+    const names = (listed.result as { name: string }[]).map(n => n.name);
+    expect(names).toContain('ONLY-IN-PROJECT.txt');
+    expect(names).not.toContain('ONLY-IN-SANDBOX.txt');
+    c.close();
+  });
+
+  it('围栏仍然收死在绑定目录内——穿越到父目录要被拒', async () => {
+    const { port, authToken } = await boot();
+    const c = rpcClient(port, authToken);
+    await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    const proj = mkdtempSync(join(tmpdir(), 'dm-proj2-'));
+    mkdirSync(join(proj, 'inner'), { recursive: true });
+    await c.call('workspace.set', { sessionId: s.id, root: join(proj, 'inner') });
+
+    const up = await c.call('files.list', { sessionId: s.id, dir: '..' });
+    expect(up.error, '穿越到父目录竟然放行了').toBeDefined();
+    c.close();
+  });
+
+  it('恢复默认之后，列的又是沙箱桶', async () => {
+    const { port, authToken, dataDir } = await boot();
+    const c = rpcClient(port, authToken);
+    await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    const bucket = join(dataDir, 'sessions', s.id, 'workspace');
+    mkdirSync(bucket, { recursive: true });
+    writeFileSync(join(bucket, 'ONLY-IN-SANDBOX.txt'), 'x', 'utf8');
+    const proj = mkdtempSync(join(tmpdir(), 'dm-proj3-'));
+    writeFileSync(join(proj, 'ONLY-IN-PROJECT.txt'), 'y', 'utf8');
+
+    await c.call('workspace.set', { sessionId: s.id, root: proj });
+    await c.call('workspace.reset', { sessionId: s.id });
+    const listed = await c.call('files.list', { sessionId: s.id });
+    expect(listed.error).toBeUndefined();
+    expect((listed.result as { name: string }[]).map(n => n.name)).toContain('ONLY-IN-SANDBOX.txt');
+    c.close();
+  });
+});
