@@ -248,7 +248,8 @@ describe('自动同步收敛', () => {
   //   → A 重连对账 push → B 拿到 A 宕机期消息 → 两端 id 序列逐位一致
   //   指纹序随机：A 是拨号方（setup 固定 A join B），故 A 持数据 + A 重连对账 push 是关键路径
   //   （实证 reconcilePeer push 方向必需——单向 pull 在「持数据方=拨号方」时失效）。
-  //   反向（持数据方=监听方）由 e2e:m3c 用例 6 天然随机覆盖。
+  //   反向（持数据方=监听方）此前由 e2e:m3c 用例 6 天然随机覆盖；该脚本随旧 UI 失效、T6f 已删——
+//   反向目前**没有 e2e 覆盖**，只有本文件的单测。记账，不假装还有。
   it('断线重连后增量收敛：关停 B → A 写 → 重启 B → 双向对账 → id 序列逐位一致', async () => {
     const { localA, localB, instA, instB, dirB } = await setupTwoInstances();
 
