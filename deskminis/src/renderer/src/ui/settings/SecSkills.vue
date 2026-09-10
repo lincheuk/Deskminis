@@ -34,7 +34,12 @@ async function onDelete(id: string): Promise<void> { await chat.deleteSkill(id);
 <template>
   <section class="f-sec">
     <h2>技能</h2>
-    <p class="f-note">技能是一个带 SKILL.md 的目录。导入后在对话框里打 <code>/</code> 就能调用。</p>
+    <p class="f-note">
+      技能是一个带 SKILL.md 的目录。导入后在对话框里打 <code>/</code> 就能调用。
+      <!-- 后端 skills.setEnabled 带 sessionId 才是会话覆盖，这里调的是不带的那条 = 全局。
+           不写明范围，用户不知道自己刚拨的开关影响的是所有会话还是眼前这个。 -->
+      下面的启停是<strong>全局</strong>的——对所有会话生效，不是只改当前这一个。
+    </p>
 
     <div class="f-card">
       <label class="f-label">
@@ -60,7 +65,7 @@ async function onDelete(id: string): Promise<void> { await chat.deleteSkill(id);
 
     <p v-if="!chat.allSkills.length" class="f-note">还没有技能。</p>
     <div v-for="s in chat.allSkills" :key="s.id" class="srow">
-      <label class="f-switch" :title="s.isEnabled ? '停用' : '启用'">
+      <label class="f-switch" :title="s.isEnabled ? '停用（全局）' : '启用（全局）'">
         <input type="checkbox" :checked="s.isEnabled" @change="chat.setSkillEnabled(s.id, !s.isEnabled)" />
         <i></i>
       </label>

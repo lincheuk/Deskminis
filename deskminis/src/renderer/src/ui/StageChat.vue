@@ -25,7 +25,7 @@ function onQuote(text: string): void { composer.value?.quote(text); }
 type Msg = (typeof chat.messages)[number];
 /** 块上带 mid（这条块来自哪条消息）：注释锚点按消息 id 定位，没有它锚不住。 */
 interface Turn { id: string; user: Msg | null; blocks: { kind: 'text' | 'steps' | 'think'; mid?: string; text?: string; steps?: Step[] }[] }
-interface Step { name: string; title: string; ok: boolean; output?: string | null }
+interface Step { name: string; title: string; ok: boolean; output?: string | null; input?: string }
 
 const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
 function textOf(m: Msg): string {
@@ -66,6 +66,23 @@ function resultOf(id: string | undefined): { ok: boolean; output?: string } | un
   return undefined;
 }
 
+/** 工具载荷在库里是**JSON 字符串**（`minisd/agent/loop.ts` 落 `input: c.input`，
+ *  provider 侧也是 `JSON.parse(v.input)`），不是对象。
+ *
+ *  ⚠️ T6e-2 实拍逮到的老账：这里原本写 `isRec(p.value.input) ? p.value.input.tool_title : ''`
+ *  ——对字符串恒为 false，历史回放的标题**一直**回落成裸工具名（`file_edit`），
+ *  而实时回合走 store 的 `c.title`（后端 extractTitle 出来的）是对的。
+ *  于是同一个回合，跑完前显示「按损耗折算计费」、刷新后变成「file_edit」。
+ *  源码文本守卫看不出来（字符串都在），typecheck 也看不出来（.vue 不在覆盖内）。 */
+function toolInput(v: unknown): { raw: string; title: string } {
+  const raw = typeof v === 'string' ? v : isRec(v) ? JSON.stringify(v) : '';
+  try {
+    const o: unknown = JSON.parse(raw || '{}');
+    if (isRec(o) && typeof o.tool_title === 'string') return { raw, title: o.tool_title };
+  } catch { /* 坏载荷不该让整条消息渲染不出来——标题回落，正文照常 */ }
+  return { raw, title: '' };
+}
+
 /** 回合切分 + 助手块内把连续的工具调用聚成一个 StepGroup（相邻文本不合并，保留段落节奏）。 */
 const turns = computed<Turn[]>(() => {
   const out: Turn[] = [];
@@ -88,11 +105,14 @@ const turns = computed<Turn[]>(() => {
       } else if (p?.type === 'toolUse' && isRec(p.value)) {
         const id = typeof p.value.toolUseId === 'string' ? p.value.toolUseId : undefined;
         const r = resultOf(id);
+        const ti = toolInput(p.value.input);
         const step: Step = {
           name: String(p.value.name ?? ''),
-          title: String((isRec(p.value.input) ? p.value.input.tool_title : '') || p.value.name || ''),
+          title: ti.title || String(p.value.name ?? ''),
           ok: r ? r.ok : true,
           output: r?.output ?? null,
+          // 载荷一并带下去：展开区靠它渲 file_edit 差分与参数区（T6e-2 补搬）
+          input: ti.raw || undefined,
         };
         const last = t.blocks[t.blocks.length - 1];
         if (last && last.kind === 'steps') last.steps!.push(step);
@@ -167,7 +187,7 @@ watch(() => props.narrow, stickBottom);
           <div v-if="chat.toolCards.length" class="ablock">
             <StepGroup
               live
-              :steps="chat.toolCards.map(c => ({ name: c.name, title: c.title || c.name, ok: c.success !== false, output: c.output ?? null }))"
+              :steps="chat.toolCards.map(c => ({ name: c.name, title: c.title || c.name, ok: c.success !== false, output: c.output ?? null, input: c.input }))"
             />
           </div>
           <div v-if="streamNodes" class="ablock"><MarkdownView class="t-chat" :nodes="streamNodes" /></div>

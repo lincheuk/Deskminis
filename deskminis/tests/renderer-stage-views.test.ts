@@ -101,3 +101,18 @@ describe('T6a2 — 助手绑定模型必须写 provider: 前缀', () => {
     expect(a).toContain("'provider:'");
   });
 });
+
+describe('T6e-2 — 技能启停必须写明作用域是全局', () => {
+  /** 立项事实：后端 `skills.setEnabled` **带 sessionId 是会话覆盖、不带是全局开关**，
+   *  新界面调的是不带的那条（全局）。旧 SkillsSettings.vue 为此在页面上写明
+   *  「这里的启停是**全局**的——对所有会话生效，不是只改当前这一个」，按钮 title 也标了范围；
+   *  换壳成 SecSkills.vue 时这句交代整个没搬过来（「全局」二字零命中）。
+   *  功能没坏，坏的是用户不知道自己刚才那一下影响的是所有会话还是眼前这个。 */
+  it('页面说明与开关 title 都要标出「全局」', () => {
+    const sk = read('settings/SecSkills.vue');
+    expect(sk).toContain('全局');
+    // 光在页头写一句不够——真正下手的地方是那个开关，鼠标停上去就该看见范围
+    const sw = sk.match(/<label class="f-switch"[^>]*>/)?.[0] ?? '';
+    expect(sw).toMatch(/title="[^"]*全局/);
+  });
+});
