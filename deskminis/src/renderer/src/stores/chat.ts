@@ -42,6 +42,10 @@ export const useChat = defineStore('chat', {
     permFocusRequestId: null as string | null,
     // MU2b Task 3：产物卡点击写入待预览相对路径，FilesPanel watch 后走既有 preview 流程并清空
     pendingFilePreview: null as string | null,
+    /** X 波：输入卡发送期间寄存的草稿。发送被同步拒绝（未配置模型 / 建会话失败）时由输入卡取回——
+     *  必须放 store 而不是组件里：首条消息乐观入列的一瞬欢迎页换成会话页，发它的那个输入卡实例已卸载，
+     *  拒绝回来时欢迎页新建的实例只能从这里拿。与 pendingFilePreview 同款「一处写、消费即清」。 */
+    draft: null as null | { text: string; attachments: { path: string; dataUrl: string }[] },
     providers: [] as UiProvider[],
     /** J2 助手目录（欢迎页卡区 + 设置管理页共用；变更经 assistants.changed 广播回流刷新）。 */
     assistants: [] as UiAssistant[],

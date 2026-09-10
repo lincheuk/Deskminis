@@ -24,8 +24,17 @@ const field = ref<HTMLTextAreaElement | null>(null);
 /** V6 待发附件（声明必须在 canSend 之前——computed 里引用了它）。
  *  path 是会话相对路径（后端据此落 mediaRef part），dataUrl 只用于本地缩略图。 */
 const atts = ref<{ path: string; dataUrl: string }[]>([]);
+/** X 波重入闸：首条消息要先建会话，chat.running 直到会话建好才为 true——这几十毫秒里的第二次 Enter /
+ *  点发送键此前照样进 send()：建出两个会话、第二发撞后端 inFlight 抛「该会话正在运行中」、running 被误归零
+ *  （drive-x1 double 4/4）。Enter 与发送键都走 send()，一处闸两条路；发送键随它变灰就是「已经在发」的反馈。 */
+const sending = ref(false);
 // 只有附件没有文字也能发（「看看这张图」的常见开法）
-const canSend = computed(() => (text.value.trim().length > 0 || atts.value.length > 0) && !chat.running);
+const canSend = computed(() => (text.value.trim().length > 0 || atts.value.length > 0) && !chat.running && !sending.value);
+
+/** 欢迎页没有会话视图那条错误横幅：首条消息被同步拒绝（未配置模型、会话没建起来）只能在这张卡上说，
+ *  不然就是「按了没反应」（drive-x1 noprov：文字清了、多出一个幽灵会话、零交代）。
+ *  会话页由 StageChat 的横幅负责，这里不重复显示同一条。 */
+const cardError = computed(() => (props.variant === 'hero' ? chat.lastError : ''));
 
 /** 底行胶囊：当前模型与权限档。原图这两枚常驻——用户随时看得见「谁在跑、能做多狠」。 */
 const modelLabel = computed(() => {
@@ -139,7 +148,11 @@ function pickImages(list: FileList | null): File[] {
 async function saveImages(files: File[]): Promise<void> {
   if (!files.length) return;
   attErr.value = '';
-  if (!chat.activeId) await chat.newSession();   // 附件挂在会话目录下：先确保有会话
+  if (!chat.activeId) {
+    // 附件挂在会话目录下：先确保有会话。建不出来就明说（此前是 unhandled rejection）
+    try { await chat.newSession(); }
+    catch (e) { attErr.value = `新建会话失败：${e instanceof Error ? e.message : String(e)}`; return; }
+  }
   const id = chat.activeId;
   const b = bridge();
   if (!id || typeof b?.saveAttachment !== 'function') { attErr.value = '这个环境不支持附件'; return; }
@@ -176,17 +189,45 @@ async function send(): Promise<void> {
   const t = text.value.trim();
   const paths = atts.value.map(a => a.path);
   // 只有附件没有文字也算一条消息（「看看这张图」的常见开法）
-  if ((!t && !paths.length) || chat.running) return;
-  if (!chat.activeId) {
-    if (chat.welcomeAssistantId) await chat.newSessionWithAssistant(chat.welcomeAssistantId);
-    else await chat.newSession();
+  if ((!t && !paths.length) || chat.running || sending.value) return;
+  sending.value = true;
+  try {
+    if (!chat.activeId) {
+      // 建不出会话就明说，草稿留在框里；此前这里是 unhandled rejection——「按了没反应」
+      try {
+        if (chat.welcomeAssistantId) await chat.newSessionWithAssistant(chat.welcomeAssistantId);
+        else await chat.newSession();
+      } catch (e) {
+        chat.lastError = `新建会话失败：${e instanceof Error ? e.message : String(e)}`;
+        return;
+      }
+    }
+    // 清空之前先寄存：chat.send 若被同步拒绝（未配置模型等），草稿要还给用户——见 store draft 注释
+    chat.draft = { text: text.value, attachments: atts.value };
+    text.value = '';
+    histCursor.value = -1;
+    atQuery.value = null;
+    atts.value = [];
+    await chat.send(t, paths.length ? paths : undefined);
+    if (chat.lastError) takeDraft(); else chat.draft = null;
+  } finally {
+    // 闸必须在这里放：任一 await 抛错后不放，输入卡就永久失能
+    sending.value = false;
   }
-  text.value = '';
-  histCursor.value = -1;
-  atQuery.value = null;
-  atts.value = [];
-  await chat.send(t, paths.length ? paths : undefined);
 }
+
+/** 取回被拒的草稿：框空则原样放回，框里已有新字则草稿在前、新字在后——不吞任何一方。 */
+function takeDraft(): void {
+  const d = chat.draft;
+  if (!chat.lastError || !d) return;
+  chat.draft = null;
+  const cur = text.value.trim() ? text.value : '';
+  text.value = cur ? `${d.text.replace(/\s+$/, '')}\n${cur}` : d.text;
+  if (d.attachments.length) atts.value = [...d.attachments, ...atts.value];
+  void nextTick(() => field.value?.focus());
+}
+// 上一个实例被拒回的草稿：欢迎页换成会话页再换回来时，新建的这个实例靠这行拿回（见 store draft 注释）
+takeDraft();
 
 /** V9 引用：追加不覆盖——用户已敲的草稿排在引用块前面。 */
 function quote(block: string): void {
@@ -234,7 +275,8 @@ defineExpose({
           <button type="button" class="ax" title="去掉这张" @click="dropAtt(i)"><UiIcon name="x" :size="11" /></button>
         </span>
       </div>
-      <p v-if="attErr" class="atterr t-aux">{{ attErr }}</p>
+      <p v-if="attErr" class="cerr t-aux">{{ attErr }}</p>
+      <p v-if="cardError" class="cerr t-aux">{{ cardError }}</p>
 
       <textarea
         ref="field" v-model="text" class="field" :rows="rowsFor(text)" :placeholder="placeholder"
@@ -355,6 +397,7 @@ defineExpose({
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
   background: var(--c-ink); color: var(--c-bg);
 }
-.atterr { margin: 0 0 var(--sp-3); padding: 0 var(--sp-2); color: var(--c-err); }
+/* 卡内错误行：附件失败 / 首条消息被拒（hero 态）共用 */
+.cerr { margin: 0 0 var(--sp-3); padding: 0 var(--sp-2); color: var(--c-err); }
 .hidden { display: none; }
 </style>
