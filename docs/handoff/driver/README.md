@@ -22,6 +22,12 @@ driver 裸 import `playwright-core`，本目录的 `package.json` 已声明它�
 FakeProvider 用法见交接文档 §3；工具 inputJSON **必带 `tool_title`**，
 缺了会报「缺少必填参数」且权限卡不弹。
 
+## Y 波 换壳遗失的入口成批补回（2026-09-10）
+
+| 文件 | 用途 |
+|---|---|
+| **`drive-y1.mjs`** | 五场景各自冷启动：`menu` 会话行 ⋮ 菜单（记忆 / 绑定模型——先经 store 建一个 ollama 类 provider 免 key / 重命名含空标题被拒 / 删除二次确认）、`mcp` 种一台连不上的 MCP 验胶囊与面板、`sync` 设备页暂停恢复 + 标题栏点、`skills` 先 `importSkillFolder` 导入种子技能再到助手编辑器勾选、`rail` 三回合（长回复撑出滚动）验右缘三点与跳转。用法 `xvfb-run -a node drive-y1.mjs <menu\|mcp\|sync\|skills\|rail\|all>`。<br>**坑**：⋮ 平时 `opacity:0`，`element.click()` 不需要可见；`.f-btn` 文本匹配要 `trim()` 全等优先再退回 includes（「暂停同步」与「恢复同步」都含「同步」）。 |
+
 ## X 波 首发竞态排查（2026-09-10）
 
 | 文件 | 用途 |

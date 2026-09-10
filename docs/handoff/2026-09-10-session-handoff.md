@@ -8,18 +8,21 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `a270df6`，**version 0.3.0**，minis.db user_version=**11**。
-  166 测试文件 / 1858 例（云端 1806 过 + 52 Windows-only 基线），typecheck 0，build 0。
+- **代码**：main `ba4b919`，**version 0.3.0**，minis.db user_version=**11**。
+  167 测试文件 / 1880 例（云端 1828 过 + 52 Windows-only 基线），typecheck 0，build 0。
 - **界面**：T 波推倒重建后的新树 `src/renderer/src/ui/` 是唯一的 UI；旧树 **T6 已删净**，
   `components/` 只剩 MarkdownView 一族 3 个活文件。
-- **最近一件大事**：**X 波首发竞态结案**（2026-09-10，两笔代码 `6b6e5eb` `a270df6`）——L6 记的「首条 Enter 偶发被吞」
+- **最近一件大事**：**Y 波换壳遗失的入口成批补回**（2026-09-10，`ba4b919`）——会话行 ⋮ 菜单 / 会话级禁用 MCP /
+  同步暂停 / 助手技能绑定 / 锚点轨五项从旧实现逐项搬回；README 只剩模型组一行 🟡；mu6 清单 GAPS 清空并加了
+  「store action 零 UI 调用必须登记」的可计算不变量；剧本 `drive-y1.mjs` 入册。
+- **上上件**：**X 波首发竞态结案**（2026-09-10，两笔代码 `6b6e5eb` `a270df6`）——L6 记的「首条 Enter 偶发被吞」
   是剧本判定的假阳性（消息从未丢过），但顺带修了首条消息双击 Enter 建双会话、无模型首发静默吞字、
   rpc 握手信号晚一个 await 三处真缺陷；剧本 `drive-x1.mjs` 入册，§7 第 11 条教训。
 - **上一件**：**T6 清场做完了**（2026-09-10，十笔代码 + 两笔记账）——删旧组件树 −6781 行、
   8 个失效 e2e 脚本；38 个测试文件的守卫逐条重指/退场；`tests/mu6-capability-wiring.test.ts`
   改成**双向绊线的能力入口清单**。过程中又挖出七处换壳漏搬并补回，另有一批记账不补的缺口
   （§6「换壳遗失的入口」）。
-- **下一件**：**0.3.0 上架**（§6 一档只剩这一件，需 Windows 真机）。
+- **下一件**：**0.3.0 上架**（§6 一档只剩这一件，需 Windows 真机）；云端可做的下一件是 **Z 波模型组降级 UI**（§6 二档）。
 - **发布**：v0.2.0 **从未发布过**（GitHub Releases 只有 v0.1.1）。0.3.0 待 Windows 真机走 `docs/RELEASE.md`，
   **`e2e:m5` 必须重跑**——T6 之后 renderer 产物又变了一轮。
 
@@ -108,6 +111,7 @@
 | **W** | 沉淀：升版 0.3.0 + README/CHANGELOG/RELEASE 对齐 + 交接文档换代 | `b7450ca` |
 | **T6** | **清场**（下表） | `ed1dc09`…`26f64af` |
 | **X** | **首发竞态排查**：L6 记录判为剧本假阳性；顺带修 Composer 重入闸 / 欢迎页首发交代 + 草稿交回 / rpc 握手信号 | `6b6e5eb` `a270df6` |
+| **Y** | **换壳遗失的入口成批补回**：会话行 ⋮ 菜单 / 会话级禁用 MCP / 同步暂停 / 助手技能绑定 / 锚点轨 + mu6 清单改造 | `ba4b919` |
 
 **T6 十笔（main）+ 两笔记账（docs `33e4c0f` `e60fbc9`）：**
 
@@ -138,16 +142,16 @@
 |---|---|
 | `ui/AppShell.vue` | 三栏外壳：TopBar / [NavRail \| Stage \| WorkspacePanel] + 底部终端抽屉。**视图路由**：`view` ∈ chat/search/cron/assistants/market/settings/devices，按值切舞台（没有模态、没有惰性挂载） |
 | `ui/TopBar.vue` | 40px 标题栏；`syncDot` 三态（syncing/idle/未连接）；☰ 现在只切主题（重载/退出在主进程原生菜单）。**右侧留 146px** 给系统按钮 |
-| `ui/NavRail.vue` | 左导航 + 会话列表（`emojiOf` 助手头像）；底部「设置」「设备」。会话行**没有 ⋮ 菜单**（§6 缺口） |
+| `ui/NavRail.vue` | 左导航 + 会话列表（`emojiOf` 助手头像）；底部「设置」「设备」。**Y1**：会话行 = `.srw` 包 `.srow` + `.smore` 两个并列按钮，⋮ 展开**行内** `.smenu`（记忆 / 模型 `bindingValue` 归一化 / 重命名 / 删除二次确认） |
 | `ui/StageWelcome.vue` / `ui/StageChat.vue` | 欢迎态 / 会话态，**并列视图**。欢迎页开场提示来自选中助手的 `prompts` |
-| `ui/StageChat.vue` | 回合切分 `turns`；用户右对齐 `.ubub`、助手满宽文档式；`toolInput()` 解析落库的 JSON 字符串载荷；用户与助手正文都挂 `data-anno-root` |
+| `ui/StageChat.vue` | 回合切分 `turns`；用户右对齐 `.ubub`、助手满宽文档式；`toolInput()` 解析落库的 JSON 字符串载荷；用户与助手正文都挂 `data-anno-root`。**Y5**：turn 节 `data-turn-id` + 右缘 `.trail`（≥3 回合，z 15） |
 | `ui/StepGroup.vue` | 工具折叠组。**`file_edit` 走 `extractEditPair`+`UiDiff`，其余回落参数区**；`views` 只在展开时算（LCS） |
-| `ui/Composer.vue` | 输入卡 hero/chat 两态；斜杠菜单 + @ 文件（`syncAt` 挂 input/click/keyup）+ 输入历史 + 附件 + `quote()`。**X 波**：`sending` 重入闸（首条消息建会话期间）、hero 态渲染 `chat.lastError`、`takeDraft()` 从 `chat.draft` 取回被拒草稿（setup 与 send 后各一次） |
+| `ui/Composer.vue` | 输入卡 hero/chat 两态；斜杠菜单 + @ 文件（`syncAt` 挂 input/click/keyup）+ 输入历史 + 附件 + `quote()`。**X 波**：`sending` 重入闸（首条消息建会话期间）、hero 态渲染 `chat.lastError`、`takeDraft()` 从 `chat.draft` 取回被拒草稿（setup 与 send 后各一次）。**Y2**：`.mcpbtn` 胶囊 + 行内 `.mcpanel`（有会话后才 `fetchMcpServers`） |
 | `ui/PermCard.vue` + `ui/UiDiff.vue` | 权限卡（路径/命令逐字不截断、倒计时只显示不自判、桥双段告知）+ 差分预览（`path?` 可选） |
 | `ui/PreviewPane.vue` + `ui/OfficeView.vue` | 产出物预览三态工具条 + Office 内容预览（docx 纸 / xlsx 网格 / pptx 16:9） |
 | `ui/WorkspacePanel.vue` + `ui/UiFileTree.vue` + `ui/TaskPanel.vue` | 右栏三 tab：文件（含**绑定行**，只在文件 tab）/ 改动（`collectArtifacts`）/ 任务（上下文水位） |
 | `ui/StageSettings.vue` + `ui/settings/Sec*.vue` | 七节：Models / Permission / Skills / Mcp / Search / Look / About（左 tab 列 + 右定宽内容） |
-| `ui/StageAssistants` `StageCron` `StageDevices` `StageMarket` `StageSearch` | 五个舞台。Market 是唯一的模态宿主（确认卡 + toast，z 100） |
+| `ui/StageAssistants` `StageCron` `StageDevices` `StageMarket` `StageSearch` | 五个舞台。Market 是唯一的模态宿主（确认卡 + toast，z 100）。**Y3** StageDevices 首节「同步」（暂停/恢复）；**Y4** StageAssistants「默认技能」复选（`allSkills`） |
 | `ui/TerminalPane.vue` / `ui/AnnoLayer.vue` | 终端抽屉（xterm，兜底色走 `v('--c-…') || '#…'`）/ 选区注释（CSS Highlight，零 DOM 改写） |
 | `ui/ThinkBlock` `EventNotes` `ModelBar` `TabBar` `UiIcon` | 会话内构件 |
 
@@ -181,16 +185,18 @@
 
 ### 守卫地图（动 UI 必看）
 
-- **`tests/mu6-capability-wiring.test.ts` = 能力入口清单，双向绊线**。WIRED（8 项）断言 `ui/` 里有**调用**；
-  GAPS（6 项 + 锚点轨 + 助手技能绑定）断言 store action 与 minisd 注册都在、且 `ui/` 下零调用。
-  **补上任何缺口它会红——这是设计意图**：把那条从 GAPS 挪进 WIRED，README 的 🟡 改回 ✅。
+- **`tests/mu6-capability-wiring.test.ts` = 能力入口清单，双向绊线**。WIRED（14 项）断言 `ui/` 里有**调用**；
+  GAPS **当前为空**（Y 波清账，允许为空）。**Y 波加的可计算不变量**：store 的每个 action 要么 `ui/` 有调用、
+  要么 store 内部有 `this.x(` 调用，否则必须登记在 GAPS——再掉一个入口这条先红，不用人手数。
+  补入口的流程照旧：从 GAPS 挪进 WIRED，README 的 🟡 改回 ✅。
 - 全树扫描类：`a11y-keyboard-reachable`（递归全树）、`renderer-titlebar-stacking`（全树 z-index）、
   `renderer-shell-form`（玻璃拟物反向锚）、`renderer-ui-icon-guard`（v-html 白名单）、`renderer-focus-ring`、
   `theme-contrast`（含同名令牌同值）、`tokens-mu3-appica`（零硬编码色）。
 - 新树各源码守卫：`renderer-stage-views`、`renderer-chat-capabilities`、`renderer-shell-panels`、`renderer-attach-shell`、
   `renderer-market-shell`、`renderer-anno-shell`、`renderer-office-preview`、`renderer-default-provider`、
   `renderer-tool-steps`、`renderer-workspace-shell`、`renderer-form-invariants`、`renderer-content-form`、
-  `renderer-first-send`（X 波：重入闸 / hero 态交代 / 草稿寄存取回，认调用形态）。
+  `renderer-first-send`（X 波：重入闸 / hero 态交代 / 草稿寄存取回，认调用形态）、
+  `renderer-lost-entries`（Y 波：五项补回的调用形态 + 不能再丢的交代原句）。
 - **守卫处置原则**：不变量仍成立 → 重指新树；随实现退场 → 连同实现一起删，**在原位留理由注释**并在 commit 说明；
   裁定被推翻的（如用户气泡回归）要写明是裁定变更不是漂移。一删了之留下的真空比死代码更危险。
 
@@ -204,16 +210,16 @@
 ~~2. 首发竞态排查~~——**X 波结案**（2026-09-10）：L6 那条是 drive-l6 判定逻辑的假阳性，消息从未丢过；
 顺带修的三处真缺陷见 `docs/specs/2026-09-10-first-send-race-design.md`。
 
-### 换壳遗失的入口（用户裁定只补工作区，其余在此；已设绊线）
+### ~~换壳遗失的入口~~——**Y 波已全部补回**（2026-09-10，`ba4b919`）
 
-| 入口 | store action / 字段 | 立于 | 备注 |
+| 入口 | store action / 字段 | 立于 | 现在在哪 |
 |---|---|---|---|
-| 删除会话 / 重命名 | `deleteSession` `renameSession` | MU6 / B1 | 会话行 ⋮ 菜单整个没搬 |
+| 删除会话 / 重命名 | `deleteSession` `renameSession` | MU6 / B1 | NavRail 会话行 ⋮ 菜单 |
 | 会话记忆开关 / 绑定模型 | `setSessionMemory` `setSessionModelBinding` | MU6 / J2 | 同上 |
-| 会话级禁用 MCP | `setSessionMcpDisabled` | L5 | 输入卡 pill + 行内面板 |
-| 同步暂停 / 恢复 | `setSyncPaused` | M6 | 状态可见（`syncDot`），改不了 |
-| 助手 ↔ 技能绑定编辑 | `skillIds` | J | 新编辑器无此字段 |
-| 消息锚点导航轨 | `data-turn-id` + 轨道组件 | L3 | 纯渲染侧，绊线单独钉 |
+| 会话级禁用 MCP | `setSessionMcpDisabled` | L5 | Composer「MCP」胶囊 + 行内面板 |
+| 同步暂停 / 恢复 | `setSyncPaused` | M6 | StageDevices 首节；TopBar 点认 paused |
+| 助手 ↔ 技能绑定编辑 | `skillIds` | J | StageAssistants「默认技能」复选 |
+| 消息锚点导航轨 | `data-turn-id` + `.trail` | L3 | StageChat 右缘 |
 
 **收窄**（入口变少或换形态，未设绊线）：消息来源设备标（`originDeviceId` 落库仍在）· ☰ 只剩主题切换 ·
 `Ctrl+,` 打开设置 · MCP env/headers 编辑器（只能手改 servers.json）· MCP 列表行逐台试连 · 用户消息复制钮 ·
@@ -221,7 +227,9 @@
 
 ### 二档：前提已变 / 纯补入口
 
-办公技能包（原搁置理由已被 U 波消除）· 模型组降级 UI 入口（后端 `group:` 全通，README 🟡 好几波了）·
+办公技能包（原搁置理由已被 U 波消除）· **模型组降级 UI（Z 波候选）**：后端 `modelgroup.create/list/get/update/delete`
+五个 RPC 全在（Y 波盘点纠正：不只是解析，CRUD 也在），缺 store action + SecModels「模型组」节 + 会话/助手两处
+绑定选择器的 `group:` 选项，README 唯一剩下的 🟡 ·
 vue-tsc 立项评估（「全绿 ≠ 界面正常」已四次兑现；撞零新依赖红线，故是评估）。
 
 ### 三档：需先出设计稿

@@ -846,3 +846,29 @@ T6e-3/4 删树 + 守卫 + 清单。剩 T6f（8 个失效 e2e 脚本）与 T6g（
   （根节点 `class="wrap hero"` 与父级同名撞上），错误行因此在欢迎页居中——不难看，记一笔；
   drive-l6 存档件不改（改了复现不了假阳性），driver/README 改口「waitIdle 不能抄」。
 - 零迁移零新依赖。
+
+## Y 波：换壳遗失的入口成批补回（2026-09-10，自己做，main `ba4b919`）
+
+- **起点**：X 波结案后一档只剩 0.3.0 上架（Windows 真机）。云端能做、账本又已承诺的是这批：CHANGELOG 0.3.0
+  「已知边界」写着「会成批补回」，README 五行 🟡，mu6 双向绊线就是为这一步设的。T6 时用户裁定那一波只补工作区，
+  其余入池；本波从池里取出来做（新立项，事后可否决）。
+- **六项逐一从旧实现核对着搬**（`dddbbf8^` 的 SessionList / ChatView / SettingsModal / AssistantSettings），
+  含那几句不能丢的交代：Y1 NavRail 会话行 ⋮ 菜单（记忆 / 绑定模型 provider: 前缀 + 归一化回显 / 重命名含后端拒绝原因 /
+  删除二次确认；行结构改 `.srw` 包两个并列按钮，菜单行内展开不浮层）；Y2 Composer「MCP」胶囊 + 行内面板
+  （有会话且有已启用 server 才出现；计数只数已启用∩已禁用；名单有会话后才拉；状态枚举翻人话）；Y3 StageDevices
+  首节「同步」+ TopBar 状态点认 paused（橙 + title）；Y4 StageAssistants「默认技能」复选 + 列表「N 项技能」；
+  Y5 StageChat `data-turn-id` + 右缘 `.trail`（≥3 回合、实时脉动点、scrollIntoView）。
+- **Y6 清单改造**：mu6 六条 GAPS 挪进 WIRED，GAPS 清空——空是目标态，自守例「两组都非空」改口是裁定变更；
+  **新增可计算不变量**：store 的每个 action 要么 `ui/` 有调用、要么 store 内部有 `this.x(` 调用，否则必须登记在 GAPS
+  （实测零 UI 调用的正好是六个缺口 + 七个内部 helper）——以后再掉入口，不用人手数。两块单独绊线翻正向；
+  四处退场守卫复位重指新树（renderer-mcp-session L5 / renderer-pool L3 / renderer-session-rename / renderer-assistants 第 4 例）。
+  README 五行 🟡→✅、脚注改口（只剩模型组 🟡）；CHANGELOG 修复条 + 已知边界删两句过期的（「旧界面的组件文件尚未清理」
+  T6 删净后没改 CHANGELOG——记一笔账本会误导）。
+- **不在本波**：模型组降级 UI——盘点时纠正了一个认知：后端 `modelgroup.create/list/get/update/delete` 五个 RPC **全在**
+  （交接文档「后端全通」是对的，只是 grep `'provider.` 找不到它），缺的是 store action + 组编辑器 + 两处绑定选择器的 `group:` 选项，
+  从未有过界面，单开 Z 波；「收窄」九条留池。
+- **先红**：新守卫 `renderer-lost-entries`（16 例，认调用形态 + 交代原句）16 红、mu6 9 红、复位例 4 红；修后 236/236 绿。
+  一处守卫初稿把 `<button v-if=` 钉成单行写法，放宽为 `\s+`（意图不变，与 X 波 finally 首句那次同类）。
+- **终验**：typecheck 0；全量 167 文件 / 1880 例（1828 过 + 52 基线）基线 diff 空；build 0；`drive-y1.mjs` 五场景各自冷启动全通、
+  零 pageerror（数字见设计稿 §5）；11 张截图入册。
+- 零迁移零新依赖。
