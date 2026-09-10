@@ -22,6 +22,12 @@ driver 裸 import `playwright-core`，本目录的 `package.json` 已声明它�
 FakeProvider 用法见交接文档 §3；工具 inputJSON **必带 `tool_title`**，
 缺了会报「缺少必填参数」且权限卡不弹。
 
+## X 波 首发竞态排查（2026-09-10）
+
+| 文件 | 用途 |
+|---|---|
+| **`drive-x1.mjs`** | 四个场景各自冷启动 + 全新数据根：`startup` 紧跟启动直发（真键盘，延迟 0/150/600ms，页内 2ms 探针记 Enter→running / →落库毫秒数）、`l6` **照抄 drive-l6 的 sendMsg 判定法**（含它那台连不上的 MCP 种子）看会不会误报、`double` 首条消息双击 Enter（真按键 + 同步派发两种）、`noprov` 不种 FakeProvider 的全新用户首发。用法 `xvfb-run -a node drive-x1.mjs <startup\|l6\|double\|noprov\|all> [runs]`，每行一个 JSON，后端真相用数据根里 `sessions/` 目录数交叉验证（不信任前端列表）。<br>**结论**：L6 记的「首条被吞」是假阳性——首条消息要先建会话，Enter→running 有 30–46ms 窗口，drive-l6 的 waitIdle 在窗口里轮询到「没在跑」就 400ms 宽限返回，再加种子 MCP 的 2s 启动超时把首回合拖过它 1.6s 的判定期限。带种子 3/3 误报、不带 3/3 首次即过，消息全部落库。<br>**顺带逮到两处真缺陷**（double 4/4、noprov 1/1），修法见 `docs/specs/2026-09-10-first-send-race-design.md`。 |
+
 ## T6 清场（2026-09-10）
 
 | 文件 | 用途 |
@@ -53,5 +59,9 @@ FakeProvider 用法见交接文档 §3；工具 inputJSON **必带 `tool_title`*
 其中两个仍值得照抄：
 
 - **`drive-l6.mjs`**——`sendMsg` 带落库校验与重试。turnEnd 广播先于后端清 inFlight，
-  固定 sleep 后直接连发第二条**会被回合竞态吞掉**。发消息类 driver 一律照抄它。
+  固定 sleep 后直接连发第二条**会被回合竞态吞掉**。落库校验的思路值得抄，**但它的 `waitIdle`
+  不能抄**：首条消息 Enter→running 有几十毫秒窗口，`keyboard.press` 一返回就轮询会看成「没在跑」
+  直接放行——L6 记的「首发竞态」就是这么误报出来的（X 波 drive-x1 `l6` 场景 3/3 复现）。
+  发消息类 driver 照抄 drive-x1 的 `waitTurn`：**先等 running 起来，再等它落下**。存档件本身不改，
+  改了就复现不了那个假阳性。
 - **`drive-r3.mjs`**——打包产物（asar 态）冒烟，验的是 `dist/` 里的东西不是源码。

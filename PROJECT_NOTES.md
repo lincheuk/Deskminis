@@ -810,3 +810,39 @@ T6c README 实情 → T6d 令牌归位 → T6e-1 死 lib → T6e-2 补搬（工�
 T6e-3/4 删树 + 守卫 + 清单。剩 T6f（8 个失效 e2e 脚本）与 T6g（本账）。
 自报五处判错改回（见 T6e-3/4 提交正文）。实拍 `drive-t6e.mjs` 逮到一个源码守卫看不出的老账
 （历史回放标题一直是裸工具名）。
+
+## X 波：首发竞态排查（2026-09-10，自己做，main `a270df6` 收尾）
+
+- **起点**：交接文档 §6 一档二选一。0.3.0 上架要 Windows 真机跑 `e2e:m5`，云端做不了；选首发竞态。
+  T 波重写过输入链路，先复现再谈修——写 `drive-x1.mjs`，四场景各自冷启动 + 全新数据根，
+  后端真相用数据根 `sessions/` 目录数交叉验证（不信任前端列表）。
+- **L6 那条「紧跟启动的首条 Enter 偶发被吞」是剧本判定的假阳性，消息从未丢过**（设计稿 §1）。
+  三因叠加：① 首条消息要先建会话（create→list→messages.list→workspace.get 四趟），Enter→`running=true`
+  有 30–46ms 窗口，后续消息是同步置位零窗口；② drive-l6 的 `waitIdle` 在 `keyboard.press` 一返回就轮询，
+  落在窗口里看成「没在跑」→ 400ms 宽限返回 → 再睡 1200ms 查落库，判定期限实际只有 ~1.6s；
+  ③ 它种的那台永不应答的 MCP（`startupTimeoutSeconds: 2`）让 `chat.prompt` 在 `ensureForRun` 上停 2s，
+  首回合被拖过判定期限。回放：带种子 3/3 误报（`runningAtCheck: true`、重试的 Enter 被 `chat.running` 挡掉、
+  文字留在框里）、不带种子 3/3 首次即过；紧跟启动直发（延迟 0/150/600ms）6/6 落库。
+  「lastError 空、running 未起即返回、三次里偶现一次」三句原话全部对上。
+- **顺带挖出三处真缺陷，都在那几十毫秒窗口上**（设计稿 §2）：
+  **X1** 建会话期间 `send()` 无重入闸——双击 Enter 4/4：两个会话（一个成孤儿「新会话」）、第二发撞后端
+  inFlight 抛「该会话正在运行中」红横幅、`running` 被误归零而回合仍在跑（停止键消失——界面撒谎）；
+  **X2** 首条消息被同步拒绝时欢迎页零交代——全新用户无模型首发 1/1：文字清了、多出幽灵会话、`lastError`
+  只在 store 里没人渲染（`inChat` 一回落，StageChat 那条横幅无处可显）——**这才是用户会体验为「首条被吞」的那一种**；
+  **X3** `RpcClient.connect()` 注释说「ready 一开始就赋值」，实际在 `await minisdInfo()` 之后才赋——
+  那几毫秒里的 call 撞 `this.ws` 未建 TypeError（人手打不进，单测可红）。
+- **修法两 commit**：X1 `6b6e5eb` rpc 握手信号提前到第一个 await 之前（整段包 promise 同步挂 `ready`，注释改成真话）；
+  X2 `a270df6` Composer `sending` 闸（入口早退 / finally 放 / `canSend` 随之变灰）+ hero 态渲染 `chat.lastError`
+  + 建会话失败写 `lastError`（附件路径同款兜住写 `attErr`）+ **草稿跨实例交回**（store 加 `draft` 寄存字段：
+  首条消息乐观入列的一瞬欢迎页换成会话页，发它的输入卡实例已卸载，拒绝回来时欢迎页新建的实例从 store 取回；
+  框空原样放回，有新字则草稿在前）。CHANGELOG 0.3.0 修复条一条。
+- **守卫**：`renderer-first-send.test.ts`（7 例，认调用形态）+ `renderer-rpc-connecting` 新例。先红有档
+  （8 红 / 2 绿，rpc 例的红正是预言的 TypeError）。一处守卫初稿过严：要求 finally **首句**放闸，而代码在放闸前
+  写了一行注释——守卫意图是「块内」，正则放宽到块内，不是加豁免（提交正文已申报）。
+- **终验**：typecheck 0；全量 166 测试文件 / 1858 例（云端 1806 过 + 52 Windows-only 基线） 对 Linux 基线 diff 空；build 0；drive-x1 修后 double 4/4 单会话零横幅、
+  noprov 1/1 错误行 + 草稿原文留框、startup 3/3 照旧落库；`x1-{noprov,double}-{before,after}.png` 入册。
+- **记账不修**：`chat.send()` 用调用时刻的 `activeId`（建会话期间点别的会话，消息发进眼前那个；闸挡本卡不挡 NavRail）；
+  首回合被 MCP 启动超时拖慢是 D5 语义；StageWelcome 的 scoped `.hero` 规则泄漏到 Composer 根节点
+  （根节点 `class="wrap hero"` 与父级同名撞上），错误行因此在欢迎页居中——不难看，记一笔；
+  drive-l6 存档件不改（改了复现不了假阳性），driver/README 改口「waitIdle 不能抄」。
+- 零迁移零新依赖。

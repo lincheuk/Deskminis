@@ -8,15 +8,18 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `26f64af`，**version 0.3.0**，minis.db user_version=**11**。
-  165 测试文件 / 1850 例（云端 1798 过 + 52 Windows-only 基线），typecheck 0，build 0。
+- **代码**：main `a270df6`，**version 0.3.0**，minis.db user_version=**11**。
+  166 测试文件 / 1858 例（云端 1806 过 + 52 Windows-only 基线），typecheck 0，build 0。
 - **界面**：T 波推倒重建后的新树 `src/renderer/src/ui/` 是唯一的 UI；旧树 **T6 已删净**，
   `components/` 只剩 MarkdownView 一族 3 个活文件。
-- **最近一件大事**：**T6 清场做完了**（2026-09-10，十笔代码 + 两笔记账）——删旧组件树 −6781 行、
+- **最近一件大事**：**X 波首发竞态结案**（2026-09-10，两笔代码 `6b6e5eb` `a270df6`）——L6 记的「首条 Enter 偶发被吞」
+  是剧本判定的假阳性（消息从未丢过），但顺带修了首条消息双击 Enter 建双会话、无模型首发静默吞字、
+  rpc 握手信号晚一个 await 三处真缺陷；剧本 `drive-x1.mjs` 入册，§7 第 11 条教训。
+- **上一件**：**T6 清场做完了**（2026-09-10，十笔代码 + 两笔记账）——删旧组件树 −6781 行、
   8 个失效 e2e 脚本；38 个测试文件的守卫逐条重指/退场；`tests/mu6-capability-wiring.test.ts`
   改成**双向绊线的能力入口清单**。过程中又挖出七处换壳漏搬并补回，另有一批记账不补的缺口
   （§6「换壳遗失的入口」）。
-- **下一件**：二选一（§6 一档）——0.3.0 上架 / 首发竞态。
+- **下一件**：**0.3.0 上架**（§6 一档只剩这一件，需 Windows 真机）。
 - **发布**：v0.2.0 **从未发布过**（GitHub Releases 只有 v0.1.1）。0.3.0 待 Windows 真机走 `docs/RELEASE.md`，
   **`e2e:m5` 必须重跑**——T6 之后 renderer 产物又变了一轮。
 
@@ -71,6 +74,8 @@
   `xvfb-run -a node drive-xx.mjs`。**27 个现成剧本 + 索引在 `docs/handoff/driver/`——先读那份 README.md。**
   每个 driver 顶部的 `S` 常量是当时会话的 scratchpad 绝对路径，**跑前改成自己的**；
   playwright-core 不入库，在临时目录 `ln -s <deskminis>/node_modules node_modules` 即可。
+  **发消息类剧本等回合结束照抄 `drive-x1.mjs` 的 `waitTurn`（先等 running 起来再等它落下）**——
+  drive-l6 那种「按下 Enter 立刻轮询」在首条消息上必误判（X 波实证）。
 - **FakeProvider**：`DESKMINIS_FAKE_PROVIDER=1` + `DESKMINIS_DATA_DIR`，数据根里种子
   `providers.json` = `{"providers":[],"defaultProviderId":"__fake__"}`。首条用户文本 `__tool__ <工具名> <inputJSON>`
   触发一次工具调用；**同会话每回合重放首条**（要不同工具就开新会话）；`DESKMINIS_FAKE_REPLY` 定制回复。
@@ -102,6 +107,7 @@
 | **V** | 换壳能力面补齐（可达性盘点逮到发布级阻断——权限卡从没渲染过）九件 | `a3adb6c` `0af3530` `3deaa0e` `82b520b` |
 | **W** | 沉淀：升版 0.3.0 + README/CHANGELOG/RELEASE 对齐 + 交接文档换代 | `b7450ca` |
 | **T6** | **清场**（下表） | `ed1dc09`…`26f64af` |
+| **X** | **首发竞态排查**：L6 记录判为剧本假阳性；顺带修 Composer 重入闸 / 欢迎页首发交代 + 草稿交回 / rpc 握手信号 | `6b6e5eb` `a270df6` |
 
 **T6 十笔（main）+ 两笔记账（docs `33e4c0f` `e60fbc9`）：**
 
@@ -136,7 +142,7 @@
 | `ui/StageWelcome.vue` / `ui/StageChat.vue` | 欢迎态 / 会话态，**并列视图**。欢迎页开场提示来自选中助手的 `prompts` |
 | `ui/StageChat.vue` | 回合切分 `turns`；用户右对齐 `.ubub`、助手满宽文档式；`toolInput()` 解析落库的 JSON 字符串载荷；用户与助手正文都挂 `data-anno-root` |
 | `ui/StepGroup.vue` | 工具折叠组。**`file_edit` 走 `extractEditPair`+`UiDiff`，其余回落参数区**；`views` 只在展开时算（LCS） |
-| `ui/Composer.vue` | 输入卡 hero/chat 两态；斜杠菜单 + @ 文件（`syncAt` 挂 input/click/keyup）+ 输入历史 + 附件 + `quote()` |
+| `ui/Composer.vue` | 输入卡 hero/chat 两态；斜杠菜单 + @ 文件（`syncAt` 挂 input/click/keyup）+ 输入历史 + 附件 + `quote()`。**X 波**：`sending` 重入闸（首条消息建会话期间）、hero 态渲染 `chat.lastError`、`takeDraft()` 从 `chat.draft` 取回被拒草稿（setup 与 send 后各一次） |
 | `ui/PermCard.vue` + `ui/UiDiff.vue` | 权限卡（路径/命令逐字不截断、倒计时只显示不自判、桥双段告知）+ 差分预览（`path?` 可选） |
 | `ui/PreviewPane.vue` + `ui/OfficeView.vue` | 产出物预览三态工具条 + Office 内容预览（docx 纸 / xlsx 网格 / pptx 16:9） |
 | `ui/WorkspacePanel.vue` + `ui/UiFileTree.vue` + `ui/TaskPanel.vue` | 右栏三 tab：文件（含**绑定行**，只在文件 tab）/ 改动（`collectArtifacts`）/ 任务（上下文水位） |
@@ -148,7 +154,9 @@
 **`components/` 只剩三个活文件**：`Icon.vue`、`MarkdownInline.vue`、`MarkdownView.vue`
 （被 `ui/PreviewPane`、`ui/StageChat`、`ui/StageMarket` 引用）。可达性遍历下全树唯一不可达的是 `shims.d.ts`（tsconfig 拾取，不是 import，**别删**）。
 
-`stores/chat.ts` 是全树共享地基，20+ 测试对它做断言；`toolCards` 带 `input`（JSON 字符串）。
+`stores/chat.ts` 是全树共享地基，20+ 测试对它做断言；`toolCards` 带 `input`（JSON 字符串）；
+`draft` 是 X 波加的寄存字段（一处写、消费即清，与 `pendingFilePreview` 同款）。
+`rpc.ts`：`ready` 在 `connect()` **第一个 await 之前**赋值（X 波订正，此前注释是假话），期间的 call 一律排队。
 `lib/` 活模块：`annotations/anchor`、`artifacts/collect`、`attach/downsample`、`composer/{autogrow,history,at-files}`、
 `cron/describe`、`devices/fmt`、`diff/{lcs,payload}`、`eventnote/copy`、`markdown/parse`、`nav/group`、
 `perm/{copy,countdown}`、`time/{hhmm,relative}`。
@@ -181,17 +189,20 @@
   `theme-contrast`（含同名令牌同值）、`tokens-mu3-appica`（零硬编码色）。
 - 新树各源码守卫：`renderer-stage-views`、`renderer-chat-capabilities`、`renderer-shell-panels`、`renderer-attach-shell`、
   `renderer-market-shell`、`renderer-anno-shell`、`renderer-office-preview`、`renderer-default-provider`、
-  `renderer-tool-steps`、`renderer-workspace-shell`、`renderer-form-invariants`、`renderer-content-form`。
+  `renderer-tool-steps`、`renderer-workspace-shell`、`renderer-form-invariants`、`renderer-content-form`、
+  `renderer-first-send`（X 波：重入闸 / hero 态交代 / 草稿寄存取回，认调用形态）。
 - **守卫处置原则**：不变量仍成立 → 重指新树；随实现退场 → 连同实现一起删，**在原位留理由注释**并在 commit 说明；
   裁定被推翻的（如用户气泡回归）要写明是裁定变更不是漂移。一删了之留下的真空比死代码更危险。
 
 ## 6. 排期与候选池（2026-09-10 对过账）
 
-### 一档：挡在发布前面的（二选一）
+### 一档：挡在发布前面的（只剩一件）
 
 1. **0.3.0 Release 上架**——唯一真正的发布阻断。GitHub Releases 目前**只有 v0.1.1**。
    按 main 的 `docs/RELEASE.md` 在 Windows 真机走：构建 → `e2e:m5`（**必须重跑**）→ 手动冒烟 → 上传三件套（`latest.yml` 漏传 = 自动更新失明）。
-2. **首发竞态排查**——L6 实测：紧跟启动的首条 Enter 偶发被吞，`lastError` 空。T 波把输入链路整个重写过，需重新复现。
+
+~~2. 首发竞态排查~~——**X 波结案**（2026-09-10）：L6 那条是 drive-l6 判定逻辑的假阳性，消息从未丢过；
+顺带修的三处真缺陷见 `docs/specs/2026-09-10-first-send-race-design.md`。
 
 ### 换壳遗失的入口（用户裁定只补工作区，其余在此；已设绊线）
 
@@ -248,6 +259,9 @@ Snapshot / History / Open in system app / Download / 代码语法高亮。Office
    和一个字段（工具 `input`：读了 `tool_title` 就把整个对象扔了）。搬家清单要**逐句核对旧页面文案**。
 9. **守卫重指前按意图搜，不按旧名搜；断言认调用形态，不认字符串**（§2 第 9、10 条的出处）。
 10. **自己的报告也要有输出为证**——自己做模式下同样成立；判错了就在提交正文里写清怎么改回的。
+11. **剧本的判定逻辑也会撒谎**：L6 记了三周的「首发竞态」是 `waitIdle` 在首条消息 Enter→running 那 30–46ms
+    窗口里轮询到「没在跑」、400ms 宽限放行、再被种子 MCP 的 2s 启动超时拖过判定期限叠出来的假阳性。
+    **候选池里的「偶发」条目先复现再立项**——X 波复现只花了一个剧本，却顺带逮到两处真缺陷。
 
 ## 8. 已知风险与技术债
 
