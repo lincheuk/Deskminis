@@ -202,6 +202,26 @@ fixture 环境变量生产门控、MCP 的 OAuth / resources / prompts / 非文�
 市场 MCP tab（G 波）、后台作业（K 波定时任务是同一需求面的诚实版）、
 历史消息附件（V6 做成 chip + 点开预览；**内联缩略图仍未做**）。
 
+### 换壳遗失的入口（T6 清场对账，2026-09-10；用户裁定只补工作区，其余在此）
+
+后端与 store 都通、`ui/` 下零调用。**已由 `tests/mu6-capability-wiring.test.ts` 设双向绊线**：
+补上任何一条那条测试会红，请顺手把它从 GAPS 挪进 WIRED、README 的 🟡 改回 ✅。
+
+| 入口 | store action / 字段 | 立于 | 备注 |
+|---|---|---|---|
+| 删除会话 / 重命名 | `deleteSession` `renameSession` | MU6 / B1 | 会话行 ⋮ 菜单整个没搬 |
+| 会话记忆开关 / 绑定模型 | `setSessionMemory` `setSessionModelBinding` | MU6 / J2 | 同上 |
+| 会话级禁用 MCP | `setSessionMcpDisabled` | L5 | 输入卡 pill + 行内面板 |
+| 同步暂停 / 恢复 | `setSyncPaused` | M6 | 状态可见（TopBar `syncDot`），改不了 |
+| 助手 ↔ 技能绑定编辑 | `skillIds`（assistants.create/update） | J | 新编辑器无此字段 |
+| 消息锚点导航轨 | `data-turn-id` + 轨道组件 | L3 | 纯渲染侧，绊线单独钉 |
+
+以下是**收窄**（不是能力缺失，是入口变少或换了形态），未设绊线，做不做看需要：
+消息来源设备标（`originDeviceId` 落库仍在，没人渲）· ☰ 菜单只剩主题切换（重载/退出走原生菜单，
+三区切换/复制没了渲染端入口）· `Ctrl+,` 打开设置 · MCP env/headers 编辑器（只能手改 servers.json）·
+MCP 列表行逐台试连（表单内仍可试）· 用户消息 hover 复制钮 · 会话行运行态徽标与产物数 ·
+拖拽分栏（新壳纯 flex，`--w-chatcol` 定宽）· 任务栏耗时读数。
+
 ### 悬空（等用户裁定）
 
 docs 分支合并进 main 的方式；仓库转 public（转了自动更新即生效）；
@@ -247,36 +267,34 @@ brave/tavily 真 key 首跑验收。
 7. 管道吞退出码 ×3；Windows 时钟 ~15ms（同刻排序一律 rowid tiebreaker）；
    `assertSessionId` 是格式闸（测「会话不存在」要用格式合法的 UUID）；
    乐观消息 id `local-<n>` 落库后被换，任何持久引用不得挂它。
-8. **自己的报告也要有输出为证**——不采信报告这条纪律在自己做模式下同样成立。
+8. **换壳漏搬不止漏整块能力，也漏「页面上的一句交代」与「顺手丢掉的字段」**。
+   T6 一波里补回六句交代（技能启停是全局的 / SearXNG 要开 JSON / servers.json 坏了会按空配置加载 /
+   定时任务 90 秒自动拒绝 / 每次确认 90 秒按拒绝 / 权限档位说明），一个字段（工具 `input`：
+   读了 `tool_title` 当标题，把整个对象扔了——差分视图与参数区因此整个没了）。
+   搬家清单要**逐句核对旧页面文案**，不只核对功能点。
+9. **守卫重指前按意图搜，不按旧名搜；断言认调用形态，不认字符串**。同一波里栽两次：
+   按 `syncdot` 小写搜 TopBar 零命中，差点把活着的同步点判成「没搬」；能力清单初版用
+   `includes(action)`，被同文件注释里的散文提及喂饱，自检时**没红**。改成认 `.action(` 才响。
+10. **自己的报告也要有输出为证**——不采信报告这条纪律在自己做模式下同样成立。
 
 ## 8. 已知风险与技术债（记录在案，尚未处理）
 
-### 风险 A：两套令牌系统同名碰撞，后加载的赢
+### 风险 A（已处理，T6d `906d093`）：两套令牌系统同名碰撞
 
-`main.ts` 先引 `theme.css` 再引 `tokens.css`，两边有四个同名令牌（已在构建产物中实测确认）：
+W 波记的是「四个同名令牌」——**数错了**，提取正则锚了行首、每行只数到第一个声明。
+实测 **9 个同名、7 个值不同、`ui/` 下 297 处引用**（`--sp-2/3/4/5/6/8` 与 `--r-input`
+被 tokens.css 顶高一档）。T6d 的处置是**承认现状**：把 theme.css 改成当前真正渲染出来的值
+（零视觉变化），`--sp-7` 保持 20px 与 `--sp-5` 同值不动；配守卫「两文件同名令牌必须同值」
+（`tests/theme-contrast.test.ts`，带 px/rem/var/calc 解析器，认不出的形态直接抛错不跳过）。
+tokens.css 本身**仍不能删**：MarkdownView 消费 14 个、MarkdownInline 消费 4 个只在它里面声明的变量，
+搬完这 18 个再删。
 
-| 令牌 | theme.css（新，设计意图） | tokens.css（旧，**实际生效**） | 影响 |
-|---|---|---|---|
-| `--sp-5` | 12px | **20px** | `ui/` 里用了 40 次 |
-| `--r-input` | 20px | **24px**（`--radius-2xl`） | 输入卡圆角 |
-| `--sp-1` / `--r-pill` | 4px / 999px | 同值 | 无害 |
+### 风险 B（已处理，T6a `ed1dc09`）：新树上的守卫真空
 
-**现状不是「界面坏了」**——T 波的视觉是在 tokens.css 生效的前提下审过并被用户接受的。
-但它意味着 `theme.css` 并不是它自称的唯一真相源，而且：
-
-> **T6 删掉 tokens.css 会让 `--sp-5` 从 20px 悄悄变回 12px，全站 40 处间距同时收缩。**
-
-这必须是 T6 的**计划项**，不能等清场后才发现。处理方式二选一：
-把 theme.css 的值改成实际生效的那个（承认现状），或改名避让后逐处目视确认。
-
-### 风险 B：新树上有两处守卫真空
-
-- **`ui/UiIcon.vue` 的 `v-html` 零守卫覆盖**。旧 `components/Icon.vue` 的同类 `v-html`
-  有 `renderer-icon-guard` 守着，**且该文件仍活**——所以删旧组件不会让这个真空变红，
-  问题不会被自动暴露。
-- **`a11y-keyboard-reachable` 与 `renderer-a11y-keyboard` 都只 `readdirSync(components/)`**。
-  清场后 `components/` 只剩三个无 `@click` 的文件，两个测试会**静默通过**——
-  整个 `ui/` 树从未被键盘可达规则扫过。
+UiIcon 的 `v-html` 现在有 `tests/renderer-ui-icon-guard.test.ts` 白名单守着；
+`a11y-keyboard-reachable` 改成递归扫描整棵 renderer 树（旧的只扫 `components/`），
+顺带修掉了 TabBar 关闭键键盘不可达。三个守卫都做过「故意破坏→变红→还原」。
+旧的 `renderer-a11y-keyboard.test.ts` 在 T6e 随之删除（同一规则不守两份）。
 
 ### 风险 C：打包验证已过期
 
