@@ -68,17 +68,19 @@ const WIRED: Cap[] = [
   { name: '工作区目录选择器', action: 'pickWorkspaceFolder', rpc: 'workspace.get', where: 'WorkspacePanel.vue' },
   { name: 'MCP 服务器增删改', action: 'upsertMcpServer', rpc: 'mcp.servers.upsert', where: 'settings/SecMcp.vue' },
   { name: 'MCP 试连接', action: 'testMcpServer', rpc: 'mcp.servers.test', where: 'settings/SecMcp.vue' },
+  // Y 波（2026-09-10）成批补回的六条——T 波换壳丢、在 GAPS 里躺了一波
+  { name: '删除会话', action: 'deleteSession', rpc: 'chat.sessions.delete', where: 'NavRail.vue' },
+  { name: '重命名会话', action: 'renameSession', rpc: 'chat.sessions.rename', where: 'NavRail.vue' },
+  { name: '会话记忆开关', action: 'setSessionMemory', rpc: 'chat.sessions.setMemoryEnabled', where: 'NavRail.vue' },
+  { name: '会话绑定模型', action: 'setSessionModelBinding', rpc: 'chat.sessions.setModelBinding', where: 'NavRail.vue' },
+  { name: '会话级禁用 MCP', action: 'setSessionMcpDisabled', rpc: 'chat.sessions.setMcpDisabled', where: 'Composer.vue' },
+  { name: '同步暂停/恢复', action: 'setSyncPaused', rpc: 'control.pause', where: 'StageDevices.vue' },
 ];
 
-/** 后端通、store 通、**界面上够不着**。每条都注明是哪一波立的、哪一波弄丢的。 */
-const GAPS: Cap[] = [
-  { name: '删除会话', action: 'deleteSession', rpc: 'chat.sessions.delete', since: 'MU6 立，T 波换壳丢' },
-  { name: '重命名会话', action: 'renameSession', rpc: 'chat.sessions.rename', since: 'B1 立，T 波换壳丢' },
-  { name: '会话记忆开关', action: 'setSessionMemory', rpc: 'chat.sessions.setMemoryEnabled', since: 'MU6 立，T 波换壳丢' },
-  { name: '会话绑定模型', action: 'setSessionModelBinding', rpc: 'chat.sessions.setModelBinding', since: 'J2 立，T 波换壳丢' },
-  { name: '会话级禁用 MCP', action: 'setSessionMcpDisabled', rpc: 'chat.sessions.setMcpDisabled', since: 'L5 立，T 波换壳丢' },
-  { name: '同步暂停/恢复', action: 'setSyncPaused', rpc: 'control.pause', since: 'M6 立，T 波换壳丢' },
-];
+/** 后端通、store 通、**界面上够不着**。每条都注明是哪一波立的、哪一波弄丢的。
+ *  Y 波（2026-09-10）把 T 波丢的六条全部补回后本组清空——**空是目标态，不是清单写成了空话**：
+ *  下面的「自守」例改为可计算的不变量，谁再让一个 store action 在 ui/ 下失去调用，那条会红并逼他登记到这里。 */
+const GAPS: Cap[] = [];
 
 describe('能力入口清单 · 已接的必须还在（退化即红）', () => {
   for (const c of WIRED) {
@@ -92,6 +94,8 @@ describe('能力入口清单 · 已接的必须还在（退化即红）', () => 
 });
 
 describe('能力入口清单 · 已知缺口（补上了就会红，红了请更新本清单）', () => {
+  // Y 波清账后本组为空；vitest 不允许空 suite，留一条说明例——它不断言别的，只把「为空」写进报告
+  if (GAPS.length === 0) it('当前没有登记在案的缺口（Y 波 2026-09-10 清账；再出缺口由下面的自守例逼着登记）', () => { expect(GAPS).toHaveLength(0); });
   for (const c of GAPS) {
     it(`${c.name}：后端与 store 还在，但 ui/ 下零引用（${c.since}）`, () => {
       // 上半：能力别在补入口之前先被人当死代码清掉了
@@ -104,32 +108,40 @@ describe('能力入口清单 · 已知缺口（补上了就会红，红了请更
   }
 });
 
-describe('能力入口清单 · 换壳丢掉的界面能力（非 store action，单独记）', () => {
-  it('消息锚点导航轨：L3 立的能力，T 波换壳后 ui/ 下零命中', () => {
+describe('能力入口清单 · 非 store action 的界面能力（T 波丢、Y 波补回，改正向钉）', () => {
+  it('消息锚点导航轨：turn 节带 data-turn-id，右缘 .trail 原生按钮点', () => {
     // 右缘一条按回合分布的锚点轨，点一下跳到那一回合。它不走 store action，
-    // 是纯渲染侧能力（data-turn-id + 轨道组件），所以上面的清单钉不住它。
-    // 同样是绊线：哪天做回来了这条会红，请连同 README「输入与导航」那行一起更新。
-    expect(ui, '锚点轨回来了 → 请更新本例与 README').not.toContain('data-turn-id');
+    // 是纯渲染侧能力（data-turn-id + 轨道组件），所以上面的清单钉不住它，单独钉。
+    // T6e-3 起这里曾是反向绊线（「回来了就红」）；Y5 补回后翻成正向。
+    const chatv = read('src/renderer/src/ui/StageChat.vue');
+    expect(chatv).toContain(':data-turn-id="t.id"');
+    expect(chatv).toContain('class="trail"');
   });
-});
 
-describe('能力入口清单 · 换壳丢掉的字段级编辑（同样设绊线）', () => {
-  it('助手 ↔ 技能绑定：store/后端的 skillIds 都在，新助手编辑器没有这个字段', () => {
+  it('助手 ↔ 技能绑定：store/后端的 skillIds 都在，编辑器也有这个字段了', () => {
     // J 波立的能力：助手可绑定若干技能（assistants.create/update 的 skillIds）。
-    // 旧 AssistantSettings 用 allSkills 渲一组勾选框；新 ui/StageAssistants.vue 里「skill」零命中——
-    // 字段在 store 接口里原样躺着，界面上填不了。
+    // 旧 AssistantSettings 用 allSkills 渲一组勾选框；T 波换壳后 StageAssistants 一度没有此字段，Y4 补回。
     expect(store).toMatch(/skillIds\?:\s*string\[\]/);
     expect(minisd).toContain("'assistants.update'");
-    // 绊线：编辑器补上 skillIds 这条就红 → 挪进已接组，并把 README 助手那行改回 ✅
-    expect(read('src/renderer/src/ui/StageAssistants.vue'), '助手编辑器有技能绑定了 → 请更新本清单').not.toMatch(/skillIds/);
+    expect(read('src/renderer/src/ui/StageAssistants.vue')).toMatch(/skillIds: fSkills\.value/);
   });
 });
 
 describe('本清单自守：别把清单写成一句空话', () => {
-  it('两组都非空，且没有同一个 action 同时出现在两边', () => {
+  it('已接组非空，且没有同一个 action 同时出现在两边', () => {
     expect(WIRED.length).toBeGreaterThan(0);
-    expect(GAPS.length).toBeGreaterThan(0);
     const dup = WIRED.filter(w => GAPS.some(g => g.action === w.action)).map(w => w.action);
     expect(dup, `同一能力不能既算已接又算缺口: ${dup.join(', ')}`).toHaveLength(0);
+  });
+
+  /** Y 波加的可计算不变量：清单不靠人手数。
+   *  store 的每个 action 要么 ui/ 下有人调，要么 store 内部自己调（refreshXxx / onEvent 这类 helper），
+   *  否则它就是一个没人能够到的入口——必须登记在 GAPS 里。再丢一个入口，这条先红。 */
+  it('store 里零 UI 调用的 action，要么是 store 内部 helper，要么登记在 GAPS', () => {
+    const actions = [...store.matchAll(/^ {4}(?:async )?([a-zA-Z]+)\(/gm)].map(m => m[1]);
+    expect(actions.length).toBeGreaterThan(20);
+    const orphans = actions.filter(a => !calls(ui, a) && !new RegExp(`this\\.${a}\\s*\\(`).test(store));
+    const unlisted = orphans.filter(a => !GAPS.some(g => g.action === a));
+    expect(unlisted, `这些 store action 在 ui/ 下没人调、store 内部也没人调，请补入口或登记到 GAPS: ${unlisted.join(', ')}`).toHaveLength(0);
   });
 });

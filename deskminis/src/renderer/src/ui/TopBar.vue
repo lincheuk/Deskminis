@@ -16,6 +16,8 @@ const title = computed(() => {
   return s?.title || 'DeskMinis';
 });
 const syncDot = computed(() => {
+  // Y3：暂停优先于三态——暂停是用户主动设的，橙点 + 提示，别让它伪装成「未连接」
+  if (chat.syncPaused) return { c: 'var(--c-warn)', t: '已暂停设备间同步' };
   if (chat.syncState === 'syncing') return { c: 'var(--c-link)', t: '正在与其它设备同步' };
   if (chat.syncState === 'idle') return { c: 'var(--c-ok)', t: '已连接其它设备' };
   return { c: 'var(--c-ink-4)', t: '未连接其它设备' };

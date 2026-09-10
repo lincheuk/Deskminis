@@ -6,12 +6,15 @@ import { useChat } from '../stores/chat';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
-onMounted(() => { void chat.refreshAssistants(); });
+// allSkills 是管理页那份（含全局停用项）——斜杠菜单用的 skills 不是它
+onMounted(() => { void chat.refreshAssistants(); void chat.refreshAllSkills(); });
 
 const editing = ref('');           // ''=列表；'new'=新建；其余=编辑该 id
 const confirming = ref('');
 const fName = ref(''); const fAvatar = ref('🤖'); const fRules = ref('');
 const fModel = ref(''); const fPrompts = ref('');
+/** Y4：助手绑定的技能 id 集（J 波立、T 波换壳丢，从旧 AssistantSettings 搬回）。 */
+const fSkills = ref<string[]>([]);
 const err = ref('');
 
 const EMOJIS = ['🤖', '📝', '📊', '🎨', '🔍', '🧮', '📮', '🗂️', '🧪', '⚙️', '📚', '💡'];
@@ -19,6 +22,7 @@ const EMOJIS = ['🤖', '📝', '📊', '🎨', '🔍', '🧮', '📮', '🗂️
 function startNew(): void {
   editing.value = 'new'; confirming.value = ''; err.value = '';
   fName.value = ''; fAvatar.value = '🤖'; fRules.value = ''; fModel.value = ''; fPrompts.value = '';
+  fSkills.value = [];
 }
 function startEdit(id: string): void {
   const a = chat.assistants.find(x => x.id === id);
@@ -26,6 +30,7 @@ function startEdit(id: string): void {
   editing.value = id; confirming.value = ''; err.value = '';
   fName.value = a.name; fAvatar.value = a.avatar || '🤖'; fRules.value = a.rules;
   fModel.value = a.modelBinding ?? '';
+  fSkills.value = [...a.skillIds];
   // 开场白一行一条：数组编辑器在这个规模下是过度设计，一个 textarea 更好用
   fPrompts.value = (a.prompts ?? []).join('\n');
 }
@@ -34,6 +39,7 @@ async function save(): Promise<void> {
   const input = {
     name: fName.value.trim(), avatar: fAvatar.value, rules: fRules.value,
     modelBinding: fModel.value || undefined,
+    skillIds: fSkills.value,
     prompts: fPrompts.value.split('\n').map(s => s.trim()).filter(Boolean),
   };
   try {
@@ -41,6 +47,10 @@ async function save(): Promise<void> {
     else await chat.updateAssistant(editing.value, input);
     editing.value = '';
   } catch (e) { err.value = e instanceof Error ? e.message : String(e); }
+}
+/** 按当前态翻转（旧 AssistantSettings 同一成例：不读事件，读自己的状态）。 */
+function toggleSkill(id: string): void {
+  fSkills.value = fSkills.value.includes(id) ? fSkills.value.filter(x => x !== id) : [...fSkills.value, id];
 }
 async function onDelete(id: string): Promise<void> {
   err.value = '';
@@ -108,6 +118,18 @@ function avaStyle(id: string): Record<string, string> {
           <span>规则</span>
           <textarea v-model="fRules" class="f-area" placeholder="写清楚它是谁、按什么风格做事、有什么禁忌。这段会放进每轮对话的系统提示。"></textarea>
         </label>
+        <!-- Y4 默认技能：外层用 div 不用 label——里面每行自己是 label，label 不能套 label -->
+        <div class="f-label">
+          <span>默认技能</span>
+          <div v-if="chat.allSkills.length" class="skills">
+            <label v-for="s in chat.allSkills" :key="s.id" class="skl" :title="s.description">
+              <input type="checkbox" :checked="fSkills.includes(s.id)" @change="toggleSkill(s.id)" />
+              <span>{{ s.name }}</span><span v-if="!s.isEnabled" class="t-aux off">（全局已停用）</span>
+            </label>
+          </div>
+          <span v-else class="f-hint">尚未安装任何技能——技能页导入或扩展市场安装后可在此勾选。</span>
+          <span class="f-hint">不勾任何项 = 跟随全局启用集；勾选 = 该助手的会话只启用勾选的技能。</span>
+        </div>
         <label class="f-label">
           <span>开场白（一行一条）</span>
           <textarea v-model="fPrompts" class="f-area" placeholder="帮我把这段话改成正式一点的书面语&#10;检查这份文档有没有前后矛盾的地方"></textarea>
@@ -132,6 +154,7 @@ function avaStyle(id: string): Record<string, string> {
           <div class="atop">
             <span class="aname">{{ a.name }}</span>
             <span v-if="a.modelBinding" class="f-tag">{{ providerNameOf(a.modelBinding) }}</span>
+            <span v-if="a.skillIds?.length" class="f-tag">{{ a.skillIds.length }} 项技能</span>
             <span v-if="a.prompts?.length" class="f-tag">{{ a.prompts.length }} 条开场</span>
           </div>
           <p class="arules t-aux">{{ a.rules || '没有额外规则' }}</p>
@@ -163,6 +186,9 @@ function avaStyle(id: string): Record<string, string> {
 .sub { margin: 0; color: var(--c-ink-3); }
 
 .emojis { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.skills { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-5); }
+.skl { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--t-item-size); color: var(--c-ink-2); cursor: pointer; }
+.skl .off { color: var(--c-ink-3); }
 .emo {
   width: var(--h-round); height: var(--h-round); border-radius: var(--r-s); cursor: pointer;
   font-size: 17px; line-height: 1; background: var(--c-bg-2); font-family: inherit;

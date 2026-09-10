@@ -67,9 +67,17 @@ describe('L2 接线：ChatView @ 文件菜单（slashmenu 同款、独立状态�
 });
 
 describe('L3 接线：消息锚点导航轨（≥3 回合显示，welcome 隐藏，点击平滑滚动）', () => {
-  /* T6e-3 退场「turn 节补 data-turn-id；右缘 .trail 原生按钮点」：消息锚点导航轨（L3）
-     在新树里零命中——这不是重指得了的，是能力没了。tests/mu6-capability-wiring.test.ts
-     第三块为它设了绊线（data-turn-id 回来就红）。 */
+  /* T6e-3 曾退场「turn 节补 data-turn-id；右缘 .trail 原生按钮点」（L3 能力在新树零命中）；
+     Y5（2026-09-10）在 ui/StageChat.vue 上补回，本例复位、重指新树。 */
+  it('turn 节补 data-turn-id；右缘 .trail 原生按钮点；≥3 回合显示；scrollIntoView 平滑跳（Y5 复位）', () => {
+    const cv = read('src/renderer/src/ui/StageChat.vue');
+    expect(cv).toContain(':data-turn-id="t.id"');
+    expect(cv).toMatch(/<nav v-if="railVisible" class="trail"/);
+    expect(cv).toMatch(/<button[^>]*class="tdot"/);
+    expect(cv).toMatch(/turns\.value\.length >= 3/);
+    expect(cv).toMatch(/scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+  });
+
 
   it('md 预览走 PreviewPane：parseMarkdown + MarkdownView（T6e-3 重指）', () => {
     const pv = read('src/renderer/src/ui/PreviewPane.vue');

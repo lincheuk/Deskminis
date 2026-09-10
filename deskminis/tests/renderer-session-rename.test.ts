@@ -15,10 +15,13 @@ describe('B1 会话标题：renderer 守卫（2 例）', () => {
     expect(store).toContain("rpc.on('chat.sessions.changed'");
   });
 
-  /* 「SessionList 菜单有重命名项」在 T6e-3 退场：**不是不变量失效，是入口整个没了**。
-     T 波换壳时会话行的 ⋮ 菜单没搬过来，`chat.renameSession` 在 ui/ 下零引用。
-     退场理由必须写清楚，否则下一个人只会看到「测试少了一条」。
-     这条缺口由 `tests/mu6-capability-wiring.test.ts` 的能力入口清单接管——
-     它断言 store action 与 RPC 都还在、且 ui/ 下确实零引用，谁哪天补上入口它就会红。
-     上面那条 store 断言留着：后端能力还在，别在补入口之前先把它删了。 */
+  /* 「SessionList 菜单有重命名项」在 T6e-3 退场（T 波换壳时会话行的 ⋮ 菜单没搬过来，
+     `chat.renameSession` 在 ui/ 下零引用）；Y1（2026-09-10）在 ui/NavRail.vue 上补回，本例复位。 */
+  it('NavRail 会话行菜单有重命名项：预填现标题、Enter 或「确认」提交、后端拒绝原因落在菜单里（Y1 复位）', () => {
+    const rail = fs.readFileSync(path.join(root, 'src/renderer/src/ui/NavRail.vue'), 'utf8');
+    expect(rail).toMatch(/\.renameSession\(/);
+    expect(rail).toMatch(/@click\.stop="startRename\(s\)"/);
+    expect(rail).toMatch(/@keydown\.enter="submitRename\(s\.id\)"/);
+    expect(rail).toContain('renameErr');
+  });
 });

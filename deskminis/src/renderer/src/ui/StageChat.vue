@@ -124,6 +124,18 @@ const turns = computed<Turn[]>(() => {
 });
 
 const streamNodes = computed(() => (chat.streamingText ? parseMarkdown(chat.streamingText) : null));
+
+// ---- Y5：消息锚点导航轨（L3 立、T 波换壳丢，从旧 ChatView 搬回）：右缘竖点，点击滚到对应回合；不做拖拽刷 ----
+const hasLive = computed(() => chat.running || !!chat.streamingText || !!chat.streamingThinking);
+// ≥3 回合才有导航价值；欢迎态压根不渲染本组件，不必单独判
+const railVisible = computed(() => turns.value.length >= 3);
+function railTitle(t: Turn): string {
+  return t.user ? (textOf(t.user).replace(/\s+/g, ' ').trim().slice(0, 24) || '（空消息）') : '助手回合';
+}
+/** querySelector 定位 + 平滑滚动；回合可能很高，块首对齐。 */
+function jumpTurn(id: string): void {
+  scroller.value?.querySelector(`[data-turn-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 const mdOf = (s: string) => parseMarkdown(s);
 
 // 新内容到达贴底（用户上翻时不抢——scrollTop 距底 >120 视为在看历史）
@@ -156,7 +168,7 @@ watch(() => props.narrow, stickBottom);
     <!-- keyup 与 mouseup 同接：键盘用户靠 Shift+方向键选中，只认 mouseup 等于对他们关门 -->
     <div ref="scroller" class="scroll" @scroll="onScroll" @mouseup="anno?.onMouseUp($event)" @keyup="anno?.onMouseUp($event)">
       <div class="col">
-        <section v-for="t in turns" :key="t.id" class="turn">
+        <section v-for="t in turns" :key="t.id" class="turn" :data-turn-id="t.id">
           <div v-if="t.user" class="urow">
             <div v-if="attsOf(t.user).length" class="uatts">
               <button
@@ -182,7 +194,7 @@ watch(() => props.narrow, stickBottom);
         </section>
 
         <!-- 实时回合 -->
-        <section v-if="chat.running || chat.streamingText || chat.streamingThinking" class="turn">
+        <section v-if="hasLive" class="turn" data-turn-id="live">
           <div v-if="chat.streamingThinking" class="ablock">
             <ThinkBlock live :text="chat.streamingThinking" />
           </div>
@@ -212,6 +224,19 @@ watch(() => props.narrow, stickBottom);
     </div>
 
     <AnnoLayer ref="anno" :host="scroller" @quote="onQuote" />
+
+    <!-- Y5 锚点导航轨：≥3 回合才显示；实时回合一个脉动点 -->
+    <nav v-if="railVisible" class="trail" aria-label="回合导航">
+      <button
+        v-for="t in turns" :key="t.id" type="button" class="tdot"
+        :title="railTitle(t)" :aria-label="railTitle(t)"
+        @click="jumpTurn(t.id)"
+      ></button>
+      <button
+        v-if="hasLive" type="button" class="tdot live"
+        title="正在进行的回合" aria-label="正在进行的回合" @click="jumpTurn('live')"
+      ></button>
+    </nav>
 
     <div class="dock">
       <div class="col"><Composer ref="composer" variant="chat" /></div>
@@ -257,6 +282,21 @@ watch(() => props.narrow, stickBottom);
 }
 
 .dock { flex: 0 0 auto; padding: 0 0 var(--sp-6); background: var(--c-bg); }
+
+/* Y5 锚点导航轨：右缘竖点（绝对定位吃 .stage 的 position:relative）。点多时轨内静默滚动；
+   z-index 15 < 50 槽位；焦点环走 theme.css 全局，不在这里另写一份。 */
+.trail {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); z-index: 15;
+  display: flex; flex-direction: column; gap: 7px; align-items: center;
+  max-height: 55%; overflow-y: auto; scrollbar-width: none; padding: 4px 2px;
+}
+.tdot {
+  width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; padding: 0;
+  background: var(--c-ink-4); cursor: pointer; opacity: .7;
+}
+.tdot:hover { background: var(--c-brand); opacity: 1; }
+.tdot.live { background: var(--c-brand); opacity: 1; animation: railpulse 1.6s ease-in-out infinite; }
+@keyframes railpulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: .55; } }
 
 /* V6 附件 chip：历史里只显示文件名，点开走预览区（原图铺开会把对话挤没） */
 .uatts { display: flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; margin-bottom: var(--sp-2); }

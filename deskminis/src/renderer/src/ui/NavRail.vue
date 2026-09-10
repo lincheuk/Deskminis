@@ -34,6 +34,47 @@ function openSession(id: string): void {
   void chat.open(id);
   emit('view', 'chat');
 }
+
+// ---- Y1：会话行 ⋮ 菜单（MU6 / B1 / J2 立，T 波换壳丢；从旧 SessionList 逐项搬回）----
+type S = (typeof chat.sessions)[number];
+/** **行内展开，不浮层**：.list 是 overflow:auto，浮层会被裁掉——MU5 §15 为「弹层被容器裁掉」
+ *  吃过一次「点了没反应」的亏，旧 SessionList 从一开始就绕开，这里照搬；顺带避开层级槽位的不变量。 */
+const menuFor = ref('');
+const confirmDelete = ref('');
+const renameFor = ref('');
+const renameText = ref('');
+const renameErr = ref('');
+function closeRename(): void { renameFor.value = ''; renameText.value = ''; renameErr.value = ''; }
+function toggleMenu(id: string): void {
+  menuFor.value = menuFor.value === id ? '' : id;
+  confirmDelete.value = ''; // 换行即清掉确认态，避免「在 A 行点了确认、切到 B 行还悬着」
+  closeRename();
+}
+async function onDelete(id: string): Promise<void> {
+  await chat.deleteSession(id);
+  menuFor.value = ''; confirmDelete.value = '';
+}
+/** B1 重命名：预填现标题（改名多半是微调不是重写）。后端会拒空标题与超 50 字，
+ *  错误必须落在菜单里——吞掉就成了「点了确认没反应」。 */
+function startRename(s: S): void {
+  renameFor.value = s.id;
+  renameText.value = s.title || '';
+  renameErr.value = '';
+}
+async function submitRename(id: string): Promise<void> {
+  try {
+    await chat.renameSession(id, renameText.value);
+    closeRename();
+    menuFor.value = '';
+  } catch (e) { renameErr.value = e instanceof Error ? e.message : String(e); }
+}
+/** 绑定值回显归一化：旧库存量是裸 provider id（J2 之前），select 选项是带前缀的值——
+ *  不补前缀，旧绑定行会错显成「跟随全局默认」（后端兼容分支同一语义）。 */
+function bindingValue(s: S): string {
+  const b = s.modelBinding ?? '';
+  if (b === '' || b.startsWith('provider:') || b.startsWith('group:')) return b;
+  return 'provider:' + b;
+}
 </script>
 
 <template>
@@ -69,14 +110,53 @@ function openSession(id: string): void {
       <div v-if="!chat.sessions.length" class="empty">还没有会话<br />点上面「新建会话」开始</div>
       <template v-for="g in groups" :key="g.label">
         <div class="ghead">{{ g.label }}</div>
-        <button
-          v-for="s in g.items" :key="s.id" type="button"
-          class="srow" :class="{ on: s.id === chat.activeId && props.view === 'chat' }"
-          @click="openSession(s.id)"
-        >
-          <span class="semo" :style="dotStyle(s.id)">{{ emojiOf(String(s.assistantId ?? '')) || '' }}</span>
-          <span class="stitle">{{ s.title || '新会话' }}</span>
-        </button>
+        <!-- v-for 挂在 template 上：会话行与它的行内菜单是**两个兄弟节点**。旧 SessionList 曾把 v-for
+             挂在行上，菜单里的 s 变成 undefined，整个列表渲染挂掉——源码守卫与 typecheck 都抓不到，真跑才暴露。 -->
+        <template v-for="s in g.items" :key="s.id">
+          <div class="srw" :class="{ on: s.id === chat.activeId && props.view === 'chat', open: menuFor === s.id }">
+            <button type="button" class="srow" @click="openSession(s.id)">
+              <span class="semo" :style="dotStyle(s.id)">{{ emojiOf(String(s.assistantId ?? '')) || '' }}</span>
+              <span class="stitle">{{ s.title || '新会话' }}</span>
+            </button>
+            <button type="button" class="smore" :title="`${s.title || '新会话'} 的更多操作`" :aria-expanded="menuFor === s.id" @click.stop="toggleMenu(s.id)">⋮</button>
+          </div>
+          <div v-if="menuFor === s.id" class="smenu">
+            <button class="mi" type="button" @click="chat.setSessionMemory(s.id, s.memoryEnabled === false)">
+              记忆<span class="mv">{{ s.memoryEnabled === false ? '已关闭' : '已开启' }}</span>
+            </button>
+            <label class="mi msel">
+              <span>模型</span>
+              <select
+                class="f-select mselect" :value="bindingValue(s)"
+                @change="chat.setSessionModelBinding(s.id, ($event.target as HTMLSelectElement).value || undefined)"
+              >
+                <option value="">跟随全局默认</option>
+                <!-- 值带 provider: 前缀：chat.prompt 只认前缀，裸 id 只会落进 J2 留的兼容分支（能跑，但格式分叉） -->
+                <option v-for="p in chat.providers" :key="p.id" :value="'provider:' + p.id">{{ p.name }}</option>
+              </select>
+            </label>
+            <button v-if="renameFor !== s.id" class="mi" type="button" @click.stop="startRename(s)">重命名</button>
+            <template v-else>
+              <div class="mrow">
+                <input
+                  class="f-input minput" type="text" placeholder="会话标题" :value="renameText"
+                  @input="renameText = ($event.target as HTMLInputElement).value"
+                  @keydown.enter="submitRename(s.id)"
+                />
+                <button class="mi mok" type="button" @click.stop="submitRename(s.id)">确认</button>
+              </div>
+              <div v-if="renameErr" class="smenu-err">{{ renameErr }}</div>
+            </template>
+            <button v-if="confirmDelete !== s.id" class="mi danger" type="button" @click.stop="confirmDelete = s.id">删除会话</button>
+            <template v-else>
+              <div class="mask t-aux">确认删除？此操作不可撤销。</div>
+              <div class="mrow">
+                <button class="mi" type="button" @click.stop="confirmDelete = ''">取消</button>
+                <button class="mi danger" type="button" @click.stop="onDelete(s.id)">删除</button>
+              </div>
+            </template>
+          </div>
+        </template>
       </template>
     </div>
 
@@ -147,14 +227,52 @@ function openSession(id: string): void {
   font-weight: var(--w-md); padding: var(--sp-5) var(--sp-4) var(--sp-1);
 }
 .rail.compact .seghead { display: none; }
+/* 会话行 = 行按钮 + 行尾 ⋮ 两个并列按钮（按钮里不能再嵌按钮）；hover/选中/菜单开着的底色画在包裹层 */
+.srw { display: flex; align-items: center; border-radius: var(--r-s); }
+.srw:hover, .srw.open { background: var(--c-bg-2); }
+.srw.on { background: var(--c-brand-soft); }
 .srow {
-  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0;
   height: var(--h-row); padding: 0 var(--sp-4); border-radius: var(--r-s);
   background: none; color: var(--c-ink-2); cursor: pointer; text-align: left;
   font-size: var(--t-item-size); font-family: inherit;
 }
-.srow:hover { background: var(--c-bg-2); color: var(--c-ink); }
-.srow.on { background: var(--c-brand-soft); color: var(--c-ink); font-weight: var(--w-md); }
+.srw:hover .srow, .srw.on .srow, .srw.open .srow { color: var(--c-ink); }
+.srw.on .srow { font-weight: var(--w-md); }
+/* 行尾 ⋮：平时淡出，hover / 键盘聚焦 / 菜单开着时显形——不抢会话标题的视觉 */
+.smore {
+  flex: 0 0 auto; width: var(--h-ctl); height: var(--h-ctl); margin-right: var(--sp-1);
+  border-radius: var(--r-s); background: none; color: var(--c-ink-3); cursor: pointer; padding: 0;
+  font-size: var(--t-item-size); line-height: 1; opacity: 0;
+}
+.srw:hover .smore, .srw:focus-within .smore, .srw.open .smore { opacity: 1; }
+.smore:hover { background: var(--c-bg-3); color: var(--c-ink); }
+/* 行内菜单：不浮层（.list 的 overflow:auto 会裁掉浮层） */
+.smenu {
+  margin: 2px 0 var(--sp-2) var(--sp-7); padding: var(--sp-2);
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--c-bg-1); border: 1px solid var(--c-line); border-radius: var(--r-s);
+}
+.mi {
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  height: var(--h-ctl); padding: 0 var(--sp-3); border-radius: var(--r-s);
+  background: none; color: var(--c-ink-2); cursor: pointer; text-align: left;
+  font-size: var(--t-aux-size); font-family: inherit;
+}
+.mi:hover { background: var(--c-bg-2); color: var(--c-ink); }
+.mi.danger { color: var(--c-err); }
+.mi.danger:hover { background: var(--c-err-soft); }
+.mv { margin-left: auto; color: var(--c-ink-3); }
+.msel { cursor: default; }
+.msel:hover { background: none; }
+/* 右内边距只留箭头的位置：菜单只有 ~100px 给它，「跟随全局默认」六个字再多留就被裁 */
+.mselect { flex: 1; min-width: 0; height: var(--h-mini); padding: 0 var(--sp-5) 0 var(--sp-2); font-size: var(--t-aux-size); }
+.mrow { display: flex; gap: var(--sp-1); align-items: center; }
+.mrow .mi { flex: 1; justify-content: center; }
+.mrow .mok { flex: 0 0 auto; }
+.minput { flex: 1; min-width: 0; height: var(--h-mini); padding: 0 var(--sp-2); font-size: var(--t-aux-size); }
+.mask { padding: var(--sp-1) var(--sp-3); color: var(--c-ink-2); }
+.smenu-err { padding: var(--sp-1) var(--sp-3); font-size: var(--t-aux-size); color: var(--c-err); }
 .semo {
   flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px;
   display: inline-flex; align-items: center; justify-content: center;

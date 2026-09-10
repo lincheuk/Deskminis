@@ -73,7 +73,8 @@ async function join(): Promise<void> {
   finally { joinBusy.value = false; }
 }
 
-onMounted(() => { void chat.refreshDevices(); });
+// Y3：暂停态是持久化设置，进页再读一次自愈（init 已读过一次）
+onMounted(() => { void chat.refreshDevices(); void chat.refreshSyncPaused(); });
 onBeforeUnmount(stopTimers);
 const relTime = (sec: number): string => fmtRelative(sec, Date.now() / 1000);
 </script>
@@ -85,6 +86,22 @@ const relTime = (sec: number): string => fmtRelative(sec, Date.now() / 1000);
         <h1 class="t-h1">设备</h1>
         <p class="t-body sub">把另一台机器上的 DeskMinis 配上来，会话与设置在两边同步。配对只走局域网直连。</p>
       </header>
+
+      <!-- Y3：M6 的同步暂停开关（MU6 立、T 波换壳丢）。三句文案从旧 SettingsModal 原样搬回——
+           那句「不会中断正在执行的任务」是因为用户曾以为点了能停下任务。 -->
+      <section class="f-sec">
+        <h2>同步</h2>
+        <div class="f-card">
+          <div class="syncrow">
+            <div class="synctxt">
+              <div class="t-item synclabel">设备间同步</div>
+              <div class="t-aux syncsub">{{ chat.syncPaused ? '已暂停：不再与其它设备收发会话与记忆。' : '进行中：会话与记忆在已配对设备之间自动同步。' }}</div>
+            </div>
+            <button class="f-btn" :class="{ primary: chat.syncPaused }" type="button" @click="chat.setSyncPaused(!chat.syncPaused)">{{ chat.syncPaused ? '恢复同步' : '暂停同步' }}</button>
+          </div>
+          <p class="f-hint">暂停的只是<strong>设备间同步</strong>，<strong>不会中断</strong>正在执行的任务——要停下当前回合请用输入框旁的停止按钮。暂停状态会保留到下次启动。</p>
+        </div>
+      </section>
 
       <section class="f-sec">
         <h2>已配对</h2>
@@ -149,6 +166,10 @@ const relTime = (sec: number): string => fmtRelative(sec, Date.now() / 1000);
 </template>
 
 <style scoped>
+.syncrow { display: flex; align-items: center; gap: var(--sp-5); }
+.synctxt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.synclabel { color: var(--c-ink); font-weight: var(--w-md); }
+.syncsub { color: var(--c-ink-3); }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; background: var(--c-bg); }
 .col {
   width: min(var(--w-stage), 100% - var(--sp-8) * 2); margin: 0 auto;

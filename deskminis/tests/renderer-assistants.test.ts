@@ -69,7 +69,14 @@ describe('J2 助手体系前端接线', () => {
     expect(read('src/renderer/src/ui/AppShell.vue')).toMatch(/<StageAssistants v-else-if="view === 'assistants'"/);
   });
 
-  /* T6e-3 退场「4. AssistantSettings：CRUD + 二次确认 + provider: 前缀 + allSkills 数据源…」：CRUD/二次确认/provider: 前缀三项已由 tests/renderer-stage-views.test.ts（T5 + T6a2）在 ui/StageAssistants.vue 上重钉；**allSkills 数据源没有对应物**——新助手编辑器整个没有技能绑定字段（store 与后端的 skillIds 仍在）。这是换壳遗失的入口，已记入 mu6 能力清单与候选池 */
+  /* T6e-3 曾退场「4. AssistantSettings：CRUD + 二次确认 + provider: 前缀 + allSkills 数据源…」：前三项由 tests/renderer-stage-views.test.ts 在 ui/StageAssistants.vue 上重钉；allSkills 数据源一度没有对应物（新编辑器没有技能绑定字段）。Y4（2026-09-10）补回，本例复位只钉 allSkills 那半。 */
+  it('4. StageAssistants：技能复选数据源是 allSkills（管理页要看得见全局停用项），保存带 skillIds（Y4 复位）', () => {
+    const a = read('src/renderer/src/ui/StageAssistants.vue');
+    expect(a).toMatch(/v-for="s in chat\.allSkills"/);
+    expect(a).toMatch(/skillIds: fSkills\.value/);
+    expect(a).toContain('（全局已停用）');
+  });
+
 
   it('5. SessionList：会话行助手 emoji 前缀', () => {
     expect(SESSIONLIST).toContain('emojiOf');  // 改名

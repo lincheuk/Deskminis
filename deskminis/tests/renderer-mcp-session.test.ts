@@ -20,8 +20,16 @@ describe('L5 store：sessions 镜像 mcpDisabled + setSessionMcpDisabled 动作'
   });
 });
 
-/* T6e-3：「L5 ChatView：composer MCP pill + 行内面板」整组退场。
-   会话级 MCP 禁用入口（输入卡上的 pill + 行内逐 server 勾选「本会话禁用」）随 ChatView 退场，
-   新树没有重建——`setSessionMcpDisabled` 在 ui/ 下零引用。**这是能力缺失，不是重指得了的**。
-   守它的是 tests/mu6-capability-wiring.test.ts 的 GAPS 绊线：谁补上入口那条就红，逼他更新清单。
-   上面 store 例照旧——能力在后端与 store 里都还在，补入口之前别把它当死代码清掉。 */
+/* T6e-3 曾把「L5 ChatView：composer MCP pill + 行内面板」整组退场（能力随 ChatView 丢失，ui/ 零引用）；
+   Y2（2026-09-10）在 ui/Composer.vue 上补回，本组复位、重指新树。 */
+describe('L5 Composer：MCP pill + 行内面板（Y2 复位）', () => {
+  it('pill 显隐取决于「有会话 + 存在已启用 server」，面板逐台勾选调 setSessionMcpDisabled', () => {
+    const c = read('src/renderer/src/ui/Composer.vue');
+    expect(c).toContain('mcpPillVisible');
+    expect(c).toMatch(/class="mcpbtn"/);
+    expect(c).toMatch(/class="mcpanel"/);
+    expect(c).toMatch(/\.setSessionMcpDisabled\(/);
+    // 计数只数「已启用 ∩ 已禁用」——名单里可能残留已全局删除的 server 名
+    expect(c).toMatch(/enabledMcpServers\.value\.filter\(s => sessionMcpDisabled\.value\.includes\(s\.name\)\)/);
+  });
+});

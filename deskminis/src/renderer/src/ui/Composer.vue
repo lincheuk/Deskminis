@@ -135,6 +135,33 @@ function onTab(e: KeyboardEvent): void {
 }
 function closeMenus(): void { atQuery.value = null; }
 
+// ---- Y2：会话级禁用 MCP（L5 立、T 波换壳丢，从旧 ChatView 搬回；D5 后端全通，这里是唯一 renderer 入口）----
+const mcpOpen = ref(false);
+// 名单在有会话后才拉：ChatView 时代曾在组件创建时裸拉，rpc 彼时未 connect → 静默失败 → pill 永不出现（L6 目视逮到）。
+// 有会话 = rpc 必已就绪；空名单才重拉（会话切换顺带自愈）。设置页的增删改走同一 store 写后重拉，两处天然同步。
+watch(() => chat.activeId, () => {
+  if (chat.activeId && chat.mcpServers.servers.length === 0) void chat.fetchMcpServers().catch(() => {});
+}, { immediate: true });
+const enabledMcpServers = computed(() => chat.mcpServers.servers.filter(s => s.enabled));
+const mcpPillVisible = computed(() => !!chat.activeId && enabledMcpServers.value.length > 0);
+const sessionMcpDisabled = computed(() => chat.sessions.find(s => s.id === chat.activeId)?.mcpDisabled ?? []);
+// 只数「已启用 ∩ 已禁用」：名单里可能残留已全局删除/停用的 server 名，光数名单会对不上可见行
+const mcpDisabledCount = computed(() => enabledMcpServers.value.filter(s => sessionMcpDisabled.value.includes(s.name)).length);
+const mcpLabel = computed(() => (mcpDisabledCount.value > 0 ? `MCP · 禁 ${mcpDisabledCount.value}` : 'MCP'));
+const MCP_STATUS_TEXT: Record<string, string> = { connected: '已连接', error: '连接失败', idle: '未连接' };
+/** 运行态一句人话（不把 status 枚举原样上屏——V 波那三次内部标识符漏出的教训）。 */
+function mcpStatusText(name: string): string {
+  const st = chat.mcpServers.statuses.find(x => x.name === name);
+  if (!st) return '';
+  return st.status === 'connected' ? `已连接 · ${st.toolCount} 个工具` : (MCP_STATUS_TEXT[st.status] ?? '未知');
+}
+/** 翻转单台的会话禁用位：整表覆写是后端 setMcpDisabled 的语义；残留的幽灵名单项原样保留（不越权清理）。 */
+async function toggleSessionMcp(name: string): Promise<void> {
+  const cur = sessionMcpDisabled.value;
+  const next = cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name];
+  await chat.setSessionMcpDisabled(chat.activeId, next);
+}
+
 // ---- V6 附件：粘贴 / 拖拽 / ＋ 钮三条入口 ----
 const fileEl = ref<HTMLInputElement | null>(null);
 const attErr = ref('');
@@ -297,6 +324,13 @@ defineExpose({
         <button class="tb" type="button" title="引用工作区文件：在输入框里打 @" @click="() => { text += (text && !text.endsWith(' ') ? ' @' : '@'); field?.focus(); syncAt(); }">
           <UiIcon name="at" :size="16" />
         </button>
+        <!-- Y2 MCP 胶囊：可点（.cap 那两枚是只读展示）——只在有会话且存在已启用 server 时出现 -->
+        <button
+          v-if="mcpPillVisible" class="mcpbtn" type="button" :class="{ on: mcpOpen, dis: mcpDisabledCount > 0 }"
+          :aria-expanded="mcpOpen" title="本会话可用的 MCP 服务器：点开可逐台禁用" @click="mcpOpen = !mcpOpen"
+        >
+          <UiIcon name="puzzle" :size="13" /><span>{{ mcpLabel }}</span>
+        </button>
         <span class="grow"></span>
         <!-- 原图底行右侧是 模型 + 权限 两枚胶囊，再接圆形发送键 -->
         <span class="cap" :title="modelLabel"><UiIcon name="robot" :size="13" /><span>{{ modelLabel }}</span></span>
@@ -307,6 +341,17 @@ defineExpose({
         <button v-else class="go stop" type="button" title="停止" @click="chat.cancel()">
           <UiIcon name="stop" :size="16" />
         </button>
+      </div>
+
+      <!-- Y2 行内面板（不浮层）：逐台勾「本会话禁用」 -->
+      <div v-if="mcpOpen" class="mcpanel">
+        <label v-for="s in enabledMcpServers" :key="s.name" class="mrow">
+          <input type="checkbox" :checked="sessionMcpDisabled.includes(s.name)" @change="toggleSessionMcp(s.name)" />
+          <span class="mname">{{ s.name }}</span>
+          <span class="mstat t-aux">{{ mcpStatusText(s.name) }}</span>
+          <span class="t-aux">本会话禁用</span>
+        </label>
+        <p class="mnote t-aux">勾上的这台在本会话不再提供工具，下一回合生效；全局启停在 设置 → MCP。</p>
       </div>
     </div>
   </div>
@@ -359,6 +404,30 @@ defineExpose({
 }
 .cap :deep(svg) { color: var(--c-ink-3); flex: 0 0 auto; }
 .cap > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Y2 MCP 胶囊：形似 .cap，但它是入口 */
+.mcpbtn {
+  display: inline-flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto;
+  height: var(--h-mini); padding: 0 var(--sp-4); border-radius: var(--r-pill);
+  background: var(--c-bg-2); color: var(--c-ink-2); cursor: pointer;
+  font-size: var(--t-aux-size); font-family: inherit;
+}
+.mcpbtn:hover, .mcpbtn.on { background: var(--c-bg-3); color: var(--c-ink); }
+.mcpbtn.dis { color: var(--c-warn); }
+.mcpbtn :deep(svg) { color: var(--c-ink-3); flex: 0 0 auto; }
+.mcpbtn > span { white-space: nowrap; }
+.mcpanel {
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-2) 0; border-top: 1px solid var(--c-line);
+}
+.mrow {
+  display: flex; align-items: center; gap: var(--sp-3);
+  height: var(--h-ctl); padding: 0 var(--sp-2); border-radius: var(--r-s); cursor: pointer;
+  font-size: var(--t-item-size); color: var(--c-ink-2);
+}
+.mrow:hover { background: var(--c-bg-2); }
+.mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-ink); }
+.mstat { color: var(--c-ink-3); }
+.mnote { margin: var(--sp-1) 0 0; padding: 0 var(--sp-2); color: var(--c-ink-3); }
 .go {
   width: var(--h-round); height: var(--h-round); border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
