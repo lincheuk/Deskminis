@@ -52,6 +52,32 @@ describe('RpcClient 握手期间的 call 排队（真机冒烟逮到的 CONNECTI
     await expect(inflight).resolves.toEqual(['ok']);
   });
 
+  it('call 紧跟 connect() 同步发起（minisdInfo 的 IPC 尚未返回）也排队，不撞 ws 未建', async () => {
+    // X 波（首发竞态排查）：connect() 的注释写着「握手完成信号：connect() 一开始就赋值」，
+    // 实际 ready 在 await minisdInfo() 之后才赋值。这几毫秒里发起的 call 走 sendNow() → this.ws 未建 → TypeError。
+    // 子组件 onMounted 先于父组件跑，这种「先于 init 的 call」不是编程错误，是生命周期事实。
+    const c = new RpcClient();
+    const connecting = c.connect();
+    // 不让出事件循环：此刻 minisdInfo 还没回来、FakeWebSocket 还没实例化
+    const inflight = c.call('chat.sessions.list');
+    let rejected: unknown;
+    inflight.catch(e => { rejected = e; });
+    await new Promise(r => setTimeout(r, 0));
+    expect(rejected).toBeUndefined();          // 修复前：TypeError（Cannot read properties of undefined (reading 'send')）
+    const ws = FakeWebSocket.last!;
+    expect(ws.opened).toBe(false);
+    expect(ws.sent).toHaveLength(0);           // 排队中
+
+    ws.open();
+    await connecting;
+    await new Promise(r => setTimeout(r, 0));
+    expect(ws.sent).toHaveLength(1);
+    const frame = JSON.parse(ws.sent[0]);
+    expect(frame.method).toBe('chat.sessions.list');
+    ws.onmessage!({ data: JSON.stringify({ jsonrpc: '2.0', id: frame.id, result: ['ok'] }) });
+    await expect(inflight).resolves.toEqual(['ok']);
+  });
+
   it('connect 完成后的 call 立即发出（排队不拖累正常路径）', async () => {
     const c = new RpcClient();
     const connecting = c.connect();
