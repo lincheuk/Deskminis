@@ -41,22 +41,22 @@ describe('K2 接线守卫', () => {
   });
 
   it('App：工作台「定时」tab（market 全局 tab 成例：懒挂载 + 不随会话重置）', () => {
-    const app = read('src/renderer/src/App.vue');
-    expect(app).toMatch(/\{ id: 'cron', label: '定时', panel: 'cron', closable: false/);
-    expect(app).toContain("<div v-show=\"rightTab === 'cron'\" class=\"rfill\"><CronPanel v-if=\"visited.cron\" /></div>");
-    expect(app).toMatch(/visited = reactive\(\{[^}]*cron: false/);
+    const app = read('src/renderer/src/ui/AppShell.vue');
+    expect(app).toMatch(/'cron'/);  // 定时从工作台 tab 升格为一级舞台视图（NavRail 直达）
+    expect(app).toMatch(/<StageCron v-else-if="view === 'cron'"/);  // 定时是一级舞台视图，不再懒挂载
+    // 惰性挂载（visited）随旧外壳退场：舞台按 view 切换，不需要「访问过才挂」
   });
 
   it('CronPanel：CRUD/立即运行/启停接线 + 删除二次确认 + 运行边界与权限文案', () => {
-    const p = read('src/renderer/src/components/CronPanel.vue');
+    const p = read('src/renderer/src/ui/StageCron.vue');
     expect(p).toContain('createCronJob');
     expect(p).toContain('updateCronJob');
     expect(p).toContain('deleteCronJob');
     expect(p).toContain('runCronNow');
-    expect(p).toContain('confirmDelete');
+    expect(p).toMatch(/confirming/);
     expect(p).toContain('describeSchedule');
     // §0 两条裁定的用户可见面：不假装 24/7；无人值守权限语义说清
-    expect(p).toContain('应用运行时');
+    expect(p).toMatch(/应用没开就不会跑|应用运行时/);  // 运行边界文案改写
     expect(p).toMatch(/90\s*秒.*自动拒绝/);
     // 最近会话跳转（chat.open）
     expect(p).toContain('chat.open(');

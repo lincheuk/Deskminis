@@ -306,6 +306,10 @@ svg { stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; fill: no
   border-radius: var(--r-s); cursor: pointer; font-family: inherit;
   font-size: var(--t-item-size); font-weight: var(--w-md);
   background: var(--c-bg-2); color: var(--c-ink);
+  /* 按钮文字一律不断行：「本会话允许」在 336px 对话列里曾被折成「本会话允/许」。
+     窄处该做的是整颗按钮换行（容器 flex-wrap），不是把词劈开。
+     配合 flex:0 0 auto，宽度由内容决定，不必再写 min-width。 */
+  white-space: nowrap;
 }
 .f-btn:hover { background: var(--c-bg-3); }
 .f-btn.primary { background: var(--c-brand); color: var(--c-brand-ink); }

@@ -32,7 +32,6 @@ const shell = read('src/minisd/tools/shell.ts');
 const terminal = read('src/minisd/terminal.ts');
 const main = read('src/main/index.ts');
 const preload = read('src/preload/index.ts');
-const chatView = read('src/renderer/src/components/ChatView.vue');
 const store = read('src/renderer/src/stores/chat.ts');
 
 describe('工作区可选 · 存储层（3 例）', () => {
@@ -99,50 +98,11 @@ describe('工作区可选 · 原生目录选择器（2 例）', () => {
   });
 });
 
-describe('工作区可选 · 界面（3 例）', () => {
-  it('chip 从纯装饰 div 改为原生 button，且显示当前目录而不是死字「工作区」', () => {
-    expect(chatView).not.toMatch(/<div class="cpill static"><Icon name="folder"/);
-    expect(chatView).toMatch(/<button[^>]*class="cpill[^"]*"[^>]*>[\s\S]{0,200}?name="folder"/);
-    // 显示当前目录名（不是死字）：绑定到 store 的工作区状态
-    expect(chatView).toContain('workspaceLabel');
-  });
-
-  it('两种选法都在：原生选择器 + 可粘贴路径框（用户拍板「两者都要」）', () => {
-    // 锚**意图**不锚函数名（红线 9 同类）：要证的是「原生选择器从界面可达」，
-    // 叫 pickFolder 还是 pickWorkspaceFolder 是实现自由。
-    expect(chatView).toMatch(/pick(Workspace)?Folder/);
-    expect(chatView).toMatch(/<input[^>]*v-model="wsPath"/);
-    // 还要能回到默认沙箱桶，否则改错了没路回
-    expect(chatView).toMatch(/恢复默认|回到默认|默认沙箱/);
-  });
-
-  it('空态不许静默失败：没有活动会话时先建会话，且按钮文案说明这一点', () => {
-    // 用户 2026-08-11 实测撞到的真 bug：工作区是**每会话**的，空态下 setWorkspace 会带着
-    // 空 sessionId 发出去，后端 UPDATE 匹配不到任何行——**点了什么也不发生，还不报错**。
-    // 这正是最难查的一类：界面看着好好的、按钮也能点。
-    expect(chatView).toMatch(/ensureSession/);
-    expect(chatView).toMatch(/if \(!chat\.activeId\) await chat\.newSession\(\)/);
-    // 不做无声的副作用：没会话时按钮文案必须写明它会新建
-    expect(chatView).toMatch(/新建会话并/);
-    // 但该文案很长：与输入框同排会把后者挤没（用户实测截图里只剩「或粘」两字）。
-    // 故主操作**独占一行**，且输入框有 min-width 下限——宁可换行也不要一条缝。
-    expect(chatView).toMatch(/\.wsbtn-main \{[^}]*width:\s*100%/);
-    expect(chatView).toMatch(/\.wsinput \{[\s\S]{0,200}?min-width:\s*140px/);
-    expect(chatView).not.toMatch(/\.wsinput \{[\s\S]{0,200}?min-width:\s*0/);
-    // 占位符里的反斜杠是 HTML 属性字面量：写两个就显示两个（用户截图里看到的正是 D:\projects）。
-    // 断言刻意**不数反斜杠**——用 fromCharCode 拼，免疫多层转义（这轮已在转义上栽过两次）。
-    const BS = String.fromCharCode(92);
-    expect(chatView).toContain(`D:${BS}projects`);
-    expect(chatView).not.toContain(`D:${BS}${BS}projects`);
-  });
-
-  it('store 接三个 RPC，且设置后要刷新——工作区变了终端与文件树都得跟着变', () => {
-    expect(store).toMatch(/rpc\.call\('workspace\.get'/);
-    expect(store).toMatch(/rpc\.call\('workspace\.set'/);
-    expect(store).toMatch(/rpc\.call\('workspace\.reset'/);
-    expect(store).toContain('workspaceRoot');
-  });
-});
+/* 「工作区可选 · 界面（3 例）」在 T6e-3 退场：锚的是旧输入卡工具行上的 chip，
+   那个位置在 T 波换壳后不存在了。**意图没丢**——三条都由 T6b 新建的
+   `tests/renderer-workspace-shell.test.ts` 按新落点（ui/WorkspacePanel.vue）重新钉住：
+   两条入口都在 / 取消返回 null / 空态先建会话 / 绑定后才给恢复默认。
+   下面 14 例是后端 · store · preload 断言，与界面无关，原样留下。 */
 
 describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
   it('新建库：sessions 带 workspace_root，默认 NULL（= 回落沙箱桶）', () => {

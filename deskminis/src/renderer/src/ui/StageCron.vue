@@ -90,6 +90,10 @@ function fmtTime(sec?: number): string {
         <div class="htxt">
           <h1 class="t-h1">定时任务</h1>
           <p class="t-body sub">到点自动开一个会话跑你写好的 prompt。<b>应用没开就不会跑</b>——它不是后台服务。</p>
+          <!-- T6e-3 补搬：旧 CronPanel 写明了这一句，换壳时丢了。定时任务跑起来时**没人在看**——
+               遇到要确认的权限请求（写工作区外、gated 命令），minisd 会在 90 秒后按超时自动拒绝，
+               任务往往就此半途失败。不说清楚，用户只会看到「定时任务莫名其妙没做完」。 -->
+          <p class="t-body sub">跑的时候没人在场：遇到需要确认的权限请求，<b>90 秒后会自动拒绝</b>。要它能读写文件、跑命令，请把权限档位设成「沿用」或「完全」。</p>
         </div>
         <button v-if="editing !== 'new'" class="f-btn primary" type="button" @click="startNew">
           <UiIcon name="plus" :size="14" />新建任务

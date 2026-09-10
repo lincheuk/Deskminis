@@ -11,7 +11,8 @@ const root = path.resolve(__dirname, '..');
 const readSrc = (rel: string): string =>
   fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n');
 
-const chatView = readSrc('src/renderer/src/components/ChatView.vue');
+// T6e-3 重指：输入卡（历史/@文件/自增高/附件）从 ChatView 独立成 ui/Composer.vue。
+const chatView = readSrc('src/renderer/src/ui/Composer.vue');
 
 describe('F2a planDownsample 纯函数：是否需缩 / 目标尺寸 / 格式选择（表驱动）', () => {
   it('长边上限锚定：MAX_LONG_EDGE === 1568', () => {

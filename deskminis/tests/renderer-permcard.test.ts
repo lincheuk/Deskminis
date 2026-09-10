@@ -9,7 +9,7 @@ import { permTitle, permTriggerLabel } from '../src/renderer/src/lib/perm/copy';
 import { remainSeconds, countdownTone } from '../src/renderer/src/lib/perm/countdown';
 
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
-const permCard = R('../src/renderer/src/components/PermissionCard.vue');
+const permCard = R('../src/renderer/src/ui/PermCard.vue');
 const chatTs = R('../src/renderer/src/stores/chat.ts');
 
 describe('MU2a Task 10 permTitle（8 例）', () => {
@@ -57,19 +57,19 @@ describe('MU2a Task 10 双段告知短标 + 倒计时（4 例）', () => {
 });
 
 describe('MU2a Task 10 PermissionCard.vue 守卫', () => {
-  it('倒计时读秒：remain 驱动 + mono 字体 + urgent ≤10s 变橙（--state-warn）', () => {
+  it('倒计时读秒：remain 驱动 + mono 字体 + urgent ≤10s 变橙（--c-warn）', () => {
     expect(permCard).toContain('remainSeconds(');
     expect(permCard).toContain('countdownTone(');
     expect(permCard).toContain('remain');
     expect(permCard).toContain('setInterval');
     expect(permCard).toContain('clearInterval'); // unmount 清定时器
-    expect(permCard).toContain('--font-mono');
+    expect(permCard).toContain('--f-mono');
     expect(permCard).toContain('urgent');
-    expect(permCard).toContain('--state-warn');
+    expect(permCard).toContain('--c-warn');
   });
-  it('盾牌分级：danger --state-err / 其余 --state-warn + 分级副文案', () => {
+  it('盾牌分级：danger --c-err / 其余 --c-warn + 分级副文案', () => {
     expect(permCard).toContain("riskClass === 'danger'");
-    expect(permCard).toContain('--state-err');
+    expect(permCard).toContain('--c-err');
     expect(permCard).toContain('高风险操作');
     expect(permCard).toContain('需要你的批准');
   });
@@ -81,7 +81,7 @@ describe('MU2a Task 10 PermissionCard.vue 守卫', () => {
     expect(permCard).toContain('perm.bridgeTriggers?.length');
     expect(permCard).toContain('permTriggerLabel(');
   });
-  it('按钮三枚：允许（--action 实底主钮）/ 本会话允许 / 拒绝；预选 .pre 2px --action 边框', () => {
+  it('按钮三枚：允许（--c-brand 实底主钮）/ 本会话允许 / 拒绝；预选 .pre 2px --c-brand 边框', () => {
     expect(permCard).toContain('允许');
     expect(permCard).toContain('本会话允许');
     expect(permCard).toContain('拒绝');
@@ -89,8 +89,11 @@ describe('MU2a Task 10 PermissionCard.vue 守卫', () => {
     expect(permCard).toContain("'allow-session'");
     expect(permCard).toContain("'deny'");
     // 主钮实底 + 预选 2px 边框
-    expect(permCard).toMatch(/\.btn\.primary[^}]*background:\s*var\(--action\)/);
-    expect(permCard).toMatch(/\.btn\.pre[^}]*border:\s*2px solid var\(--action\)/);
+    expect(R('../src/renderer/src/styles/theme.css')).toMatch(/\.f-btn\.primary[^}]*background:\s*var\(--c-brand\)/);
+    // 预选环从 border 换成了 box-shadow：观感一样，但 border 会把按钮撑大 2px、
+    // 让预选项与另两枚不等高。锚「有 2px 品牌色环、且不改布局」这个意图。
+    expect(permCard).toMatch(/\.pb\.pre[^}]*box-shadow:[^}]*2px var\(--c-brand\)/);
+    expect(permCard).not.toMatch(/\.pb\.pre[^}]*border:\s*2px/);
     // preselect 逻辑保留（permTier 映射不变）
     expect(permCard).toContain("permTier === 'ask'");
   });
@@ -101,8 +104,10 @@ describe('MU2a Task 10 PermissionCard.vue 守卫', () => {
   });
   it('按钮不折字：.btn nowrap + min-width、.btns flex-wrap（窄列下按钮整颗换行而非文字断行）', () => {
     // 「本会话允许」在 336px 对话列里曾被折成「本会话允/许」两行——文字断行比按钮换行难看得多
-    expect(permCard).toMatch(/\.btn\s*\{[^}]*white-space:\s*nowrap/);
-    expect(permCard).toMatch(/\.btn\s*\{[^}]*min-width:/);
+    // 按钮样式换壳后收归 theme.css 的全局原语 .f-btn，卡片里只留容器规则
+    const theme = R('../src/renderer/src/styles/theme.css');
+    expect(theme).toMatch(/\.f-btn \{[^}]*white-space:\s*nowrap/);
+    // min-width 不再需要：.f-btn 是 flex:0 0 auto，宽度由内容决定，配 nowrap 已经压不扁
     expect(permCard).toMatch(/\.btns\s*\{[^}]*flex-wrap:\s*wrap/);
   });
 });
@@ -139,7 +144,7 @@ describe('MU2a Task 10 chat.ts 守卫', () => {
 describe('变更预览（审批前差分）守卫', () => {
   it('PermissionCard：perm.preview 存在时渲染 DiffView（diffLines/countAddDel 驱动 +N/−N）', () => {
     expect(permCard).toContain('perm.preview');
-    expect(permCard).toContain('DiffView');
+    expect(permCard).toContain('UiDiff');
     expect(permCard).toContain('diffLines(');
     expect(permCard).toContain('countAddDel(');
     // 差分区在模板里位于路径行（.args）之后（脚本段 props.perm.preview 不算，只看 <template> 内）

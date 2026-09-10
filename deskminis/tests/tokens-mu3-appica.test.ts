@@ -74,7 +74,8 @@ function styleBlocks(src: string): string[] {
   return [...src.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]);
 }
 const rel = (p: string) => relative(RENDERER_SRC, p).replace(/\\/g, '/');
-const C = (n: string) => R(`../src/renderer/src/components/${n}.vue`);
+// T6e-3 重指：组件树搬到 ui/（components/ 只剩 Icon / MarkdownInline / MarkdownView 三个活文件）
+const C = (n: string) => R(`../src/renderer/src/ui/${n}.vue`);
 
 describe('MU3 Appica 移植守卫（13 例）', () => {
   it('1. tokens.css 头部归属四要素（结构来源 / 许可证 / 参考文件路径 / 唯一来源声明）', () => {
@@ -248,39 +249,22 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
     expect(offenders).toEqual([]);
     // xterm 主题是 JS 对象、走不进 CSS 变量：TerminalPanel <script> 兜底值登记白名单，
     // 唯一合法硬编码（Task 4 按新调色板 oklch→srgb 换算后同步更新白名单值）。
-    const term = C('TerminalPanel');
+    const term = C('TerminalPane');
     const found = [...new Set([...term.matchAll(COLOR)].map(m => m[0]))].sort();
     // I4 换算：AionUi 暗段等值（底 #0e0e0e / 前景 #e8eaee / selection #262626）
-    expect(found).toEqual(['#0e0e0e', '#e8eaee', '#262626'].sort());
+    // T 波重写终端：selection 兜底从 #262626 改为 #333333（更亮一档，暗底上选区看得见）
+    expect(found).toEqual(['#0e0e0e', '#e8eaee', '#333333'].sort());
   });
 
-  it('10. 7 级 label 组件消费清单（Task 5 表：15 改各含指定新级；7 不改零引用）', () => {
-    const strong = ['ArtifactsPanel', 'ChatView', 'DevicesModal', 'DiffView', 'EmptyState', 'FilesPanel',
-      'ModelPicker', 'PermissionCard', 'PermissionPicker', 'ProgressPanel', 'ProviderSettings',
-      'SessionList', 'TitleBar', 'ToolLine'];
-    const emphasis = ['EmptyState', 'SettingsModal'];
-    const intense = ['DevicesModal', 'PermissionCard', 'SettingsModal'];
-    for (const n of strong) expect(C(n), `${n} 应含 var(--label-strong)`).toContain('var(--label-strong)');
-    for (const n of emphasis) expect(C(n), `${n} 应含 var(--label-emphasis)`).toContain('var(--label-emphasis)');
-    for (const n of intense) expect(C(n), `${n} 应含 var(--label-intense)`).toContain('var(--label-intense)');
-    for (const n of ['EventNote', 'FadeText', 'FileTreeNode', 'Icon', 'MarkdownInline', 'MarkdownView', 'TerminalPanel']) {
-      expect(C(n), `${n} 不应引用新 label 级`).not.toMatch(/var\(--label-(strong|emphasis|intense)\)/);
-    }
-  });
+  /* T6e-3 退场「10. 7 级 label 组件消费清单…」：--label-strong/emphasis/intense 那套 7 级文字层次是 MU3 的词汇，T 波换成 theme.css 的 --c-ink / --c-ink-2/3/4 四级；新组件不消费旧级，逐组件清单没有对应物。新词汇的对比度守卫在 tests/theme-contrast.test.ts */
 
-  it('11. 焦点环：10 组件各含 :focus-visible 与 var(--ring（§2-5 清单）', () => {
-    for (const n of ['ChatView', 'TitleBar', 'SessionList', 'SettingsModal', 'ProviderSettings',
-      'PermissionCard', 'PermissionPicker', 'ModelPicker', 'DevicesModal', 'ToolLine']) {
-      expect(C(n), `${n} 应含 :focus-visible`).toContain(':focus-visible');
-      expect(C(n), `${n} 应含 var(--ring`).toContain('var(--ring');
-    }
-  });
+  /* T6e-3 退场「11. 焦点环：10 组件各含 :focus-visible…」：逐组件焦点环在 T6a 已被**全局焦点环**取代（theme.css 一处声明 + tests/renderer-focus-ring.test.ts 守「有 outline:none 必须配替代环、组件不各写各的」）——继续要求每个组件自带 :focus-visible 反而与新纪律相反 */
 
   it('12. --scrim 收编：tokens.css 唯一声明；DevicesModal/SettingsModal 遮罩走 var(--scrim)', () => {
     expect(tokens).toContain('--scrim: rgba(0,0,0,.4)');
     expect(tokens.split('--scrim:').length - 1).toBe(1); // 唯一声明处
-    expect(C('DevicesModal')).toContain('var(--scrim)');
-    expect(C('SettingsModal')).toContain('var(--scrim)');
+    // 组件半场重指：新树唯一的遮罩宿主是 StageMarket，走 theme.css 的 --c-scrim（T6d 收编）
+    expect(C('StageMarket')).toContain('var(--c-scrim)');
   });
 
   it('13. mono 栈 CJK 回退：两处 --font-mono 均在 monospace 泛型前含 "Noto Sans SC"', () => {

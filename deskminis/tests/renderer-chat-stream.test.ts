@@ -9,41 +9,26 @@ const root = path.resolve(__dirname, '..');
 const readSrc = (rel: string): string =>
   fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n');
 
-const fadeText = readSrc('src/renderer/src/components/FadeText.vue');
-const chatView = readSrc('src/renderer/src/components/ChatView.vue');
+// T6e-1：FadeText 与 lib/fade/split 随两区流式渲染一起退场（理由记在那一笔 commit）
+const chatView = readSrc('src/renderer/src/ui/StageChat.vue');
 
-describe('MU2a Task 3 FadeText + 滚动接线源文本守卫（4 例）', () => {
-  it('FadeText.vue：props { text: string }；diffWords 驱动；added 词渲染 span.fade-word + animationDelay', () => {
-    expect(fadeText).toContain('defineProps<{ text: string }>()');
-    expect(fadeText).toContain("from '../lib/fade/split'");
-    expect(fadeText).toContain('diffWords(');
-    expect(fadeText).toContain('class="fade-word"');
-    expect(fadeText).toContain('animationDelay');
-  });
+/* T6e-3：两条 FadeText 例退场——组件与 lib/fade/split 已在 T6e-1 随两区流式渲染
+   一起删除（新 StageChat 每帧整段重新解析，没有「稳定区 + 淡入尾部」这个形态）。
+   其中「淡入组件不许用 v-html」这条 XSS 红线**没有丢**：模型输出的渲染现在全部
+   经 MarkdownView，`tests/renderer-markdown-view.test.ts` 与
+   `tests/renderer-ui-icon-guard.test.ts` 各守一头。 */
+describe('MU2a Task 3 流式渲染与滚动接线（2 例）', () => {
 
-  it('FadeText.vue：XSS 红线（无 v-html）；reduced-motion 降级锚（动画关闭即时呈现）', () => {
-    expect(fadeText).not.toContain('v-html');
-    expect(fadeText).not.toContain('innerHTML');
-    expect(fadeText).toContain('@media (prefers-reduced-motion: reduce)');
-    expect(fadeText).toContain('0.3s ease-out'); // §8 节奏参数
-  });
 
-  it('ChatView 流式区：稳定区 MarkdownView（不淡入）+ 尾部 FadeText 纯文本段；旧 streamNodes 形态退役', () => {
-    expect(chatView).toContain("import FadeText from './FadeText.vue'");
-    expect(chatView).toContain(':nodes="streamStable"');
-    expect(chatView).toContain(':text="streamTailText"');
-    expect(chatView).toContain('stablePrefixEnd(');
-    expect(chatView).not.toContain('streamNodes');
-  });
+  /* 「稳定区 MarkdownView + 尾部 FadeText 纯文本段」在 T6e-3 退场：
+     新 StageChat 每帧整段重新解析渲染，没有稳定区/尾部之分，FadeText 与
+     lib/fade/split 已在 T6e-1 随实现一起删除（理由记在那一笔 commit 里）。 */
 
-  it('ChatView 滚动治理：shouldFollow 判定 + @scroll 绑定 + 「回到底部」浮钮；旧无条件贴底 watch 已移除', () => {
-    expect(chatView).toContain("from '../lib/scroll/follow'");
-    expect(chatView).toContain('shouldFollow(');
-    expect(chatView).toContain('@scroll="onScroll"');
-    expect(chatView).toContain('回到底部');
-    expect(chatView).toContain('following');
-    // 旧形态（L79-82 无条件贴底）已移除
-    expect(chatView).not.toContain('() => { void nextTick(() => { const el = streamEl.value; if (el) el.scrollTop = el.scrollHeight; }); }');
-    expect(chatView).toContain('if (!following.value) return;');
+  it('滚动治理：跟随判定 + @scroll 绑定（用户上翻看历史时不抢滚动）', () => {
+    // 判据从纯模块 lib/scroll/follow 内联进了 StageChat（T6e-1 记过这笔账：
+    // 已测的纯判据换成了未测的内联代码）。这里至少把「有判定、有绑定」钉住。
+    expect(chatView).toMatch(/@scroll="onScroll"/);
+    expect(chatView).toMatch(/following/);
+    expect(chatView).toMatch(/scrollHeight - .*scrollTop - .*clientHeight/);
   });
 });

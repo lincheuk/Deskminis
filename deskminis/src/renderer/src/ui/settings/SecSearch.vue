@@ -69,6 +69,9 @@ async function save(): Promise<void> {
         <span>base URL{{ cur.needUrl ? '' : '（可选）' }}</span>
         <input v-model="baseUrl" class="f-input" :disabled="kind === 'none'"
                :placeholder="cur.needUrl ? '自建实例地址，如 https://searx.example.com' : '留空用官方端点'" />
+        <!-- T6e-3 补搬：SearXNG 默认不开 JSON 输出，不开就只回 HTML、web_search 静默查不到东西。
+             旧设置页写了这一句，换壳时丢了——属于「页面上的一句交代」那一类漏搬。 -->
+        <span v-if="cur.needUrl" class="f-hint">实例需开启 JSON 输出格式，否则搜索会一直查不到结果。</span>
       </label>
       <p v-if="err" class="errline">{{ err }}</p>
       <div class="f-row">

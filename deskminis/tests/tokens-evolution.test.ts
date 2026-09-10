@@ -9,11 +9,11 @@ import { resolve } from 'node:path';
 
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
 const tokens = R('../src/renderer/src/styles/tokens.css');
-const chatView = R('../src/renderer/src/components/ChatView.vue');
-const sessionList = R('../src/renderer/src/components/SessionList.vue');
+const chatView = R('../src/renderer/src/ui/StageChat.vue');
+const sessionList = R('../src/renderer/src/ui/NavRail.vue');
 const mdView = R('../src/renderer/src/components/MarkdownView.vue');
 // MU2a Task 8 同步修订：事件条样式从 ChatView 迁入 EventNote.vue，状态槽断言随之迁移
-const eventNote = R('../src/renderer/src/components/EventNote.vue');
+const eventNote = R('../src/renderer/src/ui/EventNotes.vue');
 
 /** 按选择器切片（start 含、end 不含；无 end 或找不到切到文件尾） */
 function section(src: string, start: string, end?: string): string {
@@ -27,7 +27,13 @@ const mediaDark = section(tokens, '@media (prefers-color-scheme: dark)', '/* 强
 const darkForced = section(tokens, ':root[data-theme="dark"]', ':root[data-theme="light"]');
 const lightForced = section(tokens, ':root[data-theme="light"]', '/* 基础复位');
 
-describe('MU2a Task 4 令牌层演进（8 例）', () => {
+/* T6e-3：三例「组件把硬编码尺寸迁到 --fs-* / --state-* 令牌」在此退场。
+   它们守的是 **MU2a 那套令牌词汇**，而 T 波换壳时整套设计系统换成了 theme.css 的
+   --c-* / --t-* / --sp-*，新组件根本不消费 tokens.css 的语义槽（只剩 MarkdownView
+   与 MarkdownInline 还在用，见 T6d）。强行重指等于把新组件拽回旧词汇。
+   新词汇的守卫在 tests/theme-contrast.test.ts（含 T6d 加的同名令牌必须同值）。
+   下面留下的 5 例断言的是 tokens.css **自身结构**，与组件无关，仍然有效。 */
+describe('MU2a Task 4 令牌层演进（5 例）', () => {
   it('§3.1 尺度令牌：:root 一段含全部尺度令牌且全文唯一（主题无关只写一次）', () => {
     for (const t of [
       '--fs-display', '--fs-title', '--fs-body', '--fs-ui', '--fs-caption', '--fs-mono', '--fs-micro',
@@ -79,29 +85,18 @@ describe('MU2a Task 4 令牌层演进（8 例）', () => {
     expect(rootLight).toContain('--state-warn-bg: var(--warning-subtle)');
   });
 
-  it('ChatView 尺度迁移：16.5px 清零；正文 --fs-body；助手名 --fs-title；辅助 13px→--fs-ui', () => {
-    expect(chatView).not.toContain('16.5px');
-    expect(chatView).toContain('font-size: var(--fs-body)');
-    expect(chatView).toMatch(/\.aname \{[^}]*--fs-title/);
-    expect(chatView).toContain('font-size: var(--fs-ui)');
-  });
 
-  it('SessionList 新建按钮 brand 降权：newbtn 块无 var(--brand)/--on-brand（I6 改锚：行式无底）', () => {
-    const newbtn = section(sessionList, '.newbtn {', '}');
-    expect(newbtn).not.toContain('var(--brand)');
-    // I6 改锚（AionUi 新版侧栏）：New Chat 从灰底块钮改「透明行 + hover 灰」——
-    // 底色锚从「主块含 --fill-tertiary」放宽为「hover 态含 --fill」；brand 降权红线不动
-    expect(sessionList).toMatch(/\.newbtn:hover\s*\{[^}]*var\(--fill/);
-    expect(sessionList).not.toContain('var(--on-brand)');
-  });
 
   it('evnote color-mix 迁槽：orange/purple/link 写死比例清零，走 --state-*-bg/border；MarkdownView 字号全令牌化', () => {
     expect(chatView).not.toContain('color-mix(in srgb, var(--orange)');
     expect(chatView).not.toContain('color-mix(in srgb, var(--purple)');
     expect(chatView).not.toContain('color-mix(in srgb, var(--link');
-    // MU2a Task 8 同步修订：事件条组件化为 EventNote.vue，状态槽消费锚随之从 ChatView 迁到该组件
-    expect(eventNote).toContain('var(--state-warn-bg)');
-    expect(eventNote).toContain('var(--state-info-bg)');
+    // T6e-3：事件条的状态槽断言退场——新 ui/EventNotes.vue 走 theme.css 的
+    // --c-warn-soft / --c-tips，不再消费 tokens.css 的 --state-*-bg。
+    // 「三种语调各有底色」这条意图改锚新词汇，不锚旧槽名。
+    expect(eventNote).toMatch(/\.tone-warn[^}]*var\(--c-warn/);
+    expect(eventNote).toMatch(/\.tone-err[^}]*var\(--c-err/);
+    expect(eventNote).toMatch(/\.tone-info[^}]*var\(--c-/);
     expect(mdView).not.toMatch(/font-size: [\d.]+px/);
     expect(mdView).toContain('--fs-mono');
     expect(mdView).toContain('--fs-micro');

@@ -166,7 +166,9 @@ watch(() => props.narrow, stickBottom);
                 <UiIcon name="file" :size="13" /><span>{{ a.name }}</span>
               </button>
             </div>
-            <div v-if="textOf(t.user)" class="ubub t-chat">{{ textOf(t.user) }}</div>
+            <!-- 用户正文同样可标注：旧 ChatView 两处都挂了 data-anno-root，换壳只留了助手那处。
+                 「我这句里说的是这个意思」是引用追问的常见起点，机制与助手侧完全一样。 -->
+            <div v-if="textOf(t.user)" class="ubub t-chat" data-anno-root :data-mid="t.user.id">{{ textOf(t.user) }}</div>
             <div class="umeta t-aux tnum">{{ typeof t.user.createdAt === 'number' ? fmtHHMM(t.user.createdAt) : '' }}</div>
           </div>
           <div v-for="(b, i) in t.blocks" :key="i" class="ablock">

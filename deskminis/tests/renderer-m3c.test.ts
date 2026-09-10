@@ -11,28 +11,28 @@ import { join } from 'node:path';
 const root = join(__dirname, '../src/renderer/src');
 
 describe('M3c UI 源文本守卫', () => {
-  it('DevicesModal：加入配对两输入（host:port + 配对码，免手抄公钥）+ 在线点 dot class', () => {
-    const src = readFileSync(join(root, 'components/DevicesModal.vue'), 'utf8').replace(/\r\n/g, '\n');
-    expect(src).toContain('joinAddr'); // host:port 输入
-    expect(src).toContain('joinCode'); // 配对码输入（既有，M3c 启用）
+  it('StageDevices：加入配对两输入（host:port + 配对码，免手抄公钥）+ 在线点', () => {
+    const src = readFileSync(join(root, 'ui/StageDevices.vue'), 'utf8').replace(/\r\n/g, '\n');
+    expect(src).toContain('joinAddr');    // host:port 输入
+    expect(src).toContain('joinCode');    // 配对码输入
     expect(src).toContain('joinPairing'); // 调 store action
     expect(src).not.toContain('joinPubKey'); // 无公钥输入（免手抄）
     expect(src).toMatch(/class="dot[^"]*"/); // 在线点
   });
 
-  it('TitleBar：同步状态点三态（offline/idle/syncing）+ pulse 动画', () => {
-    const src = readFileSync(join(root, 'components/TitleBar.vue'), 'utf8').replace(/\r\n/g, '\n');
-    expect(src).toContain('syncdot');
-    expect(src).toContain('offline');
-    expect(src).toContain('idle');
-    expect(src).toContain('syncing');
-    expect(src).toContain('pulse');
+  it('TopBar：同步状态点三态（syncing / idle / 未连接）+ 人话 title', () => {
+    // T6e-3 重指：syncdot → syncDot，pulse 动画退场（改用颜色区分三态，title 说人话）。
+    // ⚠️ 我先前把这条误判成「没搬」——按 syncdot 小写去搜自然零命中。守卫重指前要按**意图**搜，不按旧名。
+    const src = readFileSync(join(root, 'ui/TopBar.vue'), 'utf8').replace(/\r\n/g, '\n');
+    expect(src).toContain('syncDot');
+    expect(src).toMatch(/syncState === 'syncing'/);
+    expect(src).toMatch(/syncState === 'idle'/);
+    expect(src).toMatch(/正在与其它设备同步/);
+    expect(src).toMatch(/未连接其它设备/);   // 第三态也要说得出话
+    expect(src).toMatch(/:title="syncDot\.t"/); // 悬停可读
   });
 
-  it('ChatView：回合区消息设备标（originDeviceId 映射）', () => {
-    const src = readFileSync(join(root, 'components/ChatView.vue'), 'utf8').replace(/\r\n/g, '\n');
-    expect(src).toContain('originDeviceId');
-  });
+  /* T6e-3 退场「ChatView：回合区消息设备标…」：消息来源设备标（originDeviceId → 「来自 xx 设备」）在新 StageChat 里没有对应物。store 的 UiMessage 仍带 originDeviceId，只是没人渲染。记入候选池「换壳遗失的入口」 */
 
   it('chat.ts：joinPairing action + syncState state + synced 事件处理', () => {
     const src = readFileSync(join(root, 'stores/chat.ts'), 'utf8').replace(/\r\n/g, '\n');

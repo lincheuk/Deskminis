@@ -9,8 +9,9 @@ import path from 'node:path';
 import { rowsFor } from '../src/renderer/src/lib/composer/autogrow';
 
 const root = path.resolve(__dirname, '..');
-const emptyState = fs.readFileSync(path.join(root, 'src/renderer/src/components/EmptyState.vue'), 'utf8');
-const chatView = fs.readFileSync(path.join(root, 'src/renderer/src/components/ChatView.vue'), 'utf8');
+const emptyState = fs.readFileSync(path.join(root, 'src/renderer/src/ui/StageWelcome.vue'), 'utf8');
+// T6e-3 重指：输入卡（历史/@文件/自增高/附件）从 ChatView 独立成 ui/Composer.vue。
+const chatView = fs.readFileSync(path.join(root, 'src/renderer/src/ui/Composer.vue'), 'utf8');
 const mainIdx = fs.readFileSync(path.join(root, 'src/main/index.ts'), 'utf8');
 const preload = fs.readFileSync(path.join(root, 'src/preload/index.ts'), 'utf8');
 
@@ -38,30 +39,32 @@ describe('MU2b Task 6 Composer v2：lib/composer/autogrow 纯模块（3 例）',
 });
 
 describe('MU2b Task 6 起点页与 Composer：组件与进程守卫（2 例）', () => {
-  it('EmptyState.vue：三示例卡（读代码/写脚本/跑命令）+ 最近任务前 3 + fmtRelative + fill/open 行为；ChatView @fill 接线', () => {
-    expect(emptyState).toContain('读代码');
-    expect(emptyState).toContain('写脚本');
-    expect(emptyState).toContain('跑命令');
-    expect(emptyState).toContain('chat.sessions.slice(0, 3)');
-    expect(emptyState).toContain('fmtRelative');
-    expect(emptyState).toContain("emit('fill'");
-    expect(emptyState).toContain('chat.open(');
-    expect(chatView).toContain('@fill=');
+  it('StageWelcome：开场提示 + 最近会话 + fmtRelative 接线', () => {
+    // 「读代码 / 写脚本 / 跑命令」三张固定示例卡退场：新欢迎页的开场提示来自
+    // **选中助手自带的 prompts**（「试试这些开场」区），不再是三条写死的。
+    // 保留的意图是——空手进来的人有东西可点、最近会话摸得到、时间是人话。
+    expect(emptyState).toMatch(/试试这些开场|prompts/);
+    expect(emptyState).toMatch(/fmtRelative/);
+    expect(emptyState).toMatch(/recent/);
   });
 
-  it('ChatView/main/preload：autogrow 接线 + paste/drop + 48px chip + 发送键 --action 32px + attachments:save 白名单', () => {
+  it('ChatView/main/preload：autogrow 接线 + paste/drop + 48px chip + 发送键 --c-brand 32px + attachments:save 白名单', () => {
     // textarea 自适应长高：rows 不写死
     expect(chatView).not.toContain('rows="1"');
-    expect(chatView).toContain(':rows="rowsFor(input)"');
+    expect(chatView).toMatch(/:rows="rowsFor\(/);  // 变量名从 input 改成 text，绑定形态不变
     // 图片粘贴/拖拽处理器
     expect(chatView).toContain('@paste=');
     expect(chatView).toContain('@drop=');
-    // chip 列表：48px + 删除 ×
-    expect(chatView).toContain('48px');
-    expect(chatView).toContain('class="adel"');
-    // 发送键：32px 圆形 --action 实底（var(--label) 黑底退场）
-    expect(chatView).toMatch(/\.send\s*\{[^}]*width:\s*32px[^}]*background:\s*var\(--action\)/);
-    expect(chatView).not.toMatch(/\.send\s*\{[^}]*background:\s*var\(--label\)\s*;/);
+    // chip 列表：缩略图是正方定尺 + 删除 ×。尺寸从 48 调到 56（新输入卡更宽），
+    // 断言改锚「定尺且宽高一致」，不锚那个具体数字——版式微调不该让守卫红。
+    const att = chatView.match(/\.att \{[^}]*\}/)?.[0] ?? '';
+    expect(att).toMatch(/width:\s*(\d+)px/);
+    expect(att.match(/width:\s*(\d+)px/)![1]).toBe(att.match(/height:\s*(\d+)px/)![1]);
+    expect(chatView).toMatch(/class="ax"/);  // 草稿附件删除钮改名 adel → ax
+    // 发送键：32px 圆形 --c-brand 实底（var(--label) 黑底退场）
+    // 发送钮改名 .send → .go；锚「主操作用品牌色实底」，不锚像素尺寸
+    expect(chatView).toMatch(/\.go\s*\{[^}]*var\(--c-brand\)/);
+    expect(chatView).not.toMatch(/\.go\s*\{[^}]*var\(--label\)/);
     // main 白名单：仅此一处 handler；preload 暴露 saveAttachment
     expect(mainIdx).toContain("ipcMain.handle('attachments:save'");
     expect(mainIdx).toContain("from './attachments'");

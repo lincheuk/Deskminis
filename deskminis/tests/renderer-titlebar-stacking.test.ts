@@ -28,12 +28,12 @@ const root = path.resolve(__dirname, '..');
 const rendererDir = path.join(root, 'src/renderer/src');
 const read = (p: string): string => fs.readFileSync(path.join(root, p), 'utf8');
 
-const TITLEBAR = 'src/renderer/src/components/TitleBar.vue';
-const SETTINGS_MODAL = 'src/renderer/src/components/SettingsModal.vue';
-const DEVICES_MODAL = 'src/renderer/src/components/DevicesModal.vue';
+const TITLEBAR = 'src/renderer/src/ui/TopBar.vue';
+const SETTINGS_MODAL = 'src/renderer/src/ui/StageSettings.vue';
+const DEVICES_MODAL = 'src/renderer/src/ui/StageDevices.vue';
 /** G3 申报偏离：MarketPanel 自带安装确认卡（scrim+sheet 模态，z-index 100 与上两模态同档），
  *  是第三个模态宿主——层级序不变量里模态本就在标题栏之上，故入豁免集。 */
-const MARKET_PANEL = 'src/renderer/src/components/MarketPanel.vue';
+const MARKET_PANEL = 'src/renderer/src/ui/StageMarket.vue';
 /** V7 申报偏离：新壳的 StageMarket 同样是「面板 + 模态宿主」混合体（安装确认卡 + toast），
  *  照 MarketPanel 的先例做**值级**豁免（只放行 100），面板内其余元素仍须低于标题栏。 */
 const STAGE_MARKET = 'src/renderer/src/ui/StageMarket.vue';
@@ -63,45 +63,39 @@ function numericZIndexes(src: string): number[] {
 const TITLEBAR_Z = 50;
 
 describe('TitleBar 层级遮盖修复：源文本守卫', () => {
-  it('.titlebar 必须同时有 position 与 z-index（缺任一则层叠上下文陷阱复发）', () => {
-    const block = titlebarBlock();
-    // MU3 材质已退场：滤镜不得回潮（反转断言——若重新引入，层叠上下文陷阱的前提即复发）
-    expect(block).not.toMatch(/backdrop-filter/);
-    expect(block).toMatch(/position:\s*(relative|sticky|absolute|fixed)/);
-    expect(block).toMatch(new RegExp(`z-index:\\s*${TITLEBAR_Z}\\b`));
+  /* 「.titlebar 必须同时有 position 与 z-index」在 T6e-3 退场：新树的 ui/TopBar.vue
+     在正常流里，没有 position 也没有 z-index，因为**没有需要抬升的子树**——
+     设置 / 设备这些当年的模态现在是独立舞台视图，标题栏里不再挂下拉菜单。
+     50 这个档位保留为**空置的防御性槽位**（见下两例的上下界），文件头注释第 12-13 行
+     早就预写了这个理由。 */
+
+  it('模态层必须高于标题栏槽位（模态要能盖住一切）', () => {
+    // T6e-3 重指：当年的「设置模态 / 设备模态」在新树里是**独立舞台视图**，
+    // 平铺在主体里、没有 z-index 也不该有。现在真正的模态只剩 StageMarket 的
+    // 安装确认卡与 toast（100）。断言随之收窄到「凡是模态，都在 50 之上」。
+    const zs = numericZIndexes(read(STAGE_MARKET));
+    expect(zs.length, 'StageMarket 的模态层没了？').toBeGreaterThan(0);
+    for (const z of zs) expect(z).toBeGreaterThan(TITLEBAR_Z);
   });
 
-  it('两个模态的层级必须高于标题栏（模态要能盖住标题栏）', () => {
-    for (const f of [SETTINGS_MODAL, DEVICES_MODAL]) {
-      const zs = numericZIndexes(read(f));
-      expect(zs.length).toBeGreaterThan(0);
-      for (const z of zs) expect(z).toBeGreaterThan(TITLEBAR_Z);
-    }
-  });
-
-  it('主体内所有 z-index 必须低于标题栏（否则会盖住下拉菜单）', () => {
-    const exempt = new Set([TITLEBAR, SETTINGS_MODAL, DEVICES_MODAL].map(p => path.join(root, p)));
-    const marketPanelPath = path.join(root, MARKET_PANEL);
-    const stageMarketPath = path.join(root, STAGE_MARKET);
+  it('主体内所有 z-index 必须低于标题栏槽位（这是本文件真正的资产）', () => {
+    // 这一例是全树递归扫描，不锚任何单个文件——T6d 就是靠它逮到 StageMarket
+    // 把模态 z-index 写在主体档（40/50）的。清场后旧组件树消失，扫描面自动收敛到新树。
+    const exempt = new Set([path.join(root, STAGE_MARKET)]);
     const offenders: string[] = [];
     for (const file of walk(rendererDir)) {
       if (exempt.has(file)) continue;
       for (const z of numericZIndexes(fs.readFileSync(file, 'utf8'))) {
-        // G3 申报偏离：MarketPanel 是面板 + 模态宿主混合体——确认卡遮罩与两模态同档（100）
-        // 放行，面板内其余元素仍须低于标题栏（豁免到文件级会让面板内容失去守卫）。
-        if (file === marketPanelPath && z === 100) continue;
-        if (file === stageMarketPath && z === 100) continue;
         if (z >= TITLEBAR_Z) offenders.push(`${path.relative(root, file)}: z-index ${z}`);
       }
     }
-    expect(offenders).toEqual([]);
+    expect(offenders, `这些元素越过了标题栏槽位（${TITLEBAR_Z}）`).toEqual([]);
   });
 
-  it('下拉菜单 .pop 的 z-index 低于标题栏自身（它只在 titlebar 内部生效）', () => {
-    const m = read(TITLEBAR).match(/\.pop\s*\{([\s\S]*?)\}/);
-    expect(m).not.toBeNull();
-    const z = numericZIndexes(m![1]);
-    expect(z.length).toBe(1);
-    expect(z[0]).toBeLessThan(TITLEBAR_Z);
+  it('模态宿主的豁免是**值级**的：面板内其余元素仍须低于槽位', () => {
+    // 文件级豁免会让整个面板失去守卫（镇魂碑第 5 条：豁免要做值级不做文件级）。
+    for (const z of numericZIndexes(read(STAGE_MARKET))) {
+      expect([100, 110], `StageMarket 里出现了非模态档的高 z-index: ${z}`).toContain(z);
+    }
   });
 });

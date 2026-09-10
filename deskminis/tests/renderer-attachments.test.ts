@@ -9,8 +9,11 @@ const root = path.resolve(__dirname, '..');
 const readSrc = (rel: string): string =>
   fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n');
 
-const chatView = readSrc('src/renderer/src/components/ChatView.vue');
+// T6e-3 重指：输入卡（历史/@文件/自增高/附件）从 ChatView 独立成 ui/Composer.vue。
+const chatView = readSrc('src/renderer/src/ui/Composer.vue');
 const chatStore = readSrc('src/renderer/src/stores/chat.ts');
+// 历史消息里的附件 chip 留在会话视图，草稿态在输入卡——换壳后两边分家了
+const stage = readSrc('src/renderer/src/ui/StageChat.vue');
 
 describe('renderer 附件进模型：ChatView 源码守卫', () => {
   it('send() 把 pendingAttachments 的 path 数组传给 chat.send，不再拼 attachNote 尾注', () => {
@@ -23,17 +26,20 @@ describe('renderer 附件进模型：ChatView 源码守卫', () => {
 
   it('用户消息渲染 mediaRef chip：📎 样式 + originalFileName/文件名兜底，不加载图片字节', () => {
     // 模板里有 mediaRef 分支（历史消息 parts 渲染附件 chip）
-    expect(chatView).toContain("p.type === 'mediaRef'");
-    expect(chatView).toContain('📎');
+    // 新写法是早退过滤（p?.type !== 'mediaRef' → continue），语义同一件事：
+    // 只挑出 mediaRef part 来渲 chip。锚「认得出这个 part 类型」而不是某种写法。
+    expect(stage).toMatch(/p\??\.type\s*[!=]==\s*'mediaRef'/);
+    // 📎 emoji 换成了 UiIcon 的 file 图标（新树统一走图标集，不混用 emoji）
+    expect(stage).toMatch(/UiIcon name="file"/);
     // chip 文案：优先 originalFileName，否则从 relativePath 取文件名
-    expect(chatView).toContain('originalFileName');
-    // 不做 IPC 读图：历史 chip 是纯文本样式，不出现针对历史消息的 img 加载
-    expect(chatView).not.toContain('attachments.read');
+    expect(stage).toContain('originalFileName');
+    // 不做 IPC 读图：历史 chip 只用元数据，不出现针对历史消息的图片字节加载
+    expect(stage).not.toContain('attachments.read');
   });
 
   it('发送键禁用条件放宽：文本为空但有附件可发送', () => {
     // canSend 由「有文本」放宽为「有文本或有附件」
-    expect(chatView).toContain('pendingAttachments.value.length > 0');
+    expect(chatView).toMatch(/atts\.value\.length/);  // 草稿附件态改名 pendingAttachments → atts
     expect(chatView).not.toMatch(/canSend = computed\(\(\) => input\.value\.trim\(\)\.length > 0 && !chat\.running\)/);
   });
 });

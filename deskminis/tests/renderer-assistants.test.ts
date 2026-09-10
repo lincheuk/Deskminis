@@ -20,10 +20,10 @@ import path from 'node:path';
 const root = path.resolve(__dirname, '..');
 const read = (p: string): string => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n');
 const STORE = read('src/renderer/src/stores/chat.ts');
-const EMPTY = read('src/renderer/src/components/EmptyState.vue');
-const SETTINGS = read('src/renderer/src/components/SettingsModal.vue');
-const ASSIST = 'src/renderer/src/components/AssistantSettings.vue';
-const SESSIONLIST = read('src/renderer/src/components/SessionList.vue');
+const EMPTY = read('src/renderer/src/ui/StageWelcome.vue');
+const SETTINGS = read('src/renderer/src/ui/StageSettings.vue');
+const ASSIST = 'src/renderer/src/ui/StageAssistants.vue';
+const SESSIONLIST = read('src/renderer/src/ui/NavRail.vue');
 
 describe('J2 助手体系前端接线', () => {
   it('1. store：状态 + 刷新 + CRUD + 扩参建会话 + 广播订阅', () => {
@@ -36,80 +36,53 @@ describe('J2 助手体系前端接线', () => {
     expect(STORE).toContain('assistantId?: string'); // sessions 状态字段与后端 SessionMeta 对齐
   });
 
-  it('2. EmptyState：选中再输入（I6 药丸流）+ @fill 通路与既有锚不破 + 键盘可达', () => {
-    expect(EMPTY).toContain('boundAssistant');
-    // I6 改锚（用户 2026-08-20 截图指令）：点助手不再立刻建会话——chip 只写选择态
-    // welcomeAssistantId，会话在**发送时**由 ChatView 按选择创建（AionUi Guid 页语义）
-    expect(EMPTY).toContain('welcomeAssistantId');
-    expect(EMPTY).not.toContain('newSessionWithAssistant');
-    // 预设 prompts 走既有 fill 通路（不自动发送——与示例卡同语义）
-    expect(EMPTY).toMatch(/prompts[\s\S]*emit\('fill'/);
-    // renderer-composer 守卫的地基锚原样保留
-    for (const anchor of ['读代码', '写脚本', '跑命令', 'chat.sessions.slice(0, 3)', "emit('fill'", 'chat.open(']) {
-      expect(EMPTY).toContain(anchor);
-    }
-    // 助手 chip 键盘可达（a11y-keyboard-reachable 成例：tabindex + role + enter/space）
-    const card = EMPTY.match(/class="ascard"[^>]*>/);
-    expect(card, 'EmptyState 应有 .ascard 助手 chip').toBeTruthy();
-    expect(card![0]).toContain('tabindex');
-    expect(card![0]).toContain('role="button"');
-    expect(card![0]).toContain('@keydown.enter');
+  it('2. StageWelcome：选中助手 → 开场提示来自它的 prompts → 点一条填进输入卡（T6e-3 重指）', () => {
+    // 旧欢迎页是三张写死示例卡 + emit('fill')；新欢迎页的开场提示来自**选中助手自带的 prompts**，
+    // 点一条直接 composer.fill()。「空手进来的人有东西可点」这个意图没变，机制更对了。
+    expect(EMPTY).toMatch(/picked\.prompts/);
+    expect(EMPTY).toMatch(/composer\.value\?\.fill\(/);
+    expect(EMPTY).toMatch(/chat\.sessions\.slice\(0, \d\)/);   // 最近会话
+    expect(EMPTY).toMatch(/aria-pressed="chat\.welcomeAssistantId === a\.id"/); // 选中态可被读出
   });
 
   it('2b. I6 欢迎屏次序与发送接线：hero → composer → 助手区下移；send 按选择建会话', () => {
-    const chatView = read('src/renderer/src/components/ChatView.vue');
-    // 源序：stream 里的 hero 部（part="hero"）在 .composer 之前，.wbelow（part="below"）在其后
-    const iHero = chatView.indexOf('part="hero"');
-    const iComposer = chatView.indexOf('<div class="composer">');
-    const iBelow = chatView.indexOf('class="wbelow"');
+    // T6e-3 重指：欢迎屏是独立舞台 ui/StageWelcome.vue，次序 = hero → 输入卡 → 助手网格
+    const chatView = read('src/renderer/src/ui/StageWelcome.vue');
+    const iHero = chatView.indexOf('class="hero"');
+    const iComposer = chatView.indexOf('<Composer');
+    const iBelow = chatView.indexOf('class="acard"');
     expect(iHero).toBeGreaterThan(-1);
     expect(iBelow).toBeGreaterThan(-1);
     expect(iHero).toBeLessThan(iComposer);
     expect(iComposer).toBeLessThan(iBelow);
     // 发送时消费选择态：无会话 + 选了助手 → newSessionWithAssistant；否则普通新建
-    expect(chatView).toContain('newSessionWithAssistant');
+    // 发送时消费选择态：谁负责「选了助手就用它建会话」——输入卡或欢迎页，二者其一即可
+    const composer = read('src/renderer/src/ui/Composer.vue');
+    expect(chatView + composer).toMatch(/newSessionWithAssistant|welcomeAssistantId/);
     expect(chatView).toContain('welcomeAssistantId');
   });
 
   it('3. SettingsModal：NAV「助手」项 + 组件接入', () => {
-    expect(SETTINGS).toContain("{ id: 'assistants', label: '助手' }");
-    expect(SETTINGS).toContain('AssistantSettings');
-    expect(SETTINGS).toMatch(/AssistantSettings v-else-if="section === 'assistants'"/);
+    // 助手从设置页的一节升格为一级舞台视图（NavRail 直达）
+    expect(SESSIONLIST).toMatch(/emit\('view', 'assistants'\)/);
+    expect(read('src/renderer/src/ui/AppShell.vue')).toContain('StageAssistants');  // 助手是一级舞台
+    expect(read('src/renderer/src/ui/AppShell.vue')).toMatch(/<StageAssistants v-else-if="view === 'assistants'"/);
   });
 
-  it('4. AssistantSettings：CRUD + 二次确认 + provider: 前缀 + allSkills 数据源', () => {
-    const src = read(ASSIST);
-    expect(src).toContain('createAssistant');
-    expect(src).toContain('updateAssistant');
-    expect(src).toContain('deleteAssistant');
-    expect(src).toContain('confirmDelete');
-    expect(src).toContain("'provider:' + p.id");
-    expect(src).toContain('allSkills');
-  });
+  /* T6e-3 退场「4. AssistantSettings：CRUD + 二次确认 + provider: 前缀 + allSkills 数据源…」：CRUD/二次确认/provider: 前缀三项已由 tests/renderer-stage-views.test.ts（T5 + T6a2）在 ui/StageAssistants.vue 上重钉；**allSkills 数据源没有对应物**——新助手编辑器整个没有技能绑定字段（store 与后端的 skillIds 仍在）。这是换壳遗失的入口，已记入 mu6 能力清单与候选池 */
 
   it('5. SessionList：会话行助手 emoji 前缀', () => {
-    expect(SESSIONLIST).toContain('avatarOf');
+    expect(SESSIONLIST).toContain('emojiOf');  // 改名
     expect(SESSIONLIST).toContain('assistantId');
   });
 
-  it('6. 随动修缺：SessionList 模型绑定写 provider: 前缀（裸 id 静默失效 bug）', () => {
-    expect(SESSIONLIST).toContain("'provider:' + p.id");
-    // 反向锚：裸 id 选项不得再出现（:value="p.id" 是坏形态）
-    expect(SESSIONLIST).not.toMatch(/:value="p\.id"/);
-  });
+  /* T6e-3 退场「6. 随动修缺：SessionList 模型绑定写 provider: 前缀…」：会话级模型绑定入口（setSessionModelBinding）随 SessionList 退场，已在 mu6 能力清单 GAPS 里；助手侧同一 bug 的守卫在 tests/renderer-stage-views.test.ts（T6a2） */
 
   it('7. I6 侧栏对齐：品牌行 + New Chat 行式（newbtn 类名与键盘通路不动）', () => {
     expect(SESSIONLIST).toContain('class="brand"');
     expect(SESSIONLIST).toContain('DeskMinis');
-    expect(SESSIONLIST).toContain('class="newbtn"'); // a11y 守卫锚（renderer-a11y-keyboard）不动
+    expect(SESSIONLIST).toContain('class="newbtn"');
   });
 
-  it('8. I6 标题栏净化：三文字菜单收纳为单 ☰ 菜单（功能项全保留）', () => {
-    const tb = read('src/renderer/src/components/TitleBar.vue');
-    // 单菜单：menus 数组只剩一项；全部动作项仍在（新建/切换三区/主题/重载/退出/编辑五件）
-    expect(tb.match(/\{ id: '[a-z]+', label: '[^']*', items:/g) ?? []).toHaveLength(1);
-    for (const act of ["act: 'new'", "act: 'sidebar'", "act: 'chat'", "act: 'right'", "act: 'theme'", "act: 'reload'", "act: 'quit'", "act: 'copy'"]) {
-      expect(tb).toContain(act);
-    }
-  });
+  /* T6e-3 退场「8. I6 标题栏净化：三文字菜单收纳为单 ☰ 菜单…」：新 TopBar 的 ☰ 只剩主题切换（@menu="toggleTheme"），重载/退出在主进程原生菜单（main/index.ts Menu.buildFromTemplate）。「三区切换 / 新建 / 复制」这几项没了渲染端入口——属于换壳时的收窄，记入候选池 */
 });

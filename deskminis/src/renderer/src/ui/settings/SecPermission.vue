@@ -7,7 +7,9 @@ import UiIcon from '../UiIcon.vue';
 const chat = useChat();
 type Tier = 'ask' | 'session' | 'full';
 const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: boolean }[] = [
-  { tier: 'ask', icon: 'shield', title: '每次确认', sub: '工作区内文件直接放行；其余每次询问' },
+  // T6e-3 补搬：旧设置页写明了「90 秒未响应自动拒绝」，换壳时丢了。用户不知道这一点，
+  // 就会以为离开一会儿回来任务还等着——其实已经按拒绝跑完了。
+  { tier: 'ask', icon: 'shield', title: '每次确认', sub: '工作区内文件直接放行；其余每次询问，90 秒没回应按拒绝处理' },
   { tier: 'session', icon: 'clock', title: '本会话沿用', sub: '批准过的命令原样重复时不再询问' },
   { tier: 'full', icon: 'alert', title: '完全访问', sub: '不再询问任何操作；不可逆的系统操作仍拦截', danger: true },
 ];

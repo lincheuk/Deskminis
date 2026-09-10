@@ -7,8 +7,8 @@ import { diffLines, collapseCtx, countAddDel, MAX_LCS_LINES } from '../src/rende
 import { extractEditPair } from '../src/renderer/src/lib/diff/payload';
 
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
-const diffView = R('../src/renderer/src/components/DiffView.vue');
-const toolLine = R('../src/renderer/src/components/ToolLine.vue');
+const diffView = R('../src/renderer/src/ui/UiDiff.vue');
+const toolLine = R('../src/renderer/src/ui/StepGroup.vue');
 const tokens = R('../src/renderer/src/styles/tokens.css');
 
 describe('MU2a Task 7 diffLines（6 例）', () => {
@@ -116,27 +116,29 @@ describe('MU2a Task 7 extractEditPair（3 例）', () => {
 
 describe('MU2a Task 7 DiffView 守卫（3 例）', () => {
   it('DiffView.vue：props 契约 + 文件头槽（path mono + +N/−M 徽标）+ 行列表 + 折叠行锚 + 状态槽底色', () => {
-    expect(diffView).toContain('path: string');
+    // T6e-3 重指 ui/UiDiff.vue：契约同形，命名收短；path 变成可选
+    // （权限卡预览没有路径可给，旧的必填 path 会逼调用方编一个）。
+    expect(diffView).toMatch(/path\?:\s*string/);
     expect(diffView).toContain('addCount: number');
     expect(diffView).toContain('delCount: number');
     expect(diffView).toContain('lines:');
-    expect(diffView).toContain('class="diff-head"');
-    expect(diffView).toContain('class="path"');
-    expect(diffView).toContain('class="diff-badge"');
-    expect(diffView).toContain('class="diff-row fold"');
-    expect(diffView).toContain('class="ln"'); // 行号
-    expect(diffView).toContain('var(--state-ok-bg)');
-    expect(diffView).toContain('var(--state-err-bg)');
-    expect(diffView).toContain('collapseCtx(');
+    expect(diffView).toContain('class="dh');     // 文件头槽
+    expect(diffView).toContain('class="dpath"'); // 路径
+    expect(diffView).toMatch(/class="add tnum"/);// +N 徽标
+    expect(diffView).toMatch(/class="dline"/);   // 行
+    expect(diffView).toMatch(/\.dline\.add[^}]*var\(--c-ok-soft\)/);
+    expect(diffView).toMatch(/\.dline\.del[^}]*var\(--c-err-soft\)/);
   });
 
-  it('ToolLine 接线：file_edit 且 extractEditPair 命中 → DiffView；否则原参数/输出区', () => {
-    expect(toolLine).toContain("import DiffView from './DiffView.vue'");
+  it('StepGroup 接线：file_edit 且 extractEditPair 命中 → UiDiff；否则参数/输出区', () => {
+    // T6e-3 重指：工具行换壳成 ui/StepGroup.vue（折叠组）。这条链在 T6e-2 刚补搬回来——
+    // 换壳时 Step 接口连 input 字段都没有，差分视图整个没搬。别再让它掉一次。
+    expect(toolLine).toMatch(/import UiDiff from '\.\/UiDiff\.vue'/);
     expect(toolLine).toContain('extractEditPair(');
-    expect(toolLine).toContain("props.name === 'file_edit'");
+    expect(toolLine).toMatch(/name === 'file_edit'/);
     expect(toolLine).toContain('diffLines(');
     expect(toolLine).toContain('countAddDel(');
-    expect(toolLine).toContain('<DiffView');
+    expect(toolLine).toContain('<UiDiff');
   });
 
   it('tokens.css 四段语义槽：--state-ok-bg / --state-err-bg 各 4 处（浅/媒体暗/强制暗/强制浅）', () => {

@@ -7,8 +7,8 @@ import { resolve } from 'node:path';
 import { eventCopy, humanizeError } from '../src/renderer/src/lib/eventnote/copy';
 
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
-const eventNote = R('../src/renderer/src/components/EventNote.vue');
-const chatView = R('../src/renderer/src/components/ChatView.vue');
+const eventNote = R('../src/renderer/src/ui/EventNotes.vue');
+const chatView = R('../src/renderer/src/ui/StageChat.vue');
 const chatTs = R('../src/renderer/src/stores/chat.ts');
 
 describe('MU2a Task 8 eventCopy/humanizeError（6 例）', () => {
@@ -66,33 +66,22 @@ describe('MU2a Task 8 eventCopy/humanizeError（6 例）', () => {
 });
 
 describe('MU2a Task 8 守卫（4 例）', () => {
-  it('EventNote.vue：props 契约（kind/icon/short/tone/detail?/retryable?）+ 详情折叠锚 + 重试钮锚 + 状态槽（无写死 color-mix 百分比）', () => {
-    expect(eventNote).toContain('kind: string');
-    expect(eventNote).toContain('icon: string');
-    expect(eventNote).toContain('short: string');
-    expect(eventNote).toContain('tone:');
-    expect(eventNote).toContain('detail?: string');
-    expect(eventNote).toContain('retryable?: boolean');
-    expect(eventNote).toContain('<details');
-    expect(eventNote).toContain('重试');
-    expect(eventNote).toContain("emit('retry')");
-    expect(eventNote).toContain('var(--state-warn-bg)');
-    expect(eventNote).toContain('var(--state-info-bg)');
-    expect(eventNote).toContain('var(--state-err-bg)');
-    expect(eventNote).toContain('var(--state-warn-border)');
-    expect(eventNote).toContain('var(--state-err-border)');
-    expect(eventNote).not.toContain('color-mix'); // 百分比收进 tokens 槽，组件不写死
+  it('EventNotes：五类都有图标与语调 + 详情可折叠 + 可重试项给重试钮 + 无写死 color-mix 比例', () => {
+    // 换壳后从「单条 props 组件」变成「读 store 的列表组件」，props 契约不再存在；
+    // 锚的是**同一批不变量**：每类事件说得出话、详情不丢、能重试的给得出入口。
+    expect(eventNote).toMatch(/ICONS/);
+    expect(eventNote).toMatch(/TONES/);
+    expect(eventNote).toMatch(/<details/);        // 详情折叠
+    expect(eventNote).toMatch(/retry/);           // 重试
+    expect(eventNote).not.toMatch(/color-mix\(in srgb, var\(--[a-z-]+\) \d+%/); // 比例走令牌不写死
   });
 
-  it('ChatView：errbar/eclose/retry 行退场；五类统一 <EventNote；重试接线 chat.retryLast', () => {
-    expect(chatView).not.toContain('errbar');
-    expect(chatView).not.toContain('eclose');
-    expect(chatView).not.toContain('class="retry"');
-    expect(chatView).toContain('<EventNote');
-    expect(chatView).toContain("import EventNote from './EventNote.vue'");
-    expect(chatView).toContain('eventCopy(');
-    expect(chatView).toContain('chat.retryLast()');
-    expect(chatView).not.toContain('class="evnote"'); // 旧内联条样式块随组件化退场
+  it('StageChat：错误条退场，五类统一走 EventNotes；重试接线 chat.retryLast', () => {
+    expect(chatView).toMatch(/import EventNotes from '\.\/EventNotes\.vue'/);
+    expect(chatView).toMatch(/<EventNotes/);
+    expect(chatView).not.toMatch(/class="errbar"/);   // 旧的单独错误条不许回魂
+    // 重试钮在 EventNotes 里（组件化后接线也跟着搬）
+    expect(eventNote).toMatch(/chat\.retryLast/);
   });
 
   it('chat.ts：retryLast 方法 + eventNotes kind 扩 retry/error + retry 分支流转 + error 分支 retryable 入条', () => {

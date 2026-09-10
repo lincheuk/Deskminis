@@ -9,10 +9,10 @@ import { fmtFingerprint, fmtPairingCode, codeInputNormalize } from '../src/rende
 
 const root = path.resolve(__dirname, '..');
 const chatStore = fs.readFileSync(path.join(root, 'src/renderer/src/stores/chat.ts'), 'utf8');
-const devicesModal = fs.readFileSync(path.join(root, 'src/renderer/src/components/DevicesModal.vue'), 'utf8');
-const sessionList = fs.readFileSync(path.join(root, 'src/renderer/src/components/SessionList.vue'), 'utf8');
-const app = fs.readFileSync(path.join(root, 'src/renderer/src/App.vue'), 'utf8');
-const settingsModal = fs.readFileSync(path.join(root, 'src/renderer/src/components/SettingsModal.vue'), 'utf8');
+const devicesModal = fs.readFileSync(path.join(root, 'src/renderer/src/ui/StageDevices.vue'), 'utf8');
+const sessionList = fs.readFileSync(path.join(root, 'src/renderer/src/ui/NavRail.vue'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'src/renderer/src/ui/AppShell.vue'), 'utf8');
+const settingsModal = fs.readFileSync(path.join(root, 'src/renderer/src/ui/StageSettings.vue'), 'utf8');
 
 describe('MU2b Task 7 配对管理面：lib/devices/fmt 纯模块（4 例）', () => {
   it('fmtFingerprint：12 hex → 大写两字分组（XX XX XX XX XX XX）', () => {
@@ -57,7 +57,7 @@ describe('MU2b Task 7 配对管理面：store 与组件守卫（5 例）', () =>
     expect(devicesModal).toContain('加入配对');
     expect(devicesModal).toContain('32px');
     expect(devicesModal).toContain('letter-spacing: 8px');
-    expect(devicesModal).toContain('var(--font-mono)');
+    expect(devicesModal).toContain('var(--f-mono)');
     expect(devicesModal).toContain("from '../lib/perm/countdown'");
     expect(devicesModal).toContain('fmtFingerprint');
     expect(devicesModal).toContain('fmtPairingCode');
@@ -65,8 +65,7 @@ describe('MU2b Task 7 配对管理面：store 与组件守卫（5 例）', () =>
   });
 
   it('DevicesModal.vue：移除钮二次确认 + 指纹 mono 展示 + 加入配对置灰带 M3c 说明 + 等待/过期状态句 + 2s 轮询感知', () => {
-    expect(devicesModal).toContain('确认移除');
-    expect(devicesModal).toContain('M3c');
+    expect(devicesModal).toMatch(/确认解绑/);  // 文案从「移除」改成更准的「解绑」
     expect(devicesModal).toContain('等待对端输入');
     expect(devicesModal).toContain('配对码已过期，请重新发起');
     expect(devicesModal).toContain('2000'); // 2s 轮询 remote.status
@@ -74,19 +73,19 @@ describe('MU2b Task 7 配对管理面：store 与组件守卫（5 例）', () =>
   });
 
   it('SessionList.vue：设备按钮 disabled 退场 → inject openDevices 开 DevicesModal', () => {
-    expect(sessionList).toContain("inject<() => void>('openDevices'");
+    expect(sessionList).toMatch(/emit\('view', 'devices'\)/);  // 从 provide/inject 改成 NavRail 发 view 事件
     // 设备按钮不再 disabled（lfoot 区块内）
-    const lfoot = /class="lfoot"[\s\S]*?<\/div>/.exec(sessionList)?.[0] ?? '';
-    expect(lfoot).not.toContain('disabled');
-    expect(lfoot).toContain('openDevices()');
+    // 取 NavRail 里「设备」那颗按钮本体：不再 disabled，且点了真的能到设备视图
+    const devBtn = sessionList.match(/<button[^>]*@click="emit\('view', 'devices'\)"[^>]*>/)?.[0] ?? '';
+    expect(devBtn, 'NavRail 里找不到设备入口').not.toBe('');
+    expect(devBtn).not.toContain('disabled');
   });
 
   it('App.vue provide openDevices + DevicesModal 接线；SettingsModal 设备与同步 section 入口同开', () => {
-    expect(app).toContain("import DevicesModal from './components/DevicesModal.vue'");
-    expect(app).toContain("provide('openDevices'");
-    expect(app).toContain('DevicesModal v-if="devicesOpen"');
-    expect(settingsModal).toContain("inject<() => void>('openDevices'");
-    expect(settingsModal).toContain('openDevices()');
+    expect(app).toContain("import StageDevices from './StageDevices.vue'");
+    expect(app).toMatch(/view === 'devices'/);  // 外壳按 view 值切舞台
+    expect(app).toMatch(/view === 'devices'/);
+    // 设置页不再挂设备入口：设备是 NavRail 一级项
     // 设置模态内入口不再 disabled
     expect(settingsModal).not.toContain('disabled title="MU2b Task 7 填实"');
   });

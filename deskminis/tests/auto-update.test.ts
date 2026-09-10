@@ -22,7 +22,9 @@ const main = read('src/main/index.ts');
 const preload = read('src/preload/index.ts');
 const builder = read('electron-builder.yml');
 const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string>; version: string };
-const settings = read('src/renderer/src/components/SettingsModal.vue');
+// T6e-3 重指：设置从模态变成舞台视图，「关于」独立成一节
+const settings = read('src/renderer/src/ui/StageSettings.vue');
+const about = read('src/renderer/src/ui/settings/SecAbout.vue');
 
 describe('自动更新 · 装配（3 例）', () => {
   it('electron-updater 是运行时依赖，不是 devDependency', () => {
@@ -75,8 +77,10 @@ describe('自动更新 · 开关归主进程（3 例）', () => {
 
   it('设置里有「关于与更新」页：显示版本号 + 开关 + 手动检查', () => {
     // 顺带补上「看不到自己在跑哪个版本」这个缺口——用户报 bug 时第一句就是版本号。
-    expect(settings).toMatch(/\{ id: 'about', label: '关于与更新' \}/);
-    expect(settings).toMatch(/section === 'about'/);
-    expect(settings).toMatch(/appVersion/);
+    // 锚「有这一节且能进去」，不锚节的字面标签——叫「关于」还是「关于与更新」是文案自由
+    expect(settings).toMatch(/k:\s*'about'/);
+    expect(settings).toMatch(/'about'/);
+    // 版本号要真的显示出来：用户报 bug 时第一句就是版本号
+    expect(about).toMatch(/version/);
   });
 });

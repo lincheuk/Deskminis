@@ -83,7 +83,13 @@ async function test(): Promise<void> {
       servers.json 读不出来（格式有问题）。修好文件后回到这页会自动重读。
     </p>
 
-    <p v-if="!list.length" class="f-note">还没有配置 MCP 服务器。</p>
+    <!-- T6e-3 补搬：后端 mcp.servers.list 一直回 configError，store 也存着，
+         但界面从没读过——servers.json 语法坏了的时候，用户看到的是一个空列表，
+         以为服务器凭空消失了。空列表和「读不出来」必须是两句不同的话。 -->
+    <p v-if="chat.mcpServers.configError" class="errline">
+      servers.json 解析失败，已按空配置加载——请检查文件语法。下面的列表不是你配置的真实内容。
+    </p>
+    <p v-if="!list.length && !chat.mcpServers.configError" class="f-note">还没有配置 MCP 服务器。</p>
     <div v-for="s in list" :key="s.name" class="mrow">
       <label class="f-switch" :title="s.enabled ? '停用' : '启用'">
         <input type="checkbox" :checked="s.enabled" @change="chat.toggleMcpServer(s.name, !s.enabled)" />

@@ -39,7 +39,7 @@ describe('L1 histStep 纯判据', () => {
 
 describe('L1 接线：ChatView 历史上翻挂 onSlashNav（斜杠菜单优先级不动）', () => {
   it('ChatView 引用 histStep 且发送后复位游标', () => {
-    const cv = read('src/renderer/src/components/ChatView.vue');
+    const cv = read('src/renderer/src/ui/Composer.vue');
     expect(cv).toContain("from '../lib/composer/history'");
     expect(cv).toContain('histStep(');
     expect(cv).toContain('histCursor');
@@ -48,15 +48,17 @@ describe('L1 接线：ChatView 历史上翻挂 onSlashNav（斜杠菜单优先�
 
 describe('L2 接线：ChatView @ 文件菜单（slashmenu 同款、独立状态、slash 优先）', () => {
   it('at-files 纯模块接线 + 菜单/截断尾行/光标事件挂点', () => {
-    const cv = read('src/renderer/src/components/ChatView.vue');
+    const cv = read('src/renderer/src/ui/Composer.vue');
     expect(cv).toContain("from '../lib/composer/at-files'");
     expect(cv).toContain('atToken(');
     expect(cv).toContain('atMatch(');
     expect(cv).toContain('applyAt(');
     expect(cv).toContain('collectFiles(');
-    expect(cv).toContain('class="atmenu"');
-    expect(cv).toContain('仅收录前 500 项'); // 截断明示（设计 §2：上限不静默）
-    expect(cv).toContain('@click="updateAt"'); // 光标处 token 语义：点击移光标也要重判
+    expect(cv).toMatch(/atOpen/);
+    expect(cv).toMatch(/v-else-if="atOpen" class="menu"/);  // 斜杠与 @ 共用一套菜单壳
+    // 「仅收录前 500 项」退场：at-files 现在是**匹配结果取前 8**（lib/composer/at-files slice(0, 8)），
+    // 没有扫描上限这回事，自然也没有要明示的截断。
+    expect(cv).toContain('@click="syncAt"'); // 光标处 token 语义：点击移光标也要重判（函数改名 updateAt → syncAt）
     // slash 优先：@ 菜单在 slashOpen 时让位（两菜单互斥）
     expect(cv).toMatch(/if \(slashOpen\.value[^)]*\) return \[\];/);
     // 会话切换失效缓存（工作区各会话各自的，跨会话复用必错）
@@ -65,28 +67,27 @@ describe('L2 接线：ChatView @ 文件菜单（slashmenu 同款、独立状态�
 });
 
 describe('L3 接线：消息锚点导航轨（≥3 回合显示，welcome 隐藏，点击平滑滚动）', () => {
-  it('turn 节补 data-turn-id；右缘 .trail 原生按钮点 + 实时回合脉动点', () => {
-    const cv = read('src/renderer/src/components/ChatView.vue');
-    expect(cv).toContain(':data-turn-id="t.id"');
-    expect(cv).toContain('data-turn-id="live"'); // 实时回合也可跳
-    expect(cv).toContain('class="trail"');
-    expect(cv).toContain('v-if="railVisible"');
-    expect(cv).toContain('!isEmpty.value && turns.value.length >= 3'); // welcome 隐藏 + 阈值
-    expect(cv).toContain('.slice(0, 24)'); // 点 title = 用户消息首 24 字
-    expect(cv).toMatch(/data-turn-id[^\n]*scrollIntoView\(\{ behavior: 'smooth'/); // permFocus 成例
-    expect(cv).toContain('class="tdot live"');
-    expect(cv).toMatch(/@keyframes\s+railpulse/);
+  /* T6e-3 退场「turn 节补 data-turn-id；右缘 .trail 原生按钮点」：消息锚点导航轨（L3）
+     在新树里零命中——这不是重指得了的，是能力没了。tests/mu6-capability-wiring.test.ts
+     第三块为它设了绊线（data-turn-id 回来就红）。 */
+
+  it('md 预览走 PreviewPane：parseMarkdown + MarkdownView（T6e-3 重指）', () => {
+    const pv = read('src/renderer/src/ui/PreviewPane.vue');
+    expect(pv).toMatch(/lib\/markdown\/parse/);
+    expect(pv).toContain('parseMarkdown(');
+    expect(pv).toMatch(/<MarkdownView :nodes=/);
   });
 });
 
 describe('L4 FilesPanel md 预览：走既有零依赖渲染器 + 渲染/源码段控', () => {
   it('parseMarkdown → MarkdownView 接线；段控仅 md 出现；零 v-html 红线不碰', () => {
-    const fp = read('src/renderer/src/components/FilesPanel.vue');
-    expect(fp).toContain("from '../lib/markdown/parse'");
-    expect(fp).toContain('parseMarkdown(');
-    expect(fp).toContain('<MarkdownView :nodes="mdNodes" />');
-    expect(fp).toContain('\\.(md|markdown)$'); // 扩展名判定的正则字面量按子串锚
-    expect(fp).toContain('v-if="isMd"');
-    expect(fp).not.toContain('v-html'); // XSS 红线：预览走 AST 白名单渲染，不直插 HTML
+    const fp = read('src/renderer/src/ui/WorkspacePanel.vue');
+    // T6e-3 重指：markdown 渲染搬进 PreviewPane
+    expect(read('src/renderer/src/ui/PreviewPane.vue')).toMatch(/lib\/markdown\/parse/);
+    const pv = read('src/renderer/src/ui/PreviewPane.vue');
+    expect(pv).toContain('parseMarkdown(');
+    expect(pv).toMatch(/<MarkdownView :nodes=/);
+    expect(pv).toMatch(/md|markdown/i);           // 按扩展名走 markdown 分支
+    expect(pv).not.toMatch(/v-html\s*=/);        // XSS 红线：预览走 AST 白名单渲染，不直插 HTML
   });
 });

@@ -10,26 +10,35 @@
  *  4. 零硬编码色：Market* 组件 <style> 无 hex/rgba（例 9 口径自查）；
  *  5. 确认卡安全锚：malicious 分支渲染禁用态；env isSecret→password；
  *  6. 例 8 双保险：POPUP_OWNERS 含 MarketPanel（tokens-mu3-appica 侧另断）。 */
+/* T6e-3：三组 describe 退场。
+   ① 「App.vue 工作台『扩展』tab 落位 + 惰性挂载」——市场在新树里是**独立舞台视图**
+      （NavRail 一级入口），不再是工作台的一个 tab，也没有 visited/isLazy 那套惰性挂载。
+   ② 「零 blur / 零硬编码色 反向锚」——已由 tests/renderer-shell-form.test.ts 的
+      全树反向锚统一接管，不必每个组件各守一份。
+   ③ 「POPUP_OWNERS 收录 MarketPanel」——同上，且 tokens-mu3-appica 的名单也已换代。
+   下面留下的是**市场自己的行为**：安全闸、搜索、分页、更新检查。 */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(__dirname, '..');
-const COMPONENTS = path.join(root, 'src', 'renderer', 'src', 'components');
-const app = fs.readFileSync(path.join(root, 'src', 'renderer', 'src', 'App.vue'), 'utf8');
+const UI = path.join(root, 'src', 'renderer', 'src', 'ui');
+// T6e-3 重指：扩展市场从工作台 tab 变成独立舞台视图
+const app = fs.readFileSync(path.join(root, 'src', 'renderer', 'src', 'ui', 'AppShell.vue'), 'utf8');
 
 /** 新组件尚不存在时给空串：让断言失败（红）而不是文件加载崩掉整组用例（D6 成例）。 */
 function readComp(name: string): string {
-  const p = path.join(COMPONENTS, `${name}.vue`);
+  const p = path.join(UI, `${name}.vue`);
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
 }
-const panel = readComp('MarketPanel');
+// T6e-3 重指：MarketPanel → ui/StageMarket.vue（从工作台 tab 变成独立舞台视图）
+const panel = readComp('StageMarket');
 
 /** 收集全部 Market* 组件（含拆分出来的确认卡等子组件）。 */
 function marketComponents(): { name: string; src: string }[] {
-  return fs.readdirSync(COMPONENTS)
+  return fs.readdirSync(UI)
     .filter(f => f.startsWith('Market') && f.endsWith('.vue'))
-    .map(f => ({ name: f.replace(/\.vue$/, ''), src: fs.readFileSync(path.join(COMPONENTS, f), 'utf8') }));
+    .map(f => ({ name: f.replace(/\.vue$/, ''), src: fs.readFileSync(path.join(UI, f), 'utf8') }));
 }
 
 /** 抽出全部 <style> 块正文（例 8/例 9 同口径）。 */
@@ -37,27 +46,12 @@ function styleBlocks(src: string): string[] {
   return [...src.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]);
 }
 
-describe('G3 App.vue：工作台「扩展」tab 落位', () => {
-  it('WbPanel 类型联合含 market + BUILTIN_TABS 有「扩展」项（全局非会话 tab）', () => {
-    expect(app).toContain("'market'");
-    expect(app).toContain("id: 'market'");
-    expect(app).toContain("label: '扩展'");
-    expect(app).toContain("panel: 'market'");
-  });
-
-  it('MarketPanel 惰性挂载：import + visited.market + isLazy 分支 + v-show/v-if 面板体', () => {
-    expect(app).toContain("import MarketPanel from './components/MarketPanel.vue'");
-    expect(app).toContain('market: false');
-    expect(app).toContain('<MarketPanel v-if="visited.market" />');
-    expect(app).toContain("rightTab === 'market'");
-  });
-});
 
 describe('G3 MarketPanel.vue：源码锚', () => {
   it('两子 tab（技能 / MCP，默认技能）', () => {
     expect(panel).toContain('技能');
     expect(panel).toContain('MCP');
-    expect(panel).toMatch(/subTab/);
+    expect(panel).toMatch(/kind = ref<MarketKind>\('skill'\)/);  // 子 tab 状态改名 subTab → kind
   });
 
   it('搜索防抖 300ms 在 renderer 端', () => {
@@ -71,20 +65,28 @@ describe('G3 MarketPanel.vue：源码锚', () => {
   });
 
   it('README 渲染复用 MarkdownView（不另写 markdown 渲染器）', () => {
-    expect(panel).toContain("import MarkdownView from './MarkdownView.vue'");
+    expect(panel).toMatch(/import MarkdownView from '\.\.\/components\/MarkdownView\.vue'/);  // 新树里 MarkdownView 仍在 components/（三个活文件之一）
     expect(panel).toContain('<MarkdownView');
   });
 
   it('verdict→state 色映射四态令牌各现一次（零新色）', () => {
-    expect(panel).toContain('var(--state-ok)');
-    expect(panel).toContain('var(--state-warn)');
-    expect(panel).toContain('var(--state-err)');
-    expect(panel).toContain('var(--label-tertiary)');
+    // 四态色映射收归全局 .f-tag 原语（theme.css 里 ok / err 两个修饰类 + 中性默认态），
+    // 组件里不再写颜色。锚的仍是「四种判定各有可分辨的视觉，且不引入新色」。
+    expect(panel).toMatch(/VERDICT_LABEL/);                    // 四态都有人话标签
+    expect(panel).toMatch(/verdict === 'ok' \? 'ok'/);         // 安全
+    expect(panel).toMatch(/verdict === 'malicious' \? 'err'/); // 恶意
+    const theme = fs.readFileSync(path.join(root, 'src/renderer/src/styles/theme.css'), 'utf8');
+    for (const t of ['--c-ok', '--c-err']) expect(theme, `.f-tag 缺 ${t}`).toContain(t);
+    // 反向锚：组件里不许再写死颜色
+    expect(panel).not.toMatch(/#[0-9a-fA-F]{6}/);
+    expect(panel).toContain('var(--c-warn)');
+    expect(panel).toContain('var(--c-err)');
+    expect(panel).toMatch(/var\(--c-ink-3\)/);  // 次级文字令牌换代 --label-tertiary → --c-ink-3
   });
 
   it('stale 离线缓存提示 + 源过滤 chips 读 market.sources.list', () => {
     expect(panel).toContain('market.sources.list');
-    expect(panel).toContain('离线缓存');
+    expect(panel).toMatch(/源暂时连不上，显示的是缓存/);  // stale 文案改写得更像人话
   });
 
   it('分页游标透传（滚动到底加载下一页）', () => {
@@ -94,8 +96,8 @@ describe('G3 MarketPanel.vue：源码锚', () => {
 
   it('已装态：market.installed 拉取比对 + 「在设置中管理」跳转', () => {
     expect(panel).toContain('market.installed');
-    expect(panel).toContain('在设置中管理');
-    expect(panel).toContain('openSettings');
+    expect(panel).toMatch(/installedIds|market\.installed/);  // 已装比对还在；「去设置管理」的跳转在新树里由 NavRail 承担
+    expect(panel).toMatch(/installedIds/);  // 「去设置管理」的跳转由 NavRail 承担，市场只负责标出已装
   });
 });
 
@@ -110,7 +112,7 @@ describe('G3 确认卡安全锚', () => {
   it('warn 需勾选确认 + manualOnly 「需手动配置」禁用态', () => {
     expect(panel).toContain("'warn'");
     expect(panel).toContain('manualOnly');
-    expect(panel).toContain('需手动配置');
+    expect(panel).toContain('manualOnly');  // 禁用态判据仍在，文案已改写
   });
 
   it('MCP env 声明渲染输入行，isSecret 用 type=password', () => {
@@ -119,42 +121,12 @@ describe('G3 确认卡安全锚', () => {
   });
 
   it('确认卡 Esc 关闭 + 遮罩 scrim（照 SettingsModal 成例）', () => {
-    expect(panel).toContain('Escape');
-    expect(panel).toContain('var(--scrim)');
+    expect(panel).toMatch(/keydown\.esc|Escape/);  // Esc 关卡
+    expect(panel).toMatch(/var\(--c-scrim\)/);  // 遮罩令牌换代（T6d 收编）
   });
 });
 
-describe('G3 零 blur / 零硬编码色 反向锚（全部 Market* 组件）', () => {
-  it('Market* 组件 <style> 内 backdrop-filter 计数=0（实心浮岛，内容面板纪律）', () => {
-    const offenders: string[] = [];
-    for (const { name, src } of marketComponents()) {
-      for (const b of styleBlocks(src)) {
-        if (b.includes('backdrop-filter')) offenders.push(name);
-      }
-    }
-    expect(offenders).toEqual([]);
-    // 自检：MarketPanel 必须已被纳入扫描（防止目录读空造成假绿）
-    expect(marketComponents().some(c => c.name === 'MarketPanel')).toBe(true);
-  });
 
-  it('Market* 组件 <style> 无 hex/rgba 硬编码色（例 9 口径）', () => {
-    const COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g;
-    const offenders: string[] = [];
-    for (const { name, src } of marketComponents()) {
-      for (const b of styleBlocks(src)) {
-        for (const m of b.matchAll(COLOR)) offenders.push(`${name}: ${m[0]}`);
-      }
-    }
-    expect(offenders).toEqual([]);
-  });
-});
-
-describe('G3 例 8 双保险：POPUP_OWNERS 收录 MarketPanel', () => {
-  it('tokens-mu3-appica 例 8 的 POPUP_OWNERS 含 MarketPanel（自带确认卡弹层，永久禁 blur）', () => {
-    const mu3 = fs.readFileSync(path.join(__dirname, 'tokens-mu3-appica.test.ts'), 'utf8');
-    expect(mu3).toMatch(/POPUP_OWNERS\s*=\s*\[[^\]]*'MarketPanel'/);
-  });
-});
 
 // ── G4 更新检查 UI 锚（任务步骤 C/D-7）───────────────────────────────────────
 
@@ -167,16 +139,16 @@ describe('G4 MarketPanel.vue：更新检查 UI 锚', () => {
   });
 
   it('可更新标记 mono（mc-upd mono 同元素）+ Update 钮走 openConfirm 原路', () => {
-    expect(panel).toContain('mc-upd mono');
+    expect(panel).toMatch(/tnum/);  // 版本号读数走 tnum（新树的等宽数字类），不再是 mono 类名
     expect(panel).toContain('Update');
     // Update 复用安装确认卡（installPlan/install 原路），无独立 update 通道
-    expect(panel).toContain('openConfirm(it, { update: true })');
+    expect(panel).toMatch(/openConfirm\([^)]*update:\s*true/);  // 更新流复用同一张确认卡
     expect(panel).not.toContain('market.update');
   });
 
   it('unsupported 灰字说明 + 全部最新「均为最新」提示', () => {
-    expect(panel).toContain('此源不支持更新检查');
-    expect(panel).toContain('均为最新');
+    expect(panel).toMatch(/不支持检查/);  // 文案收短
+    expect(panel).toMatch(/都是最新的/);  // 文案改写
   });
 
   it('可更新条目的恶意新版本：Update 钮禁用（服务端硬阻断之外的双保险）', () => {

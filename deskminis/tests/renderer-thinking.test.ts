@@ -50,42 +50,26 @@ describe('thinking 渲染链路守卫', () => {
     expect(store.streamingThinking).toBe('');
   });
 
-  it('ChatView 源码含 ThinkingBlock 两处挂载：实时流式态 + 历史默认收起', () => {
-    const chatView = readSrc('src/renderer/src/components/ChatView.vue');
-    expect(chatView).toContain("import ThinkingBlock from './ThinkingBlock.vue'");
-    // 实时块：streamingThinking 驱动，streaming 态（收起时显示「思考中…」+ 末两行）
-    expect(chatView).toMatch(/<ThinkingBlock[^>]*:text="chat\.streamingThinking"[^>]*streaming/);
-    // 历史块：assistant 消息的 reasoningContent 驱动，默认收起（不传 streaming）
-    expect(chatView).toMatch(/<ThinkingBlock[^>]*:text="m\.reasoningContent"/);
-    expect(chatView.split('<ThinkingBlock').length - 1).toBe(2);
+  it('StageChat 挂 ThinkBlock：实时流式态 + 历史块两条路都在', () => {
+    const chatView = readSrc('src/renderer/src/ui/StageChat.vue');
+    expect(chatView).toMatch(/import ThinkBlock from '\.\/ThinkBlock\.vue'/);
+    expect(chatView).toMatch(/kind === 'think'/);   // 历史侧走回合块
+    expect(chatView).toMatch(/streamingThinking/);  // 实时侧
   });
 
-  it('dots 跳动点排除纯思考阶段：v-if 条件含 !chat.streamingThinking', () => {
-    const chatView = readSrc('src/renderer/src/components/ChatView.vue');
-    const dotsLine = chatView.split('\n').find(l => l.includes('class="dots"'));
-    expect(dotsLine).toBeTruthy();
-    // 纯思考阶段（running + 只有 thinkingDelta）已由 ThinkingBlock 的「思考中…」占位，
-    // dots 不排除 streamingThinking 会与思考块同屏——两套「正在干活」指示叠在一起
-    expect(dotsLine).toContain('!chat.streamingText');
-    expect(dotsLine).toContain('!chat.streamingThinking');
-  });
+  /* 「dots 跳动点排除纯思考阶段」在 T6e-3 退场：新 StageChat 没有 dots 跳动点，
+     思考中的提示由 ThinkBlock 自己的「正在思考」标题承担（live 态自动展开）。
+     原意图——**纯思考阶段不要再叠一个「正在输入」动画**——由「只有一处进行中提示」
+     这件事本身满足，没有第二个动画可叠。 */
 
-  it('ThinkingBlock.vue：折叠交互 + 文案分支 + 流式收起态末两行 + 次级色/--fs-micro；无 v-html', () => {
-    const block = readSrc('src/renderer/src/components/ThinkingBlock.vue');
-    // 折叠交互与 ToolLine 同构：button + aria-expanded + chevron 切换
-    expect(block).toContain('aria-expanded');
-    expect(block).toContain('chevron-down');
-    expect(block).toContain('chevron-right');
-    // 文案分支：流式「思考中…」/ 完成「已思考」
-    expect(block).toContain('思考中…');
-    expect(block).toContain('已思考');
-    // 流式收起态只露最后两行（跟随滚动的窗口感，不把对话流撑高）
-    expect(block).toContain('slice(-2)');
-    // 与正文视觉区分：次级文字色 + micro 字号
-    expect(block).toContain('var(--label-secondary)');
-    expect(block).toContain('var(--fs-micro)');
-    // XSS 红线（同 FadeText 先例）：思考文本只走插值，绝不 v-html
-    expect(block).not.toContain('v-html');
-    expect(block).not.toContain('innerHTML');
+  it('ThinkBlock：折叠交互 + 进行中/已完成文案分支 + 无 v-html', () => {
+    const block = readSrc('src/renderer/src/ui/ThinkBlock.vue');
+    // 「流式收起态只露末两行」与 --fs-micro 两条不搬：新块流式时**默认展开**
+    // （live 即 open），没有「收起态露几行」这个形态；字号走 theme.css 的 --t-* 词汇。
+    expect(block).toMatch(/aria-expanded="open"/);
+    expect(block).toMatch(/正在思考/);
+    expect(block).toMatch(/思考过程/);
+    expect(block).toMatch(/open = ref\(props\.live\)/);
+    expect(block).not.toMatch(/v-html\s*=/);  // 思考正文是模型输出，绝不当 HTML 渲
   });
 });

@@ -20,22 +20,8 @@ describe('L5 store：sessions 镜像 mcpDisabled + setSessionMcpDisabled 动作'
   });
 });
 
-describe('L5 ChatView：composer MCP pill + 行内面板', () => {
-  const cv = read('src/renderer/src/components/ChatView.vue');
-  it('pill 仅活动会话且存在已启用 server 时显示；挂载即拉取 server 列表', () => {
-    expect(cv).toContain('enabledMcpServers');
-    expect(cv).toContain('mcpPillVisible');
-    expect(cv).toContain('v-if="mcpPillVisible"');
-    expect(cv).toContain('fetchMcpServers()'); // 不拉取则 pill 永不出现（mcpServers 初值为空）
-    expect(cv).toContain('class="cpill mcpbtn"');
-  });
-  it('行内面板走 wspanel 成例（非浮层，.ctools overflow 裁浮层的老坑）；逐 server checkbox「本会话禁用」', () => {
-    expect(cv).toContain('class="mcpanel"');
-    expect(cv).toContain('本会话禁用');
-    expect(cv).toContain('setSessionMcpDisabled(');
-    expect(cv).toContain('下一回合'); // 生效时点文案（设计 §5：面板说明禁用生效时机）
-    // 两个行内面板互斥展开：都开着会把 composer 顶出屏（336px 窄列实测过 wspanel 挤压事故）
-    expect(cv).toMatch(/wsOpen\.value = false;?\s*\n?\s*mcpOpen\.value = !mcpOpen\.value/);
-    expect(cv).toMatch(/mcpOpen\.value = false;?\s*\n?\s*wsOpen\.value = !wsOpen\.value/);
-  });
-});
+/* T6e-3：「L5 ChatView：composer MCP pill + 行内面板」整组退场。
+   会话级 MCP 禁用入口（输入卡上的 pill + 行内逐 server 勾选「本会话禁用」）随 ChatView 退场，
+   新树没有重建——`setSessionMcpDisabled` 在 ui/ 下零引用。**这是能力缺失，不是重指得了的**。
+   守它的是 tests/mu6-capability-wiring.test.ts 的 GAPS 绊线：谁补上入口那条就红，逼他更新清单。
+   上面 store 例照旧——能力在后端与 store 里都还在，补入口之前别把它当死代码清掉。 */

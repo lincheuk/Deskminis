@@ -13,7 +13,7 @@ const readSrc = (rel: string): string =>
 
 const mdView = readSrc('src/renderer/src/components/MarkdownView.vue');
 const mdInline = readSrc('src/renderer/src/components/MarkdownInline.vue');
-const chatView = readSrc('src/renderer/src/components/ChatView.vue');
+const chatView = readSrc('src/renderer/src/ui/StageChat.vue');
 const icon = readSrc('src/renderer/src/components/Icon.vue');
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -63,17 +63,19 @@ describe('MU2a Task 2 MarkdownView 源文本守卫（5 例）', () => {
       expect(mdView + mdInline).toContain(c);
     }
     // ChatView 两处增量替换：历史正文 + 流式文本
-    expect(chatView).toContain("import MarkdownView from './MarkdownView.vue'");
+    // 会话视图从 ui/ 引 components/ 里仍活的 MarkdownView（三个活文件之一）
+    expect(chatView).toMatch(/import MarkdownView from '\.\.\/components\/MarkdownView\.vue'/);
     expect(chatView).toContain(':nodes="mdOf(');
-    expect(chatView).toContain(':nodes="streamStable"'); // Task 3 同步修订：流式区拆为稳定区 Markdown + 尾部 FadeText
+    // 「稳定区 streamStable + 尾部 FadeText」两区模型已随 T6e-1 退场；流式正文整段走 MarkdownView
+    expect(chatView).toMatch(/<MarkdownView[^>]*:nodes=/);
     // 用户消息不渲染 Markdown（§5.1）
-    expect(chatView).toContain('{{ t.user.text }}'); // Task 5 同步修订：回合结构下用户正文为 turns 预计算纯文本插值
-    expect(chatView).toContain('userText(m)'); // 纯文本提取函数仍是唯一用户正文来源
+    expect(chatView).toMatch(/\{\{ textOf\(t\.user\) \}\}/); // 用户正文仍是纯文本插值（不走 markdown、不走 v-html）
+    expect(chatView).toMatch(/textOf\(t\.user\)/); // 纯文本提取函数（userText → textOf）仍是唯一用户正文来源
     // .atext 让位 MarkdownView 内部排版
     expect(chatView).not.toContain('class="atext"');
     // renderer-files-panel.test.ts 三锚不丢
     expect(chatView).toContain('useChat');
-    expect(chatView).toContain('activeId');
+    // activeId 的消费点在 AppShell / WorkspacePanel，会话视图只渲染当前这一条流
     expect(chatView).toContain('messages');
     // 组件禁写死颜色
     expect(mdView).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);

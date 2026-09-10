@@ -1,15 +1,18 @@
 /** MU2b Task 3：产物 tab（ArtifactsPanel）——collect 纯模块单测 + 组件/chat.ts/FilesPanel/App.vue 源文本守卫。
  *  数据源契约：历史 messages parts[].value = { name, input }（toolUse）；实时 toolCards 补 input（chat.ts 增量）。 */
+/* T6e-3 集体退场说明：本文件有若干例随实现退场。理由——
+   产物面板内部实现（卡片列表内部锚、pendingFilePreview 清空时机、switchRightTab 注入）——新树里产物是 WorkspacePanel 的「改动」tab，点开走 emit('open') 交给外壳，没有跨面板注入。保留的是 lib/artifacts/collect 纯模块 5 例（那才是这条能力的内核）与 store 断言。 */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { collectArtifacts } from '../src/renderer/src/lib/artifacts/collect';
 
 const root = path.resolve(__dirname, '..');
-const artifactsPanel = fs.readFileSync(path.join(root, 'src/renderer/src/components/ArtifactsPanel.vue'), 'utf8');
+const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8');
+const artifactsPanel = fs.readFileSync(path.join(root, 'src/renderer/src/ui/WorkspacePanel.vue'), 'utf8');
 const chatTs = fs.readFileSync(path.join(root, 'src/renderer/src/stores/chat.ts'), 'utf8');
-const filesPanel = fs.readFileSync(path.join(root, 'src/renderer/src/components/FilesPanel.vue'), 'utf8');
-const app = fs.readFileSync(path.join(root, 'src/renderer/src/App.vue'), 'utf8');
+const filesPanel = fs.readFileSync(path.join(root, 'src/renderer/src/ui/WorkspacePanel.vue'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'src/renderer/src/ui/AppShell.vue'), 'utf8');
 
 describe('MU2b Task 3 产物 tab：lib/artifacts/collect 纯模块（5 例）', () => {
   it('空输入（空 messages + 空 toolCards）→ []', () => {
@@ -62,32 +65,16 @@ describe('MU2b Task 3 产物 tab：lib/artifacts/collect 纯模块（5 例）', 
 });
 
 describe('MU2b Task 3 产物 tab：组件与接线守卫（4 例）', () => {
-  it('ArtifactsPanel.vue：卡列表锚（图标 + 路径 mono + 徽标 +N/−M）+ 空态「本轮还没有产物」+ 点击写 chat.pendingFilePreview 并切 files tab', () => {
-    expect(artifactsPanel).toContain("chat.toolCards");
-    expect(artifactsPanel).toContain("collectArtifacts");
-    expect(artifactsPanel).toContain('本轮还没有产物');
-    expect(artifactsPanel).toContain("chat.pendingFilePreview = ");
-    expect(artifactsPanel).toContain("switchRightTab");
-    expect(artifactsPanel).toContain("'+'");
-    expect(artifactsPanel).toContain("'−'");
-  });
-
   it('chat.ts 纯增量：state 追加 pendingFilePreview；toolCards 元素补 input（产物路径数据源）', () => {
     expect(chatTs).toContain("pendingFilePreview: null as string | null");
     expect(chatTs).toContain("input?: string");
   });
 
-  it('FilesPanel 增量守卫：watch chat.pendingFilePreview → 触发既有 showPreview 流程并清空', () => {
-    expect(filesPanel).toContain("watch(() => chat.pendingFilePreview");
-    expect(filesPanel).toContain("showPreview(");
-    expect(filesPanel).toContain("chat.pendingFilePreview = null");
-  });
-
-  it("App.vue：rightTab === 'artifacts' 挂 ArtifactsPanel（v-show + visited 模式沿用）；provide switchRightTab", () => {
-    expect(app).toContain("import ArtifactsPanel from './components/ArtifactsPanel.vue'");
-    expect(app).toContain("v-show=\"rightTab === 'artifacts'\"");
-    expect(app).toContain("ArtifactsPanel v-if=\"visited.artifacts\"");
-    expect(app).toContain("provide('switchRightTab'");
+  it('改动视图接进外壳（T6e-3 重指：三个面板合成 WorkspacePanel 的三个 tab）', () => {
+    expect(app).toMatch(/import WorkspacePanel from '\.\/WorkspacePanel\.vue'/);
+    expect(artifactsPanel).toMatch(/tab === 'changes'/);
+    // 「惰性挂载 + provide('switchRightTab')」那套随旧外壳退场：
+    // 工作区面板现在常驻，切 tab 是面板自己的事，不必外壳注入切换函数。
   });
 });
 
