@@ -8,13 +8,16 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `b7450ca`，**version 0.3.0**。166 测试文件 / 1942 例（云端 1890 过 + 52 基线），typecheck 0。
+- **代码**：main `26f64af`，**version 0.3.0**。165 测试文件 / 1850 例（云端 1798 过 + 52 Windows-only 基线），typecheck 0。
 - **界面重做过两次**：I 波（改造式，已废）→ S 波（质感返工）→ **T 波（推倒重建，当前形态）**。
-  现在的 UI 全在 `src/renderer/src/ui/`，旧的 `components/` 只剩 3 个活文件。
-- **最近一件大事**：一次可达性盘点发现换壳漏掉了**权限卡**——发布级阻断，
-  1890 例全绿没拦住。V 波九步补齐，详见 §7 教训 1。
-- **下一件**：三选一，见 §6 一档。
-- **发布**：v0.2.0 **从未发布过**（GitHub Releases 只有 v0.1.1）。0.3.0 待 Windows 真机走 `docs/RELEASE.md`。
+  现在的 UI 全在 `src/renderer/src/ui/`，旧树已在 T6 删净，`components/` 只剩 3 个活文件（MarkdownView 一族）。
+- **最近一件大事**：**T6 清场做完了**（T6a→T6g，2026-09-10）。删旧组件树 −6781 行 + 8 个失效 e2e 脚本；
+  38 个测试文件的守卫逐条重指/退场（退场的每条在原位留理由）；`tests/mu6-capability-wiring.test.ts`
+  改成**双向绊线的能力入口清单**——补上任何缺口它会红，逼人更新清单。过程中又挖出七处换壳漏搬并补回
+  （工具参数/差分视图、六句页面交代），另有一批记账不补的缺口，见 §6「换壳遗失的入口」。
+- **下一件**：二选一，见 §6 一档（0.3.0 上架 / 首发竞态）。
+- **发布**：v0.2.0 **从未发布过**（GitHub Releases 只有 v0.1.1）。0.3.0 待 Windows 真机走 `docs/RELEASE.md`，
+  **`e2e:m5` 必须重跑**——T6 之后 renderer 产物又变了一轮。
 
 ## 1. 项目与协作模式
 
@@ -125,7 +128,7 @@
 | `ui/StepGroup.vue` `ThinkBlock` `EventNotes` `ModelBar` `TabBar` `UiIcon` | 会话内构件 |
 
 **`components/` 下只剩三个活文件**：`Icon.vue`、`MarkdownInline.vue`、`MarkdownView.vue`
-（被 `ui/PreviewPane`、`ui/StageChat`、`ui/StageMarket` 引用）。**其余 25 个 + `App.vue` 已死**，见 §6 T6。
+（被 `ui/PreviewPane`、`ui/StageChat`、`ui/StageMarket` 引用）。**其余 25 个 + `App.vue` 已在 T6e 删除**（main `dddbbf8`）；`tests/renderer-titlebar-stacking` 的全树 z-index 扫描与 mu6 能力清单都以新树为准。
 
 `stores/chat.ts`（599 行）是全树共享地基，20+ 测试对它做断言。
 `lib/` 活模块：`annotations/anchor`、`artifacts/collect`、`attach/downsample`、
@@ -158,13 +161,13 @@
 
 ## 6. 排期与候选池（2026-09-07 对过账）
 
-### 一档：挡在发布前面的（建议先清，三选一）
+### 一档：挡在发布前面的（建议先清，二选一）
 
 1. **0.3.0 Release 上架**——唯一真正的发布阻断。GitHub Releases 目前**只有 v0.1.1**，
    v0.2.0 从未发布。按 main 的 `docs/RELEASE.md` 在 Windows 真机走：
-   构建 → `e2e:m5`（**必须重跑，R 波结论已过期**）→ 手动冒烟 → 上传三件套（`latest.yml` 漏传 = 自动更新失明）。
-2. **T6 清场**——37 个死文件 / 7238 行 + 40 个测试文件的守卫重指。拖得越久越难拆。
-   **开工前必读 §8 风险 A 与下面的补充事实**。
+   构建 → `e2e:m5`（**必须重跑，R 波结论已过期，T6 后产物又变**）→ 手动冒烟 → 上传三件套（`latest.yml` 漏传 = 自动更新失明）。
+2. ~~**T6 清场**~~ **已完成**（2026-09-10，main `ed1dc09`…`26f64af`，共 12 笔）。
+   结果与新挖出的缺口见 §0 与下文「换壳遗失的入口」。
 3. **首发竞态排查**——L6 实测：紧跟启动的首条 Enter 偶发被吞，`lastError` 空。
    T 波把输入链路整个重写过，**旧复现脚本可能已不适用，需重新复现**。
 
@@ -227,7 +230,10 @@ MCP 列表行逐台试连（表单内仍可试）· 用户消息 hover 复制钮
 docs 分支合并进 main 的方式；仓库转 public（转了自动更新即生效）；
 brave/tavily 真 key 首跑验收。
 
-### T6 开工前的补充事实（已实测）
+### T6 开工前的补充事实（已完成，留作方法记录）
+
+> 事后订正两处口径：「40 个测试文件」实为 **38 个**，其中**整文件崩的只有 17 个**（此前按路径常量误判成 30）；
+> 「37 个死文件 / 7238 行」实为 **30 个 / 6781 行**（25 组件 + App.vue + 3 lib + 1 测试）。数字以 T6e-3/4 提交正文为准。
 
 - `components/` 下**只有 25 个死文件**，`Icon` / `MarkdownInline` / `MarkdownView` **三个仍活**。
 - **`tokens.css` 不能随旧组件一起删**：MarkdownView 消费 14 个、MarkdownInline 消费 4 个
