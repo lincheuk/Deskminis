@@ -64,5 +64,8 @@ export function describeBinding(
   // 跟随默认：后端默认已失效时回落列表第一个——与 store.refreshProviders 同一策略，两处必须一致
   const d = providers.find(x => x.id === defaultId) ?? providers[0];
   if (!d) return { kind: 'default', label: '未配置模型', short: '默认模型', title: '还没有配置任何模型', missing: false };
-  return { kind: 'default', label: d.modelId || d.name, short: '默认模型', title: `跟随默认模型：${d.name} · ${d.modelId || '未指定模型'}`, missing: false };
+  // W2b-5：label 带「默认 · 」前缀。裸模型名和「绑到同一个模型」长得一模一样，用户分不清这条消息是跟着默认走
+  // （欢迎页 ModelBar 换默认它就跟着换），还是会话 / 助手自己钉死的。label 只有输入卡胶囊在用，前缀只加这里；
+  // short 已经是「默认模型」、title 已经写明「跟随默认模型」，都不动。
+  return { kind: 'default', label: `默认 · ${d.modelId || d.name}`, short: '默认模型', title: `跟随默认模型：${d.name} · ${d.modelId || '未指定模型'}`, missing: false };
 }

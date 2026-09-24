@@ -4,7 +4,12 @@
  *  竖分隔线后排一行彩色品牌图标，末尾一个 +。它是整个欢迎页的**视觉焦点**——
  *  一排彩色图标把大片留白撑住，缺了它版面就只剩黑白灰。
  *
- *  我们没有多 CLI，对应物是**已配置的模型 provider**：选中哪个，下一条消息就用它。
+ *  我们没有多 CLI，对应物是**已配置的模型 provider**。点圆点改的是**默认模型**（chat.setDefaultProvider）：
+ *  没有绑定模型的会话都用它；会话或助手绑定了模型（或模型组）时以绑定为准，点这里改不动它们。
+ *  W2b-5 之前这段注释把选中项说成「下一条消息要用的模型」，条上也没有任何字样说明这是默认——
+ *  在绑了助手的欢迎页上点它，用户以为换了这条消息的模型，实际发出去的仍是助手绑定的那个。
+ *  所以当前项胶囊加「默认模型」小标签、整条与圆点都给出悬停说明；输入卡胶囊则在未绑定时显示「默认 · X」
+ *  （纯模块 lib/models/binding.ts），两处说的是同一件事。
  *  provider 无品牌 logo，故用首字母徽标 + id 派生色相，达到同样的「一排彩色」效果。 */
 import { computed } from 'vue';
 import { useChat } from '../stores/chat';
@@ -34,16 +39,18 @@ async function pick(id: string): Promise<void> {
 </script>
 
 <template>
-  <div v-if="items.length" class="bar">
+  <div v-if="items.length" class="bar" title="默认模型：没有绑定模型的会话都用它；会话或助手绑定了模型时以绑定为准">
     <span class="cur">
       <span class="badge" :style="badge(active ?? { id: '' })">{{ initial(active?.name ?? '') }}</span>
-      <span class="cname">{{ active?.modelId || active?.name || '默认模型' }}</span>
+      <!-- 标签替代了原先 cname 的「默认模型」兜底：说的是「这是默认」，兜底只需退回 provider 名称 -->
+      <span class="clabel">默认模型</span>
+      <span class="cname">{{ active?.modelId || active?.name }}</span>
     </span>
     <span class="div"></span>
     <button
       v-for="p in items" :key="p.id" type="button"
       class="dot" :class="{ on: p.id === activeId }"
-      :title="`${p.name}${p.modelId ? ' · ' + p.modelId : ''}`" @click="pick(p.id)"
+      :title="`设为默认模型：${p.name}${p.modelId ? ' · ' + p.modelId : ''}`" @click="pick(p.id)"
     >
       <span class="badge" :style="badge(p)">{{ initial(p.name) }}</span>
     </button>
@@ -74,6 +81,8 @@ async function pick(id: string): Promise<void> {
   border-radius: var(--r-pill); background: var(--c-bg);
   font-size: var(--t-item-size); font-weight: var(--w-md); color: var(--c-ink);
 }
+/* 「默认模型」小标签：弱化成辅助字，模型名仍是这枚胶囊的主角 */
+.clabel { flex: 0 0 auto; font-size: var(--t-aux-size); font-weight: 400; color: var(--c-ink-3); white-space: nowrap; }
 .cname { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .div { width: 1px; height: 18px; background: var(--c-aou); opacity: .35; flex: 0 0 auto; margin: 0 var(--sp-1); }
 .badge {

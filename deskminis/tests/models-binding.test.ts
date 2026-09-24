@@ -38,13 +38,24 @@ describe('normalizeBinding', () => {
 });
 
 describe('describeBinding', () => {
-  it('未绑定 → 默认 provider 的模型 id', () => {
+  // W2b-5 重指（止血设计稿 §2「胶囊『默认 · X』改在纯模块 binding.ts」、renderer.md W2b-modelbar）：
+  // 未绑定时胶囊原先只显示裸模型名，和「绑定到同一个模型」长得一模一样——用户分不清这条消息是跟着默认走
+  // （换默认就跟着换），还是会话自己钉死的。label 只有输入卡胶囊在消费，前缀加在这一处；short / title 不变。
+  it('未绑定 → 「默认 · 」+ 默认 provider 的模型 id', () => {
     expect(describeBinding('', P, G, 'P2')).toEqual({
-      kind: 'default', label: 'qwen3', short: '默认模型', title: '跟随默认模型：本地 · qwen3', missing: false,
+      kind: 'default', label: '默认 · qwen3', short: '默认模型', title: '跟随默认模型：本地 · qwen3', missing: false,
     });
   });
-  it('后端默认已失效 → 回落列表第一个（与 store.refreshProviders 同一策略）', () => {
-    expect(describeBinding(undefined, P, G, 'GONE').label).toBe('gpt-4o');
+  it('后端默认已失效 → 回落列表第一个（与 store.refreshProviders 同一策略），同样带「默认 · 」', () => {
+    expect(describeBinding(undefined, P, G, 'GONE').label).toBe('默认 · gpt-4o');
+  });
+  it('默认 provider 没有模型 id → 「默认 · 」+ 名称', () => {
+    expect(describeBinding(null, P, G, 'P3').label).toBe('默认 · 无模型名');
+  });
+  it('绑定了具体模型或模型组（含已删除）→ label 不带「默认 · 」：那不是跟随默认', () => {
+    for (const b of ['provider:P2', 'P2', 'group:G1', 'group:G2', 'provider:GONE', 'group:NOPE']) {
+      expect(describeBinding(b, P, G, 'P2').label.startsWith('默认 · '), b).toBe(false);
+    }
   });
   it('一个 provider 都没配 → 「未配置模型」，这不是绑定失效', () => {
     expect(describeBinding('', [], [], '')).toEqual({
