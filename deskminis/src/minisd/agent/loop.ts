@@ -662,12 +662,17 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     for (const { c, outcome } of results) {
       // 卸载：大工具结果落库前替换为桩（设计 §4.2「大工具结果卸载」）
       let outputToStore = outcome.output;
-      if (opts.offloadEngine && opts.offloadEngine.shouldOffload(outcome.output)) {
+      // 读回本会话的卸载文件（W2a-5）：不再二次卸载——否则模型照桩去读只拿到下一个桩，内容永远取不回；
+      // 改为按 READBACK_MAX 封顶落库，不写新文件、不发 offloaded。只认读成功的：失败时 output 是错误信息，不是文件内容
+      const readBack = outcome.success ? opts.offloadEngine?.readBackOf(opts.sessionId, c.name, c.input) : undefined;
+      if (opts.offloadEngine && readBack) {
+        outputToStore = opts.offloadEngine.clampReadBack(outcome.output, readBack.absPath);
+      } else if (opts.offloadEngine && opts.offloadEngine.shouldOffload(outcome.output)) {
         const { stub, relativePath } = opts.offloadEngine.offload(opts.sessionId, c.toolUseId, outcome.output);
         yield { kind: 'offloaded', toolUseId: c.toolUseId, relativePath };
         outputToStore = stub;
       }
-      // toolEnd 事件广播替换前完整 output（UI 可见）；落库的是 outputToStore（可能是桩）
+      // toolEnd 事件广播替换前完整 output（UI 可见）；落库的是 outputToStore（可能是桩，或封顶后的读回内容）
       yield { kind: 'toolEnd', toolUseId: c.toolUseId, success: outcome.success, output: outcome.output };
       resultParts.push({ type: 'toolResult', value: { toolUseId: c.toolUseId, output: outputToStore, success: outcome.success, status: outcome.success ? 'success' : 'failed' } });
     }

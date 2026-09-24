@@ -20,6 +20,11 @@ export interface PruneResult {
  *
  * 与 compact 的「推理时合成」同一哲学：只影响本轮请求，raw history 与存储永不改写——
  * 否则修剪成了持久化行为，模型永远拿不回原文，等于数据丢失。
+ *
+ * 桩只说「这次没发送、要用就重新调用工具」，不指路到 offloads（W2a-5）：能被修剪的（> minChars）
+ * 要么从没超过卸载阈值、根本没落盘，要么是读回来的卸载内容；真卸载过的结果落库的是几百字的卸载桩，
+ * 达不到修剪门槛。旧桩说「完整内容通常在 /var/minis/offloads/」，模型照着去找只会扑空。
+ * 也不说「未落盘」：读回结果对应的文件其实还在，这句话对它不成立。
  */
 export function pruneOldToolResults(history: AgentMessage[], opts?: PruneOptions): PruneResult {
   const keepRecent = opts?.keepRecentMessages ?? 12;
@@ -36,7 +41,7 @@ export function pruneOldToolResults(history: AgentMessage[], opts?: PruneOptions
       if (v.output.length <= minChars) return p;
       changed = true;
       pruned++;
-      return { type: 'toolResult' as const, value: { ...v, output: `[工具结果已修剪：原 ${v.output.length} 字符。若确需原文，完整内容通常在 /var/minis/offloads/ 对应文件中]` } };
+      return { type: 'toolResult' as const, value: { ...v, output: `[工具结果已修剪：原 ${v.output.length} 字符。为控制上下文长度，这条较早的结果未随本次请求发送；如仍需要，请重新调用相应工具获取]` } };
     });
     // 只换 parts、其余字段照抄：只写 {role, parts} 的话，将来被修剪的消息若带着 reasoningContent（W2a-4）
     // 就会被悄悄丢掉，DeepSeek V4 回放缺了它会 400。今天被修剪的都是 user 消息，行为不变

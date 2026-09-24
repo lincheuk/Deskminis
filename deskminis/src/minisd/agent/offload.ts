@@ -1,8 +1,19 @@
 import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, isAbsolute, sep } from 'node:path';
 import type { MinisPaths } from '../paths';
 
 const THRESHOLD = 20_000;
+
+/**
+ * 读回卸载文件时落库的上限（W2a-5 · 设计稿 §2「卸载读回上限 50000 字符」）。
+ * 约为卸载阈值的 2.5 倍：常见的 100KB 以内 shell 输出两次读完；再大就让模型分段读，
+ * 不能不设上限——读回内容不再卸载，一个几十万字的文件原样进历史会直接顶满窗口。
+ * 「字符」与卸载阈值、桩里的字符数同为 UTF-16 码元口径。
+ */
+export const READBACK_MAX = 50_000;
+
+/** 分段读回时每段的建议上限：与卸载阈值同值，超过的话 shell 的输出又会被卸载成桩。 */
+const READBACK_SEGMENT = THRESHOLD;
 
 /**
  * 大工具结果卸载（设计 §4.2「大工具结果卸载」段）。
@@ -14,6 +25,42 @@ export class OffloadEngine {
 
   shouldOffload(output: string): boolean {
     return output.length > THRESHOLD;
+  }
+
+  /**
+   * 这次工具调用是不是「用 file_read 读回本会话的卸载文件」（W2a-5）。是则给出宿主绝对路径，否则 undefined。
+   * 为什么要认出来：读回的内容照样超过卸载阈值，旧实现会把它再卸载成一个新文件、落库一个新桩——
+   * 模型照着桩去读，永远只拿到下一个桩，卸载掉的内容实际上取不回来。
+   * 判定走 resolveGuestPath 而不是比字符串：guest 路径 /var/minis/offloads/<id>.txt 和（Windows 上的）
+   * 宿主绝对路径两种写法都要认；解析抛错（未知命名空间、穿越、Linux 上的 POSIX 绝对路径）一律当「不是读回」，
+   * 那种调用工具自己会报错，这里不该抢先抛。只认本会话的 offloads 桶：别的会话的卸载文件不归这里放行。
+   */
+  readBackOf(sessionId: string, toolName: string, inputJson: string): { absPath: string } | undefined {
+    if (toolName !== 'file_read') return undefined;
+    let path: unknown;
+    try { path = (JSON.parse(inputJson) as { path?: unknown } | null)?.path; } catch { return undefined; }
+    if (typeof path !== 'string') return undefined;
+    let absPath: string;
+    try { absPath = this.paths.resolveGuestPath(sessionId, path); } catch { return undefined; }
+    const rel = relative(this.paths.sessionBucket(sessionId, 'offloads'), absPath);
+    // rel 为空 = 桶目录本身；'..' 开头 = 在桶外；绝对路径 = Windows 上跨盘。
+    // 不用 startsWith('..')：桶里名叫「..x.txt」的文件也会被误判成桶外
+    if (rel === '' || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) return undefined;
+    return { absPath };
+  }
+
+  /**
+   * 读回内容落库前封顶（W2a-5）：不超过 READBACK_MAX 原样返回；超过则只留前面一段，并如实写明全长、
+   * 怎样读剩下的部分、文件在宿主机上的位置（shell 只认宿主路径，不认 /var/minis/）。
+   * 切点按码元算（与 compact.ts 同理：长文本不整串 Array.from），落在代理对中间就少取一位——
+   * 孤立代理项进了请求体，严格的 JSON 端直接 400。注明的是实际返回的字数，不写死 50000。
+   */
+  clampReadBack(output: string, absPath: string): string {
+    if (output.length <= READBACK_MAX) return output;
+    let end = READBACK_MAX;
+    const c = output.charCodeAt(end - 1);
+    if (c >= 0xd800 && c <= 0xdbff) end -= 1;
+    return `${output.slice(0, end)}\n[已截断：该文件共 ${output.length} 字符，这里只返回前 ${end} 字符。其余部分请用 shell_execute 分段读取，每段不超过 ${READBACK_SEGMENT} 字符，否则会再次被卸载。文件位置：${absPath}]`;
   }
 
   offload(sessionId: string, toolUseId: string, output: string): { stub: string; relativePath: string } {
@@ -31,7 +78,12 @@ export class OffloadEngine {
     // Array.from 按码点截：slice 按 UTF-16 码元截会把 emoji（surrogate pair）切成半个字符，
     // 落进提示词就是乱码；换行折叠成 ⏎ 保证摘录单行——否则桩的行结构被内容打乱，指针行难定位。
     const excerpt = Array.from(output).slice(0, 200).join('').replace(/\r?\n/g, '⏎') + '…';
-    const stub = `[CONTEXT OFFLOADED: ${relativePath} (${output.length} 字符)]\n开头: ${excerpt}\n使用 file_read 工具读取 /var/minis/offloads/${toolUseId}.txt 取回完整内容`;
+    // 指针行按长度二分（W2a-5）：读回有 READBACK_MAX 上限，超过的文件一次 file_read 取不回全文，
+    // 桩再说「取回完整内容」就是空头支票；不超过的维持原文（offload.test.ts 的全等断言钉着）
+    const pointer = output.length <= READBACK_MAX
+      ? `使用 file_read 工具读取 /var/minis/offloads/${toolUseId}.txt 取回完整内容`
+      : `使用 file_read 读取 /var/minis/offloads/${toolUseId}.txt 可取回前 ${READBACK_MAX} 字符（全文 ${output.length} 字符，其余需分段读取）`;
+    const stub = `[CONTEXT OFFLOADED: ${relativePath} (${output.length} 字符)]\n开头: ${excerpt}\n${pointer}`;
     return { stub, relativePath };
   }
 }
