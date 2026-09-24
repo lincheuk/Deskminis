@@ -57,8 +57,9 @@ export interface SummarizeOptions {
  * 本仓库 tool_result 也落库为 role='user'（M1 设计），但它不是用户提问——
  * 工具密集会话里若把它也算进去，真正的用户提问会被挤进摘要、丢失原文。
  * 判定：role==='user' 且 parts 含 text part 且不含 toolResult part。
+ * W2a-2 起导出：「上下文已满」的接力草稿要找最后一条真用户消息，与这里同一判定。
  */
-function isRealUserTurn(m: RawMessage): boolean {
+export function isRealUserTurn(m: RawMessage): boolean {
   if (m.role !== 'user') return false;
   let hasText = false;
   for (const p of m.parts) {
@@ -109,8 +110,9 @@ function clip(raw: string, max: number, head: number, tail: number): string {
 /** 旧版本（W2a-1 之前）摘要为空时写进 marker 的兜底文本；本版不再写，但库里和同步来的旧 marker 仍可能是它。 */
 const LEGACY_EMPTY_SUMMARY = '[摘要为空]';
 
-/** 这条 marker 的摘要代表不了任何内容（旧版本的空摘要兜底，或纯空白）。 */
-function isUselessSummary(summary: string): boolean {
+/** 这条 marker 的摘要代表不了任何内容（旧版本的空摘要兜底，或纯空白）。
+ *  W2a-2 起导出：接力草稿同样不能把「[摘要为空]」当摘要交给新会话。 */
+export function isUselessSummary(summary: string): boolean {
   const s = summary.trim();
   return s === '' || s === LEGACY_EMPTY_SUMMARY;
 }

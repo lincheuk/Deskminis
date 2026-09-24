@@ -8,7 +8,7 @@ import type { ToolRegistry } from '../tools/registry';
 import type { ToolContext } from '../tools/types';
 import type { ContextPolicy } from './context-policy';
 import type { OffloadEngine } from './offload';
-import { CompactRejectedError, type CompactEngine, type CompactFailReason } from './compact';
+import { CompactRejectedError, isRealUserTurn, isUselessSummary, type CompactEngine, type CompactFailReason } from './compact';
 import { pruneOldToolResults } from './prune';
 import { sanitizeMultiline } from './sanitize';
 
@@ -20,11 +20,15 @@ export type LoopEvent =
   | { kind: 'messagePersisted'; messageId: string }
   | { kind: 'turnEnd'; stopReason: StopReason }
   | { kind: 'retry'; attempt: number; delayMs: number; reason: string }
-  | { kind: 'fallback'; from: string; to: string; reason: string }
+  // cause（W2a-2 · 设计稿 §3 第 2 条）：只在因上下文超窗降级到更大窗口时带，reason 固定为「上下文已满」——
+  // 旧 reason 是英文原始报错，渲染端据 cause 给短句，不对原文跑正则
+  | { kind: 'fallback'; from: string; to: string; reason: string; cause?: 'contextOverflow' }
   | { kind: 'compacted'; markerId: string; summary: string }
   | { kind: 'offloaded'; toolUseId: string; relativePath: string }
   | { kind: 'pruned'; count: number }
-  | { kind: 'error'; message: string }
+  // code（W2a-2 · 设计稿 §3 第 1–3 条）：普通错误不带。contextFull = 超窗且找不到更大窗口，带 relayDraft
+  // （新建会话接力用的草稿）；thinkingBinding = Claude 拒绝回放思考块。渲染端按 code 分流，不靠文案判断
+  | { kind: 'error'; message: string; code?: 'contextFull' | 'thinkingBinding'; relayDraft?: string }
   // W2a-1（设计稿 §3 第 4 条）：压缩失败不打断回合，但必须说出来——旧实现空 catch 吞掉，
   // 用户看着水位贴顶却不知道压缩一直在失败。message 中文在前，请求失败时原始错误附在后面。
   | { kind: 'compactFailed'; reason: CompactFailReason; message: string };
@@ -64,6 +68,55 @@ const CONTINUE_HINT = '[系统提示：上一条输出因长度上限被截断�
 /** 空响应提醒（文案沿用旧版原文）：tool_result 后模型空手而归时，仅请求侧合成 user 消息催它继续。
  *  绝不落库——落库会污染持久化历史，同步/导出时用户会看到这条机器留言。 */
 const EMPTY_RESPONSE_REMINDER = '[系统提醒: 上一次工具调用后你返回了空响应，请继续]';
+
+/** 超窗且没有更大窗口可换时的提示（W2a-2）。不附原始报错：那是一段英文 400 响应体，用户看了也不知道怎么办；
+ *  原因与出路才是要说的。原文仍在 ProviderError 里，渲染端将来要展示「详情」可以另加字段。 */
+const CONTEXT_FULL_MESSAGE = '上下文已满：当前模型放不下这段对话，可新建会话用摘要接力';
+/** 接力草稿总长上限（设计稿 §3 第 2 条）：草稿要填进新会话的输入框，太长的话新会话第一条就又贴近窗口。 */
+export const RELAY_DRAFT_MAX = 8000;
+/** 草稿里「最后的请求」的上限：摘要是主体，用户的原话只需让新会话接得上。 */
+const RELAY_USER_MAX = 2000;
+
+/** 按 UTF-16 码元截到 max 以内，不把代理对切成半个（孤立代理项进了输入框再发出去，严格的 JSON 端会 400）。 */
+function clipUnits(s: string, max: number): string {
+  if (s.length <= max) return s;
+  let end = max;
+  const c = s.charCodeAt(end - 1);
+  if (c >= 0xd800 && c <= 0xdbff) end -= 1;
+  return s.slice(0, end);
+}
+
+/**
+ * 「上下文已满」时给新建会话接力用的草稿（W2a-2 · 设计稿 §3 第 2 条）：库里完整的最新 marker 摘要 + 最后一条真用户消息。
+ * 为什么由引擎拼：渲染端手里只有 compacted 事件里截到 200 字的摘要，完整摘要只在库里。
+ * 最后一条「真」用户消息：工具结果也以 role=user 落库，超窗常发生在一串工具调用之后，那时最后一条 user 是工具输出。
+ * 旧版本写下的「[摘要为空]」marker 不当摘要用（与压缩取材同一判定）。
+ * 总长封顶 RELAY_DRAFT_MAX：先保住用户的原话（≤2000），摘要吃剩下的；摘要被截时注明，免得接力方以为那就是全部。
+ */
+export function buildRelayDraft(
+  store: Pick<ChatStore, 'getLatestCompactMarker'>, sessionId: string, history: RawMessage[],
+): string {
+  const marker = store.getLatestCompactMarker(sessionId);
+  const summary = marker && !isUselessSummary(marker.summary) ? marker.summary.trim() : '';
+  let lastUser = '';
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (!isRealUserTurn(m)) continue;
+    lastUser = m.parts.filter(p => p.type === 'text').map(p => String(p.value ?? '')).join('\n').trim();
+    if (lastUser) break;
+  }
+  const head = '接续上一个会话（上下文已满）。\n\n之前对话的摘要：\n';
+  const ask = !lastUser ? '（上一会话没有找到用户消息）'
+    : lastUser.length > RELAY_USER_MAX ? `${clipUnits(lastUser, RELAY_USER_MAX)}\n…（原话过长，后面的部分已省略）` : lastUser;
+  const userPart = `\n\n我最后的请求是：\n${ask}`;
+  let summaryPart = summary || '（上一会话还没有生成摘要）';
+  const room = RELAY_DRAFT_MAX - head.length - userPart.length;
+  if (summaryPart.length > room) {
+    const note = '\n…（摘要过长，后面的部分已省略）';
+    summaryPart = clipUnits(summaryPart, Math.max(0, room - note.length)) + note;
+  }
+  return head + summaryPart + userPart;
+}
 
 /** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}。出口侧消毒：toolResult.output 过 sanitizeMultiline（存储不动）。 */
 export function toAgentMessages(history: RawMessage[]): AgentMessage[] {
@@ -254,6 +307,24 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   // 降级链指针：从 -1（主 provider）开始，降级时 +1
   let slotIndex = -1;
   let fellBack = false; // 是否发生过降级（用于区分「链耗尽」与「无链」的错误消息）
+  // 这次降级是不是因为上下文超窗（W2a-2）：是的话 fallback 事件的 reason 写「上下文已满」并带 cause，发出后复位
+  let overflowFallback = false;
+
+  /**
+   * 超窗时找接手的槽位：链上第一个窗口比当前槽位**更大**的（W2a-2）。窗口相同或更小的直接跳过、不发请求——
+   * 旧实现按顺序挨个降级，同样大的窗口必然再回一次超窗 400，白花一次请求的钱和时间。
+   * 没有 contextPolicy 时各槽位窗口视为相同（不知道谁大就不赌），结果只会是「上下文已满」。
+   * 返回链下标，找不到返回 -1。
+   */
+  function findLargerWindowSlot(): number {
+    const policy = opts.contextPolicy;
+    if (!policy) return -1;
+    const curWin = policy.windowOf(activeSlot.provider.modelId);
+    for (let i = slotIndex + 1; i < fallbackChain.length; i++) {
+      if (policy.windowOf(fallbackChain[i].provider.modelId) > curWin) return i;
+    }
+    return -1;
+  }
 
   /** 尝试从当前 slotIndex 开始找下一个可用 slot */
   function tryFallback(): ProviderSlot | undefined {
@@ -447,6 +518,24 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
           // F1：此处 text 持有本 attempt 已展示给用户的半截文本——取消时先落库再终止。
           if (opts.signal?.aborted) { yield* cancelWithPartialReply(text, reasoning, usage); return; }
           const err = e instanceof ProviderError ? e : new ProviderError(String(e), { retryable: false });
+          // 带分类码的错误在这里显式拦截（设计稿 §3 第 1 条），先于下面的降级与重试判断：
+          // 那两条路径对非 fallbackable 的错误也会在链上还有槽位时降级，只靠 fallbackable=false 挡不住。
+          // thinkingBinding：换模型解决不了（绑定的是这段对话的历史），原样报出，message 里有中文说明
+          if (err.code === 'thinkingBinding') { yield { kind: 'error', code: 'thinkingBinding', message: err.message }; return; }
+          if (err.code === 'contextOverflow') {
+            const target = findLargerWindowSlot();
+            if (target < 0) {
+              // 没有更大的窗口可换：不报「所有模型均不可用」（那是假话，别的模型并没有坏），也不改绑（没有 turnEnd），
+              // 给出原因和接力草稿。强制压缩后同槽重试留给 W5（设计稿 §6 已知边界）
+              yield { kind: 'error', code: 'contextFull', message: CONTEXT_FULL_MESSAGE, relayDraft: buildRelayDraft(store, opts.sessionId, history) };
+              return;
+            }
+            // 指针停在目标前一格，下方 tryFallback 自增后正好取到目标；中间窗口不更大的槽位一次不请求
+            slotIndex = target - 1;
+            overflowFallback = true;
+            lastError = err;
+            break;
+          }
           // fallbackable 错误：不重试，立刻降级
           if (isFallbackable(err)) {
             lastError = err;
@@ -481,7 +570,10 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
         yield { kind: 'error', message: fellBack ? '所有模型均不可用' : (lastError?.message ?? '所有模型均不可用') };
         return;
       }
-      yield { kind: 'fallback', from: activeSlot.label, to: nextSlot.label, reason: lastError?.message ?? '未知错误' };
+      yield overflowFallback
+        ? { kind: 'fallback', from: activeSlot.label, to: nextSlot.label, reason: '上下文已满', cause: 'contextOverflow' }
+        : { kind: 'fallback', from: activeSlot.label, to: nextSlot.label, reason: lastError?.message ?? '未知错误' };
+      overflowFallback = false;
       fellBack = true;
       activeSlot = nextSlot;
       // 继续 while(true) 用新 slot 重新流式请求

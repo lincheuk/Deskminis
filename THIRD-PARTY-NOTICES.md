@@ -65,6 +65,7 @@ SOFTWARE.
 
 | 本仓位置 | 上游位置 @ 提交 | 借了什么 | 怎么改的 |
 |---|---|---|---|
+| `deskminis/src/minisd/providers/overflow.ts` | `packages/ai/src/utils/overflow.ts` @ 8676a0d（v0.87.1） | 上下文超窗报错的正则表 `OVERFLOW_PATTERNS`（24 条）与排除表 `NON_OVERFLOW_PATTERNS`（3 条），连同逐家的报文样例注释（W2a-2） | 两张表原样移植；判定函数按本仓 `ProviderError` 改写：按报错文本加 HTTP 状态判定，429 与 5xx 一律不算超窗；不含 Cerebras 无 body 专条与按 usage 判定的静默溢出 |
 
 - 项目：<https://github.com/badlogic/pi-mono>
 - 许可：MIT
