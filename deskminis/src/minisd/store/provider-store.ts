@@ -34,11 +34,23 @@ export class InMemoryVault implements SecretVault {
   }
 }
 
+/** 正式版的 keyring 服务名。已装用户的 provider key、搜索 key、配对身份都存在它下面，不能改。 */
+export const DEFAULT_KEYRING_SERVICE = 'DeskMinis';
+
+/** W1a-9：服务名由主进程经 DESKMINIS_KEYRING_SERVICE 下发（未打包时是 'DeskMinis-dev'），
+ *  dev 与正式版从此不再共用同一个设备指纹、不再互相覆盖搜索 key 那个单槽。
+ *  缺省或空白时回到正式版的名字：不经主进程直接起的 standalone 脚本（e2e-acceptance 等）照旧读正式版的 key。 */
+export function keyringServiceFromEnv(env: Readonly<Record<string, string | undefined>>): string {
+  const s = env.DESKMINIS_KEYRING_SERVICE?.trim();
+  return s ? s : DEFAULT_KEYRING_SERVICE;
+}
+
 /** Windows 凭据库。原生模块动态加载，单测不触碰真实凭据库（用 InMemoryVault）。 */
 export class KeyringVault implements SecretVault {
+  constructor(readonly service: string = DEFAULT_KEYRING_SERVICE) {}
   private entry(key: string) {
     const { Entry } = nativeRequire('@napi-rs/keyring') as typeof import('@napi-rs/keyring');
-    return new Entry('DeskMinis', key);
+    return new Entry(this.service, key);
   }
   set(k: string, v: string): void { this.entry(k).setPassword(v); }
   get(k: string): string | undefined {

@@ -4,6 +4,11 @@
  *  条目来自 McpServersStore.list() 的浅拷贝，嵌套 args/env 与 store 共享引用——全程只读，绝不原地改。 */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { resolveEnvRefs } from './config';
+import { killTree, system32, type ProcOpts } from '../proc/win-exec';
+import { childEnv } from '../proc/child-env';
+
+// 进程树回收挪到了 proc/win-exec.ts（W1b-1，shell 与终端共用）；这里接着导出，签名与原来兼容。
+export { killTree };
 
 export interface McpStdioOptions {
   command: string;
@@ -14,6 +19,8 @@ export interface McpStdioOptions {
   startupTimeoutSeconds?: number;
   /** 单次 tools 请求超时（毫秒，默认 60000）：超时只失败该次调用，不杀连接 */
   callTimeoutMs?: number;
+  /** 平台、spawn 与本进程环境的注入（测试用；配置里没有这一项，生产走缺省值） */
+  proc?: ProcOpts;
 }
 
 export interface McpToolInfo {
@@ -48,7 +55,7 @@ interface PendingEntry {
 interface RequestOpts {
   timeoutMs: number;
   timeoutMessage: string;
-  /** 超时附加动作——仅 initialize 用（杀子进程）；普通调用超时不迁怒连接 */
+  /** 超时附加动作——仅 initialize 用（回收子进程树）；普通调用超时不迁怒连接 */
   onTimeout?: () => void;
   signal?: AbortSignal;
 }
@@ -60,6 +67,9 @@ interface RequestOpts {
  * 不包裹永远拉不起真 npx。cmd 元字符风险由信任面承担：命令来自用户自己的 servers.json
  * （同 Claude Desktop 模型；模型不能写这份配置）。非裸名或非 win32 → 原样 spawn。
  * ENOENT 归一「命令不存在」文案（不变）。platform/spawnImpl 作参数供非 Windows 机器单测。
+ * W1b-1：cmd.exe 改用 System32 下的绝对路径——cwd 来自配置，裸名会先在 cwd 里找同名 exe；
+ * SystemRoot 取自 sysEnv（本进程环境），不取 opts.env，配置里写的 env 改不了用哪个 cmd.exe。
+ * 两条分支都带 windowsHide：打包后的 minisd 自己没有控制台（推断），控制台程序不加这一项会另开一个可见的控制台窗口。
  */
 export function spawnMcpProcess(
   command: string,
@@ -67,6 +77,7 @@ export function spawnMcpProcess(
   opts: { cwd?: string; env: NodeJS.ProcessEnv },
   platform: string = process.platform,
   spawnImpl: typeof spawn = spawn,
+  sysEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<ChildProcess> {
   const bare = !command.includes('\\') && !command.includes('/');
   const viaCmd = platform === 'win32' && bare;
@@ -86,8 +97,8 @@ export function spawnMcpProcess(
     try {
       // 包裹时也保持 shell:false——只是把命令行交给 cmd 解释，不经宿主 shell 二次展开
       child = viaCmd
-        ? spawnImpl('cmd.exe', ['/d', '/s', '/c', command, ...args], { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'] })
-        : spawnImpl(command, args, { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'] });
+        ? spawnImpl(system32('cmd.exe', sysEnv), ['/d', '/s', '/c', command, ...args], { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+        : spawnImpl(command, args, { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     } catch (err) {
       // EINVAL 等同步 throw（批处理护栏），与 'error' 事件同路处理
       fail(err);
@@ -99,26 +110,6 @@ export function spawnMcpProcess(
       resolve(child);
     });
   });
-}
-
-/**
- * 进程树终止（D5）：真 npx/uvx 会再拉 node 孙进程，只 kill 直子会留孤儿。
- * win32 用 taskkill /pid <pid> /T /F 尽力杀整树（spawn 失败/错误事件都吞掉——尽力而已），
- * 随后 child.kill() 兜底；其余平台 child.kill() 即可。spawnImpl 可注入供单测。
- */
-export function killTree(
-  child: ChildProcess,
-  platform: string = process.platform,
-  spawnImpl: typeof spawn = spawn,
-): void {
-  if (platform === 'win32' && typeof child.pid === 'number') {
-    try {
-      spawnImpl('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
-    } catch {
-      // taskkill 不存在/不可用不该炸宿主，兜底还有 child.kill
-    }
-  }
-  try { child.kill(); } catch { /* 已死进程的 kill 在个别平台会抛，吞掉 */ }
 }
 
 export class McpStdioClient {
@@ -135,6 +126,9 @@ export class McpStdioClient {
   private readonly cwd: string | undefined;
   private readonly startupTimeoutMs: number;
   private readonly callTimeoutMs: number;
+  private readonly platform: string;
+  private readonly spawnImpl: typeof spawn;
+  private readonly sysEnv: NodeJS.ProcessEnv;
   private proc: ChildProcess | null = null;
   private disposed = false;
   private nextId = 0;
@@ -151,6 +145,9 @@ export class McpStdioClient {
     this.cwd = opts.cwd;
     this.startupTimeoutMs = (opts.startupTimeoutSeconds ?? STARTUP_TIMEOUT_SECONDS_DEFAULT) * 1000;
     this.callTimeoutMs = opts.callTimeoutMs ?? CALL_TIMEOUT_MS_DEFAULT;
+    this.platform = opts.proc?.platform ?? process.platform;
+    this.spawnImpl = opts.proc?.spawnImpl ?? spawn;
+    this.sysEnv = opts.proc?.sysEnv ?? process.env;
   }
 
   /** 子进程退出码（未退出/从未 spawn 为 null）。Windows 上被 kill 的进程 exitCode 恒为
@@ -176,9 +173,18 @@ export class McpStdioClient {
     for (const [k, v] of Object.entries(this.env)) resolved[k] = resolveEnvRefs(v);
     const child = await spawnMcpProcess(this.command, this.args, {
       cwd: this.cwd,
-      env: { ...process.env, ...resolved },
-    });
+      // 剥掉 DESKMINIS_*（§3 第 10 条，见 proc/child-env.ts）；配置里的 env 仍盖过继承值
+      env: childEnv(this.sysEnv, resolved),
+    }, this.platform, this.spawnImpl, this.sysEnv);
     this.proc = child;
+    // 握手失败时回收整棵树：cmd.exe 包裹下真正的 server（npx 拉起的 node）是孙进程，
+    // 只杀根会留孤儿（W1b-1）。超时回调与 catch 可能先后都来，只杀一次。
+    let reaped = false;
+    const reap = (): void => {
+      if (reaped) return;
+      reaped = true;
+      killTree(child, this.platform, this.spawnImpl, this.sysEnv);
+    };
     // 进程死后写 stdin 会抛 EPIPE——吞掉（生命周期统一由 exit 事件收口），否则未监听的 error 会崩宿主
     child.stdin?.on('error', () => {});
     child.stdout?.setEncoding('utf8');
@@ -197,12 +203,12 @@ export class McpStdioClient {
       }, {
         timeoutMs: this.startupTimeoutMs,
         timeoutMessage: `MCP server 启动超时（${this.startupTimeoutMs / 1000} 秒）`,
-        onTimeout: () => child.kill(),
+        onTimeout: reap,
       });
       this.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
     } catch (e) {
-      // 握手失败（超时/进程退出）不留半死连接（kill 对已死进程是 no-op）
-      child.kill();
+      // 握手失败（超时/进程退出）不留半死连接。根进程已经自己退出的由 killTree 自己跳过（旧 pid 可能已被复用）
+      reap();
       throw e;
     }
   }
@@ -234,7 +240,7 @@ export class McpStdioClient {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (this.proc) killTree(this.proc);
+    if (this.proc) killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv);
   }
 
   private callRequestOpts(): RequestOpts {

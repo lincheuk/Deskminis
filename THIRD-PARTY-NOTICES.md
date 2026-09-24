@@ -67,6 +67,7 @@ SOFTWARE.
 |---|---|---|---|
 | `deskminis/src/minisd/tools/edit-text.ts` | `packages/coding-agent/src/core/tools/edit-diff.ts:11-25,306-314`、`core/tools/edit.ts:190-197`、`utils/text.ts:2-4` @ 8676a0d | file_edit 的文本处理骨架：剥掉 BOM 后在正文上匹配、写回时补回 BOM；按首个换行判定文件行尾；old/new 先把 `\r\n` 归一为 `\n` 再匹配；拒绝空 old_string | 不再整文件归一为 LF 再整体还原，改为在归一视图里匹配、把命中区间映射回原文偏移只替换这一段，混合行尾文件的其它行不动；只折叠 `\r\n`、不动孤立的 `\r`；去掉模糊匹配与多处批量编辑；另加 UTF-8 往返校验、重叠出现计入唯一性、old_string 开头 U+FEFF 的处理 |
 | `deskminis/src/minisd/providers/overflow.ts` | `packages/ai/src/utils/overflow.ts` @ 8676a0d（v0.87.1） | 上下文超窗报错的正则表 `OVERFLOW_PATTERNS`（24 条）与排除表 `NON_OVERFLOW_PATTERNS`（3 条），连同逐家的报文样例注释（W2a-2） | 两张表原样移植；判定函数按本仓 `ProviderError` 改写：按报错文本加 HTTP 状态判定，429 与 5xx 一律不算超窗；不含 Cerebras 无 body 专条与按 usage 判定的静默溢出 |
+| `deskminis/src/minisd/proc/win-exec.ts` | `packages/coding-agent/src/utils/shell.ts:216-232`（`killProcessTree` 的 win32 分支） @ 8676a0d | Windows 上回收进程树：用 System32 下的绝对路径起 `taskkill.exe`（`/F /T /PID`，不依赖 PATH），带 `windowsHide`，吞掉 spawn 的同步异常与异步 `error` | SystemRoot 先校验是盘符开头的绝对路径，否则回落 `C:\Windows`，用 `path.win32` 拼路径；不设 `detached`；taskkill 出错或非 0 退出时兜底杀根进程（上游不补杀）；根进程已自己退出时什么都不做（旧 pid 可能已被复用，上游按 pid 调用不做此判断）；平台、spawn 与环境可注入；另加 `system32`、`powershellPath` 两个路径函数，shell、终端、桥与 MCP 的 cmd.exe 共用（W1b-1） |
 
 - 项目：<https://github.com/badlogic/pi-mono>
 - 许可：MIT

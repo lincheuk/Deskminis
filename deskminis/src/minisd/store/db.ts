@@ -1,7 +1,9 @@
 import Database from 'better-sqlite3';
 
-/** schema 对齐 OpenMinis ChatStore（设计 §3.1）；M1 只建用到的表，同步表列先留出。 */
-const MIGRATIONS: string[] = [
+/** schema 对齐 OpenMinis ChatStore（设计 §3.1）；M1 只建用到的表，同步表列先留出。
+ *  导出 + 冻结是给 tests/db-migrations-immutable.test.ts 的 sha256 钉用的：已发布的条目一个字符都不能改，
+ *  只允许在尾部追加。条目本身（包括空白）改了，老用户的库永远拿不到那次改动，新老用户的表结构就分叉了。 */
+export const MIGRATIONS: readonly string[] = Object.freeze([
   `
   CREATE TABLE sessions (
     id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '',
@@ -186,18 +188,52 @@ const MIGRATIONS: string[] = [
     updated_at REAL NOT NULL
   );
   `,
-];
+]);
+
+/** 库的 user_version 比本应用认识的迁移条数还大：这份数据是更新版本的 DeskMinis 写的。
+ *  旧代码不认识新表新列，带着旧 SQL 去读写只会把数据写坏，所以宁可不打开。
+ *  code 是给 minisd 致命行通道（src/minisd/fatal.ts）识别用的，message 只进日志。 */
+export class DbNewerThanAppError extends Error {
+  readonly code = 'DB_NEWER_THAN_APP' as const;
+  constructor(readonly dbVersion: number, readonly appVersion: number) {
+    super(`数据库版本为 ${dbVersion}，当前应用只支持到 ${appVersion}：这份数据来自更新版本的 DeskMinis，为避免损坏没有打开它`);
+    this.name = 'DbNewerThanAppError';
+  }
+}
+
+function readUserVersion(db: Database.Database): number {
+  return db.pragma('user_version', { simple: true }) as number;
+}
+
+/** 逐条补跑迁移，每条一个事务。
+ *  为什么用 db.transaction 而不是手写 BEGIN/COMMIT：旧写法在 exec 抛错时没有 ROLLBACK，
+ *  半条迁移（比如前一句已建好的表）留在一个永不结束的事务里，同一连接之后的任何写入都会被一并提交，
+ *  user_version 却没前进，下次启动再跑同一条就撞「表已存在」。transaction() 抛错即回滚，连接干净。
+ *  这里也判一次新旧：直接拿现成连接调用的地方（测试、将来的工具）同样受降级守卫保护。 */
+export function runMigrations(db: Database.Database, migrations: readonly string[] = MIGRATIONS): void {
+  const current = readUserVersion(db);
+  if (current > migrations.length) throw new DbNewerThanAppError(current, migrations.length);
+  for (let v = current; v < migrations.length; v++) {
+    db.transaction(() => {
+      db.exec(migrations[v]);
+      db.pragma(`user_version = ${v + 1}`);
+    })();
+  }
+}
 
 export function openDb(filePath: string): Database.Database {
   const db = new Database(filePath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  const current = db.pragma('user_version', { simple: true }) as number;
-  for (let v = current; v < MIGRATIONS.length; v++) {
-    db.exec('BEGIN');
-    db.exec(MIGRATIONS[v]);
-    db.pragma(`user_version = ${v + 1}`);
-    db.exec('COMMIT');
+  try {
+    // 先只读版本、判新旧，再切 WAL：库若来自更新版本，本应用一个字节都不该写（切 journal_mode 本身就是写）。
+    const current = readUserVersion(db);
+    if (current > MIGRATIONS.length) throw new DbNewerThanAppError(current, MIGRATIONS.length);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    return db;
+  } catch (e) {
+    // 失败先关连接再抛：不关的话 -wal/-shm 留在盘上、Windows 上库文件被这个死连接一直锁着。
+    try { db.close(); } catch { /* 关不掉也要把原始错误抛出去，别让它被关连接的错误盖掉 */ }
+    throw e;
   }
-  return db;
 }

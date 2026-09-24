@@ -13,9 +13,12 @@ import { dirname, join } from 'node:path';
 vi.mock('electron', () => ({
   // 桩必须跟着 index.ts 实际用到的 API 走：2026-08-11 加自动更新后新用了
   // getPath / getVersion / isPackaged，缺一个就在 import 期 TypeError。
+  // W1a-9 起模块顶层会调 setPath（isPackaged:false 走开发态分支）；W1b 的单实例锁与重启通道
+  // 还要用 requestSingleInstanceLock / relaunch / exit——四个一次补齐（cross.md 测试交叉点），后续步骤不必再动桩。
   app: {
     whenReady: () => new Promise<void>(() => {}), on: () => {}, quit: () => {},
     getPath: () => '.', getVersion: () => '0.0.0-test', isPackaged: false,
+    setPath: () => {}, requestSingleInstanceLock: () => true, relaunch: () => {}, exit: () => {},
   },
   ipcMain: { handle: () => {} },
   BrowserWindow: class { static getAllWindows() { return []; } static getFocusedWindow() { return null; } },
@@ -112,5 +115,10 @@ describe('parseHandshake（握手行解析）', () => {
     expect(parseHandshake(JSON.stringify({ authToken: 'X' }))).toBeUndefined();
     expect(parseHandshake('[minisd] booting db...')).toBeUndefined();
     expect(parseHandshake('not json at all')).toBeUndefined();
+  });
+
+  it('W1a-8：minisd 的致命行不是握手行 → undefined（由 parseMinisdFatal 另行识别，不能被当成端口上报）', () => {
+    const fatal = { code: 'DB_NEWER_THAN_APP', dbVersion: 12, appVersion: 11, dataRoot: 'C:\\x' };
+    expect(parseHandshake(JSON.stringify({ minisdFatal: fatal }))).toBeUndefined();
   });
 });

@@ -8,6 +8,9 @@
 //   - 杀掉 minisd 重启后绑定与历史仍持久
 // 只需 1 个有效 provider 即可运行（坏 key 实例是脚本自己造的）。
 // 验收会话保留在数据根作证据，模型组与坏 key 实例在 finally 清理。
+//
+// W1a-9 起未打包的 dev 应用默认用 %APPDATA%\DeskMinis-dev 与 keyring 服务名 DeskMinis-dev；本脚本默认仍是正式版的根与 keyring。
+// 要用 dev 应用里配好的 provider，同时设 DESKMINIS_DATA_DIR=%APPDATA%\DeskMinis-dev 和 DESKMINIS_KEYRING_SERVICE=DeskMinis-dev。
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';

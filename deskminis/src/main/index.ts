@@ -2,10 +2,26 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityPr
 import electronUpdater from 'electron-updater';
 import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { dataRoot } from '../minisd/paths';
+import { resolveAppDirs } from './app-dirs';
 import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
+import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
+import { TailBuffer, STDERR_TAIL_BYTES } from './child-output';
+
+// W1a-9 开发态数据隔离：数据根、userData、keyring 服务名、日志目录在这里一次算定。
+// fork minisd 与 attachments:save 都用这一份，不再各自调 dataRoot() 各算一遍——两处一漂移，附件就落进另一个根。
+// 也不回写 process.env：值经 fork env 显式下发，读代码的人一眼看得出从哪来。
+const dirs = resolveAppDirs({ isPackaged: app.isPackaged, env: process.env });
+// 必须在模块顶层、抢在一切之前：Chromium 在 ready 之前就按 userData 建配置目录，单实例锁（W1b-3）也按它算，
+// 晚一步就有一部分状态落在旧目录里。打包态 dirs.userData 是 undefined，保持 Electron 默认不动。
+// 不先 mkdir：Electron 文档说目录不存在会抛，但 38.8.6 在 Linux 上实测不抛，Chromium 在 ready 前自己把目录建好；
+// 先 mkdir 反而会让 import 本模块的单测（ipc-contract）在开发机真实的 APPDATA 下建出 DeskMinis-dev。
+// Windows 上未实测；打包态不走这一行，最坏只影响 dev 首次启动。
+if (dirs.userData) app.setPath('userData', dirs.userData);
 
 let minisd: UtilityProcess | undefined;
+// minisd stderr 的末尾 4KB：启动失败时附进错误框（真正的原因在这里，不在主进程自己的堆栈里）。
+// 模块级只建这一个，之后的崩溃记录等复用它，不另造第二份（设计稿 §3 第 8 条）。
+const minisdStderrTail = new TailBuffer(STDERR_TAIL_BYTES);
 let minisdPort = 0;
 // per-run token：从握手行里接住并经 minisd:info 通道交给渲染进程；
 // 没有它渲染进程连 RPC 会被 401 拒绝（RpcServer 要求 ?token=<authToken>），应用只能开一个空窗口。
@@ -32,7 +48,19 @@ export function parseHandshake(line: string): { port: number; token: string } | 
 
 function startMinisdProcess(): Promise<number> {
   return new Promise((resolve, reject) => {
-    minisd = utilityProcess.fork(join(__dirname, 'minisd.js'), [], { env: { ...process.env, DESKMINIS_STANDALONE: '1' }, stdio: 'pipe' });
+    // 开发者一眼看得出这次 dev 用的是哪份数据（dev 默认不再碰正式版的库与 keyring）
+    if (dirs.variant === 'dev') process.stderr.write(`开发态数据根：${dirs.dataRoot}（keyring 服务名 ${dirs.keyringService}；userData ${dirs.userData}；日志目录 ${dirs.logRoot}）\n`);
+    minisd = utilityProcess.fork(join(__dirname, 'minisd.js'), [], {
+      env: {
+        ...process.env,
+        DESKMINIS_STANDALONE: '1',
+        // 三个目录变量写在展开之后：外层 shell 里残留的同名变量不能盖掉主进程算出来的值。
+        DESKMINIS_DATA_DIR: dirs.dataRoot,
+        DESKMINIS_KEYRING_SERVICE: dirs.keyringService,
+        DESKMINIS_LOG_DIR: dirs.logRoot,
+      },
+      stdio: 'pipe',
+    });
 
     let settled = false;
     const settle = (fn: () => void): void => { if (settled) return; settled = true; clearTimeout(timer); fn(); };
@@ -51,6 +79,14 @@ function startMinisdProcess(): Promise<number> {
         const line = buf.slice(0, nl).replace(/\r$/, '');
         buf = buf.slice(nl + 1);
         if (line.trim() === '') continue;
+        // 致命行先认：minisd 知道自己为什么起不来（库比应用新 / 数据目录被占），
+        // 带着结构化原因结束等待，catch 分支才能弹对用户有用的对话框，而不是「code=1」。
+        const fatal = parseMinisdFatal(line);
+        if (fatal !== undefined) {
+          process.stderr.write('[minisd] ' + line + '\n');
+          settle(() => reject(new MinisdFatalError(fatal)));
+          continue;
+        }
         const hs = parseHandshake(line);
         if (hs !== undefined && minisdPort === 0) {
           minisdPort = hs.port;
@@ -61,8 +97,13 @@ function startMinisdProcess(): Promise<number> {
         }
       }
     });
-    // 转发子进程 stderr：启动失败时这里才是真正的原因所在
-    minisd.stderr?.on('data', (d: Buffer) => process.stderr.write('[minisd] ' + d.toString()));
+    // 转发子进程 stderr：启动失败时这里才是真正的原因所在；同时留住末尾 4KB 给错误框
+    minisd.stderr?.on('data', (d: Buffer) => {
+      minisdStderrTail.push(d);
+      process.stderr.write('[minisd] ' + d.toString());
+    });
+    // exit 之后 Electron 不再交付管道里剩下的数据，所以这里等也没用；minisd 那边写完先等一小段再退
+    // （src/minisd/fatal.ts 的 STARTUP_FAILURE_EXIT_DELAY_MS），致命行与 stderr 末尾都在 exit 之前到。
     minisd.on('exit', code => { if (minisdPort === 0) settle(() => reject(new Error(`minisd 退出 code=${code}`))); });
   });
 }
@@ -197,7 +238,7 @@ ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) =>
   if (typeof sessionId !== 'string' || typeof dataUrl !== 'string') throw new Error('非法参数');
   const ext = extFromDataUrl(dataUrl) ?? 'png';
   const ts = Date.now();
-  const abs = attachmentPath(dataRoot(), sessionId, ts, ext);
+  const abs = attachmentPath(dirs.dataRoot, sessionId, ts, ext);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, decodeImageDataUrl(dataUrl));
   return `attachments/paste-${ts}.${ext}`;
@@ -220,9 +261,19 @@ app.whenReady().then(async () => {
     tray.on('click', () => { if (mainWindow.isVisible()) mainWindow.hide(); else { mainWindow.show(); mainWindow.focus(); } });
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); else mainWindow.show(); });
   } catch (e) {
-    const message = e instanceof Error ? (e.stack ?? e.message) : String(e);
-    process.stderr.write('DeskMinis 启动失败: ' + message + '\n');
-    dialog.showErrorBox('DeskMinis 启动失败', message);
+    if (e instanceof MinisdFatalError) {
+      // minisd 报了用户能自己处理的原因（库来自更新版本 / 数据目录被另一个实例占着）：
+      // 专用对话框只给「退出」——这时任何清空、重置、覆盖都会毁掉用户数据。
+      // 用同步版：异步版在 Linux 上点完按钮，promise 要等主进程下一次被别的事件唤醒才 resolve，
+      // 应用迟迟不退（W1a-8 实测空应用约 30s）；启动已失败、没有窗口，阻塞主线程没有代价。
+      process.stderr.write('DeskMinis 启动失败: ' + e.message + '\n');
+      dialog.showMessageBoxSync(fatalDialogOptions(e.fatal));
+    } else {
+      const message = e instanceof Error ? (e.stack ?? e.message) : String(e);
+      process.stderr.write('DeskMinis 启动失败: ' + message + '\n');
+      // 以前框里只有主进程自己的「minisd 退出 code=1」堆栈；真正的原因在 minisd 的 stderr 里，附上末尾。
+      dialog.showErrorBox('DeskMinis 启动失败', withStderrTail(message, minisdStderrTail.text()));
+    }
     minisd?.kill();
     app.quit();
   }

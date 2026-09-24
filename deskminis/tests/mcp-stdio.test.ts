@@ -214,7 +214,9 @@ describe('ENOENT 与 spawn 策略（10）', () => {
     expect(err.message).toContain('dm-missing');
   });
 
-  it('spawn 策略·win32 裸名 → cmd.exe /d /s /c 包裹（shell:false）', async () => {
+  it('spawn 策略·win32 裸名 → System32 下 cmd.exe 的绝对路径 /d /s /c 包裹（shell:false、windowsHide）', async () => {
+    // W1b-1 有意重指：原断言 cmd 是裸名 'cmd.exe'。裸名配合来自配置的 cwd，按 Windows 的查找顺序会先找 cwd 里的同名文件，
+    // 改用 System32 绝对路径（SystemRoot 由第 6 参注入，免得断言随本机大小写变）。
     const calls: Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }> = [];
     const fakeChild = new EventEmitter() as unknown as import('node:child_process').ChildProcess;
     const spawnImpl = ((cmd: string, args: string[], opts: Record<string, unknown>) => {
@@ -222,12 +224,13 @@ describe('ENOENT 与 spawn 策略（10）', () => {
       queueMicrotask(() => fakeChild.emit('spawn'));
       return fakeChild;
     }) as typeof import('node:child_process').spawn;
-    const child = await spawnMcpProcess('npx', ['-y', 'pkg'], { env: { P: '1' } }, 'win32', spawnImpl);
+    const child = await spawnMcpProcess('npx', ['-y', 'pkg'], { env: { P: '1' } }, 'win32', spawnImpl, { SystemRoot: 'C:\\Windows' });
     expect(child).toBe(fakeChild);
     expect(calls).toHaveLength(1);
-    expect(calls[0].cmd).toBe('cmd.exe');
+    expect(calls[0].cmd).toBe('C:\\Windows\\System32\\cmd.exe');
     expect(calls[0].args).toEqual(['/d', '/s', '/c', 'npx', '-y', 'pkg']);
     expect(calls[0].opts.shell).toBe(false);
+    expect(calls[0].opts.windowsHide).toBe(true);
   });
 
   it('spawn 策略·非 win32 或带路径分隔符 → 原样 spawn 不包裹', async () => {
@@ -276,16 +279,24 @@ describe('server→client 请求应答 -32601（11）', () => {
 });
 
 describe('killTree（12）', () => {
-  it('win32 分支：taskkill /pid <pid> /T /F 尽力 + child.kill() 兜底（spawnImpl 注入断言形态）', () => {
+  it('win32 分支：System32 下 taskkill /pid <pid> /T /F，不同步杀根；taskkill 非 0 退出才 child.kill() 兜底（spawnImpl 注入断言形态）', () => {
+    // W1b-1 有意重指：原断言 cmd 是裸名 'taskkill'、起 taskkill 的同时同步 kill 一次（killed===1）。
+    // 同步先杀根，taskkill /T 按父进程找树时根已不在，npx 拉起的 node 孙进程照样残留；
+    // 改为绝对路径，只在 taskkill 出错或非 0 退出时兜底（设计稿 §2「工具层」落定）。
     const calls: Array<{ cmd: string; args: string[] }> = [];
+    const procs: EventEmitter[] = [];
     const spawnImpl = ((cmd: string, args: string[]) => {
       calls.push({ cmd, args });
-      return new EventEmitter() as unknown as import('node:child_process').ChildProcess;
+      const p = new EventEmitter();
+      procs.push(p);
+      return p as unknown as import('node:child_process').ChildProcess;
     }) as typeof import('node:child_process').spawn;
     let killed = 0;
     const child = { pid: 4242, kill: () => { killed++; } } as unknown as import('node:child_process').ChildProcess;
-    expect(() => killTree(child, 'win32', spawnImpl)).not.toThrow();
-    expect(calls).toEqual([{ cmd: 'taskkill', args: ['/pid', '4242', '/T', '/F'] }]);
+    expect(() => killTree(child, 'win32', spawnImpl, { SystemRoot: 'C:\\Windows' })).not.toThrow();
+    expect(calls).toEqual([{ cmd: 'C:\\Windows\\System32\\taskkill.exe', args: ['/pid', '4242', '/T', '/F'] }]);
+    expect(killed).toBe(0);
+    procs[0].emit('exit', 1, null);
     expect(killed).toBe(1);
   });
 

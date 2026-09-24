@@ -6,10 +6,27 @@ const GLOBAL_DIRS = ['memory', 'skills', 'shared', 'mcp-servers'] as const;
 export type SessionBucket = (typeof SESSION_BUCKETS)[number];
 export type GlobalDir = (typeof GLOBAL_DIRS)[number];
 
+/** 正式版与未打包的开发态（W1a-9 起默认隔离，设计稿 §2「开发态数据隔离」）。 */
+export type AppVariant = 'prod' | 'dev';
+
+/** APPDATA / LOCALAPPDATA 下的目录名。dev 单独一个，npm run dev 才不会把正式库迁移到正式版不认识的版本。 */
+export function productDirName(variant: AppVariant): string {
+  return variant === 'dev' ? 'DeskMinis-dev' : 'DeskMinis';
+}
+
+/** 没设 DESKMINIS_DATA_DIR 时的数据根。env 由调用方传入：主进程（src/main/app-dirs.ts）按是否打包选 variant，
+ *  与下面的 dataRoot() 共用这一套 APPDATA → HOME/.config 回退，两边不会各写一份再漂移。 */
+export function defaultDataRoot(env: Readonly<Record<string, string | undefined>>, variant: AppVariant): string {
+  const appData = env.APPDATA ?? join(env.HOME ?? '.', '.config');
+  return join(appData, productDirName(variant));
+}
+
+/** minisd 自己的数据根：DESKMINIS_DATA_DIR 优先，否则正式版的根。
+ *  经主进程起的 minisd 总会收到主进程显式下发的 DESKMINIS_DATA_DIR（dev 时指向 DeskMinis-dev）；
+ *  不经主进程直接起的 standalone 脚本（e2e-acceptance 等）照旧默认正式版的根，对外行为不变。 */
 export function dataRoot(): string {
   if (process.env.DESKMINIS_DATA_DIR) return process.env.DESKMINIS_DATA_DIR;
-  const appData = process.env.APPDATA ?? join(process.env.HOME ?? '.', '.config');
-  return join(appData, 'DeskMinis');
+  return defaultDataRoot(process.env, 'prod');
 }
 
 export class MinisPaths {

@@ -2,13 +2,14 @@ import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync,
 import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
+import { reportStartupFailure } from './fatal';
 import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
 import { SettingsStore, SYNC_PAUSE_KEY, PERMISSION_PRESET_KEY } from './store/settings';
 
 /** 全局「上次用过的工作区」——新建会话继承它（用户拍板：每会话各自设 + 继承上次）。 */
 const WORKSPACE_LAST_KEY = 'workspace.lastUsed';
 import { ChatStore } from './store/chat-store';
-import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
+import { ProviderStore, KeyringVault, InMemoryVault, FileVault, keyringServiceFromEnv, type SecretVault } from './store/provider-store';
 import { SearchProviderStore } from './store/search-provider-store';
 import { McpServersStore, type McpServerEntry } from './mcp/config';
 import { McpManager } from './mcp/manager';
@@ -241,9 +242,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // 避免 ChatStore 被多处引用（AgentLoop/CompactEngine/SyncCoordinator）前出现 setOriginDeviceId 注入空窗。
   // M3c 修复：e2e 跨进程持久化用 FileVault（DESKMINIS_E2E=1），单测用 InMemoryVault.forDataRoot 单例，
   //   生产用 KeyringVault。FileVault 明文存 dataRoot/vault.json，隔离于临时数据根，不污染真实凭据库。
+  // W1a-9：keyring 服务名由主进程经 DESKMINIS_KEYRING_SERVICE 下发（dev 为 DeskMinis-dev），缺省仍是正式版的 DeskMinis。
   const vault: SecretVault = process.env.DESKMINIS_E2E
     ? new FileVault(root)
-    : (process.env.DESKMINIS_TEST ? InMemoryVault.forDataRoot(root) : new KeyringVault());
+    : (process.env.DESKMINIS_TEST ? InMemoryVault.forDataRoot(root) : new KeyringVault(keyringServiceFromEnv(process.env)));
   const pairingStore = new PairingStore(root, vault);
   const pairingService = new PairingService(pairingStore, vault);
   const chat = new ChatStore(db, pairingService.myFingerprint);
@@ -1247,8 +1249,7 @@ if (process.env.DESKMINIS_STANDALONE === '1') {
     .then(({ port, authToken }) => { process.stdout.write(JSON.stringify({ minisdPort: port, authToken }) + '\n'); })
     // 没有 .catch 的话，DB / 密钥库任一失败都只是一次未处理拒绝：进程静默退出，
     // 父进程只能看到 "exit code=1"，真正的原因（哪一行、什么错）永远看不到。
-    .catch(e => {
-      process.stderr.write('minisd 启动失败: ' + (e instanceof Error ? e.stack ?? e.message : String(e)) + '\n');
-      process.exit(1);
-    });
+    // stderr 那行照旧；库比应用新 / 数据目录被占这类用户能自己处理的，再写一行致命行给主进程弹框（§3 第 8 条）。
+    // 数据根用 dataRoot()：standalone 不传 dataDir，startMinisd 用的就是它。
+    .catch(e => reportStartupFailure(e, dataRoot()));
 }

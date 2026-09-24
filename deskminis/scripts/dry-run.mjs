@@ -17,6 +17,11 @@ const PORT_FILE = join(DATA_DIR, 'minisd-port.json');
 if (!existsSync(PORT_FILE)) {
   console.error('错误：minisd-port.json 不存在——请先启动 DeskMinis 应用（minisd 会自动运行并写入端口文件）。');
   console.error(`  预期路径: ${PORT_FILE}`);
+  // W1a-9：npm run dev 起的应用默认用单独的 DeskMinis-dev 数据根，端口文件不在正式版的根里
+  if (!process.env.DESKMINIS_DATA_DIR) {
+    console.error(`  如果开着的是 npm run dev 的开发版，它的数据根在 ${join(APPDATA, 'DeskMinis-dev')}，`);
+    console.error('  请设 DESKMINIS_DATA_DIR 指向它再运行。');
+  }
   process.exit(1);
 }
 
