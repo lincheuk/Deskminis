@@ -12,6 +12,11 @@ const TITLE_LIMIT = 20;
  *  全局删而不是只删首尾：出现过「重构"登录"模块」这种半裹形态，只削首尾会留下孤引号。 */
 const QUOTES = /["'“”‘’「」『』]/g;
 
+/** 命名请求的输出上限。标题只有十来个字，但 Opus 5.5 / Fable 5.1 关不掉思考、DeepSeek V4 默认也思考，
+ *  思考计入 max_tokens——旧值 64 几乎必然被思考吃光、标题恒为空（失败又被静默吞掉，用户只看到一排「新会话」）。
+ *  按实际生成量计费，上限放宽本身不多花钱；2048 对各家兼容端点也都安全（W2a-1）。 */
+const TITLE_MAX_TOKENS = 2048;
+
 /**
  * 组一次「给这轮对话取标题」的请求（纯函数，便于单测）。
  * 刻意不带历史、不带工具：命名只依据用户第一句话，带上历史等于把整个会话再发一遍。
@@ -21,7 +26,7 @@ export function buildTitleRequest(userText: string): StreamRequest {
     messages: [{ role: 'user', parts: [{ type: 'text', value: userText.slice(0, INPUT_LIMIT) }] }],
     systemPrompt: '你是标题生成器。用不超过 12 个字概括用户任务，只输出标题本身，不要引号与句号',
     tools: [],
-    maxTokens: 64,
+    maxTokens: TITLE_MAX_TOKENS,
     thinkingLevel: 'off',
   };
 }

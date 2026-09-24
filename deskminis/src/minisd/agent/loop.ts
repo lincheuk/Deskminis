@@ -8,7 +8,7 @@ import type { ToolRegistry } from '../tools/registry';
 import type { ToolContext } from '../tools/types';
 import type { ContextPolicy } from './context-policy';
 import type { OffloadEngine } from './offload';
-import type { CompactEngine } from './compact';
+import { CompactRejectedError, type CompactEngine, type CompactFailReason } from './compact';
 import { pruneOldToolResults } from './prune';
 import { sanitizeMultiline } from './sanitize';
 
@@ -24,7 +24,10 @@ export type LoopEvent =
   | { kind: 'compacted'; markerId: string; summary: string }
   | { kind: 'offloaded'; toolUseId: string; relativePath: string }
   | { kind: 'pruned'; count: number }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string }
+  // W2a-1（设计稿 §3 第 4 条）：压缩失败不打断回合，但必须说出来——旧实现空 catch 吞掉，
+  // 用户看着水位贴顶却不知道压缩一直在失败。message 中文在前，请求失败时原始错误附在后面。
+  | { kind: 'compactFailed'; reason: CompactFailReason; message: string };
 
 export interface ProviderSlot { provider: AgentProvider; label: string }
 
@@ -263,6 +266,9 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   let remindedEmptyResponse = false; // 本循环是否已提醒过一次空响应（判重；替代旧的「查历史文本」法）
   let pendingEmptyReminder = false; // 下一轮请求是否要注入仅请求侧的空响应提醒（注入一次即清）
   let compactCount = 0; // 本循环已压缩次数（上限 3，设计 §4.2）
+  // 本次运行是否已停用压缩（W2a-1）：失败一次就不再试。旧实现失败后 compactCount 不涨，
+  // 带工具调用的长任务每一轮都再打一次必败的付费请求；停用后水位继续涨会走到溢出路径（W2a-2 给出路）。
+  let compactDisabled = false;
   let continueCount = 0; // 本循环已注入的 maxTokens 续写次数（上限 MAX_CONTINUATIONS，防无限空转）
 
   // 附件 base64 的 run 级缓存（见 synthesizeImageData）：整个循环内同一附件只读一次盘。
@@ -323,9 +329,17 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
         activeSlot.provider.modelId,
         opts.contextPolicy.estimateTokens(effectiveHistory),
       );
-      if (action === 'compact') {
+      // compactDisabled 只拦压缩这一档：降级到大窗口后水位落回 offload 档时，修剪照常
+      if (action === 'compact' && !compactDisabled) {
         try {
-          const newMarker = await opts.compactEngine.summarize(history, opts.sessionId, activeSlot.provider);
+          // 摘要请求按当前槽位定预算：输出上限跟当前模型走（封顶 16384），输入按它的窗口封顶；
+          // 带上取消信号，用户点停止时摘要请求一起断，不在后台把 marker 写完
+          const modelId = activeSlot.provider.modelId;
+          const newMarker = await opts.compactEngine.summarize(history, opts.sessionId, activeSlot.provider, {
+            maxTokens: Math.min(16_384, resolveMaxTokens(modelId)),
+            windowTokens: opts.contextPolicy.windowOf(modelId),
+            signal: opts.signal,
+          });
           if (newMarker) {
             compactCount++;
             yield { kind: 'compacted', markerId: newMarker.id, summary: newMarker.summary.slice(0, 200) };
@@ -337,8 +351,16 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
           //  用现有 effectiveHistory 继续流式请求。
           //  关键：绝不能因 undefined 而 continue 重试，否则 history 不变 → 水位不变 →
           //  再次 compact → 再次 undefined → 死循环。落下去发请求才是正路。
-        } catch {
-          // 压缩失败（provider 抛错）不杀对话：跳过本次压缩，继续流式请求
+        } catch (e) {
+          // 取消优先：摘要请求是被停止键打断的，不是压缩失败，照其它取消点报「已取消」收尾
+          if (opts.signal?.aborted) { yield { kind: 'error', message: '已取消' }; return; }
+          // 压缩失败不杀对话：本轮按原样继续发请求，但要说出来，并停用本次运行的压缩
+          compactDisabled = true;
+          const reason: CompactFailReason = e instanceof CompactRejectedError ? e.reason : 'error';
+          const message = e instanceof CompactRejectedError
+            ? e.message
+            : `摘要请求失败，未写入压缩记录（${e instanceof Error ? e.message : String(e)}）`;
+          yield { kind: 'compactFailed', reason, message };
         }
       } else if (action === 'offload') {
         // offload 档是比压缩更便宜的减压手段：把旧的大工具结果换成单行桩，让本轮请求变小。

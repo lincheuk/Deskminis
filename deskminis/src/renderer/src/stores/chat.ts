@@ -103,7 +103,7 @@ export const useChat = defineStore('chat', {
     lastStopReason: '' as string,
     // M2d · #10 事件 UI 接线：四种目前未消费事件（fallback/compacted/offloaded/retry）的状态。
     //   retry 已有 retryNote 字段沿用；其余三种新增会话级环内联提示 + 任务面板状态字典。
-    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'|'retry'|'error'|'synced'|'pruned'; ts: number; detail?: string; retryable?: boolean }[], // 对话流内联气泡（最多保留 10 条）；MU2a Task 8 扩 retry/error 两类（error 带 retryable 供重试钮）；M3c Task 7 扩 synced（同步完成）；A6 扩 pruned（修剪）
+    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'|'retry'|'error'|'synced'|'pruned'|'compactFailed'; ts: number; detail?: string; retryable?: boolean }[], // 对话流内联气泡（最多保留 10 条）；MU2a Task 8 扩 retry/error 两类（error 带 retryable 供重试钮）；M3c Task 7 扩 synced（同步完成）；A6 扩 pruned（修剪）；W2a-1 扩 compactFailed（压缩失败，追加在末尾：既有守卫按前缀子串匹配）
     fallbackState: null as null | { from: string; to: string; reason: string }, // 任务面板「降级」卡（对齐 loop.ts: fallback(from,to,reason)）
     compactedState: null as null | { markerId: string; summary: string }, // 任务面板「压缩」卡（对齐 loop.ts: compacted(markerId,summary)；无 fromCount/toCount/freedTokens）
     offloadedState: null as null | { count: number; lastRelativePath?: string }, // 任务面板「卸载」卡（对齐 loop.ts: offloaded(toolUseId,relativePath)；逐条自增计数，附最近一条路径）
@@ -568,6 +568,12 @@ export const useChat = defineStore('chat', {
         // 提示用户「已修剪」，并刷新水位让条回落（修剪后用量必然下降）
         this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'pruned', ts: Date.now(), detail: `已修剪 ${Number(e.count) || 0} 条历史工具结果` }];
         void this.fetchContextInfo();
+      }
+      else if (e.kind === 'compactFailed') {
+        // loop.ts: { kind: 'compactFailed'; reason; message } —— 压缩失败不结束回合（本轮按原样继续，
+        // 不碰 running / lastError、不给重试钮），但要说出来：旧实现把失败吞掉，用户看着水位贴顶却不知道压缩一直在失败。
+        // message 是引擎给的中文说明（为空 / 被截断 / 被拒绝 / 请求失败附原始错误），原样进详情
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'compactFailed', ts: Date.now(), detail: String(e.message) }];
       }
     },
     async fetchContextInfo() {

@@ -193,6 +193,22 @@ describe('AnthropicProvider 流归一化', () => {
     expect(events).toContainEqual({ kind: 'thinkingDelta', text: '推断 A' });
     expect(events).toContainEqual({ kind: 'thinkingComplete', text: '推断 A推断 B', signature: 'sig-123', redactedData: undefined });
   });
+  // W2a-1：窗口顶满时官方返回 stop_reason=model_context_window_exceeded。旧 STOP_MAP 没有这个键，
+  // 兜底成 endTurn——压缩拿半截摘要当完整摘要写进 marker，续写逻辑也看不出这是截断。
+  it('stop_reason model_context_window_exceeded → done maxTokens（截断信号不能兜底成 endTurn）', async () => {
+    const sse = [
+      'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":5}}}\n\n',
+      'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text"}}\n\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"半截"}}\n\n',
+      'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"model_context_window_exceeded"},"usage":{"output_tokens":3}}\n\n',
+      'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+    ].join('');
+    const p = new AnthropicProvider({ apiKey: 'k', modelId: 'm', fetchImpl: async () => sseResponse(sse) });
+    const events: AgentStreamEvent[] = [];
+    for await (const e of p.streamAgentMessage(REQ)) events.push(e);
+    expect(events.at(-1)).toEqual({ kind: 'done', stopReason: 'maxTokens' });
+  });
   it('529 抛 retryable ProviderError, 429 不可 retry', async () => {
     const p529 = new AnthropicProvider({ apiKey: 'k', modelId: 'm', fetchImpl: async () => new Response('overloaded', { status: 529 }) });
     await expect(async () => { for await (const _ of p529.streamAgentMessage(REQ)) void _; }).rejects.toMatchObject({ retryable: true });

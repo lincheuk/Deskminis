@@ -90,7 +90,12 @@ function partToBlock(p: ContentPart): Record<string, unknown> | undefined {
   }
 }
 
-const STOP_MAP: Record<string, StopReason> = { end_turn: 'endTurn', tool_use: 'toolUse', max_tokens: 'maxTokens', refusal: 'refusal' };
+// model_context_window_exceeded（W2a-1）：输出撞上窗口剩余空间而停，与 max_tokens 同属截断。
+// 缺这个键会被下面的兜底落成 endTurn——压缩拿半截摘要当完整摘要写进 marker，续写逻辑也看不出被截断。
+const STOP_MAP: Record<string, StopReason> = {
+  end_turn: 'endTurn', tool_use: 'toolUse', max_tokens: 'maxTokens', refusal: 'refusal',
+  model_context_window_exceeded: 'maxTokens',
+};
 
 export class AnthropicProvider implements AgentProvider {
   readonly name = 'anthropic';

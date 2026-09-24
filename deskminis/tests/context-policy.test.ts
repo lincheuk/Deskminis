@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ContextPolicy, type ContextAction } from '../src/minisd/agent/context-policy';
+import { ContextPolicy, estimateTextTokens, FALLBACK_WINDOW, type ContextAction } from '../src/minisd/agent/context-policy';
 import type { AgentMessage } from '../src/shared/types';
 
 /** 假目录：固定窗口大小。 */
@@ -52,6 +52,30 @@ describe('ContextPolicy.estimateTokens', () => {
     // 4000 个汉字 + 固定 JSON 壳：壳字符占比趋近 0，比值应贴近 2.5，留 [2.3, 2.7] 带宽
     expect(t).toBeGreaterThan(old * 2.3);
     expect(t).toBeLessThan(old * 2.7);
+  });
+});
+
+describe('W2a-1 context-policy 导出：estimateTextTokens / windowOf / FALLBACK_WINDOW', () => {
+  // 压缩预算（W2a-1）与溢出降级（W2a-2）都要按同一口径估算、按同一窗口判定；
+  // 各抄一份公式或 128K 常量，迟早两边对不上（index.ts 的 contextInfo 已经抄过一次 128_000）。
+  it('estimateTextTokens：CJK /1.6、其余 /4、向上取整', () => {
+    expect(estimateTextTokens('')).toBe(0);
+    expect(estimateTextTokens('a'.repeat(400))).toBe(100);
+    expect(estimateTextTokens('测'.repeat(16))).toBe(10);
+    expect(estimateTextTokens('测'.repeat(16) + 'a'.repeat(4))).toBe(11);
+    expect(estimateTextTokens('a')).toBe(1);
+  });
+
+  it('estimateTokens 与 estimateTextTokens 逐值相同（对各条 parts JSON 拼接后估算）', () => {
+    const p = new ContextPolicy(fakeCatalog(200_000));
+    const history: AgentMessage[] = [msg('测'.repeat(333) + 'abc'), { role: 'assistant', parts: [{ type: 'text', value: 'x'.repeat(77) }] }, msg('混合 mixed 文本')];
+    expect(p.estimateTokens(history)).toBe(estimateTextTokens(history.map(m => JSON.stringify(m.parts)).join('')));
+  });
+
+  it('windowOf：目录有值用目录，没有回落 FALLBACK_WINDOW（128K）', () => {
+    expect(FALLBACK_WINDOW).toBe(128_000);
+    expect(new ContextPolicy(fakeCatalog(64_000)).windowOf('m')).toBe(64_000);
+    expect(new ContextPolicy(fakeCatalog(undefined)).windowOf('m')).toBe(FALLBACK_WINDOW);
   });
 });
 

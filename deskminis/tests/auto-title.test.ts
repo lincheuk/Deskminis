@@ -5,10 +5,12 @@ import { describe, it, expect } from 'vitest';
 import { buildTitleRequest, cleanTitle } from '../src/minisd/agent/auto-title';
 
 describe('buildTitleRequest', () => {
-  it('固定参数：tools 空 / maxTokens 64 / thinking off / systemPrompt 限死字数且禁引号句号', () => {
+  // W2a-1 有意翻红重指：原断言 maxTokens 64。Opus 5.5 / Fable 5.1 关不掉思考、DeepSeek V4 默认也思考，
+  // 思考计入 max_tokens，64 几乎必然被思考吃光、标题恒为空（失败又被静默吞掉）。按实际生成量计费，放宽上限不多花钱。
+  it('固定参数：tools 空 / maxTokens 2048 / thinking off / systemPrompt 限死字数且禁引号句号', () => {
     const req = buildTitleRequest('帮我重构登录模块');
     expect(req.tools).toEqual([]);
-    expect(req.maxTokens).toBe(64);
+    expect(req.maxTokens).toBe(2048);
     expect(req.thinkingLevel).toBe('off');
     expect(req.systemPrompt).toContain('12 个字');
     expect(req.systemPrompt).toContain('只输出标题本身');

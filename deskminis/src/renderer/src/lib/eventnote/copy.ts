@@ -34,6 +34,8 @@ export function eventCopy(kind: string, detail?: string): EventCopy {
     case 'compacted': return { icon: 'refresh', short: '上下文已压缩', tone: 'info' };
     case 'offloaded': return { icon: 'folder', short: '大段输出已存入文件', tone: 'info' };
     case 'pruned': return { icon: 'info', short: '已修剪旧工具结果', tone: 'info' };
+    // W2a-1：压缩失败只是没减压、回合照常进行，所以是 warn 不是 err；原因（为空/截断/拒绝/请求失败）在详情里
+    case 'compactFailed': return { icon: 'alert', short: '上下文压缩失败，本轮按原样继续', tone: 'warn' };
     case 'retry': return { icon: 'clock', short: '网络波动，正在重试', tone: 'warn' };
     case 'error': return { icon: 'alert', short: humanizeError(detail ?? ''), tone: 'err' };
     default: return { icon: 'info', short: detail ?? '', tone: 'info' };

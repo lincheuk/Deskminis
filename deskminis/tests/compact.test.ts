@@ -89,8 +89,15 @@ describe('CompactEngine.summarize', () => {
     expect(marker!.lastCompactedMessageId).toBe('A0');   // 修复后：锚点在 U1 之前 = A0
     // 修复前（按 role==='user' 一刀切）：用户回合=U0,U1,U2,U3,U4=5，最近3=U2,U3,U4，锚点=A1 → 错误
     // 验证 toSummarize 只含 U0,A0（不含 U1——U1 保留原文）
-    expect(provider.received[0].messages.map(m => m.role)).toEqual(['user', 'user', 'assistant']);
-    // 第一条是 summaryPrompt（user），后两条是 U0(user)、A0(assistant)
+    // W2a-1 有意翻红重指：原断言角色序列 ['user','user','assistant']（提示词 + U0 + A0 逐条转发）。
+    // 摘要请求改为压平成单条 user 纯文本——逐条转发会以 assistant 结尾、夹带工具块，且没有上界。
+    const req = provider.received[0];
+    expect(req.messages.map(m => m.role)).toEqual(['user']);
+    expect(req.messages[0].parts.every(p => p.type === 'text')).toBe(true);
+    const text = req.messages[0].parts.map(p => String(p.value)).join('');
+    expect(text).toContain('[用户] 列目录');
+    expect(text).toContain('[助手] 好');
+    expect(text).not.toContain('再列一次');
   });
 
   it('双轨锚定：1 个用户回合 + 40 条工具消息 → 按消息数锚定，保留最近 14 条原文', async () => {
@@ -113,8 +120,13 @@ describe('CompactEngine.summarize', () => {
     expect(eff[0].parts[0]).toEqual({ type: 'text', value: '[对话摘要] 单回合摘要' });
     expect(eff[1].role).toBe('user');
     expect(eff.at(-1)!.parts[0]).toEqual({ type: 'toolResult', value: { toolUseId: 'T39', output: 'o'.repeat(200), success: true, status: 'success' } });
-    // toSummarize 含锚点及之前全部（27 条）+ 摘要提示 = 28
-    expect(provider.received[0].messages).toHaveLength(28);
+    // W2a-1 有意翻红重指：原断言 messages 长度 28（锚点及之前 27 条逐条转发 + 摘要提示）。
+    // 现在压平成单条 user 文本；锚点及之前的 27 条都以文本行进了这一条：首条用户消息 + TR0…TR25 共 26 行工具结果，TR26 起不在。
+    const req = provider.received[0];
+    expect(req.messages).toHaveLength(1);
+    const text = req.messages[0].parts.map(p => String(p.value)).join('');
+    expect(text).toContain('[用户] 重构这个项目');
+    expect(text.match(/\[工具结果·成功\] /g)).toHaveLength(26);
   });
 
   it('双轨锚定：1 个用户回合 + 20 条消息（< 30）→ 仍返回 undefined', async () => {

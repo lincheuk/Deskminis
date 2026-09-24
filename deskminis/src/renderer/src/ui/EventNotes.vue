@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** V2：事件提示条。降级 / 压缩 / 卸载 / 修剪 / 重试 / 出错 / 同步七类一套语法：
+/** V2：事件提示条。降级 / 压缩 / 卸载 / 修剪 / 重试 / 出错 / 同步 / 压缩失败八类一套语法：
  *  `[图标] 短句 · 详情[›] [重试]`。
  *
  *  为什么必须有：出错时没有重试入口，用户只能重新打一遍问题；
@@ -16,10 +16,13 @@ const chat = useChat();
 const ICONS: Record<string, string> = {
   fallback: 'alert', compacted: 'refresh', offloaded: 'folder',
   pruned: 'trash', retry: 'clock', error: 'alert', synced: 'check',
+  compactFailed: 'alert',
 };
+// compactFailed 走 warn：没压成只是没减压，回合照常进行；漏登会退回 info，警告看起来像普通提示
 const TONES: Record<string, string> = {
   fallback: 'warn', compacted: 'info', offloaded: 'info',
   pruned: 'info', retry: 'warn', error: 'err', synced: 'ok',
+  compactFailed: 'warn',
 };
 function shortOf(n: { kind: string; detail?: string }): string {
   if (n.kind === 'synced') return '已与其他设备同步';
