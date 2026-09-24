@@ -44,7 +44,7 @@ export interface DataGateOptions {
 
 /** 核心数据与凭据：写入硬拒。label 进拒绝串，selfManaged 决定给模型的下一步建议。
  *  都在数据根根层；每个名字连同它的 .tmp（各 store 先写 .tmp 再 rename）以及它名下的整棵子树一起拒——
- *  接管闸 minisd.lock.recovery 是文件还是目录由 W1b-3 定，按子树拒两种都盖住。 */
+ *  接管闸 minisd.lock.recovery 在 W1b-3 的实现里是文件；按子树拒，将来改成目录也盖得住。 */
 const CORE_ENTRIES: ReadonlyArray<readonly [name: string, label: string, selfManaged: boolean]> = [
   ['providers.json', '模型与密钥配置', false],
   ['search-provider.json', '搜索服务配置', false],

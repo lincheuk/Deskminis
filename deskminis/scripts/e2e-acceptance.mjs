@@ -1,9 +1,14 @@
 // DeskMinis M1 端到端验收驱动（对应 docs/plans/2026-07-26-m1-skeleton.md Task 14 Step 4）。
 // 用法：先 `npm run build`（或 dev 跑过，out/main/minisd.js 存在），再 `npm run e2e`。
 //
-// 做法：另起一个独立 minisd 子进程，指向真实数据根 %APPDATA%\DeskMinis（WAL 允许
-// 与正在运行的应用共享同一个 minis.db；密钥从 Windows 凭据库读，与进程无关），
+// 做法：另起一个独立 minisd 子进程，指向真实数据根 %APPDATA%\DeskMinis（密钥从 Windows 凭据库读，与进程无关），
 // 经 WebSocket JSON-RPC 驱动验收步骤 2/3/4/5，并核对落盘文件。
+//
+// W1b-3 起数据根有锁（<数据根>\minisd.lock）：同一个根上只能有一个 minisd。应用开着时跑本脚本，
+// 脚本起的 minisd 会报「数据目录被另一个 DeskMinis 占用」后退出。先从托盘退出应用再跑；
+// 或者设 DESKMINIS_DATA_DIR 指向一个临时目录（那里没有你配好的 provider，只适合验流程）。
+// 不留绕过开关：两个 minisd 同写一个库正是这把锁要挡的（以前这里写「WAL 允许与正在运行的应用共享同一个 minis.db」，
+// 其实两个 minisd 会互相改写端口文件、各跑一套定时任务）。
 // 产生的「E2E 验收」会话会留在数据根里，供验收第 7 步（重启应用后历史仍在）核对。
 //
 // W1a-9 起未打包的 dev 应用（npm run dev）默认用 %APPDATA%\DeskMinis-dev 与 keyring 服务名 DeskMinis-dev，
@@ -57,13 +62,19 @@ const handshake = await new Promise((res, rej) => {
     const nl = buf.indexOf('\n');
     if (nl < 0) return;
     const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-    try {
-      const o = JSON.parse(line);
-      if (typeof o.minisdPort === 'number' && typeof o.authToken === 'string') { clearTimeout(timer); res(o); }
-    } catch { /* 普通日志行 */ }
+    let o;
+    try { o = JSON.parse(line); } catch { return; /* 普通日志行 */ }
+    if (typeof o?.minisdPort === 'number' && typeof o?.authToken === 'string') { clearTimeout(timer); res(o); }
+    // 数据根被占时 minisd 先写一行致命行再退出：给出能照做的提示，而不是只有「提前退出 code=1」
+    else if (o?.minisdFatal?.code === 'DATA_ROOT_LOCKED') { clearTimeout(timer); rej(new Error(dataRootLockedHint(o.minisdFatal))); }
   });
   child.on('exit', c => rej(new Error('minisd 提前退出 code=' + c)));
 }).catch(e => { console.error(e.message); child.kill(); process.exit(2); });
+
+function dataRootLockedHint(f) {
+  return `数据目录 ${f.dataRoot} 正被另一个 DeskMinis（进程 ${f.pid}）使用，本脚本起的 minisd 没有打开它。\n`
+    + '先从托盘退出占用它的 DeskMinis 再跑；或者设 DESKMINIS_DATA_DIR 指向一个临时目录。';
+}
 
 console.log(`minisd 已就绪: 127.0.0.1:${handshake.minisdPort}`);
 

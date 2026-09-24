@@ -28,6 +28,29 @@ let minisdPort = 0;
 let minisdToken = '';
 let tray: Tray | undefined;
 let quitting = false;
+// 主窗口放在模块级（W1b-3）：second-instance 要把它叫回来，而它以前只是 whenReady 回调里的局部变量。
+let mainWindow: BrowserWindow | undefined;
+// second-instance 早于主窗口建好（还在等 minisd 握手）时记一笔，建好后立即唤出，别把用户这次双击吞掉。
+let revealWhenCreated = false;
+
+// W1b-3 单实例锁：托盘里藏着一个 DeskMinis 时再双击图标，以前会整套再起一遍（第二个 minisd 与第一个同写一个库）；
+// 现在第二个进程拿不到锁就退出，由第一个把藏起来的窗口叫回来。
+// 放在模块顶层、setPath('userData') 之后：Electron 的锁按 userData 算，dev 与各个临时数据根（W1a-9）各有各的锁，
+// driver 能和开着的 dev 应用并存。它挡不住两份 userData 指向同一个数据根——那由 minisd 的数据根锁兜住。
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // 退出流程中窗口正在关，再 show 会把它翻出来又关掉
+    if (quitting) return;
+    if (mainWindow === undefined) { revealWhenCreated = true; return; }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    // 关窗是隐藏到托盘（close 里 hide），只 focus 叫不回来，必须先 show
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
 
 /** 子进程未在此时限内上报端口就判定启动失败——否则挂死的子进程会让主进程永远停在白屏前。 */
 const MINISD_START_TIMEOUT_MS = 30_000;
@@ -245,6 +268,9 @@ ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) =>
 });
 
 app.whenReady().then(async () => {
+  // 第二个实例：顶层已经 app.quit()，但 ready 仍可能触发。不早退的话它照样 fork minisd（被数据根锁拦下，多弹一个框）、
+  // 建窗口、起更新检查。
+  if (!gotSingleInstanceLock) return;
   // 启动检查：延迟 8s，让窗口和 minisd 先起来，不和启动抢资源。
   // 未打包 / 用户关掉开关时 checkUpdates 自己会短路，这里不重复判断。
   setupUpdater();
@@ -254,12 +280,14 @@ app.whenReady().then(async () => {
   // 应用「启动了但什么都不显示」，用户和开发者都拿不到任何线索。
   try {
     await startMinisdProcess();
-    const mainWindow = await createWindow();
+    const win = await createWindow();
+    mainWindow = win;
+    if (revealWhenCreated) { revealWhenCreated = false; win.show(); win.focus(); }
     tray = new Tray(loadTrayIcon());
     tray.setToolTip('DeskMinis');
-    tray.setContextMenu(createTrayMenu(mainWindow));
-    tray.on('click', () => { if (mainWindow.isVisible()) mainWindow.hide(); else { mainWindow.show(); mainWindow.focus(); } });
-    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); else mainWindow.show(); });
+    tray.setContextMenu(createTrayMenu(win));
+    tray.on('click', () => { if (win.isVisible()) win.hide(); else { win.show(); win.focus(); } });
+    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); else win.show(); });
   } catch (e) {
     if (e instanceof MinisdFatalError) {
       // minisd 报了用户能自己处理的原因（库来自更新版本 / 数据目录被另一个实例占着）：

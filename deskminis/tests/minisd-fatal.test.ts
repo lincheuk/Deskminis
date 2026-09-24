@@ -23,6 +23,7 @@ import {
   toMinisdFatal, reportStartupFailure, MINISD_FATAL_CODES, STARTUP_FAILURE_EXIT_DELAY_MS, type MinisdFatal,
 } from '../src/minisd/fatal';
 import { DbNewerThanAppError } from '../src/minisd/store/db';
+import { DATA_ROOT_LOCK_NAME } from '../src/minisd/paths';
 
 const repoRoot = join(__dirname, '..');
 const readSrc = (rel: string): string => readFileSync(join(repoRoot, rel), 'utf8').replace(/\r\n/g, '\n');
@@ -188,6 +189,12 @@ describe('fatalDialogOptions（对话框文案）', () => {
     expect(text).toContain('4242');
     expect(text).toContain(ROOT);
     expect(text).not.toMatch(/清空|删除|重置|覆盖/);
+  });
+
+  it('DATA_ROOT_LOCKED 的 detail 写明锁文件路径（W1b-3）：Windows 会复用进程号，误判「已在运行」时，照着路径找得到那把锁', () => {
+    const o = fatalDialogOptions(LOCKED);
+    expect(o.detail).toContain(join(ROOT, DATA_ROOT_LOCK_NAME));
+    expect(o.buttons, '仍然只有「退出」').toEqual(['退出']);
   });
 
   it('文案里不漏内部标识符（code 名不上屏）', () => {

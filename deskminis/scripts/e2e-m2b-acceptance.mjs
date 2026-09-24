@@ -11,6 +11,12 @@
 //
 // W1a-9 起未打包的 dev 应用默认用 %APPDATA%\DeskMinis-dev 与 keyring 服务名 DeskMinis-dev；本脚本默认仍是正式版的根与 keyring。
 // 要用 dev 应用里配好的 provider，同时设 DESKMINIS_DATA_DIR=%APPDATA%\DeskMinis-dev 和 DESKMINIS_KEYRING_SERVICE=DeskMinis-dev。
+//
+// W1b-3 起数据根有锁（<数据根>\minisd.lock）：同一个根上只能有一个 minisd。应用开着时跑本脚本，
+// 脚本起的 minisd 会报「数据目录被另一个 DeskMinis 占用」后退出。先从托盘退出应用再跑；
+// 或者设 DESKMINIS_DATA_DIR 指向一个临时目录（那里要自己配一个有效 provider）。
+// 不留绕过开关：两个 minisd 同写一个库正是这把锁要挡的。步骤 6b 杀掉脚本自己的 minisd 再重启，
+// 留下的锁里 pid 已经不在，重启时按陈旧锁接管，不受影响。
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -63,13 +69,19 @@ function awaitHandshake(child) {
       const nl = buf.indexOf('\n');
       if (nl < 0) return;
       const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-      try {
-        const o = JSON.parse(line);
-        if (typeof o.minisdPort === 'number' && typeof o.authToken === 'string') { clearTimeout(timer); res(o); }
-      } catch { /* 普通日志行 */ }
+      let o;
+      try { o = JSON.parse(line); } catch { return; /* 普通日志行 */ }
+      if (typeof o?.minisdPort === 'number' && typeof o?.authToken === 'string') { clearTimeout(timer); res(o); }
+      // 数据根被占时 minisd 先写一行致命行再退出：给出能照做的提示，而不是只有「提前退出 code=1」
+      else if (o?.minisdFatal?.code === 'DATA_ROOT_LOCKED') { clearTimeout(timer); rej(new Error(dataRootLockedHint(o.minisdFatal))); }
     });
     child.on('exit', c => rej(new Error('minisd 提前退出 code=' + c)));
   });
+}
+
+function dataRootLockedHint(f) {
+  return `数据目录 ${f.dataRoot} 正被另一个 DeskMinis（进程 ${f.pid}）使用，本脚本起的 minisd 没有打开它。\n`
+    + '先从托盘退出占用它的 DeskMinis 再跑；或者设 DESKMINIS_DATA_DIR 指向一个临时目录。';
 }
 
 async function startMinisd() {

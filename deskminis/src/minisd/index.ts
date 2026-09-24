@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
 import { reportStartupFailure } from './fatal';
+import { acquireDataRootLock, type DataRootLock } from './store/data-root-lock';
 import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
 import { SettingsStore, SYNC_PAUSE_KEY, PERMISSION_PRESET_KEY } from './store/settings';
 
@@ -228,9 +229,28 @@ class FakeProvider implements AgentProvider {
   }
 }
 
-export async function startMinisd(opts?: { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number }): Promise<{ port: number; listenPort: number; authToken: string; bridgePipe?: string; close(): Promise<void> }> {
+export type StartMinisdOpts = { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number };
+export type MinisdHandle = { port: number; listenPort: number; authToken: string; bridgePipe?: string; close(): Promise<void> };
+
+/** 起一个 minisd：建数据根 → 拿数据根锁 → 装配。
+ *  W1b-3（设计稿 §3 第 9 条）：锁在打开库之前拿，拿不到就以 DATA_ROOT_LOCKED 当场抛出，库、端口文件、桥一样都不碰
+ *  （以前同一个根上的第二个实例能完整起来，和第一个同写一个 minis.db）。拿到之后装配任何一步失败都先释放再抛——
+ *  不释放的话锁里是本进程的 pid，同一进程里这个根就再也打不开了。装配成功后由 close() 的最后一步释放。
+ *  为什么是外壳加 assembleMinisd，而不是把装配整段包进 try：那样近千行要整体重缩进，与本波其它步骤处处冲突（cross.md S11）。
+ *  不留绕过开关：两个 minisd 同写一个库正是这把锁要挡的（设计稿 §2 生命周期「e2e 脚本不留锁绕过开关」）。 */
+export async function startMinisd(opts?: StartMinisdOpts): Promise<MinisdHandle> {
   const root = opts?.dataDir ?? dataRoot();
   mkdirSync(root, { recursive: true });
+  const lock = acquireDataRootLock(root);
+  try {
+    return await assembleMinisd(root, lock, opts);
+  } catch (e) {
+    lock.release();
+    throw e;
+  }
+}
+
+async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMinisdOpts): Promise<MinisdHandle> {
   const paths = new MinisPaths(root);
   const db = openDb(join(root, 'minis.db'));
   // M6 R4 审计日志：跨会话事件审计（权限决议等），独立于会话生命周期（决策点 2-3）。
@@ -1233,6 +1253,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       pendingPerms.clear();
       clearInterval(cronTimer); clearTimeout(cronBoot); // K1：调度器随进程收尾
       terminals.disposeAll(); shells.disposeAll(); mcpManager.disposeAll(); await bridge?.close(); await rpc.close(); db.close();
+      // 数据根锁最后放：库关了才让别的实例进来。release 可重复调用，同一个根 close 后能在本进程里重启（auto-sync.test.ts）
+      lock.release();
     },
   };
 }
