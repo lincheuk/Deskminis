@@ -49,6 +49,8 @@ npm run e2e:m5
 - [ ] 任务面板：右栏「任务」tab 有上下文水位读数。
 - [ ] 深浅双主题切一遍（设置 → 外观：跟随系统 / 浅色 / 深色 三态）。
 - [ ] 便携版同机再冒烟一次（数据根同 `%APPDATA%\DeskMinis`）。
+- [ ] 安装目录 `resources\` 下有 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`（W1a-1 起随包；
+      `extraResources` 的 `from: ../` 指向工程目录之外，缺了就退回在 `deskminis/` 下放拷贝并加一致性测试）。
 - [ ] 卸载：数据目录保留（`deleteAppDataOnUninstall: false`）。
 
 ## 4. 发布到 GitHub Releases
@@ -70,5 +72,10 @@ npm run e2e:m5
 ## 6. 版本号与下一版
 
 - 升版：改 `deskminis/package.json` 的 `version`（功能波升 minor，修补升 patch），
-  随动 `tests/m5-packaging.test.ts` 版本钉（改锚要在 commit 申报）+ 根 `CHANGELOG.md` 新段。
+  随动 `tests/m5-packaging.test.ts` 版本钉（改锚要在 commit 申报）+ 根 `CHANGELOG.md` 新段
+  + `package-lock.json` 根上的两处 `version`（手改即可，不必为此跑 `npm install`；
+  `tests/license-consistency.test.ts` 核对锁根与清单一致）。
   产物名 / e2e-m5 默认路径 / 更新清单都从 package.json 版本派生，无其它硬编码点。
+- 依赖：`dependencies` / `devDependencies` 由 `tests/deps-frozen.test.ts` 整体快照钉住（锁根的同名字段一并核对）。
+  改依赖先征得用户点头，再同步改快照，并在 commit 正文申报；随包的间接依赖跟着变时，
+  照 `tests/license-consistency.test.ts` 的提示同步根 `THIRD-PARTY-NOTICES.md` 第 6 节（非 MIT 的包与没带许可文件的包逐个登记）。

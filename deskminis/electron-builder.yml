@@ -21,6 +21,14 @@ extraResources:
     to: bridge-cli.mjs
   - from: scripts/bridge-node.cmd
     to: bridge-node.cmd
+  # 许可随包（W1a-1）：安装包里要有本项目许可与第三方署名——MIT 要求副本附版权与许可声明，
+  # Apache-2.0 §4(a)(d) 要求给接收者许可副本与署名，随包的 Noto 字体（OFL）也要求随附声明。
+  # 原件在仓库根（工程目录的上一级），from 相对工程目录解析；LICENSE 改成 .txt，Windows 上双击就能打开。
+  # electron-builder 对不存在的 from 只打警告、照样出包，所以 tests/license-consistency.test.ts 核对源文件确实存在。
+  - from: ../LICENSE
+    to: LICENSE.txt
+  - from: ../THIRD-PARTY-NOTICES.md
+    to: THIRD-PARTY-NOTICES.md
 
 # 原生 .node 模块在 asar 内无法 require，解包到 app.asar.unpacked（硬阻塞 3）
 asarUnpack:
