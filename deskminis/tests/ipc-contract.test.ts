@@ -113,4 +113,9 @@ describe('parseHandshake（握手行解析）', () => {
     expect(parseHandshake('[minisd] booting db...')).toBeUndefined();
     expect(parseHandshake('not json at all')).toBeUndefined();
   });
+
+  it('W1a-8：minisd 的致命行不是握手行 → undefined（由 parseMinisdFatal 另行识别，不能被当成端口上报）', () => {
+    const fatal = { code: 'DB_NEWER_THAN_APP', dbVersion: 12, appVersion: 11, dataRoot: 'C:\\x' };
+    expect(parseHandshake(JSON.stringify({ minisdFatal: fatal }))).toBeUndefined();
+  });
 });

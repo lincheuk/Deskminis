@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
+import { reportStartupFailure } from './fatal';
 import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
 import { SettingsStore, SYNC_PAUSE_KEY, PERMISSION_PRESET_KEY } from './store/settings';
 
@@ -1228,8 +1229,7 @@ if (process.env.DESKMINIS_STANDALONE === '1') {
     .then(({ port, authToken }) => { process.stdout.write(JSON.stringify({ minisdPort: port, authToken }) + '\n'); })
     // 没有 .catch 的话，DB / 密钥库任一失败都只是一次未处理拒绝：进程静默退出，
     // 父进程只能看到 "exit code=1"，真正的原因（哪一行、什么错）永远看不到。
-    .catch(e => {
-      process.stderr.write('minisd 启动失败: ' + (e instanceof Error ? e.stack ?? e.message : String(e)) + '\n');
-      process.exit(1);
-    });
+    // stderr 那行照旧；库比应用新 / 数据目录被占这类用户能自己处理的，再写一行致命行给主进程弹框（§3 第 8 条）。
+    // 数据根用 dataRoot()：standalone 不传 dataDir，startMinisd 用的就是它。
+    .catch(e => reportStartupFailure(e, dataRoot()));
 }
