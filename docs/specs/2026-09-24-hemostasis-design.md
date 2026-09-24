@@ -1,0 +1,166 @@
+# 止血波设计稿：W1a–W2b，然后发 0.3.0（2026-09-24）
+
+状态：**定稿即施工**（自己做模式）。
+立项依据：用户 2026-09-24 对方向评估报告的答复——「按照你的想法把它完善再發出去」。据此采纳报告的建议，
+报告 §7 的拍板项全部按默认建议落定（见 §2）。报告：`docs/research/2026-09-24-reference-resurvey.md`；
+路线详案：`docs/research/2026-09-24-resurvey/roadmap.md` 的 W1、W2 两节。
+
+本稿是施工的权威依据。逐项的现状事实、改动点、先红测试、会翻红的守卫，写在同目录附录
+`docs/specs/2026-09-24-hemostasis/` 的六份侦察计划里（tools / mcp / lifecycle / engine / renderer / release），
+步骤切分与冲突顺序写在 `cross.md`。**附录与本稿冲突时，以本稿为准。**
+
+## §0 范围与边界
+
+- **做**：报告 §4 的 A 组（伤数据、越权）与 B 组（静默失效、界面撒谎）全部在 0.3.0 前修掉；
+  侦察补出的同类缺陷一并修（§4 标「补」的步骤）；发布工程补齐到「用户在 Windows 真机上按清单即可上架」。
+- **不做**：任何新功能；任何 DB 迁移（`MIGRATIONS` 只加 `export` 与 `Object.freeze`，条目零改动）；
+  新 npm 依赖；上下文管线重写与前缀稳定（W5）；会话协议与重连（W6）；思考档位界面与代际表（W4c）。
+- **云端做不了、留给用户**：Windows 真机打包、`e2e:m5`、真 key 冒烟、上传发布资产、创建公开发布仓库（§5）。
+
+## §1 纪律（本波全部适用）
+
+交接文档 §2 全套照旧，另加本波约定：
+1. **提交前缀**：`W1a-2: …` 这种带子波字母的形式，与 2026-09-07 的旧 W 波（`W1:`…`W6:`）区分。
+2. **先红取证**：每步先写失败测试并跑出红，红输出存 `scratchpad/hemo-logs/<步骤>-red.log`，要点抄进提交正文。
+   Linux 上无法先红的（Windows-only 行为）写明「非先红」并说明原因。
+3. **每步独立全绿**：该步测试绿 + `npm run typecheck` 0 + 全量 `npm test` 与 52 例基线逐行 diff 为空。
+   新增测试不得落进 Windows-only 基线（Linux 上必须能跑）；确需 Windows 的另开 `*.win.test.ts` 并在提交里申报。
+4. **有意翻红**：改变既有守卫断言的，提交正文逐条列「文件:行 · 原断言 · 新断言 · 为什么」。
+5. **借用即登记**：借用 pi（MIT）或 ZCode / AionUi（Apache-2.0）的代码，文件头写「改编自 <上游名>（<URL>）」，
+   并在仓库根 `THIRD-PARTY-NOTICES.md` 对应上游节的表里追加一行（格式由 W1a-1 定）。
+6. **界面改动必 xvfb 目视**：`npm run build` 后用 playwright-core 剧本实拍，截图存 `scratchpad/hemo-shots/`。
+7. **Linux 上触发权限卡**：用 `web_fetch`（askOnce），或 W1b-2 之后写 `/var/minis/skills/x/SKILL.md`；
+   不要用 POSIX 绝对路径的 `file_write`（`paths.ts:54-55` 直接抛错，进不了网关）。
+
+## §2 拍板项落定
+
+报告 §7「发版前必须定」五项，按默认建议：
+
+| 问题 | 落定 |
+|---|---|
+| 0.3.0 何时发 | W1、W2 止血后立即发；引擎重写推到 0.4.0 |
+| 自动更新源 | GitHub provider 指向公开的只放发布资产的仓库 **`lincheuk/deskminis-releases`**；`electron-builder.yml` 只改 repo。仓库由用户创建 |
+| 数据根写入收窄 | 核心数据与凭据一律拒绝；mcp-servers / skills / memory / 其它会话 / 其余应用数据走权限卡并带说明 |
+| 新一代 Claude 缓解 | 官方端点上的 `claude-fable-5-1` `claude-mythos-5-1` `claude-opus-5-5` 发 `drop_block`；第三方端点遇绑定 400 剥思考块重试一次 |
+| 开发态数据隔离 | 隔离（未打包默认 `DeskMinis-dev`，keyring 服务名 `DeskMinis-dev`），手工迁移步骤写进 README |
+
+侦察提出的开放问题，落定如下（采纳推荐的不再复述理由）：
+
+- **MCP**：损坏时拒绝一切写入；空文件或纯空白（剥 BOM 后）当可写的空配置；纳入「外部修改不被覆盖」；
+  补丁语义下市场更新保留用户的 enabled / note / cwd / 超时 / headers，env 显式传（空传 `null`）；
+  同名新建在前端拦截；删除某键用 `null`；`list` 只在出错时带 `configErrorKind: 'read'|'parse'|'shape'`；
+  **「改动即时生效」做成真话**：执行器调用前查 `enabled`，upsert / remove 后通知 manager `forget(name)`；
+  改名不迁移会话级禁用名单（写进已知边界）。
+- **工具层**：`full` 档对「走卡」类跟随档位放行，硬拒类不受档位影响；数据根内读取用白名单
+  （当前会话各桶、shared、skills、memory、绑定工作区免审，其余走卡）；`dataGate` 做规范化
+  （最近存在祖先取 realpath，realpath 可注入；win32 小写、剥 ADS、剥尾点尾空格）；搜索三件套跳过数据根子树并尾注；
+  file_edit 拒绝非 UTF-8 文件、重叠出现算不唯一、拒绝空 old_string；技能 zip 上限 2000 条 / 64MB 总量 / 32MB 单文件，
+  office 单文件上限取 64MB（行为不变）；killTree 不再同步先杀根进程，只在 taskkill 出错或非 0 退出时兜底；
+  `cmd.exe` 与桥的 `runPowerShell` 一并改 System32 绝对路径；agent 直写技能每个新文件一张卡，接受。
+- **shell 只读白名单读数据根**（侦察推荐「含未加引号的 $ 就改询问」，**不采纳**：PowerShell 的 `$_` 太常见，
+  会让大量只读命令弹卡）。改为：只读判定命中、但命令文本（不区分大小写）含 `deskminis`、`$env:`、`%appdata%`、
+  `%localappdata%` 之一时回落为 gated。并入 W1b-2。
+- **生命周期**：日志与崩溃记录放 `%LOCALAPPDATA%\DeskMinis\logs`（dev 为 `DeskMinis-dev`；设了
+  `DESKMINIS_DATA_DIR` 时为 `<DATA_DIR>/logs`）；未打包且设了 `DESKMINIS_DATA_DIR` 时 userData 移到 `<DATA_DIR>/electron`；
+  minisd 的 unhandledRejection 记录后继续、uncaughtException 记录后 `exit(1)`，主进程 uncaughtException 记录后照默认；
+  e2e 脚本不留锁绕过开关；删除运行中会话等收尾超时（10s）就**不删**并报错；DB_NEWER 对话框只给「退出」；
+  pid 复用风险本版接受；断线横幅的「重启」重启整个应用，走优雅退出，处理函数里不出现 `app.exit(`。
+- **引擎**：溢出时不在 W2a 做「强制压缩重试」（W5）；预算超出时新锚点后退；第三方端点绑定 400 剥思考重试一次；
+  不在 buildEffectiveHistory 剥保留回合的思考（W5）；只处理三个目标模型的 budget_tokens；DeepSeek V4 全量回放已捕获的推理；
+  卸载读回上限 50000 字符；auto-title 输出上限 2048；接力继承模型绑定；溢出降级后沿用 turnEnd 改绑。
+- **渲染端**：「上下文已满」接力草稿用兄弟字段 `relayDraft: {sessionId, text}`，只在输入卡 setup 消费、要求
+  `sessionId === activeId`，不用 watch；断线时清 pendingPerms、保留流式文本；欢迎页修复用新 RPC
+  `chat.sessions.applyAssistant`，标题仍为默认值时才改成助手名；切回仍在跑的会话显示 midRun 占位；
+  其它会话的待批在对话流顶部提示「另有 N 个会话在等你批准」；胶囊「默认 · X」改在纯模块 `binding.ts`。
+- **发布工程**：`sync.hello` 声明 `protocolVersion: 2`、`caps: {}`，对端信息存 `conn.syncPeer`；README 设备同步定 🟡
+  并写明跨机器需设 `MINISD_HOST`；LICENSE 与 THIRD-PARTY-NOTICES 随包（extraResources）；登记格式在 W1a-1 定；
+  技能 zip 用自家常量，不登记 ZCode；加 `tests/readme-claims.test.ts`（只钉三条）；托盘手动「检查更新」给结果反馈；
+  手改 `package-lock.json` 根元数据三处；公开发布仓库放 README / LICENSE / NOTICES / CHANGELOG；CHANGELOG 0.2.0 标「未公开发布」；
+  托盘「打开设置」「切换右栏」两条死通道在 W2b-11 接上。
+
+## §3 统一契约
+
+侦察的交叉检查发现几处两边各写一套的契约，这里定死，实现与测试都按此：
+
+1. **ProviderError.code**：`'contextOverflow' | 'thinkingBinding'`，在 W2a-2 一次定型；两者缺省 `fallbackable=false`、`retryable=false`。
+   loop 在捕获处（`loop.ts:427` 之后）**显式拦截**这两个 code，不能只靠 fallbackable（`:434-439` 对非 fallbackable 也会降级）。
+2. **溢出事件**：找不到更大窗口的槽位时，loop 发 `{kind:'error', code:'contextFull', message, relayDraft}`；
+   `relayDraft` 由引擎用库里完整的最新 marker 摘要加最后一条真用户消息拼成，上限 8000 字。
+   降级到更大窗口时，`fallback` 事件带 `cause:'contextOverflow'`，reason 为「上下文已满」。
+3. **绑定错误事件**：`{kind:'error', code:'thinkingBinding', message}`，message 中文在前、原始错误在后。
+4. **压缩失败事件**：`{kind:'compactFailed', reason:'empty'|'truncated'|'refusal'|'error', message}`；
+   渲染端 eventNotes 的 kind 联合**在末尾追加** `'compactFailed'`。
+5. **渲染端 eventNote 字段**：新增 `relay?: boolean`、`short?: string`；草稿正文放 `store.relayDraft.text`。
+   `lib/eventnote/copy.ts` 先按事件的 code 选短句，不对原始报文跑状态码正则。
+6. **PermissionRequest.note?: string**（W1b-2）与渲染端 **PendingPerm.sessionId**（W2b-2）：改同一接口与同一 push 对象，
+   后合入的一方保留两个字段。
+7. **断线**：`rpc.onLost(handler)` 专门 API；`preload.relaunchApp()` ↔ `ipcMain.handle('app:relaunch')`，
+   主进程校验 sender 是主窗口，`app.relaunch()` 后走 `app.quit()`（before-quit 里优雅停止）。
+8. **minisd 致命行**：standalone 捕获 `DB_NEWER_THAN_APP` / `DATA_ROOT_LOCKED` 时往 stdout 写
+   `{"minisdFatal":{code,…}}` 一行，写回调里 `exit(1)`；主进程解析后弹对话框。stderr 末尾 4KB 环形缓冲只实现一次。
+9. **数据根锁**：`<dataRoot>/minisd.lock`（接管闸 `minisd.lock.recovery`），文件名常量放 `paths.ts`，
+   `dataGate` 硬拒表引用同一常量；close 最后一步释放，释放幂等。
+10. **子进程环境**：shell、终端、MCP 子进程的 env 剥掉 `DESKMINIS_*` 这组变量（W1b-1）。
+11. **引擎进程的退出监听**只挂一个（W1b-5 建），W2b-7 复用它区分「退出流程中的 exit」与崩溃。
+
+## §4 施工步骤
+
+「侦察号」对应 `cross.md` 的步骤；「补」表示报告 §4 之外、侦察补出的缺陷。每步一个提交，独立全绿。
+
+| 提交号 | 侦察号 | 内容 | 依赖 |
+|---|---|---|---|
+| W1a-1 | S0a | 登记格式与双向绊线、依赖冻结守卫、package.json 与 lock 的 license、LICENSE/NOTICES 随包 | — |
+| W2a-0 | S0b | 请求体黄金快照（sha256 硬编码表），先冻结再改 provider | — |
+| W1a-2 | S1 | file_edit：slice 拼接、CRLF 偏移映射、BOM、非 UTF-8 拒绝、重叠算不唯一、空 old_string 拒绝 | W1a-1 |
+| W1a-3 | S2 | 技能 zip 上限（entryCount、inflate 前、流式三处） | — |
+| W1a-4 | S3 | MCP 配置损坏时拒写，`configErrorKind`，SecMcp 横幅与开关回滚 | — |
+| W1a-5 | S4 | MCP 外部修改不被覆盖（写前对比磁盘，list 先 refresh） | W1a-4 |
+| W1a-6 | S5 | MCP 编辑后端：补丁语义、`null` 删键、`renameFrom`、试连不写盘、市场更新 env 显式；**补**：即时生效成真 | W1a-5 |
+| W1a-7 | S6 | MCP 编辑表单：参数每行一个、只提交改过的字段、改名、同名拦截 | W1a-6 |
+| W1a-8 | S7 | 迁移守卫（DB_NEWER、事务回滚、sha256 钉）与 minisd 致命行通道 | — |
+| W1a-9 | S8 | 开发态数据隔离（app-dirs、userData、keyring 服务名、日志目录下发） | W1a-8 |
+| W1b-1 | S9 | 进程树回收与 System32 绝对路径、windowsHide、`ShellManager.dispose(sessionId)`；**补**：剥 `DESKMINIS_*` | W1a-1 |
+| W1b-2 | S10 | 数据根读写收窄（dataGate、note、搜索跳过数据根）；**补**：shell 只读规则 | W1a-2、W1a-9、W1a-4 |
+| W1b-3 | S11 | 单实例锁与数据根锁 | W1a-8、W1a-9、W1b-2 |
+| W1b-4 | S12 | 删除运行中会话先中止；**补**：定时任务失败不再记为 ok；NavRail 删除中状态 | W1b-1、W1b-2、W1b-3 |
+| W1b-5 | S13 | 优雅退出（shutdown 消息、5s 兜底、close 幂等与竞态） | W1b-4 |
+| W2a-1 | S14 | 压缩：旧摘要加增量、压平、预算、拒收空与截断、compactFailed、auto-title 2048 | W2a-0 |
+| W2a-2 | S15 | 溢出分类与 contextFull 契约（移植 pi 正则） | W2a-1、W1a-1 |
+| W2a-3 | S16 | 新一代 Claude：beta 头与 drop_block；绑定 400 不可降级；第三方剥思考重试一次 | W2a-0、W2a-2 |
+| W2a-4 | S17 | DeepSeek V4 回放 reasoning_content | W2a-0、W2a-3 |
+| W2a-5 | S18 | 卸载读回不再二次卸载、修剪桩如实 | W2a-4 |
+| W2b-1 | S19a | 按会话跟踪运行状态、midRun 占位 | 合流后 |
+| W2b-2 | S19b | 权限卡按会话区分、NavRail 等待标、对话流顶部提示 | W1b-2、W2b-1、W1b-4 |
+| W2b-3 | S20 | 重启通道与断线横幅 | W1b-5、W2b-2 |
+| W2a-6 | S21 | 溢出的界面部分（接力按钮、relayDraft 消费、fallback 短句） | W2a-2、W2b-3 |
+| W2b-4 | S22 | 欢迎页选助手：新 RPC `chat.sessions.applyAssistant` 与渲染端修复 | W2a-6、W1b-5 |
+| W2b-5 | S23 | ModelBar 标「默认模型」，胶囊「默认 · X」 | — |
+| W2b-6 | S24 | 窗口导航守卫与权限白名单（只放行 clipboard-sanitized-write） | W2b-3 |
+| W2b-7 | S25 | 本地崩溃记录与按天日志 | W2b-6、W2b-4 |
+| W2b-8 | S26 | `sync.hello` 带协议版本 | — |
+| W2b-9 | S27 | 更新源改公开发布仓库、中文错误文案、便携版状态、托盘手动检查反馈 | W2b-7、W1a-1 |
+| W2b-10 | S28 | `scripts/verify-release.mjs` 与 `npm run verify:release` | W2b-9 |
+| W2b-11 | S29 | README / CHANGELOG / RELEASE 逐行核对；界面同类假话；托盘两条死通道；`readme-claims` 守卫 | 全部 |
+
+**施工组织**：W1a-1 与 W2a-0 先在 main 上完成。之后三条链在各自的 git worktree 里并行：
+链 A1（W1a-2…W1a-7）、链 A2（W1a-8、W1a-9、W1b-1）、链 B（W2a-1…W2a-5）。三条链合入 main、全量验证后，
+其余步骤在 main 上串行，W2b-5 与 W2b-8 可并行。每步由一位实现者完成，再由一位独立审查者按本稿与附录对抗式复核，
+必须修的问题修完才进入下一步。
+
+## §5 发版（W3）
+
+云端完成 W1a–W2b 后，0.3.0 的发布动作需要用户在 Windows 上做，清单写进 `docs/RELEASE.md`：
+1. 在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`，放 README、LICENSE、THIRD-PARTY-NOTICES、CHANGELOG。
+2. Windows 真机：`npm ci` 后 `npm test`（含 52 例 Windows-only 全绿）、`npm run dist`、`npm run e2e:m5`、`npm run verify:release`。
+3. 真 key 冒烟：Anthropic 官方端点跑 Fable 5.1 / Opus 5.5 多轮工具调用加一次 memory_write；DeepSeek V4 多轮工具调用；
+   一台参数带 `C:\Program Files\…` 的 MCP 试连；shell 里起 `ping -t` 后点停止，任务管理器里没有残留。
+4. 在公开仓库建 Release `v0.3.0`，上传 Setup.exe、Setup.exe.blockmap、portable.exe、latest.yml 四件。
+
+## §6 已知边界（写进 CHANGELOG）
+
+- 思考档位仍无界面入口；除三个目标模型外，Opus 4.7/4.8/5、Sonnet 5、Fable 5 在带思考档位的远端调用下仍会发 budget_tokens（W4c）。
+- 系统提示仍每步重建（W5）：第三方端点上的新账号靠「剥思考重试」维持，官方端点靠 drop_block，首轮成本与延迟会上升。
+- 溢出时只降级到更大窗口或报「上下文已满」给出接力，还没有「强制压缩后同槽重试」（W5）。
+- 删除会话不删磁盘上的 `sessions/<id>/` 目录；MCP 改名不迁移会话级禁用名单。
+- 数据库降级守卫只对装过 0.3.0 之后再回退的情况有效。
+- 设备同步默认只监听本机，跨机器需设 `MINISD_HOST`，界面暂无开关；记忆文件不同步。
