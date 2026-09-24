@@ -82,6 +82,8 @@ export const useChat = defineStore('chat', {
       }[];
       statuses: { name: string; status: 'connected' | 'error' | 'idle'; lastError?: string; toolCount: number }[];
       configError: boolean;
+      /** W1a-4：只在 configError 时有值——read 是读不到（权限 / 占用），parse / shape 是格式坏了；横幅据此选文案 */
+      configErrorKind?: 'read' | 'parse' | 'shape';
     },
     /** H2 文本选区注释：当前会话的注释集（高亮重锚定的数据源）。
      *  变更一律经 chat.annotations.changed 广播回流刷新——add/update/remove 不就地改本地态，
@@ -336,6 +338,7 @@ export const useChat = defineStore('chat', {
         servers: r?.servers ?? [],
         statuses: r?.statuses ?? [],
         configError: r?.configError === true,
+        configErrorKind: r?.configErrorKind,
       };
     },
     async upsertMcpServer(entry: Record<string, unknown>) {

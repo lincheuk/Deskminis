@@ -309,6 +309,9 @@ export interface MarketInstallerOptions {
   bridgeNodePath?: string;
   /** 技能装成后的 skills.changed 广播钩子（index.ts 接 rpc.broadcast）。 */
   onSkillsChanged?: () => void;
+  /** W1a-6：MCP 条目装成或更新成功后的钩子（index.ts 接 mcpManager.forget）。更新换了 args / env，
+   *  已连上的旧版本进程要下线、下一回合按新配置重连——「改动即时生效」对市场同样成立。 */
+  onMcpChanged?: (name: string) => void;
 }
 
 interface InstallRow {
@@ -379,6 +382,8 @@ export class MarketInstaller {
     const gating: { envMissing?: string[]; binsMissing?: string[] } = {};
     // plan 阶段 env 尚未收集：必填键如实列为缺失（确认卡渲染输入框）——
     // 更新流除外：已存值的必填键不列缺失（env 保留，install 层 mergeEnvForUpdate 同规则）。
+    // 先让 store 跟上磁盘（W1a-5）：用户可能在应用开着时手填了新版本要的键，确认卡不该再要一遍。
+    this.opts.mcpStore.refresh();
     const existingEnv = this.opts.mcpStore.list().find(e => e.name === shape.serverName)?.env;
     const prefilled = shape.envDecls.filter(d => existingEnv?.[d.name] !== undefined).map(d => d.name);
     if (prefilled.length > 0) plan.envPrefilled = prefilled;
@@ -476,6 +481,9 @@ export class MarketInstaller {
     // 更新流 env 保留（G4）：现存同名条目的用户 env 值原样保留（更新不得丢用户配置），
     // 仅新增必填要求确认卡补填。existing 来自 servers.json（用户此前经确认卡收集的值），
     // 不是注册表数据——env 反向锚（注册表 env 值绝不入 servers.json）不受影响。
+    // 先让 store 跟上磁盘（W1a-5）：upsert 自己会先对比磁盘，但合并在它之前就算好了——拿内存旧副本算，
+    // 用户在应用开着时手改的 env 值（比如换过的密钥）会被旧值写回去。
+    this.opts.mcpStore.refresh();
     const existingEntry = this.opts.mcpStore.list().find(e => e.name === shape.serverName);
     const merged = mergeEnvForUpdate(existingEntry?.env, shape.envDecls, provided);
     // gating 硬校验（§4-4）：必填 env 缺失（旧值也没有、本次也没补）→ 拒
@@ -491,32 +499,47 @@ export class MarketInstaller {
         transport: 'stdio',
         command: shape.stdio.command.command,
         args: shape.stdio.command.args,
+        // W1a-6：upsert 改成补丁语义后「不传 env」等于保留旧 env。新版本不再声明任何 env 时，
+        // mergeEnvForUpdate 算出空表，本意是把旧键清掉——所以一律显式传，空表传 null（删键）。
+        env: Object.keys(merged.env).length > 0 ? merged.env : null,
       };
-      if (Object.keys(merged.env).length > 0) entry.env = merged.env;
       contentHash = sha256Hex(`${shape.stdio.pkg.identifier ?? ''}@${shape.stdio.pkg.version ?? ''}`);
     } else if (shape.remoteUrl) {
+      // 从 stdio 换成远端时，旧的 command / args / env / cwd 由 upsert 的换族规则清掉；
+      // 同为远端时用户自己的 headers 保留（补丁语义：没给的键不动）
       entry = { name: shape.serverName, transport: 'streamable-http', url: shape.remoteUrl };
       contentHash = sha256Hex(shape.remoteUrl);
     } else {
       throw new Error(`该条目无白名单内 stdio 启动命令${shape.stdio?.denyReason ? `（${shape.stdio.denyReason}）` : ''}，需手动配置: ${id.full}`);
     }
-    const saved = this.opts.mcpStore.upsert(entry); // 复用 mcp.servers.upsert 的归一与原子写
+    // 复用 mcp.servers.upsert 的归一与原子写。W1a-6 起是补丁语义：更新只换 command / args / env（和换族），
+    // 用户自己的停用状态、备注、cwd、超时、headers、未识别字段都保留——「更新」修的是包的版本，
+    // 这些不属于上游数据；原先整条替换，更新一次就把用户停掉的服务器悄悄重新启用了。
+    const saved = this.opts.mcpStore.upsert(entry);
+    // 配置一落盘就通知（排在登记之前）：万一登记失败，manager 也不该留着按旧配置连着的进程
+    this.opts.onMcpChanged?.(saved.name);
     this.recordInstall(id.full, 'mcp', saved.name, contentHash);
     return { ok: true, kind: 'mcp', id: id.full, localRef: saved.name };
   }
 
   /** market.installed({kind})：provenance 表 + 本体现状双向核对（§6）。
-   *  表里有但本体已删（技能目录/表行没了、servers.json 条目删了）→ 视为未装并清理登记行。 */
+   *  表里有但本体已删（技能目录/表行没了、servers.json 条目删了）→ 视为未装并清理登记行。
+   *  例外（W1a-4）：servers.json 读坏时 mcp 登记行原样返回、一行不删，理由见函数体。 */
   installed(p: { kind?: unknown }): { items: MarketInstalledItem[] } {
     const kind = p.kind;
     if (kind !== 'skill' && kind !== 'mcp') throw new Error(`非法 kind: ${String(kind)}（应为 skill 或 mcp）`);
     const rows = this.stmtSelect.all(kind) as InstallRow[];
+    // servers.json 读坏（read/parse/shape）时 list() 是个假空表，不代表「本体已删」。拿它核对，
+    // 每一行都会被当孤儿删掉：打开市场页（refreshInstalled）或点检查更新，就会永久丢掉全部 MCP
+    // 登记，修好文件重启后市场显示未装、更新检查也不再覆盖它们（设计稿 §2「损坏时拒绝一切写入」）。
+    // 核对不了就不核对：登记行按原样报告，市场照旧显示已装；真去重装或更新也会被 upsert 拒写。
+    const mcpUnverifiable = kind === 'mcp' && this.opts.mcpStore.loadErrorKind !== undefined;
     const mcpNames = new Set(this.opts.mcpStore.list().map(e => e.name));
     const items: MarketInstalledItem[] = [];
     for (const r of rows) {
       const alive = kind === 'skill'
         ? this.opts.skillStore.get(r.local_ref) !== undefined
-        : mcpNames.has(r.local_ref);
+        : mcpUnverifiable || mcpNames.has(r.local_ref);
       if (!alive) {
         this.stmtDelete.run(r.item_id); // 本体已删：登记行清理，视为未装
         continue;

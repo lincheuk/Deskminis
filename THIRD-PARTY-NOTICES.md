@@ -65,6 +65,7 @@ SOFTWARE.
 
 | 本仓位置 | 上游位置 @ 提交 | 借了什么 | 怎么改的 |
 |---|---|---|---|
+| `deskminis/src/minisd/tools/edit-text.ts` | `packages/coding-agent/src/core/tools/edit-diff.ts:11-25,306-314`、`core/tools/edit.ts:190-197`、`utils/text.ts:2-4` @ 8676a0d | file_edit 的文本处理骨架：剥掉 BOM 后在正文上匹配、写回时补回 BOM；按首个换行判定文件行尾；old/new 先把 `\r\n` 归一为 `\n` 再匹配；拒绝空 old_string | 不再整文件归一为 LF 再整体还原，改为在归一视图里匹配、把命中区间映射回原文偏移只替换这一段，混合行尾文件的其它行不动；只折叠 `\r\n`、不动孤立的 `\r`；去掉模糊匹配与多处批量编辑；另加 UTF-8 往返校验、重叠出现计入唯一性、old_string 开头 U+FEFF 的处理 |
 | `deskminis/src/minisd/providers/overflow.ts` | `packages/ai/src/utils/overflow.ts` @ 8676a0d（v0.87.1） | 上下文超窗报错的正则表 `OVERFLOW_PATTERNS`（24 条）与排除表 `NON_OVERFLOW_PATTERNS`（3 条），连同逐家的报文样例注释（W2a-2） | 两张表原样移植；判定函数按本仓 `ProviderError` 改写：按报错文本加 HTTP 状态判定，429 与 5xx 一律不算超窗；不含 Cerebras 无 body 专条与按 usage 判定的静默溢出 |
 
 - 项目：<https://github.com/badlogic/pi-mono>

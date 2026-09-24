@@ -1,9 +1,11 @@
 /** D5 MCP 管理器：enabled server 的 run 期连接、mcp__<server>__<tool> 直注册、
  *  权限类目 mcp（askOnce per server）、会话禁用调用层硬执行、崩溃/空闲驱逐重建、
  *  list_changed stale 重列、disposeAll 收口；附 chat-store mcp_disabled 迁移/读写
- *  与 minisd RPC 集成（setMcpDisabled 往返 + mcp.servers.list 带 status）。 */
+ *  与 minisd RPC 集成（setMcpDisabled 往返 + mcp.servers.list 带 status）。
+ *  W1a-6 起另钉「改动即时生效」：执行器现查全局启停、forget 让下一回合按新配置重连（含连接、列工具、调用途中被 forget 的竞态，成功与失败两条分支都钉；
+ *  另有等权限卡期间被 forget 的调用、servers.json 读坏时的调用拒绝）。 */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -429,6 +431,318 @@ describe('McpManager 生命周期（9-12）', () => {
   });
 });
 
+// ── W1a-6：改动即时生效（设计稿 §2 MCP 末条 / 附录 mcp.md open_questions 8）──────
+// 设置页写着「改动即时生效，不用重启」，而 ensureForRun 只连还没连上的服务器、执行器也不看全局启停：
+// 停用或改了一台已连上的服务器，它的工具要等 10 分钟空闲驱逐才下表。两步修：
+// 执行器每次调用现查 store 的 enabled（工具表不动，不碰前缀稳定）；upsert / remove 之后 forget(name)。
+
+/** 等到条件成立（异步链上的某一步已经走到），缺省最多等 2 秒 */
+async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() > deadline) throw new Error('等待超时');
+    await new Promise(r => setTimeout(r, 1));
+  }
+}
+
+describe('W1a-6 即时生效：执行器现查全局启停 + forget', () => {
+  it('全局停用一台已连上的服务器：调用立刻拒「该 MCP server 已停用」，不问权限、不发调用；重新启用即恢复', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    const mgr = mkManager(store);
+    await mgr.ensureForRun();
+    const ctx = mkCtx(chat.createSession('s').id);
+    promptSpy.answer = 'allow-session';
+    store.toggle('a', false);
+    const r = await execTool(registry, ctx, 'mcp__a__echo', { tool_title: 'x' });
+    expect(r).toEqual({ output: '该 MCP server 已停用', success: false });
+    expect(promptSpy.calls).toHaveLength(0);
+    expect(clients[0].callLog).toHaveLength(0);
+    // 工具表不动（前缀稳定），连接也还在：重新启用后不用重连
+    expect(registry.definitions().some(d => d.name === 'mcp__a__echo')).toBe(true);
+    store.toggle('a', true);
+    const r2 = await execTool(registry, ctx, 'mcp__a__echo', { tool_title: 'x' });
+    expect(r2.success).toBe(true);
+    expect(clients).toHaveLength(1);
+  });
+
+  it('等权限卡期间在设置页停用了它：批准之后也不发调用（闸后重查，同取消的做法）', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    const mgr = mkManager(store);
+    await mgr.ensureForRun();
+    const ctx = mkCtx(chat.createSession('s').id);
+    promptSpy.answer = 'allow-once';
+    promptSpy.onPrompt = () => store.toggle('a', false);
+    const r = await execTool(registry, ctx, 'mcp__a__echo', { tool_title: 'x' });
+    expect(promptSpy.calls).toHaveLength(1);
+    expect(r).toEqual({ output: '该 MCP server 已停用', success: false });
+    expect(clients[0].callLog).toHaveLength(0);
+  });
+
+  it('配置里已经没有这台（比如手改文件删掉了）：同样在调用前拒绝，不发调用', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    const mgr = mkManager(store);
+    await mgr.ensureForRun();
+    store.remove('a');
+    const r = await execTool(registry, mkCtx(chat.createSession('s').id), 'mcp__a__echo', { tool_title: 'x' });
+    expect(r).toEqual({ output: '该 MCP server 已不在配置中', success: false });
+    expect(clients[0].callLog).toHaveLength(0);
+  });
+
+  // 读坏时 store 的列表是空的，但这台其实还在文件里——不能说「已不在配置中」，也没法确认它是否仍启用
+  it('servers.json 读坏了：已连上的服务器照样拒绝调用，文案说文件读不出来而不是「已不在配置中」，不拼报错原文；修好后原连接即可用', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dm-mgr-'));
+    const store = new McpServersStore(new MinisPaths(root));
+    const file = join(root, 'mcp-servers', 'servers.json');
+    seedStdio(store, 'a');
+    const mgr = mkManager(store);
+    await mgr.ensureForRun();
+    const good = readFileSync(file);
+    // 手改文件写坏（设置页叫用户直接改 servers.json），窗口回焦时设置页拉列表会 refresh
+    writeFileSync(file, '{"mcpServers":{"a":{"command":"echo","env":{"TOKEN":"sk-SECRET789"}, "x": undefined}}}', 'utf8');
+    store.refresh();
+    expect(store.loadErrorKind).toBe('parse');
+    const ctx = mkCtx(chat.createSession('s').id);
+    promptSpy.answer = 'allow-session';
+    const r = await execTool(registry, ctx, 'mcp__a__echo', { tool_title: 'x' });
+    expect(r).toEqual({ output: 'servers.json 读不出来（格式有误或无法读取），修好前暂不能调用 MCP 工具', success: false });
+    expect(r.output).not.toContain('SECRET');
+    expect(promptSpy.calls).toHaveLength(0);
+    expect(clients[0].callLog).toHaveLength(0);
+    // 修好之后不用回设置页：下一次调用自己对比磁盘重读，连接一直没断，不用重连就能用
+    // （否则文件早已修好，调用还在说「读不出来」）
+    writeFileSync(file, good);
+    const r2 = await execTool(registry, ctx, 'mcp__a__echo', { tool_title: 'x' });
+    expect(r2).toEqual({ output: 'ok', success: true });
+    expect(store.loadErrorKind).toBeUndefined();
+    expect(clients).toHaveLength(1);
+  });
+
+  // 与 mcp.servers.upsert 处理器同序：先写配置、再 forget。forget 刚把这台重置成 idle（无错误），
+  // 批准后的调用不能再把用户刚存好的服务器打成「连接已不可用」的出错态
+  it('等权限卡期间改了配置并 forget：批准后不发调用，状态保持 idle、不记错误；下一回合按新配置重连', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    const mgr = mkManager(store);
+    await mgr.ensureForRun();
+    const ctx = mkCtx(chat.createSession('s').id);
+    promptSpy.answer = 'allow-once';
+    promptSpy.onPrompt = () => { store.upsert({ name: 'a', note: 'x' }); mgr.forget('a'); };
+    const r = await execTool(registry, ctx, 'mcp__a__echo', { tool_title: 'x' });
+    expect(promptSpy.calls).toHaveLength(1);
+    expect(r).toEqual({ output: '该 MCP server 配置刚被修改，本次调用未执行', success: false });
+    expect(clients[0].callLog).toHaveLength(0);
+    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0 });
+    await mgr.ensureForRun();
+    expect(clients).toHaveLength(2);
+    expect(mgr.statuses()[0].status).toBe('connected');
+  });
+
+  // 批准是在旧配置下拿到的：等卡期间别的回合已按新配置连上，也不把这次调用转发到新连接上
+  it('等权限卡期间改了配置、且别的回合已按新配置重连：批准后也不把调用发到新连接', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    const mgr = mkManager(store);
+    await mgr.ensureForRun();
+    let prompts = 0;
+    const gateway = new PermissionGatewayImpl(async () => {
+      prompts++;
+      store.upsert({ name: 'a', args: ['--v2'] });
+      mgr.forget('a');
+      await mgr.ensureForRun(); // 等新连接建好、工具重新注册之后才批准
+      return 'allow-once';
+    });
+    const ctx = mkCtx(chat.createSession('s').id, { permissions: gateway });
+    const r = await execTool(registry, ctx, 'mcp__a__echo', { tool_title: 'x' });
+    expect(prompts).toBe(1);
+    expect(r).toEqual({ output: '该 MCP server 配置刚被修改，本次调用未执行', success: false });
+    expect(clients).toHaveLength(2);
+    expect(clients[0].callLog).toHaveLength(0);
+    expect(clients[1].callLog).toHaveLength(0);
+    expect(mgr.statuses()[0].status).toBe('connected');
+  });
+
+  it('forget：断开旧连接、摘工具、回 idle；下一次 ensureForRun 用新配置重连', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    const seen: McpServerEntry[] = [];
+    const mgr = new McpManager({
+      store, chatStore: chat, registry,
+      factories: entry => { seen.push(entry); const c = new FakeClient(); c.tools = toolsOf(['echo']); clients.push(c); return c; },
+    });
+    await mgr.ensureForRun();
+    expect(mgr.statuses()[0].status).toBe('connected');
+    store.upsert({ name: 'a', args: ['--v2'], env: { K: '2' } });
+    mgr.forget('a');
+    expect(clients[0].disposeCalls).toBe(1);
+    expect(registry.definitions().some(d => d.name === 'mcp__a__echo')).toBe(false);
+    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0 });
+    await mgr.ensureForRun();
+    expect(clients).toHaveLength(2);
+    expect(seen[1]).toMatchObject({ name: 'a', command: 'echo', args: ['--v2'], env: { K: '2' } });
+    expect(registry.definitions().some(d => d.name === 'mcp__a__echo')).toBe(true);
+    expect(mgr.statuses()[0].status).toBe('connected');
+  });
+
+  it('forget 清掉上一次的错误态；对从没连过或不存在的名字是空操作', async () => {
+    const store = mkStore();
+    seedStdio(store, 'bad');
+    const mgr = new McpManager({
+      store, chatStore: chat, registry,
+      factories: () => { const c = new FakeClient(); c.connectImpl = async () => { throw new Error('MCP server 启动超时（30 秒）'); }; return c; },
+    });
+    await mgr.ensureForRun();
+    expect(mgr.statuses()[0].status).toBe('error');
+    mgr.forget('bad');
+    expect(mgr.statuses()[0]).toEqual({ name: 'bad', status: 'idle', toolCount: 0, truncated: 0 });
+    expect(() => mgr.forget('ghost')).not.toThrow();
+  });
+
+  it('连接途中被 forget：按旧配置连上的 client 当场 dispose、不注册工具；下一回合按新配置重连', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const mgr = new McpManager({
+      store, chatStore: chat, registry,
+      factories: () => {
+        const c = new FakeClient();
+        c.tools = toolsOf(['echo']);
+        if (clients.length === 0) c.connectImpl = () => gate; // 只卡第一次连接
+        clients.push(c);
+        return c;
+      },
+    });
+    const pending = mgr.ensureForRun();
+    await until(() => clients.length === 1 && clients[0].connectCalls === 1);
+    mgr.forget('a');
+    release();
+    await pending;
+    // 不 dispose 的话这个子进程就成了孤儿：runtime 已经不认它，谁也不会再去关它
+    expect(clients[0].disposeCalls).toBe(1);
+    expect(registry.definitions().some(d => d.name === 'mcp__a__echo')).toBe(false);
+    expect(mgr.statuses()[0].status).toBe('idle');
+    await mgr.ensureForRun();
+    expect(clients).toHaveLength(2);
+    expect(clients[1].disposeCalls).toBe(0);
+    expect(mgr.statuses()[0].status).toBe('connected');
+  });
+
+  it('列工具途中被 forget：旧 client 的工具表不注册，状态不被旧结果改写', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const mgr = new McpManager({
+      store, chatStore: chat, registry,
+      factories: () => {
+        const c = new FakeClient();
+        c.tools = toolsOf(['echo']);
+        if (clients.length === 0) c.listImpl = async () => { await gate; return c.tools; };
+        clients.push(c);
+        return c;
+      },
+    });
+    const pending = mgr.ensureForRun();
+    await until(() => clients.length === 1 && clients[0].listCalls === 1);
+    mgr.forget('a');
+    release();
+    await pending;
+    expect(clients[0].disposeCalls).toBe(1);
+    expect(registry.definitions().some(d => d.name === 'mcp__a__echo')).toBe(false);
+    expect(mgr.statuses()[0].status).toBe('idle');
+  });
+
+  // 上一例的假 listImpl 在 dispose 之后仍正常返回，只走到成功分支。真 client 不是这样：
+  // stdio 的 onExit、http 的 onDispose 会让在途请求一律拒绝，生产里 forget 落在列工具途中走的是 catch 分支。
+  it('列工具途中被 forget、旧请求随 dispose 拒绝时新连接已建好：迟到的失败不把新连接打成出错，也不丢下新进程', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const mgr = new McpManager({
+      store, chatStore: chat, registry,
+      factories: () => {
+        const c = new FakeClient();
+        c.tools = toolsOf(['echo']);
+        // 只卡第一次：等闸打开后以 stdio onExit 的同款文案拒绝
+        if (clients.length === 0) c.listImpl = async () => { await gate; throw new Error('MCP server 进程已退出（code 未知）'); };
+        clients.push(c);
+        return c;
+      },
+    });
+    const pending = mgr.ensureForRun();
+    await until(() => clients.length === 1 && clients[0].listCalls === 1);
+    mgr.forget('a');
+    await mgr.ensureForRun(); // 下一回合按新配置连上 clients[1]
+    expect(mgr.statuses()[0].status).toBe('connected');
+    release();
+    await pending;
+    expect(mgr.statuses()[0].status).toBe('connected');
+    expect(registry.definitions().some(d => d.name === 'mcp__a__echo')).toBe(true);
+    expect(clients[0].disposeCalls).toBe(1);
+    expect(clients[1].disposeCalls).toBe(0);
+    // runtime 仍攥着 clients[1]：再来一回合不重连，退出收口时它会被关掉（否则就是没人管的孤儿进程）
+    await mgr.ensureForRun();
+    expect(clients).toHaveLength(2);
+    mgr.disposeAll();
+    expect(clients[1].disposeCalls).toBe(1);
+  });
+
+  it('连接途中被 forget、按旧配置的连接最终失败：状态仍是 idle，不把旧配置的错误记到新配置头上', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    let fail!: () => void;
+    const gate = new Promise<void>((_res, rej) => { fail = () => rej(new Error('MCP server 启动超时（30 秒）')); });
+    const mgr = new McpManager({
+      store, chatStore: chat, registry,
+      factories: () => {
+        const c = new FakeClient();
+        c.tools = toolsOf(['echo']);
+        if (clients.length === 0) c.connectImpl = () => gate; // 只卡第一次连接
+        clients.push(c);
+        return c;
+      },
+    });
+    const pending = mgr.ensureForRun();
+    await until(() => clients.length === 1 && clients[0].connectCalls === 1);
+    mgr.forget('a');
+    fail();
+    await pending;
+    // 设置页看到的是改后那份配置的状态：还没连过，就是 idle，不是旧配置的「启动超时」
+    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0 });
+    await mgr.ensureForRun();
+    expect(clients).toHaveLength(2);
+    expect(mgr.statuses()[0].status).toBe('connected');
+  });
+
+  it('调用途中被 forget 且已重连：旧连接迟到的「连接已关闭」不会把新连接标成出错', async () => {
+    const store = mkStore();
+    seedStdio(store, 'a');
+    const mgr = mkManager(store);
+    await mgr.ensureForRun();
+    const ctx = mkCtx(chat.createSession('s').id);
+    promptSpy.answer = 'allow-session';
+    const old = clients[0];
+    let fail!: () => void;
+    old.callImpl = () => new Promise((_res, rej) => { fail = () => rej(new Error('MCP server 连接已关闭')); });
+    const running = execTool(registry, ctx, 'mcp__a__echo', { tool_title: 'x' });
+    await until(() => old.callLog.length === 1);
+    mgr.forget('a');
+    old.closed = true;
+    await mgr.ensureForRun();
+    expect(clients).toHaveLength(2);
+    fail();
+    const r = await running;
+    expect(r.success).toBe(false);
+    expect(clients[1].disposeCalls).toBe(0);
+    expect(mgr.statuses()[0].status).toBe('connected');
+    expect(registry.definitions().some(d => d.name === 'mcp__a__echo')).toBe(true);
+  });
+});
+
 // ── chat-store：mcp_disabled 列迁移与读写 ────────────────────────────────
 
 describe('chat-store mcp_disabled（迁移 + 两方法）', () => {
@@ -469,16 +783,19 @@ function rpcClient(port: number, token: string) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`);
   let idc = 0;
   const pending = new Map<number, (v: any) => void>();
+  // W1a-6 起也收广播：即时生效例要等回合结束（chat.event turnEnd）再往下走
+  const notifications: { method: string; params: any }[] = [];
   ws.on('message', (data) => {
     const msg = JSON.parse(String(data));
     if (msg.id !== undefined && pending.has(msg.id)) { pending.get(msg.id)!(msg); pending.delete(msg.id); }
+    else if (msg.method) notifications.push({ method: msg.method, params: msg.params });
   });
   const ready = new Promise<void>((res, rej) => { ws.on('open', () => res()); ws.on('error', rej); });
   function call(method: string, params?: unknown): Promise<any> {
     const id = ++idc;
     return new Promise((res) => { pending.set(id, res); ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params })); });
   }
-  return { ready, call, close: () => ws.close() };
+  return { ready, call, notifications, close: () => ws.close() };
 }
 
 describe('RPC 集成：setMcpDisabled 往返 + mcp.servers.list 带 status', () => {
@@ -503,4 +820,63 @@ describe('RPC 集成：setMcpDisabled 往返 + mcp.servers.list 带 status', () 
     expect(sessions2.find((x: any) => x.id === s.id)?.mcpDisabled).toEqual([]);
     c.close();
   });
+});
+
+describe('RPC 集成（W1a-6）：mcp.servers.upsert / remove 之后下一回合按新配置重连', () => {
+  it('改备注、改名、删除都让旧连接下线；手改文件加回旧名时它是 idle，不是还连着的旧进程', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'dm-mcp-live-'));
+    const file = join(dataDir, 'mcp-servers', 'servers.json');
+    mkdirSync(join(dataDir, 'mcp-servers'), { recursive: true });
+    // 真起 fixture 子进程（electron 以 ELECTRON_RUN_AS_NODE=1 跑成 node），照 mcp-test-rpc.test.ts
+    const FX = { command: process.execPath, args: [join(__dirname, 'mcp-stdio-server.mjs')], env: { ELECTRON_RUN_AS_NODE: '1' } };
+    writeFileSync(file, JSON.stringify({ mcpServers: { fx: FX } }), 'utf8');
+    process.env.DESKMINIS_TEST = '1';
+    process.env.DESKMINIS_FAKE_PROVIDER = '1';
+    const srv = await startMinisd({ dataDir, host: '127.0.0.1', port: 0 });
+    stopSrv = srv.close;
+    const c = rpcClient(srv.port, srv.authToken); await c.ready;
+    const statusOf = async (name: string) =>
+      (await c.call('mcp.servers.list', {})).result.statuses.find((x: any) => x.name === name)?.status;
+    /** 开一个新会话发一句话：chat.prompt 返回前已经 await 完 ensureForRun（enabled 的服务器都连上了），
+     *  再等回合结束，免得关服务时循环还在跑 */
+    const runOnce = async () => {
+      const s = (await c.call('chat.sessions.create', {})).result;
+      const r = await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: 'hi' });
+      expect(r.error).toBeUndefined();
+      await until(() => c.notifications.some(n => n.method === 'chat.event' && n.params?.sessionId === s.id
+        && (n.params.event?.kind === 'turnEnd' || n.params.event?.kind === 'error')), 10_000);
+    };
+    /** 用户在应用开着时手改 servers.json 加回一条（W1a-5：list 会先对比磁盘重读） */
+    const handAdd = (name: string) => {
+      const raw = JSON.parse(readFileSync(file, 'utf8'));
+      raw.mcpServers[name] = FX;
+      writeFileSync(file, JSON.stringify(raw), 'utf8');
+    };
+
+    await runOnce();
+    expect(await statusOf('fx')).toBe('connected');
+
+    // ① 只改备注（补丁语义：command / args / env 都还在），旧连接下线，下一回合重连
+    expect((await c.call('mcp.servers.upsert', { name: 'fx', note: '改了' })).result).toEqual({ ok: true });
+    expect(await statusOf('fx')).toBe('idle');
+    const listed = (await c.call('mcp.servers.list', {})).result.servers[0];
+    expect(listed).toMatchObject({ name: 'fx', command: FX.command, args: FX.args, env: FX.env, note: '改了' });
+    await runOnce();
+    expect(await statusOf('fx')).toBe('connected');
+
+    // ② 改名：新名 idle；旧名那条连接也下线了——手改文件加回旧名，它是 idle 而不是还连着
+    expect((await c.call('mcp.servers.upsert', { name: 'fx2', renameFrom: 'fx' })).result).toEqual({ ok: true });
+    expect((await c.call('mcp.servers.list', {})).result.servers.map((x: any) => x.name)).toEqual(['fx2']);
+    expect(await statusOf('fx2')).toBe('idle');
+    handAdd('fx');
+    expect(await statusOf('fx')).toBe('idle');
+
+    // ③ 删除：同上，删掉再手改加回来，旧连接不会「复活」
+    await runOnce();
+    expect(await statusOf('fx')).toBe('connected');
+    expect((await c.call('mcp.servers.remove', { name: 'fx' })).result).toEqual({ ok: true });
+    handAdd('fx');
+    expect(await statusOf('fx')).toBe('idle');
+    c.close();
+  }, 20_000);
 });

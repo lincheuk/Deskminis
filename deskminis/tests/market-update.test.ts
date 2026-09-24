@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -123,6 +123,8 @@ interface Ctx {
   skillStore: SkillStore;
   mcpStore: McpServersStore;
   root: string;
+  /** W1a-6：onMcpChanged 钩子收到的服务器名（index.ts 接 mcpManager.forget，让市场更新也即时生效） */
+  mcpChanged: string[];
   close(): Promise<void>;
 }
 let fixtureServer: Server;
@@ -168,11 +170,13 @@ async function makeCtx(): Promise<Ctx> {
   const skillStore = new SkillStore(db);
   const importer = new SkillImporter(skillsRoot, skillStore, githubProbeFetch());
   const mcpStore = new McpServersStore(paths);
+  const mcpChanged: string[] = [];
   const installer = new MarketInstaller({
     db, sources, client, importer, skillStore, mcpStore,
     bridgeNodePath: join(root, 'resources', 'bridge-node.cmd'),
+    onMcpChanged: name => { mcpChanged.push(name); },
   });
-  return { installer, db, skillStore, mcpStore, root, close: async () => { db.close(); rmSync(root, { recursive: true, force: true }); } };
+  return { installer, db, skillStore, mcpStore, root, mcpChanged, close: async () => { db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
 async function errOf(p: Promise<unknown>): Promise<Error> {
@@ -482,5 +486,122 @@ describe('G4 Update 流（installPlan/install 原路复用）', () => {
       id: 'mcp-registry:io.github.owner/mcp-fetch', confirm: true, env: {},
     }));
     expect(e.message).toContain('NEW_REQ');
+  });
+});
+
+// ── 4. W1a-5：更新不覆盖应用开着时手改的 servers.json ─────────────────────────
+// 设计稿 §4 W1a-5 / 附录 mcp.md W1a-mcpstale。store 的写方法会先对比磁盘，但市场在 upsert 之前
+// 已经拿 list() 算好了 env 合并——那份 list 若是内存旧副本，合并结果里就是旧值，upsert 照样把手改的值盖回去。
+
+describe('W1a-5 市场更新以磁盘为准', () => {
+  let ctx: Ctx;
+  beforeEach(async () => { ctx = await makeCtx(); });
+  afterEach(async () => { await ctx.close(); });
+  const ID = 'mcp-registry:io.github.owner/mcp-fetch';
+  const NAME = 'io.github.owner-mcp-fetch';
+  const file = () => join(ctx.root, 'mcp-servers', 'servers.json');
+  /** 用户在应用开着时手改：直接读写文件，不经 store */
+  function handEdit(fn: (servers: Record<string, any>) => void): void {
+    const raw = JSON.parse(readFileSync(file(), 'utf8'));
+    fn(raw.mcpServers);
+    writeFileSync(file(), JSON.stringify(raw, null, 2), 'utf8');
+  }
+
+  it('更新时 env 合并读的是磁盘：手改的密钥值不被旧副本改回去，手加的服务器也还在', async () => {
+    await ctx.installer.install({ id: ID, confirm: true, env: { FETCH_API_KEY: 'v1', FETCH_MODE: 'fast' } });
+    handEdit(s => { s[NAME].env.FETCH_API_KEY = 'rotated'; s.hand = { command: 'node', note: '手加' }; });
+    fx.registryVersion = '2.1.0';
+    expect((await ctx.installer.checkUpdates()).updates.length).toBe(1);
+    await ctx.installer.install({ id: ID, confirm: true, env: {} });
+    const raw = JSON.parse(readFileSync(file(), 'utf8'));
+    expect(raw.mcpServers[NAME].env).toEqual({ FETCH_API_KEY: 'rotated', FETCH_MODE: 'fast' });
+    expect(raw.mcpServers.hand).toMatchObject({ command: 'node', note: '手加' });
+  });
+
+  it('确认卡（installPlan）也按磁盘判断缺失：新版本的必填键已经手填了，就不再要求补填', async () => {
+    await ctx.installer.install({ id: ID, confirm: true, env: { FETCH_API_KEY: 'v1' } });
+    fx.registryVersion = '2.1.0';
+    fx.registryEnv = [
+      { name: 'FETCH_API_KEY', description: '服务密钥', isRequired: true, isSecret: true },
+      { name: 'NEW_REQ', description: '新增必填', isRequired: true },
+    ];
+    expect((await ctx.installer.checkUpdates()).updates.length).toBe(1);
+    handEdit(s => { s[NAME].env.NEW_REQ = 'hand'; });
+    const plan = await ctx.installer.installPlan({ id: ID });
+    expect(plan.gating?.envMissing).toBeUndefined();
+    expect(plan.envPrefilled).toEqual(['FETCH_API_KEY', 'NEW_REQ']);
+    await ctx.installer.install({ id: ID, confirm: true, env: {} });
+    expect(ctx.mcpStore.list().find(e => e.name === NAME)!.env).toEqual({ FETCH_API_KEY: 'v1', NEW_REQ: 'hand' });
+  });
+});
+
+// ── 5. W1a-6：upsert 改成补丁语义之后的市场更新 ─────────────────────────────
+// 设计稿 §2「补丁语义下市场更新保留用户的 enabled / note / cwd / 超时 / headers，env 显式传（空传 null）」。
+// 「更新」修的是包的版本：command / args / env 由市场决定，用户自己的开关、备注、工作目录、超时不属于上游数据。
+
+describe('W1a-6 市场更新：用户设置保留，env 显式', () => {
+  let ctx: Ctx;
+  beforeEach(async () => { ctx = await makeCtx(); });
+  afterEach(async () => { await ctx.close(); });
+  const ID = 'mcp-registry:io.github.owner/mcp-fetch';
+  const NAME = 'io.github.owner-mcp-fetch';
+  const file = () => join(ctx.root, 'mcp-servers', 'servers.json');
+  const entry = () => ctx.mcpStore.list().find(e => e.name === NAME)!;
+
+  // 回归钉（改前是绿的）：补丁语义下「不传 env」等于保留旧 env。只改 config.ts、不改 install.ts 的 stdio 分支，
+  // 新版本不再声明任何 env 时旧 env 就会原样留下——mergeEnvForUpdate「移除未声明的键」的意图落空。
+  it('升到不声明任何 env 的版本：env 清空（文件里也没有 env 键）', async () => {
+    await ctx.installer.install({ id: ID, confirm: true, env: { FETCH_API_KEY: 'v1', FETCH_MODE: 'fast' } });
+    expect(entry().env).toEqual({ FETCH_API_KEY: 'v1', FETCH_MODE: 'fast' });
+    fx.registryVersion = '2.1.0';
+    fx.registryEnv = [];
+    expect((await ctx.installer.checkUpdates()).updates.length).toBe(1);
+    await ctx.installer.install({ id: ID, confirm: true, env: {} });
+    expect(entry().env).toBeUndefined();
+    expect('env' in JSON.parse(readFileSync(file(), 'utf8')).mcpServers[NAME]).toBe(false);
+  });
+
+  it('更新不重新启用用户停掉的服务器，备注、cwd、超时、未识别字段都保留；command / args / env 跟新版本走', async () => {
+    await ctx.installer.install({ id: ID, confirm: true, env: { FETCH_API_KEY: 'v1', FETCH_MODE: 'fast' } });
+    ctx.mcpStore.toggle(NAME, false);
+    // 备注、cwd、超时、oauth 是用户在 servers.json 里手写的（设置页暂时没有这几项的编辑器）
+    const raw = JSON.parse(readFileSync(file(), 'utf8'));
+    Object.assign(raw.mcpServers[NAME], { note: '我的备注', cwd: 'D:\\work', startupTimeoutSeconds: 90, oauth: { p: 'g' } });
+    writeFileSync(file(), JSON.stringify(raw, null, 2), 'utf8');
+
+    fx.registryVersion = '2.1.0';
+    fx.registryEnv = [{ name: 'FETCH_MODE', description: '运行模式', isRequired: false }];
+    expect((await ctx.installer.checkUpdates()).updates.length).toBe(1);
+    await ctx.installer.install({ id: ID, confirm: true, env: {} });
+
+    const e = entry();
+    expect(e.enabled).toBe(false);
+    expect(e.note).toBe('我的备注');
+    expect(e.cwd).toBe('D:\\work');
+    expect(e.startupTimeoutSeconds).toBe(90);
+    expect(e.extra).toEqual({ oauth: { p: 'g' } });
+    expect(e.command).toBe('npx');
+    expect(e.args).toEqual(['-y', '@scope/mcp-fetch']);
+    expect(e.env).toEqual({ FETCH_MODE: 'fast' }); // 新版本不再声明 FETCH_API_KEY → 清掉，整值替换不深合并
+    // 重开读回：落盘的也是这样
+    const again = new McpServersStore(new MinisPaths(ctx.root)).list().find(x => x.name === NAME)!;
+    expect(again).toMatchObject({ enabled: false, note: '我的备注', cwd: 'D:\\work', startupTimeoutSeconds: 90 });
+    expect(again.env).toEqual({ FETCH_MODE: 'fast' });
+  });
+
+  // 「改动即时生效」对市场同样成立：更新换了 env / args，已连上的旧版本进程要下线，下一回合按新配置重连。
+  // 安装器不认识 manager，只报「这台改了」，由 index.ts 接到 mcpManager.forget。
+  it('安装与更新写成功后通知 onMcpChanged(服务器名)；被拒（必填缺失）时不通知', async () => {
+    await ctx.installer.install({ id: ID, confirm: true, env: { FETCH_API_KEY: 'v1' } });
+    expect(ctx.mcpChanged).toEqual([NAME]);
+    fx.registryVersion = '2.1.0';
+    fx.registryEnv = [
+      { name: 'FETCH_API_KEY', description: '服务密钥', isRequired: true, isSecret: true },
+      { name: 'NEW_REQ', description: '新增必填', isRequired: true },
+    ];
+    await errOf(ctx.installer.install({ id: ID, confirm: true, env: {} }));
+    expect(ctx.mcpChanged).toEqual([NAME]);
+    await ctx.installer.install({ id: ID, confirm: true, env: { NEW_REQ: 'n' } });
+    expect(ctx.mcpChanged).toEqual([NAME, NAME]);
   });
 });

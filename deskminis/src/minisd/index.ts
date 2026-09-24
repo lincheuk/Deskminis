@@ -1,6 +1,5 @@
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync, statSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { dataRoot, MinisPaths } from './paths';
 import { openDb } from './store/db';
 import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
@@ -395,6 +394,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     db, sources: marketSources, client: marketClient, importer, skillStore, mcpStore: mcpServers,
     bridgeNodePath: bridgeNode, // 与 diagnostics/终端桥同一 resolveBridgeNode 结果（白名单闸第四类命令）
     onSkillsChanged: () => rpc.broadcast('skills.changed', {}),
+    // W1a-6：市场装成或更新一台 MCP 后同 mcp.servers.upsert 一样让 manager 忘掉它，下一回合按新配置重连
+    onMcpChanged: name => mcpManager.forget(name),
   });
 
   const fakeEnabled = process.env.DESKMINIS_FAKE_PROVIDER === '1';
@@ -834,13 +835,32 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     //    实际解析在 D3/D4 连接时发生。D6 起 list 增 configError 布尔 + mcp.servers.test 试连。 ──
     // configError 只回布尔：loadError 原文是 parse 异常消息，可能带文件片段（内含明文 headers），
     // 不出 minisd（D2 审核备忘的脱敏落实）；前端据布尔显示固定警示文案。
-    'mcp.servers.list': () => ({ servers: mcpServers.list(), statuses: mcpManager.statuses(), configError: Boolean(mcpServers.loadError) }),
+    // W1a-4：出错时另带 configErrorKind 枚举（read / parse / shape），界面据此区分「改语法」与「查权限或占用」。
+    // 只在出错时带这个键——不带 null：mcp-config.test.ts 的 list 用 toEqual 精确比对，枚举也不含任何原文。
+    // W1a-5：先对比磁盘重读（只读不写）。设置页每次打开都看到 servers.json 的现状：应用开着时手改的条目、
+    // 写坏又修好的文件（拒写态随之解除），都不用重启——横幅「修好后回到这页即可」靠的就是这一步。
+    'mcp.servers.list': () => {
+      mcpServers.refresh();
+      return {
+        servers: mcpServers.list(), statuses: mcpManager.statuses(), configError: Boolean(mcpServers.loadError),
+        ...(mcpServers.loadErrorKind ? { configErrorKind: mcpServers.loadErrorKind } : {}),
+      };
+    },
+    // W1a-6「改动即时生效」成真：ensureForRun 只连还没连上的服务器，已连上的不会因为配置改了而重连——
+    // 改完 env 要等 10 分钟空闲驱逐或重启才生效。所以写成功后让 manager 忘掉这台（断开、摘工具、回 idle），
+    // 下一回合按新配置重连。改名时新旧两个名字都忘：旧名那条连接用的是旧配置，也不该再留着。
+    // upsert 是补丁语义（只给改过的字段、null 删键、renameFrom 改名），规则见 McpServersStore.compose。
+    // 改名不迁移会话级禁用名单（sessions.mcp_disabled_json 存的是名字）——设计稿 §6 已知边界。
     'mcp.servers.upsert': (p: Record<string, unknown>) => {
-      mcpServers.upsert(p);
+      const saved = mcpServers.upsert(p);
+      mcpManager.forget(saved.name);
+      if (typeof p.renameFrom === 'string') mcpManager.forget(p.renameFrom);
       return { ok: true };
     },
     'mcp.servers.remove': (p: { name: string }) => {
-      mcpServers.remove(String(p.name ?? ''));
+      const name = String(p.name ?? '');
+      mcpServers.remove(name);
+      mcpManager.forget(name);
       return { ok: true };
     },
     'mcp.servers.toggle': (p: { name: string; enabled: boolean }) => {
@@ -851,8 +871,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
      *  不进 manager 运行时、不注册工具、完整条目形态不落库——试连是「摸一下」，
      *  不能让一次探测改变 run 期状态或配置事实。两形态：
      *  ① 仅 { name }：试已存条目，配置从 store 取；
-     *  ② 带条目字段：表单「保存前试连」——经 scratch store 的 upsert 走 config.ts 归一校验
-     *     （upsert 是唯一公开归一入口），校验中文错误与连接错误一样回 { ok:false, error }。 */
+     *  ② 带条目字段：表单「保存前试连」——W1a-6 起走 store.preview：与 upsert 同一套补丁合并与校验，
+     *     以已存条目为底（编辑表单只提交改过的字段，已存的 env / headers / cwd / 超时要带进试连），
+     *     不写盘、不受读坏拒写拦截。原先在空的 scratch store 里 upsert，底稿永远是空的。
+     *     校验中文错误与连接错误一样回 { ok:false, error }。 */
     'mcp.servers.test': async (p: Record<string, unknown>) => {
       let entry: McpServerEntry;
       if (Object.keys(p).every(k => k === 'name')) {
@@ -860,13 +882,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
         if (!found) return { ok: false, error: `MCP server 不存在: ${String(p.name ?? '')}` };
         entry = found;
       } else {
-        const scratchDir = mkdtempSync(join(tmpdir(), 'dm-mcp-scratch-'));
         try {
-          entry = new McpServersStore(new MinisPaths(scratchDir)).upsert(p);
+          entry = mcpServers.preview(p);
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
-        } finally {
-          rmSync(scratchDir, { recursive: true, force: true });
         }
       }
       const client = entry.transport === 'stdio'

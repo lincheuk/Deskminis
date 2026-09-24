@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import type { PermPreview, ToolExecutor } from './types';
+import { describeEditFailure, editUtf8Bytes } from './edit-text';
 
 const MAX_READ = 1024 * 1024; // 1MB
 
@@ -99,7 +100,7 @@ export const fileWriteTool: ToolExecutor = {
 
 export const fileEditTool: ToolExecutor = {
   definition: {
-    name: 'file_edit', description: '精确字符串替换。old_string 必须在文件中唯一出现；new_string 为空串表示删除。',
+    name: 'file_edit', description: '精确字符串替换（仅限 UTF-8 文本）。old_string 必须在文件中唯一出现（重叠出现也算多处），不能为空；new_string 为空串表示删除。CRLF 文件可用 LF 写 old_string；写回保持原行尾与 BOM。',
     parameters: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '被替换的原文' }, new_string: { type: 'string', description: '替换后的文本，可为空串' }, tool_title: TOOL_TITLE },
     required: ['path', 'old_string', 'tool_title'],
   },
@@ -115,12 +116,11 @@ export const fileEditTool: ToolExecutor = {
     if (denied) return { output: denied, success: false };
     // 同 file_write：权限闸后重查取消，防「批准晚于取消」仍改盘
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-    const content = readFileSync(abs, 'utf8');
-    const oldStr = String(input.old_string);
-    const count = content.split(oldStr).length - 1;
-    if (count === 0) return { output: `old_string 未找到于 ${abs}`, success: false };
-    if (count > 1) return { output: `old_string 出现 ${count} 次，必须唯一。请提供更长的上下文。`, success: false };
-    writeFileSync(abs, content.replace(oldStr, String(input.new_string ?? '')), 'utf8');
+    // 按原字节读：非 UTF-8 要在写回之前拒掉，按 utf8 读成字符串那一刻坏字节就已经变成 U+FFFD 了。
+    // 匹配、行尾、BOM、唯一性全在 edit-text.ts 的纯函数里；失败时文件一个字节都不写。
+    const r = editUtf8Bytes(readFileSync(abs), String(input.old_string), String(input.new_string ?? ''));
+    if (!r.ok) return { output: describeEditFailure(r.failure, abs), success: false };
+    writeFileSync(abs, r.text, 'utf8');
     return { output: `已编辑 ${abs}`, success: true };
   },
 };
