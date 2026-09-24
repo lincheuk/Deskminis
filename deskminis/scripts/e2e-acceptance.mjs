@@ -5,6 +5,11 @@
 // 与正在运行的应用共享同一个 minis.db；密钥从 Windows 凭据库读，与进程无关），
 // 经 WebSocket JSON-RPC 驱动验收步骤 2/3/4/5，并核对落盘文件。
 // 产生的「E2E 验收」会话会留在数据根里，供验收第 7 步（重启应用后历史仍在）核对。
+//
+// W1a-9 起未打包的 dev 应用（npm run dev）默认用 %APPDATA%\DeskMinis-dev 与 keyring 服务名 DeskMinis-dev，
+// 与正式版隔离；本脚本不经主进程，默认仍读正式版的根与正式版的 keyring。要验 dev 应用看到的那份数据，
+// 同时设 DESKMINIS_DATA_DIR=%APPDATA%\DeskMinis-dev 和 DESKMINIS_KEYRING_SERVICE=DeskMinis-dev
+// （子进程 env 已经展开 process.env，两个变量都会带过去）。只设一个的话，库和 key 对不上，看起来像「key 丢了」。
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';

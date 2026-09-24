@@ -10,7 +10,7 @@ import { SettingsStore, SYNC_PAUSE_KEY, PERMISSION_PRESET_KEY } from './store/se
 /** 全局「上次用过的工作区」——新建会话继承它（用户拍板：每会话各自设 + 继承上次）。 */
 const WORKSPACE_LAST_KEY = 'workspace.lastUsed';
 import { ChatStore } from './store/chat-store';
-import { ProviderStore, KeyringVault, InMemoryVault, FileVault, type SecretVault } from './store/provider-store';
+import { ProviderStore, KeyringVault, InMemoryVault, FileVault, keyringServiceFromEnv, type SecretVault } from './store/provider-store';
 import { SearchProviderStore } from './store/search-provider-store';
 import { McpServersStore, type McpServerEntry } from './mcp/config';
 import { McpManager } from './mcp/manager';
@@ -243,9 +243,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
   // 避免 ChatStore 被多处引用（AgentLoop/CompactEngine/SyncCoordinator）前出现 setOriginDeviceId 注入空窗。
   // M3c 修复：e2e 跨进程持久化用 FileVault（DESKMINIS_E2E=1），单测用 InMemoryVault.forDataRoot 单例，
   //   生产用 KeyringVault。FileVault 明文存 dataRoot/vault.json，隔离于临时数据根，不污染真实凭据库。
+  // W1a-9：keyring 服务名由主进程经 DESKMINIS_KEYRING_SERVICE 下发（dev 为 DeskMinis-dev），缺省仍是正式版的 DeskMinis。
   const vault: SecretVault = process.env.DESKMINIS_E2E
     ? new FileVault(root)
-    : (process.env.DESKMINIS_TEST ? InMemoryVault.forDataRoot(root) : new KeyringVault());
+    : (process.env.DESKMINIS_TEST ? InMemoryVault.forDataRoot(root) : new KeyringVault(keyringServiceFromEnv(process.env)));
   const pairingStore = new PairingStore(root, vault);
   const pairingService = new PairingService(pairingStore, vault);
   const chat = new ChatStore(db, pairingService.myFingerprint);

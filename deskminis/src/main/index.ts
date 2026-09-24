@@ -2,10 +2,21 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityPr
 import electronUpdater from 'electron-updater';
 import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { dataRoot } from '../minisd/paths';
+import { resolveAppDirs } from './app-dirs';
 import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES } from './child-output';
+
+// W1a-9 开发态数据隔离：数据根、userData、keyring 服务名、日志目录在这里一次算定。
+// fork minisd 与 attachments:save 都用这一份，不再各自调 dataRoot() 各算一遍——两处一漂移，附件就落进另一个根。
+// 也不回写 process.env：值经 fork env 显式下发，读代码的人一眼看得出从哪来。
+const dirs = resolveAppDirs({ isPackaged: app.isPackaged, env: process.env });
+// 必须在模块顶层、抢在一切之前：Chromium 在 ready 之前就按 userData 建配置目录，单实例锁（W1b-3）也按它算，
+// 晚一步就有一部分状态落在旧目录里。打包态 dirs.userData 是 undefined，保持 Electron 默认不动。
+// 不先 mkdir：Electron 文档说目录不存在会抛，但 38.8.6 在 Linux 上实测不抛，Chromium 在 ready 前自己把目录建好；
+// 先 mkdir 反而会让 import 本模块的单测（ipc-contract）在开发机真实的 APPDATA 下建出 DeskMinis-dev。
+// Windows 上未实测；打包态不走这一行，最坏只影响 dev 首次启动。
+if (dirs.userData) app.setPath('userData', dirs.userData);
 
 let minisd: UtilityProcess | undefined;
 // minisd stderr 的末尾 4KB：启动失败时附进错误框（真正的原因在这里，不在主进程自己的堆栈里）。
@@ -37,7 +48,19 @@ export function parseHandshake(line: string): { port: number; token: string } | 
 
 function startMinisdProcess(): Promise<number> {
   return new Promise((resolve, reject) => {
-    minisd = utilityProcess.fork(join(__dirname, 'minisd.js'), [], { env: { ...process.env, DESKMINIS_STANDALONE: '1' }, stdio: 'pipe' });
+    // 开发者一眼看得出这次 dev 用的是哪份数据（dev 默认不再碰正式版的库与 keyring）
+    if (dirs.variant === 'dev') process.stderr.write(`开发态数据根：${dirs.dataRoot}（keyring 服务名 ${dirs.keyringService}；userData ${dirs.userData}；日志目录 ${dirs.logRoot}）\n`);
+    minisd = utilityProcess.fork(join(__dirname, 'minisd.js'), [], {
+      env: {
+        ...process.env,
+        DESKMINIS_STANDALONE: '1',
+        // 三个目录变量写在展开之后：外层 shell 里残留的同名变量不能盖掉主进程算出来的值。
+        DESKMINIS_DATA_DIR: dirs.dataRoot,
+        DESKMINIS_KEYRING_SERVICE: dirs.keyringService,
+        DESKMINIS_LOG_DIR: dirs.logRoot,
+      },
+      stdio: 'pipe',
+    });
 
     let settled = false;
     const settle = (fn: () => void): void => { if (settled) return; settled = true; clearTimeout(timer); fn(); };
@@ -215,7 +238,7 @@ ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) =>
   if (typeof sessionId !== 'string' || typeof dataUrl !== 'string') throw new Error('非法参数');
   const ext = extFromDataUrl(dataUrl) ?? 'png';
   const ts = Date.now();
-  const abs = attachmentPath(dataRoot(), sessionId, ts, ext);
+  const abs = attachmentPath(dirs.dataRoot, sessionId, ts, ext);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, decodeImageDataUrl(dataUrl));
   return `attachments/paste-${ts}.${ext}`;
