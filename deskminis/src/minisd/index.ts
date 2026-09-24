@@ -86,6 +86,10 @@ const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 /** 权限询问未响应的兜底时限：与 PermissionGatewayImpl 的 askTimeoutMs 保持一致。 */
 const PERM_TIMEOUT_MS = 90000;
 
+/** 降级链上每个 slot 的显示名：「名称(模型 id)」。首个 slot 与其余成员必须同一格式——
+ *  它们一起出现在 fallback 事件的 from → to 里（Z 波：首个 slot 此前是写死的 main）。 */
+function slotLabel(i: { name: string; modelId: string }): string { return `${i.name}(${i.modelId})`; }
+
 /** 手动重命名的标题上限。比自动命名的 20 字宽松——用户自己起的名字该由用户说了算，
  *  这里只拦「贴了一整段进来」这种把列表撑坏的输入。 */
 const SESSION_TITLE_MAX = 50;
@@ -597,13 +601,15 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
       // ── 链式解析 provider + fallbackChain ──
       let provider: AgentProvider;
       let fallbackChain: ProviderSlot[] = [];
+      let primaryLabel: string | undefined; // 只有组路径会设：带降级链时首个 slot 要有真名
 
       if (p.modelGroupId) {
         // 显式指定模型组
         const members = providers.resolveGroupMembers(p.modelGroupId);
         if (members.length === 0) throw new Error('模型组无可用成员');
         provider = fakeEnabled ? new FakeProvider() : members[0].instantiate();
-        fallbackChain = members.slice(1).map(m => ({ provider: fakeEnabled ? new FakeProvider() : m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
+        primaryLabel = slotLabel(members[0].instance);
+        fallbackChain = members.slice(1).map(m => ({ provider: fakeEnabled ? new FakeProvider() : m.instantiate(), label: slotLabel(m.instance), instanceId: m.instance.id }));
       } else if (p.providerId) {
         // 显式指定单 provider（M1 既有行为）
         provider = (fakeEnabled && p.providerId === '__fake__') ? new FakeProvider() : providers.instantiate(p.providerId);
@@ -616,7 +622,8 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
           const members = providers.resolveGroupMembers(gid);
           if (members.length === 0) throw new Error('模型组无可用成员');
           provider = fakeEnabled ? new FakeProvider() : members[0].instantiate();
-          fallbackChain = members.slice(1).map(m => ({ provider: fakeEnabled ? new FakeProvider() : m.instantiate(), label: `${m.instance.name}(${m.instance.modelId})`, instanceId: m.instance.id }));
+          primaryLabel = slotLabel(members[0].instance);
+          fallbackChain = members.slice(1).map(m => ({ provider: fakeEnabled ? new FakeProvider() : m.instantiate(), label: slotLabel(m.instance), instanceId: m.instance.id }));
         } else if (binding?.startsWith('provider:')) {
           const pid = binding.slice('provider:'.length);
           provider = (fakeEnabled && pid === '__fake__') ? new FakeProvider() : providers.instantiate(pid);
@@ -712,7 +719,7 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
             // 定值会让降级请求连环 400 烧穿整条链（与 systemPrompt 工厂同因同解）。
             maxTokens: ({ modelId }) => catalog.getModelMaxOutput(modelId) ?? 8192,
             signal: controller.signal,
-            fallbackChain,
+            fallbackChain, primaryLabel,
             contextPolicy, compactEngine, offloadEngine, excludedToolNames,
           })) {
             // fallback 事件：记下候选 instanceId，但不立即改写——等该 slot 真正跑通（turnEnd）才落库
@@ -729,6 +736,10 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
               rebound = true;
               chat.setModelBinding(sessionId, `provider:${pendingRebind}`);
               pendingRebind = undefined;
+              // Z1：绑定是会话元数据，改了就得广播——前端靠这条重拉会话列表。缺了它，会话菜单与模型胶囊
+              // 一直显示「模型组」，实际已改绑到接手的模型（探针实测 stale: true）。平时被首回合自动命名的
+              // 那次广播顺手掩盖，第二回合起的降级才露馅。
+              rpc.broadcast('chat.sessions.changed', {});
             }
             // 首回合结束即取名（内部自查标题是否仍是默认值，多轮会话不会重复发请求）
             if (event.kind === 'turnEnd') void autoTitle(sessionId, p.text, activeProvider);

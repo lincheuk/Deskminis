@@ -41,6 +41,10 @@ export interface RunOptions {
   maxTokens?: number | ((ctx: { modelId: string }) => number); thinkingLevel?: ThinkingLevel; maxTurns?: number;
   signal?: AbortSignal; retryDelaysMs?: number[];
   fallbackChain?: ProviderSlot[];
+  /** 首个 slot 的显示名（进 fallback 事件的 from）。缺省的 'main' 只是内部占位——
+   *  只有带降级链的调用才会发 fallback 事件，所以这类调用必须传真名：Z 波探针实测
+   *  任务面板原样显示过「main → 备用(mock-backup)」（教训 §7-2 内部标识符上屏）。 */
+  primaryLabel?: string;
   contextPolicy?: ContextPolicy;       // 上下文水位分层决策（Task 4）
   compactEngine?: CompactEngine;       // LLM 压缩摘要（Task 6）
   offloadEngine?: OffloadEngine;       // 大工具结果卸载（Task 5）
@@ -243,7 +247,7 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
   const fallbackChain = opts.fallbackChain ?? [];
 
   // 当前生效的 provider slot：降级成功后切换到 backup，后续 turn 继续用它
-  let activeSlot: ProviderSlot = { provider: opts.provider, label: 'main' };
+  let activeSlot: ProviderSlot = { provider: opts.provider, label: opts.primaryLabel ?? 'main' };
   // 降级链指针：从 -1（主 provider）开始，降级时 +1
   let slotIndex = -1;
   let fellBack = false; // 是否发生过降级（用于区分「链耗尽」与「无链」的错误消息）
