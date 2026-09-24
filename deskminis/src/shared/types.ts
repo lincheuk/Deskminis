@@ -72,8 +72,11 @@ export interface AgentToolDefinition {
   rawInputSchema?: unknown;
 }
 
-/** Provider 入参消息（与 RawMessage 解耦：无持久化字段） */
-export interface AgentMessage { role: Role; parts: ContentPart[] }
+/** Provider 入参消息（与 RawMessage 解耦：无持久化字段）。
+ *  reasoningContent（W2a-4）：assistant 这一轮捕获到的推理原文（OpenAI 兼容端点的 delta.reasoning_content）。
+ *  只在 assistant 且库里有值时才带（不产生值为 undefined 的键）；只有 deepseek-v4 族的请求体写出它——
+ *  V4 多轮工具调用要求把推理原样带回，缺了就 400。其它构建器一概不看这个字段。 */
+export interface AgentMessage { role: Role; parts: ContentPart[]; reasoningContent?: string }
 
 /** 压缩摘要 marker（设计 §4.2「压缩」）：锚定 lastCompactedMessageId，合成 effectiveAgentHistory。 */
 export interface CompactMarker {

@@ -27,8 +27,10 @@ export function estimateTextTokens(s: string): number {
  * 消费 M2b ModelCatalog.getModelContextWindow，按窗口分层决策。
  *
  * 注意：estimateTokens 的入参是 AgentMessage[]（不是 RawMessage[]）——
- * 水位检查在 loop.ts 里发生在 buildEffectiveHistory 之后，此时只剩 { role, parts }，
- * reasoningContent 已被丢弃，故估算只算 parts JSON 的字符数。
+ * 水位检查在 loop.ts 里发生在 buildEffectiveHistory 之后，估算只算 parts JSON 的字符数。
+ * W2a-4 起 assistant 的 reasoningContent 也进了 AgentMessage（DeepSeek V4 要回放），但这里仍然不数它：
+ * 有意保留——它只对 v4 族真的发出去，对别的模型数进去反而高估；代价是 v4 会话的水位偏低，
+ * W5 改为以真实 usage 为锚时一并解决。
  */
 export class ContextPolicy {
   constructor(private catalog: { getModelContextWindow(modelId: string): number | undefined }) {}

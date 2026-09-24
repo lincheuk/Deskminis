@@ -25,9 +25,10 @@ describe('ContextPolicy.estimateTokens', () => {
     expect(t).toBe(Math.ceil((JSON.stringify(history[0].parts).length) / 4));
   });
 
-  it('effectiveHistory 视角：只看 role+parts，没有 reasoningContent 字段可估', () => {
-    // 印证签名从 RawMessage[] 改为 AgentMessage[] 的理由：reasoningContent 在
-    // buildEffectiveHistory 时已被丢弃，水位估算拿不到它，所以这里也只算 parts。
+  it('effectiveHistory 视角：只算 parts', () => {
+    // 签名是 AgentMessage[]（effectiveHistory），不是 RawMessage[]。W2a-4 起 assistant 的 reasoningContent
+    // 也进了 AgentMessage（DeepSeek V4 要回放），但估算仍只算 parts——有意保留，W5 改为以真实 usage 为锚；
+    // 「带不带 reasoningContent 估算值相同」钉在 tests/openai-deepseek-reasoning-echo.test.ts。
     const p = new ContextPolicy(fakeCatalog(200_000));
     const history: AgentMessage[] = [{ role: 'assistant', parts: [{ type: 'text', value: 'b'.repeat(200) }] }];
     const t = p.estimateTokens(history);

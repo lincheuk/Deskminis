@@ -38,7 +38,9 @@ export function pruneOldToolResults(history: AgentMessage[], opts?: PruneOptions
       pruned++;
       return { type: 'toolResult' as const, value: { ...v, output: `[工具结果已修剪：原 ${v.output.length} 字符。若确需原文，完整内容通常在 /var/minis/offloads/ 对应文件中]` } };
     });
-    return changed ? { role: m.role, parts } : m;
+    // 只换 parts、其余字段照抄：只写 {role, parts} 的话，将来被修剪的消息若带着 reasoningContent（W2a-4）
+    // 就会被悄悄丢掉，DeepSeek V4 回放缺了它会 400。今天被修剪的都是 user 消息，行为不变
+    return changed ? { ...m, parts } : m;
   });
   return { pruned, history: out };
 }

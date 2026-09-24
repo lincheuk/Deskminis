@@ -4,6 +4,7 @@ import type { AgentProvider } from '../providers/types';
 import type { ChatStore } from '../store/chat-store';
 import { estimateTextTokens, FALLBACK_WINDOW } from './context-policy';
 import { sanitizeMultiline, stripInvisible, urlCredentialAcross } from './sanitize';
+import { toAgentMessage } from './agent-message';
 
 const RECENT_USER_TURNS = 3;
 
@@ -319,15 +320,9 @@ export class CompactEngine {
    * raw history 只读，永不改写。
    */
   buildEffectiveHistory(history: RawMessage[], marker: CompactMarker | undefined): AgentMessage[] {
-    // 出口侧消毒：raw history 的 toolResult.output 过 sanitizeMultiline（存储不动）
-    const sanitizeParts = (parts: RawMessage['parts']): AgentMessage['parts'] => parts.map(p => {
-      if (p.type === 'toolResult') {
-        const v = p.value as { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' };
-        return { type: 'toolResult' as const, value: { ...v, output: sanitizeMultiline(v.output) } };
-      }
-      return p;
-    });
-    if (!marker) return history.map(m => ({ role: m.role, parts: sanitizeParts(m.parts) }));
+    // 逐条映射走 toAgentMessage（与 loop 的 toAgentMessages 共用）：出口侧消毒 toolResult.output（存储不动），
+    // assistant 有推理时带上 reasoningContent——DeepSeek V4 要回放它（W2a-4），旧实现只映射 {role, parts} 把它丢了
+    if (!marker) return history.map(toAgentMessage);
 
     const summaryMsg: AgentMessage = {
       role: 'user',
@@ -336,7 +331,7 @@ export class CompactEngine {
 
     // 锚点之后的消息留原文；锚点丢失按 createdAt 自愈、全早于 marker 则保留全部（规则见 anchorIndexOf，
     // 与 summarize 取增量共用——两边不一致就会有消息既不在摘要里也不在原文里）
-    const after = history.slice(anchorIndexOf(history, marker) + 1).map(m => ({ role: m.role, parts: sanitizeParts(m.parts) }));
+    const after = history.slice(anchorIndexOf(history, marker) + 1).map(toAgentMessage);
     return [summaryMsg, ...after];
   }
 }

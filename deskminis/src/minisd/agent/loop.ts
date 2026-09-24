@@ -10,7 +10,7 @@ import type { ContextPolicy } from './context-policy';
 import type { OffloadEngine } from './offload';
 import { CompactRejectedError, isRealUserTurn, isUselessSummary, type CompactEngine, type CompactFailReason } from './compact';
 import { pruneOldToolResults } from './prune';
-import { sanitizeMultiline } from './sanitize';
+import { toAgentMessage } from './agent-message';
 
 export type LoopEvent =
   | { kind: 'textDelta'; text: string }
@@ -118,18 +118,10 @@ export function buildRelayDraft(
   return head + summaryPart + userPart;
 }
 
-/** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}。出口侧消毒：toolResult.output 过 sanitizeMultiline（存储不动）。 */
+/** 丢弃持久化专属字段，只留 Provider 需要的 {role, parts}（assistant 有推理时再加 reasoningContent）。
+ *  逐条映射与 buildEffectiveHistory 共用 toAgentMessage（agent-message.ts）：两处各写一份时，W2a-4 之前一起丢了推理。 */
 export function toAgentMessages(history: RawMessage[]): AgentMessage[] {
-  return history.map(m => ({
-    role: m.role,
-    parts: m.parts.map(p => {
-      if (p.type === 'toolResult') {
-        const v = p.value as { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' };
-        return { type: 'toolResult' as const, value: { ...v, output: sanitizeMultiline(v.output) } };
-      }
-      return p;
-    }),
-  }));
+  return history.map(toAgentMessage);
 }
 
 /**
@@ -357,7 +349,8 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
    *  - 只落 text part：calls 里已解析的 toolCallComplete 一律丢弃——落库 tool_use 而无配对
    *    tool_result 等于主动制造 pairToolResults 要修的那种孤儿，Anthropic 同样每次 400 变砖。
    *    thinking 块同理不落（历史 thinking 块只在回放时被引用，丢掉永远安全）；
-   *    已累积的半截思考走 reasoningContent（仅展示不回放），有值就带上；tokenUsage 有就带。
+   *    已累积的半截思考走 reasoningContent，有值就带上（W2a-4 起 deepseek-v4 族会把它原样回放，
+   *    别的模型仍只展示；半截推理配半截正文，与这条消息本身一致）；tokenUsage 有就带。
    *  - streamInterruptCount=1：该字段语义即「本消息的流中断计数」（shared/types.ts RawMessage），
    *    半截消息正是流被中断的产物；当前全链路恒写 0 且无读取方，置 1 只是把既有语义用起来。
    *  - 先发 messagePersisted 再发 error：renderer 的 error 分支靠 open() 重取历史刷新，

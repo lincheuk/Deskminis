@@ -16,7 +16,22 @@ export interface OpenAICompatFlags {
   reasoningEffort?: boolean;
 }
 
+/**
+ * 这个模型要不要在每条 assistant 历史上回放 reasoning_content（W2a-4 · 设计稿 §2「引擎」）。
+ * DeepSeek V4 的思考模式在多轮工具调用里要求把推理原样带回，缺了就 400；pi 与 OpenMinis 各自踩到过。
+ * 只认 deepseek-v4 族（开头或某段路径之后是 deepseek-v4，后面不再接数字）：
+ *  - 命中 deepseek-v4、deepseek-v4-flash、deepseek-v4-pro、deepseek-ai/DeepSeek-V4-Pro、deepseek/deepseek-v4；
+ *  - 不命中 deepseek-reasoner——旧推理模型反过来，输入里带 reasoning_content 就 400；
+ *    也不命中 deepseek-chat、deepseek-v3.2、deepseek-v40。
+ * 按模型名而不是按 baseUrl 判（pi 的做法是看 baseUrl 含 deepseek.com）：同一个官方端点上 reasoner 与 v4 并存，
+ * 按端点判会把 reasoner 一起打开；中转与聚合端点上的 v4 也要回放。
+ */
+export function requiresReasoningContentEcho(modelId: string): boolean {
+  return /(?:^|\/)deepseek-v4(?:$|[^0-9])/i.test(modelId);
+}
+
 export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: OpenAICompatFlags = {}): Record<string, unknown> {
+  const echoReasoning = requiresReasoningContentEcho(modelId);
   const messages: Record<string, unknown>[] = [];
   if (req.systemPrompt) messages.push({ role: 'system', content: req.systemPrompt });
   for (const m of req.messages) {
@@ -30,6 +45,10 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: Open
         const v = p.value as { toolUseId: string; name: string; input: string };
         return { id: v.toolUseId, type: 'function', function: { name: v.name, arguments: safeJsonArgs(v.input) } };
       });
+      // 全量回放（open_questions 第 6 条）：每条 assistant 都带，已捕获的原样带回，没捕获到的补空串。
+      // 不只回放当前回合：那样上一回合的推理到下一回合就被换成空串，请求前缀跟着变，DeepSeek 的前缀缓存命不中。
+      // 键写在最后，别的模型走不到这里——它们的请求体逐字节不变（tests/provider-body-golden.test.ts 钉着）。
+      if (echoReasoning) msg.reasoning_content = m.reasoningContent ?? '';
       messages.push(msg);
     } else {
       // 含图时才切数组 content：老端点（部分 OpenAI 兼容网关/Ollama）对数组形态 content 支持参差，
