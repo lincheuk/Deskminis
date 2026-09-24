@@ -10,6 +10,10 @@ import { randomUUID } from 'node:crypto';
 import * as yauzl from 'yauzl';
 import type { SkillStore } from './store';
 import { nameFromUrl, parseSkillMd } from './parser';
+import {
+  createZipBudget, readZipEntry, ZipGuardError, ZIP_MAX_ENTRIES, ZIP_MAX_TOTAL,
+  type ZipGuardHit, type ZipLimits,
+} from '../office/zip';
 
 /** 手写递归拷贝替代 fs.cpSync：Electron/Windows 的 cpSync 原生实现对非 ASCII 路径会
  *  不可捕获地崩溃（0xE06D7363，进程直接死）；readdirSync/copyFileSync 是老牌 Unicode 安全 API。
@@ -52,22 +56,49 @@ function openZip(buf: Buffer): Promise<yauzl.ZipFile> {
   return new Promise((res, rej) => yauzl.fromBuffer(buf, { lazyEntries: true }, (err, zf) => err ? rej(err) : res(zf!)));
 }
 
-function readEntry(zf: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buffer> {
-  return new Promise((res, rej) => zf.openReadStream(entry, (err, rs) => {
-    if (err || !rs) return rej(err ?? new Error('openReadStream 失败'));
-    const chunks: Buffer[] = [];
-    rs.on('data', (c: Buffer) => chunks.push(c));
-    rs.on('end', () => res(Buffer.concat(chunks)));
-    rs.on('error', rej);
-  }));
+/** 技能包的解压上限（W1a-3，设计稿 §2）：条目数与总量取 office 的同名常量（2000 条 / 64MB）；
+ *  单文件 32MB，与市场下载上限（market/install.ts 的 DOWNLOAD_MAX_BYTES）和 tools/office.ts 的 MAX_OFFICE 一致——
+ *  技能包里放的是说明与脚本，单个文件到 32MB 已经远超正常用量。 */
+export const SKILL_ZIP_LIMITS: ZipLimits = Object.freeze({
+  maxEntries: ZIP_MAX_ENTRIES,
+  maxTotal: ZIP_MAX_TOTAL,
+  maxEntry: 32 * 1024 * 1024,
+});
+
+/** 64MB / 512KB 这种整数单位的说法；不整的退回字节数，文案里不出现小数。 */
+function fmtBytes(n: number): string {
+  if (n > 0 && n % (1024 * 1024) === 0) return `${n / (1024 * 1024)}MB`;
+  if (n > 0 && n % 1024 === 0) return `${n / 1024}KB`;
+  return `${n} 字节`;
+}
+
+/** 预算闸判定 → 导入任务的 error（技能页原样展示给用户）。 */
+function skillGuardText(hit: ZipGuardHit): string {
+  switch (hit.kind) {
+    case 'entries': return `技能包条目过多（超过 ${hit.limit} 个），已拒绝导入`;
+    case 'total': return `技能包解压后总大小超过 ${fmtBytes(hit.limit)}，已拒绝导入`;
+    case 'entry': return `技能包内文件 ${hit.name} 解压后超过 ${fmtBytes(hit.limit)}，已拒绝导入`;
+    case 'declared': return `技能包内文件 ${hit.name} 解压出的字节多于它声明的 ${hit.declared} 字节，已拒绝导入`;
+    case 'short': return `技能包内文件 ${hit.name} 解压出的字节少于它声明的 ${hit.declared} 字节，包可能已损坏，已拒绝导入`;
+  }
 }
 
 /** 解压到内存（统一正斜杠相对路径）→ 剥一层公共包装目录 → 丢弃穿越/绝对路径项。
  *  已知局限：yauzl 遇穿越项即硬停（emittedError 置位后不再发任何事件），穿越项之后的合法条目会丢失
  *  ——含穿越项的 zip 本就是恶意或损坏的，部分导入可接受；条目序在穿越项之前的（如测试用例）不受影响。
- *  G2 起导出：市场安装链路（installPlan）复用同一解压/防穿越纪律来预告将落盘的文件清单。 */
-export async function unzipToMemory(buf: Buffer): Promise<Map<string, Buffer>> {
+ *  G2 起导出：市场安装链路（installPlan）复用同一解压/防穿越纪律来预告将落盘的文件清单。
+ *
+ *  W1a-3 起按 limits 三处把关（zip bomb）：① 打开后先看 EOCD 的 entryCount；② 每条在 openReadStream
+ *  （inflate）之前按声明尺寸预扣；③ 读流时逐块数实际字节。任何一处越界都整包拒绝，不做部分导入——
+ *  超限的包多半是恶意的，留下半截技能反而让人以为导入成功了。 */
+export async function unzipToMemory(buf: Buffer, limits: ZipLimits = SKILL_ZIP_LIMITS): Promise<Map<string, Buffer>> {
   const zf = await openZip(buf);
+  const budget = createZipBudget(limits);
+  const early = budget.checkEntryCount(zf.entryCount);
+  if (early) {
+    try { zf.close(); } catch { /* 刚打开还没读，关闭失败也无妨 */ }
+    throw new Error(skillGuardText(early));
+  }
   let out = new Map<string, Buffer>();
   await new Promise<void>((done, reject) => {
     let settled = false;
@@ -79,12 +110,18 @@ export async function unzipToMemory(buf: Buffer): Promise<Map<string, Buffer>> {
     zf.on('entry', (entry: yauzl.Entry) => {
       void (async () => {
         try {
-          if (entry.fileName.endsWith('/')) { zf.readEntry(); return; } // 目录项
+          const isDir = entry.fileName.endsWith('/');
+          // 目录项也占计数（大量空目录同样是拖垮解析的手段），但不读字节，按 0 计入总量
+          const hit = budget.admit(entry.fileName, isDir ? 0 : entry.uncompressedSize);
+          if (hit) throw new ZipGuardError(hit);
+          if (isDir) { zf.readEntry(); return; }
           const norm = entry.fileName.replace(/\\/g, '/');
-          const data = await readEntry(zf, entry);
+          const data = await readZipEntry(zf, entry, budget.meter(entry.fileName, entry.uncompressedSize));
           out.set(norm, data);
           zf.readEntry();
-        } catch (e) { settle(() => reject(e as Error)); }
+        } catch (e) {
+          settle(() => reject(e instanceof ZipGuardError ? new Error(skillGuardText(e.hit)) : e as Error));
+        }
       })();
     });
     zf.on('end', () => settle(done));
