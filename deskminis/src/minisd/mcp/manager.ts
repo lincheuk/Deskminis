@@ -4,6 +4,9 @@
  *  会话禁用在调用层硬执行（设计 §5.2：不是 run 快照，是每次调用现查）。
  *  生命周期：list_changed → stale 重列；崩溃（进程已退出/连接已关闭）→ error + 摘工具，
  *  下次 ensureForRun 单次驱逐重建；10 分钟空闲 → dispose + 摘工具回 idle。
+ *  即时生效（W1a-6）：执行器每次调用现查 store 的全局启停（servers.json 读坏时先重读，仍读不出来就拒绝）；
+ *  配置改动（upsert / remove / 市场更新）后调用方 forget(name)，下一回合按新配置重连；
+ *  等权限卡期间被 forget 的调用不执行。
  *  卫生：lastError 只放 client 层错误文案（不含 $$ 解析值/headers/env——client 层已保证）。 */
 import { createHash } from 'node:crypto';
 import type { McpServerEntry, McpServersStore } from './config';
@@ -49,6 +52,9 @@ interface ServerRuntime {
   /** 该台当前在 registry 里的工具名（崩溃/驱逐/重列时整批摘除；也是 excludedToolNames 的数据源） */
   registeredNames: string[];
   truncated: number;
+  /** forget 时递增（W1a-6）。ensureForRun 连接 / 列工具是异步的，途中配置被改或删，
+   *  回来时代次对不上：按旧配置连上的 client 当场作废，结果不注册、不改状态 */
+  gen: number;
 }
 
 /** 空闲驱逐阈值：10 分钟无调用即 dispose（下次 ensureForRun 重连） */
@@ -60,6 +66,9 @@ const NAME_LIMIT = 64;
 const NAME_KEEP = 52;
 /** 工具输出总量上限（码点）：防一条工具结果把上下文窗口整个吃掉 */
 const OUTPUT_LIMIT_CP = 65_536;
+/** servers.json 读坏时的调用拒绝文案。常量，绝不拼 store.loadError 原文：
+ *  JSON.parse 的报错会带出一小段源码，可能正好是密钥片段，而这句会进工具卡片和模型上下文。 */
+const CONFIG_UNREADABLE_REFUSAL = 'servers.json 读不出来（格式有误或无法读取），修好前暂不能调用 MCP 工具';
 
 /** 段内非法字符替换：模型侧工具名只许 [a-zA-Z0-9_-] */
 function sanitizeSegment(s: string): string {
@@ -117,7 +126,8 @@ export class McpManager {
     // 全局 120 上限的截断结果才确定性（谁先注册完谁占坑不能看网络谁快）。
     const listed = await Promise.all(enabled.map(async entry => {
       const rt = this.runtimeOf(entry.name);
-      if (rt.client && rt.status === 'connected' && !rt.stale) return { entry, tools: null };
+      const gen = rt.gen;
+      if (rt.client && rt.status === 'connected' && !rt.stale) return { entry, tools: null, rt, gen };
       if (!rt.client) {
         const client = this.factories(entry);
         client.onNotification = n => {
@@ -127,30 +137,40 @@ export class McpManager {
         try {
           await client.connect();
         } catch (e) {
+          if (rt.gen !== gen) return { entry, tools: null, rt, gen }; // 旧配置的失败，不记到新配置头上
           rt.status = 'error';
           rt.lastError = e instanceof Error ? e.message : String(e);
           this.unregisterServer(entry.name);
-          return { entry, tools: null };
+          return { entry, tools: null, rt, gen };
+        }
+        if (rt.gen !== gen) {
+          // 连接途中被 forget：这个 client 是按旧配置起的，runtime 已经不认它——不当场关掉就成了孤儿进程
+          client.dispose();
+          return { entry, tools: null, rt, gen };
         }
         rt.client = client;
         rt.lastError = undefined;
       }
+      const client = rt.client!;
       try {
-        const tools = await rt.client!.listTools();
-        return { entry, tools };
+        const tools = await client.listTools();
+        return { entry, tools, rt, gen };
       } catch (e) {
+        // 列工具途中被 forget：client 已由 forget 关掉，状态归新配置，这里什么都不动
+        if (rt.gen !== gen) return { entry, tools: null, rt, gen };
         // list 失败（超时/中途退出）：连接作废，下次 ensureForRun 整台重来
         rt.status = 'error';
         rt.lastError = e instanceof Error ? e.message : String(e);
-        rt.client!.dispose();
+        client.dispose();
         rt.client = null;
         rt.stale = false;
         this.unregisterServer(entry.name);
-        return { entry, tools: null };
+        return { entry, tools: null, rt, gen };
       }
     }));
-    for (const { entry, tools } of listed) {
-      if (tools) this.registerServer(entry.name, tools);
+    for (const { entry, tools, rt, gen } of listed) {
+      // 代次再核一次：Promise.all 等齐所有台期间，先列完的那台也可能被 forget
+      if (tools && rt.gen === gen) this.registerServer(entry.name, tools);
     }
   }
 
@@ -193,6 +213,23 @@ export class McpManager {
     }
   }
 
+  /** W1a-6：配置改了（upsert / remove / 改名 / 市场更新）之后由调用方通知。断开这台、摘掉它的工具、
+   *  清掉上次的错误、回 idle，并递增代次让还在途中的连接作废；下一次 ensureForRun 按新配置重连。
+   *  原先 ensureForRun 只连还没连上的服务器，已连上的不跟配置走：改完 env 要等 10 分钟空闲驱逐或重启，
+   *  设置页那句「改动即时生效」是假话。不存在的名字是空操作。
+   *  runtime 条目不删：途中的 ensureForRun 还攥着它，要靠它的代次认出自己已经过时。 */
+  forget(name: string): void {
+    const rt = this.runtime.get(name);
+    if (!rt) return;
+    rt.gen++;
+    rt.client?.dispose();
+    rt.client = null;
+    this.unregisterServer(name);
+    rt.status = 'idle';
+    rt.lastError = undefined;
+    rt.stale = false;
+  }
+
   /** minisd 退出收口：全部 dispose + 摘工具。幂等。 */
   disposeAll(): void {
     for (const [name, rt] of [...this.runtime]) {
@@ -207,7 +244,7 @@ export class McpManager {
   private runtimeOf(name: string): ServerRuntime {
     let rt = this.runtime.get(name);
     if (!rt) {
-      rt = { client: null, status: 'idle', stale: false, lastUsedAt: 0, registeredNames: [], truncated: 0 };
+      rt = { client: null, status: 'idle', stale: false, lastUsedAt: 0, registeredNames: [], truncated: 0, gen: 0 };
       this.runtime.set(name, rt);
     }
     return rt;
@@ -262,6 +299,22 @@ export class McpManager {
     this.unregisterServer(name);
   }
 
+  /** 调用前现查配置（W1a-6）：停用了、或配置里已经没有这台（手改文件删掉、还没人 forget 它），就拒绝这次调用 */
+  private configRefusal(server: string): ToolOutcome | undefined {
+    // 文件读坏时 store 按空配置加载，这台其实还在文件里——说「已不在配置中」是假话。
+    // 仍然拒绝：它是否还启用已经无从确认，不能当成启用放行。
+    if (this.opts.store.loadErrorKind) {
+      // 先对比磁盘重读一次（只读，与设置页拉列表同一个动作；只在读坏状态下才读盘）：
+      // 文件已经修好时，不能因为用户没回设置页就还说「读不出来」
+      this.opts.store.refresh();
+      if (this.opts.store.loadErrorKind) return { output: CONFIG_UNREADABLE_REFUSAL, success: false };
+    }
+    const cfg = this.opts.store.list().find(e => e.name === server);
+    if (!cfg) return { output: '该 MCP server 已不在配置中', success: false };
+    if (!cfg.enabled) return { output: '该 MCP server 已停用', success: false };
+    return undefined;
+  }
+
   /** 每个 MCP 工具一个 ToolExecutor：definition 平铺层只给 tool_title（兼容旧审计/预检路径），
    *  原始 inputSchema 原样放 rawInputSchema 由 provider 侧直用。 */
   private mkExecutor(server: string, info: McpToolInfo, name: string): ToolExecutor {
@@ -277,17 +330,32 @@ export class McpManager {
       },
       execute: async (input, ctx): Promise<ToolOutcome> => {
         if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
+        // 全局启停同样现查（W1a-6）：设置页关掉一台已连上的服务器，工具还在表里（不摘，免得动前缀），
+        // 连接也还在（重新启用不用重连），但调用当场拒绝——不问权限、不发调用。
+        const refused = this.configRefusal(server);
+        if (refused) return refused;
         // 会话禁用硬执行：现查而非 run 快照——run 开始后用户仍可关掉这台（§5.2 修坑点）
         if (this.opts.chatStore.getMcpDisabled(ctx.sessionId).includes(server)) {
           return { output: '该 MCP server 已在本会话禁用', success: false };
         }
+        // 记下闸前的代次：等权限卡期间配置可能被改并 forget（与闸后重查启停同一个起因）
+        const genAtStart = this.runtime.get(server)?.gen;
         const decision = await ctx.permissions.check({
           kind: 'mcp', detail: server, sessionId: ctx.sessionId, toolTitle: String(input.tool_title ?? ''),
         });
         // 闸后重查取消（A 波语义）：等审批期间用户可能点了停止
         if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
         if (decision === 'deny') return { output: 'MCP 调用被用户拒绝（可在设置-权限中调整）', success: false };
+        // 闸后重查全局启停：权限卡最长挂 90 秒，这期间用户可能去设置页把它停了
+        const refusedAfterGate = this.configRefusal(server);
+        if (refusedAfterGate) return refusedAfterGate;
         const rt = this.runtime.get(server);
+        // 代次变了：等卡期间配置被改过（upsert / 市场更新之后 forget）。forget 刚把它重置成 idle、无错误，
+        // 这里不能走下面的 markServerError 把用户刚存好的服务器打成出错；
+        // 别的回合已按新配置连上时也不转发——这次批准是在旧配置下拿到的
+        if (rt && rt.gen !== genAtStart) {
+          return { output: '该 MCP server 配置刚被修改，本次调用未执行', success: false };
+        }
         if (!rt?.client) {
           // 工具已在表里但连接先没了（驱逐竞态）：按已废处理，下一次调用前 ensureForRun 会重建
           this.markServerError(server, 'MCP server 连接已不可用');
@@ -295,14 +363,19 @@ export class McpManager {
         }
         rt.lastUsedAt = Date.now();
         const { tool_title: _drop, ...args } = input;
+        // 攥住这次调用用的 client：等结果期间它可能被 forget 换掉（W1a-6），rt.client 已经是新连接或 null
+        const client = rt.client;
         try {
-          const result = await rt.client.callTool(info.name, args, { signal: ctx.signal });
+          const result = await client.callTool(info.name, args, { signal: ctx.signal });
           return digestToolResult(result);
         } catch (e) {
           // 「进程已退出/连接已关闭」类错误：该台已废，标记 error + 摘工具，下次 ensureForRun 重连；
           // 其余错误（超时/取消）只失败本次调用。透传抛出由 registry 兜底成失败 outcome 喂给模型。
+          // 只在 runtime 还用着这个 client 时才标记：旧连接被 forget 后迟到的「连接已关闭」不能把新连接打成出错。
           const msg = e instanceof Error ? e.message : String(e);
-          if (rt.client.closed || msg.includes('已退出') || msg.includes('连接已关闭')) this.markServerError(server, msg);
+          if (rt.client === client && (client.closed || msg.includes('已退出') || msg.includes('连接已关闭'))) {
+            this.markServerError(server, msg);
+          }
           throw e;
         }
       },

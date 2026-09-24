@@ -309,6 +309,9 @@ export interface MarketInstallerOptions {
   bridgeNodePath?: string;
   /** 技能装成后的 skills.changed 广播钩子（index.ts 接 rpc.broadcast）。 */
   onSkillsChanged?: () => void;
+  /** W1a-6：MCP 条目装成或更新成功后的钩子（index.ts 接 mcpManager.forget）。更新换了 args / env，
+   *  已连上的旧版本进程要下线、下一回合按新配置重连——「改动即时生效」对市场同样成立。 */
+  onMcpChanged?: (name: string) => void;
 }
 
 interface InstallRow {
@@ -496,16 +499,25 @@ export class MarketInstaller {
         transport: 'stdio',
         command: shape.stdio.command.command,
         args: shape.stdio.command.args,
+        // W1a-6：upsert 改成补丁语义后「不传 env」等于保留旧 env。新版本不再声明任何 env 时，
+        // mergeEnvForUpdate 算出空表，本意是把旧键清掉——所以一律显式传，空表传 null（删键）。
+        env: Object.keys(merged.env).length > 0 ? merged.env : null,
       };
-      if (Object.keys(merged.env).length > 0) entry.env = merged.env;
       contentHash = sha256Hex(`${shape.stdio.pkg.identifier ?? ''}@${shape.stdio.pkg.version ?? ''}`);
     } else if (shape.remoteUrl) {
+      // 从 stdio 换成远端时，旧的 command / args / env / cwd 由 upsert 的换族规则清掉；
+      // 同为远端时用户自己的 headers 保留（补丁语义：没给的键不动）
       entry = { name: shape.serverName, transport: 'streamable-http', url: shape.remoteUrl };
       contentHash = sha256Hex(shape.remoteUrl);
     } else {
       throw new Error(`该条目无白名单内 stdio 启动命令${shape.stdio?.denyReason ? `（${shape.stdio.denyReason}）` : ''}，需手动配置: ${id.full}`);
     }
-    const saved = this.opts.mcpStore.upsert(entry); // 复用 mcp.servers.upsert 的归一与原子写
+    // 复用 mcp.servers.upsert 的归一与原子写。W1a-6 起是补丁语义：更新只换 command / args / env（和换族），
+    // 用户自己的停用状态、备注、cwd、超时、headers、未识别字段都保留——「更新」修的是包的版本，
+    // 这些不属于上游数据；原先整条替换，更新一次就把用户停掉的服务器悄悄重新启用了。
+    const saved = this.opts.mcpStore.upsert(entry);
+    // 配置一落盘就通知（排在登记之前）：万一登记失败，manager 也不该留着按旧配置连着的进程
+    this.opts.onMcpChanged?.(saved.name);
     this.recordInstall(id.full, 'mcp', saved.name, contentHash);
     return { ok: true, kind: 'mcp', id: id.full, localRef: saved.name };
   }

@@ -82,6 +82,18 @@ describe('D6 mcp.servers.test 试连 RPC', () => {
     expect(r.error).toContain('必须提供');
     expect(r.error).toContain('url');
   });
+
+  // W1a-6：带字段的试连改走 store.preview——以已存条目为底合并。编辑表单只提交改过的字段，
+  // 已存的 command / args / env 要进试连；原先 scratch store 里只有 {name, note}，秒回「必须提供 command」。
+  it('6. 编辑表单试连（W1a-6）：只带 { name, note } 也用已存的 command/args/env 连上，servers.json 字节不变', async () => {
+    const file = join(b.dataDir, 'mcp-servers', 'servers.json');
+    const before = readFileSync(file);
+    const r = (await b.call('mcp.servers.test', { name: 'fixture-stdio', note: 'x' })).result;
+    expect(r.error).toBeUndefined();
+    expect(r.ok).toBe(true);
+    expect(r.toolCount).toBeGreaterThanOrEqual(1);
+    expect(readFileSync(file).equals(before)).toBe(true);
+  });
 });
 
 describe('D6 mcp.servers.list configError 布尔化脱敏（4）', () => {
