@@ -258,10 +258,24 @@ function takeDraft(): void {
 }
 // 上一个实例被拒回的草稿：欢迎页换成会话页再换回来时，新建的这个实例靠这行拿回（见 store draft 注释）
 takeDraft();
+// W2a-6「新建会话接力」的草稿：新会话是空的，欢迎页的输入卡随之新挂载，在这里取（见 store relayDraft 注释）
+takeRelay();
 
 /** V9 引用：追加不覆盖——用户已敲的草稿排在引用块前面。 */
 function quote(block: string): void {
   text.value = text.value.trim() ? `${text.value.replace(/\s+$/, '')}\n\n${block}` : block;
+  void nextTick(() => field.value?.focus());
+}
+
+/** W2a-6 取接力草稿：只取指向当前会话的，取完即清；框里已有字时接力文本在前、原有的字在后，不吞任何一方。
+ *  只在 setup 时调、不用 watch：open() 换会话的 await 期间旧会话页的输入卡还挂着，watch 会让它先把草稿抢走，
+ *  随后它被欢迎页替换卸载，草稿就丢了。只预填不发送——接力文本要由用户过目、可改，再自己按 Enter。 */
+function takeRelay(): void {
+  const r = chat.relayDraft;
+  if (!r || r.sessionId !== chat.activeId) return;
+  chat.relayDraft = null;
+  const cur = text.value.trim() ? text.value : '';
+  text.value = cur ? `${r.text.replace(/\s+$/, '')}\n\n${cur}` : r.text;
   void nextTick(() => field.value?.focus());
 }
 

@@ -285,6 +285,9 @@ watch(() => props.narrow, stickBottom);
   padding: var(--sp-4) var(--sp-5); border-radius: var(--r-m);
   background: var(--c-err-soft); color: var(--c-err);
 }
+/* 图标不许被挤扁：绑定错误这类长报错折成好几行时，flex 默认的 shrink 会把图标压成一个点（W2a-6 实拍所见），
+   与 EventNotes 的 .note 同一写法 */
+.err :deep(svg) { flex: 0 0 auto; }
 
 .dock { flex: 0 0 auto; padding: 0 0 var(--sp-6); background: var(--c-bg); }
 

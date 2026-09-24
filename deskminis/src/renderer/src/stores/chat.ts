@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia';
 import { rpc } from '../rpc';
 import { mimeFromPath } from '@shared/parts';
+import { errorShortByCode, fallbackShortByCause } from '../lib/eventnote/copy';
 
 let localSeq = 0;
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 // M3c Task 7：sync.dirty → syncing → 2s 回 idle 的回退定时器（模块级非响应式，单 store 实例）
 let _syncDirtyTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -48,6 +50,18 @@ export const useChat = defineStore('chat', {
      *  必须放 store 而不是组件里：首条消息乐观入列的一瞬欢迎页换成会话页，发它的那个输入卡实例已卸载，
      *  拒绝回来时欢迎页新建的实例只能从这里拿。与 pendingFilePreview 同款「一处写、消费即清」。 */
     draft: null as null | { text: string; attachments: { path: string; dataUrl: string }[] },
+    /** W2a-6 接力草稿（设计稿 §2「渲染端」、§3 第 5 条）：「新建会话接力」建好新会话后、open() 之前写在这里，
+     *  由新会话欢迎页新挂载的输入卡在 setup 时取走，且只取 sessionId === activeId 的——
+     *  open() 的 await 期间旧会话页的输入卡还挂着，它的 setup 早已跑完，拿不到；换成 watch 消费的话它会先抢走，
+     *  随后欢迎页替换会话页、它被卸载，草稿就丢了。
+     *  不复用上面的 draft：draft 的取回闸要求 lastError 非空，而 open() 换会话会清 lastError，接力草稿永远取不出；
+     *  放宽那道闸又会让「发送中寄存」的草稿被新实例抢走（X 波堵上的口子）。 */
+    relayDraft: null as null | { sessionId: string; text: string },
+    /** W2a-6：引擎随 contextFull 给出的接力草稿（库里完整的最新摘要 + 最后一条真用户消息），等用户点「新建会话接力」。
+     *  不直接放进 relayDraft：那时它只能指向出事的旧会话，用户切走再切回、旧会话页的输入卡重新挂载时，
+     *  会把接力文本填进旧会话的输入框。
+     *  createdId / note：接力会话已建出、但没能切过去时记下它和没跟过来的继承项——再点只切过去，不再新建。 */
+    relaySource: null as null | { sessionId: string; text: string; createdId?: string; note?: string },
     providers: [] as UiProvider[],
     /** Z3 模型组（设置页编辑；会话菜单 / 助手编辑器的绑定下拉与输入卡模型胶囊都要读）。 */
     modelGroups: [] as UiModelGroup[],
@@ -113,7 +127,7 @@ export const useChat = defineStore('chat', {
     lastStopReason: '' as string,
     // M2d · #10 事件 UI 接线：四种目前未消费事件（fallback/compacted/offloaded/retry）的状态。
     //   retry 已有 retryNote 字段沿用；其余三种新增会话级环内联提示 + 任务面板状态字典。
-    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'|'retry'|'error'|'synced'|'pruned'|'compactFailed'; ts: number; detail?: string; retryable?: boolean }[], // 对话流内联气泡（最多保留 10 条）；MU2a Task 8 扩 retry/error 两类（error 带 retryable 供重试钮）；M3c Task 7 扩 synced（同步完成）；A6 扩 pruned（修剪）；W2a-1 扩 compactFailed（压缩失败，追加在末尾：既有守卫按前缀子串匹配）
+    eventNotes: [] as { kind: 'fallback'|'compacted'|'offloaded'|'retry'|'error'|'synced'|'pruned'|'compactFailed'; ts: number; detail?: string; retryable?: boolean; relay?: boolean; short?: string }[], // 对话流内联气泡（最多保留 10 条）；MU2a Task 8 扩 retry/error 两类（error 带 retryable 供重试钮）；M3c Task 7 扩 synced（同步完成）；A6 扩 pruned（修剪）；W2a-1 扩 compactFailed（压缩失败，追加在末尾：既有守卫按前缀子串匹配）；W2a-6 加 relay（给「新建会话接力」钮）与 short（按 code / cause 定好的短句，EventNotes 优先用它）
     fallbackState: null as null | { from: string; to: string; reason: string }, // 任务面板「降级」卡（对齐 loop.ts: fallback(from,to,reason)）
     compactedState: null as null | { markerId: string; summary: string }, // 任务面板「压缩」卡（对齐 loop.ts: compacted(markerId,summary)；无 fromCount/toCount/freedTokens）
     offloadedState: null as null | { count: number; lastRelativePath?: string }, // 任务面板「卸载」卡（对齐 loop.ts: offloaded(toolUseId,relativePath)；逐条自增计数，附最近一条路径）
@@ -568,13 +582,26 @@ export const useChat = defineStore('chat', {
       }
       else if (e.kind === 'error') {
         // 先记错误再刷新：open 在同会话路径上不动 lastError，横幅得以留在界面上
-        this.lastError = String(e.message ?? '未知错误');
+        const detail = String(e.message ?? '未知错误');
+        this.lastError = detail;
         this.retryNote = '';
         this.streamingThinking = ''; // 回合已败，半截思考没有下文，留着只会悬在界面上
         this.running = false;
         if (this.midRun) { this.streamingText = ''; this.toolCards = []; this.midRun = false; } // 同 turnEnd：半截不闪出来
-        // MU2a Task 8：错误进对话流内联（EventNote 短句 + 详情折叠 + 重试钮），errbar 横幅退场
-        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail: String(e.message ?? '未知错误'), retryable: true }];
+        // W2a-6：按引擎给的 code 分流（设计稿 §3 第 2、3 条），不靠文案判断。短句也按 code 在 copy.ts 里选好随条带上，
+        // 不让 EventNotes 对原始报文跑状态码正则（绑定错误的响应体里一个独立的 5xx 就会被说成「服务暂时不可用」）。
+        if (e.code === 'contextFull') {
+          // 上下文已满：原地重试必然再满，不给重试；给「新建会话接力」。草稿先存 relaySource，点了钮才交给新会话
+          const draft = typeof e.relayDraft === 'string' ? e.relayDraft : '';
+          this.relaySource = draft ? { sessionId: this.activeId, text: draft } : null;
+          this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail, retryable: false, relay: !!draft, short: errorShortByCode(e.code) }];
+        } else if (e.code === 'thinkingBinding') {
+          // 思考块绑定：绑定的是这段对话的历史，原样重发必然同样 400，不给重试（message 里已写明请新建会话）
+          this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail, retryable: false, short: errorShortByCode(e.code) }];
+        } else {
+          // MU2a Task 8：错误进对话流内联（EventNote 短句 + 详情折叠 + 重试钮），errbar 横幅退场
+          this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail, retryable: true }];
+        }
         void this.open(this.activeId);
       }
       // M2d · #10：四种未消费事件（M2b 降级 / M2a 压缩 / M2a 卸载 / retry）——retry 分支已有，仅补其余三种并在任务面板挂状态。
@@ -586,7 +613,10 @@ export const useChat = defineStore('chat', {
         this.streamingThinking = '';
         // loop.ts L19: { kind: 'fallback'; from: string; to: string; reason: string }
         this.fallbackState = { from: String(e.from), to: String(e.to), reason: String(e.reason) };
-        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'fallback', ts: Date.now(), detail: `${String(e.from)} → ${String(e.to)}（${String(e.reason)}）` }];
+        // W2a-6：因超窗降级（cause:'contextOverflow'）时短句写明「因上下文已满改用 X」——换的是窗口更大、往往更贵的模型，
+        // 回合跑通后会话还会改绑过去；通用的「已切换到备选模型」说不出这两件事。其它原因的降级不带 short，照旧
+        const short = fallbackShortByCause(e.cause, String(e.to));
+        this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'fallback', ts: Date.now(), detail: `${String(e.from)} → ${String(e.to)}（${String(e.reason)}）`, ...(short ? { short } : {}) }];
         void this.fetchContextInfo(); // 降级后上下文窗口可能变（小模型 → 小窗口）
       }
       else if (e.kind === 'compacted') {
@@ -669,6 +699,77 @@ export const useChat = defineStore('chat', {
         if (m.role !== 'user' || !Array.isArray(m.parts)) continue;
         const text = m.parts.filter(p => p && p.type === 'text' && typeof p.value === 'string').map(p => p.value).join('\n');
         if (text.trim()) { await this.send(text); return; }
+      }
+    },
+    /** W2a-6「新建会话接力」（EventNotes 的接力钮调用；设计稿 §2「渲染端」、§3 第 2、5 条）：
+     *  上下文已满时建一个新会话，把引擎给的接力草稿交给新会话的输入卡——只预填、不发送，由用户确认后自己发。
+     *  新会话尽量照原会话开局：助手（还在的话）、模型绑定、工作区。不继承绑定会落到默认模型，窗口可能更小，接力后立即再满；
+     *  工作区不管的话，后端建会话一律用「上次用过的工作区」——那可能是别的会话选的、与这段对话无关的目录，agent 就在那里接着干活。
+     *  会话建出以后的继承步骤都是尽力而为：失败不拦接力（拦下的话每点一次多一个空会话，接力永远成不了），
+     *  照常切过去，在新会话的输入卡上说清楚哪一项没跟过来、现在用的是什么。 */
+    async relayToNewSession() {
+      const src = this.relaySource;
+      const fromId = this.activeId;
+      // 草稿只对出事的那个会话有效；先取走再 await——连点第二下拿不到它，不会建出两个会话
+      if (!src || src.sessionId !== fromId) return;
+      this.relaySource = null;
+      let createdId = src.createdId ?? '';
+      let note = src.note ?? '';
+      try {
+        if (!createdId) {
+          const from = this.sessions.find(s => s.id === fromId);
+          const fromBinding = from?.modelBinding || undefined;
+          const customRoot = this.workspaceIsDefault ? '' : this.workspaceRoot;
+          // 助手删掉后会话的 assistant_id 悬空（assistants/store.ts remove），带着它建会话后端会抛「助手不存在」，接力就永远走不通。
+          // 只在助手还在时带；不在就建普通会话——原会话那边这个助手本来也已不生效，两边一致
+          const assistantId = from?.assistantId && this.assistants.some(a => a.id === from.assistantId) ? from.assistantId : '';
+          // 带助手建会话：后端套用助手预设（技能快照、规则、助手自己的绑定），与原会话当初的开局一致
+          const s = await rpc.call('chat.sessions.create', assistantId ? { assistantId } : {});
+          createdId = String(s.id);
+          const misses: string[] = [];
+          // 绑定照抄原会话而不是照助手：原会话可能手动改过绑定，或溢出降级后改绑到了更大窗口的模型
+          if ((s?.modelBinding || undefined) !== fromBinding) {
+            try { await rpc.call('chat.sessions.setModelBinding', { sessionId: createdId, binding: fromBinding }); }
+            catch (e) { misses.push(`没能沿用原会话的模型绑定（${errText(e)}）`); }
+          }
+          // 工作区与原会话同一语义：原会话设过目录就设同一个；原会话用的是默认沙箱（或它的目录已被删掉、移走），
+          // 新会话就回到自己的沙箱，而不是留在后端给的 lastUsed。旧沙箱里的文件不随过去——沙箱每会话一个，这条边界保留
+          let wsGone = '';
+          if (customRoot) {
+            try { await rpc.call('workspace.set', { sessionId: createdId, root: customRoot }); }
+            catch (e) { wsGone = errText(e); }
+          }
+          let resetErr = '';
+          if ((!customRoot || wsGone) && s?.workspaceRoot) {
+            try { await rpc.call('workspace.reset', { sessionId: createdId }); }
+            catch (e) { resetErr = errText(e); }
+          }
+          if (wsGone || resetErr) {
+            misses.push((wsGone ? `原会话的工作区用不了（${wsGone}），` : '')
+              + (resetErr ? `没能把新会话放回默认工作区（${resetErr}），现在用的是 ${String(s.workspaceRoot)}` : '新会话改用默认工作区'));
+          }
+          note = misses.length ? `接力会话已建好，但${misses.join('；')}` : '';
+        }
+        // 必须在 open() 之前写好：open() 取完新会话的（空）消息后，欢迎页替换会话页，新挂载的输入卡在 setup 里取它
+        this.relayDraft = { sessionId: createdId, text: src.text };
+        await this.refreshSessions();
+        await this.open(createdId);
+        // open() 换会话会清 lastError，所以放在它之后；欢迎页的输入卡把 lastError 显示在卡上
+        if (note) this.lastError = note;
+      } catch (e) {
+        if (createdId) {
+          // 会话已经建出来了：记住它（连同没跟过来的继承项），再点只切过去、不再新建——否则每点一次多一个空会话。
+          // 草稿也留着指向它：用户从会话列表点进去，欢迎页的输入卡照样取得到
+          this.relaySource = { ...src, createdId, note };
+          this.relayDraft = { sessionId: createdId, text: src.text };
+          this.lastError = `接力会话已建好，但没能切过去：${errText(e)}。可在会话列表里打开它，接力文本会自动填进输入框`;
+          try { await this.refreshSessions(); } catch { /* 列表刷新失败不盖掉上面的报错 */ }
+        } else {
+          // 会话没建出来：如实说，把草稿放回去让钮可以再点
+          this.relayDraft = null;
+          this.relaySource = src;
+          this.lastError = `新建接力会话失败：${errText(e)}`;
+        }
       }
     },
   },
