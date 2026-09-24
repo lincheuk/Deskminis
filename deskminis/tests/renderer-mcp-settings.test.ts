@@ -163,3 +163,64 @@ describe('W1a 外部修改：回到这页即重读', () => {
     expect(body).toMatch(/chat\.fetchMcpServers\(/);
   });
 });
+
+describe('W1a 编辑不丢字段', () => {
+  // 设计稿 §4 W1a-7 / 附录 mcp.md W1a-mcpedit-ui、W1a-mcpguards。表单转载荷的逻辑在纯模块 lib/mcp/edit.ts
+  // （tests/renderer-mcp-edit.test.ts 钉真行为），这里只证明 SecMcp 真的调了它。同样先剥注释，只认调用形态：
+  // 一句注释里提到 buildMcpUpsert 喂不饱这些守卫。
+  const tpl = mcp.slice(mcp.indexOf('<template>')).replace(/<!--[\s\S]*?-->/g, '');
+  const script = mcp.slice(0, mcp.indexOf('<template>')).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const fnBody = (name: string): string =>
+    script.match(new RegExp(`(?:async )?function ${name}\\([^)]*\\)[^{]*\\{[\\s\\S]*?\\n\\}`))?.[0] ?? '';
+
+  it('从纯模块导入，保存与试连都走 buildMcpUpsert(orig.value, form)', () => {
+    expect(script).toMatch(/import \{[^}]*\bbuildMcpUpsert\b[^}]*\} from '\.\.\/\.\.\/lib\/mcp\/edit'/);
+    expect(script).toMatch(/\.upsertMcpServer\(\s*buildMcpUpsert\(/);
+    expect(script).toMatch(/\.testMcpServer\(\s*buildMcpUpsert\(/);
+    expect(script).toMatch(/\.upsertMcpServer\(\s*buildMcpUpsert\(\s*orig\.value\s*,\s*form\s*\)/);
+    expect(script).toMatch(/\.testMcpServer\(\s*buildMcpUpsert\(\s*orig\.value\s*,\s*form\s*\)/);
+  });
+
+  it('参数框是多行 textarea（每行一个），不再按空格切；提示改成一行一个', () => {
+    expect(tpl).toContain('<textarea v-model="form.args"');
+    expect(tpl).toMatch(/<textarea v-model="form\.args"[^>]*class="f-area"/);
+    expect(tpl).not.toMatch(/<input v-model="form\.args"/);
+    expect(tpl).toContain('每行一个参数');
+    expect(tpl).not.toContain('按空格切分');
+    expect(script).not.toMatch(/\.split\(\/\\s\+\/\)/);
+    expect(script).not.toMatch(/args[^\n]*\.join\(' '\)/);
+  });
+
+  it('不再固定塞 enabled: true（停用的服务器一保存就被重新启用）', () => {
+    expect(script).not.toMatch(/enabled:\s*true/);
+  });
+
+  it('startEdit 记下原条目快照并经 formFromOrig 回填；startNew 与 cancel 清掉快照', () => {
+    const edit = fnBody('startEdit');
+    expect(edit, '找不到 startEdit 函数体').not.toBe('');
+    expect(edit).toMatch(/orig\.value\s*=/);
+    expect(edit).toMatch(/formFromOrig\(\s*orig\.value\s*\)/);
+    expect(fnBody('startNew')).toMatch(/orig\.value\s*=\s*undefined/);
+    expect(fnBody('cancel')).toMatch(/orig\.value\s*=\s*undefined/);
+  });
+
+  it('submit 不再先删后加（改名交给 renameFrom），且先查同名、查到就 return，不发请求', () => {
+    const body = script.match(/async function submit\(\)[\s\S]*?\n}/)?.[0] ?? '';
+    expect(body, '找不到 submit 函数体').not.toBe('');
+    expect(body).not.toMatch(/\.removeMcpServer\(/);
+    const dup = body.search(/duplicateNameError\(/);
+    const up = body.search(/\.upsertMcpServer\(/);
+    expect(dup, 'submit 里没有同名检查').toBeGreaterThan(-1);
+    expect(up).toBeGreaterThan(dup);
+    expect(body.slice(dup, up)).toMatch(/return;/);
+  });
+
+  it('按钮文案跟着快照走：编辑是「保存」，新建是「添加」', () => {
+    expect(tpl).toMatch(/\{\{ orig \? '保存' : '添加' \}\}/);
+  });
+
+  it('改名与预览不新增 store action：MCP 相关 action 仍是原来那六个（mu6 清单的约定）', () => {
+    const acts = [...chat.matchAll(/^ {4}(?:async )?(\w*Mcp\w*)\(/gm)].map(m => m[1]).sort();
+    expect(acts).toEqual(['fetchMcpServers', 'removeMcpServer', 'setSessionMcpDisabled', 'testMcpServer', 'toggleMcpServer', 'upsertMcpServer']);
+  });
+});

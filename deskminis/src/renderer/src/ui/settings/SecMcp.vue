@@ -6,13 +6,15 @@
  *  W1a-4 起另有 configErrorKind 枚举（read / parse / shape），只用来选横幅文案。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useChat } from '../../stores/chat';
+import { buildMcpUpsert, duplicateNameError, formFromOrig, type McpForm, type McpOrig } from '../../lib/mcp/edit';
 import UiIcon from '../UiIcon.vue';
 
 const chat = useChat();
-const blank = { name: '', transport: 'stdio' as 'stdio' | 'streamable-http', command: '', args: '', url: '', note: '' };
-const form = reactive({ ...blank });
+const blank: McpForm = { name: '', transport: 'stdio', command: '', args: '', url: '', note: '' };
+const form = reactive<McpForm>({ ...blank });
 const open = ref(false);
-const editingName = ref('');
+/** W1a-7：打开编辑时的原条目快照。有它就是编辑、没有就是新建；保存与试连都拿它和表单比，只交改过的字段 */
+const orig = ref<McpOrig | undefined>();
 const err = ref('');
 const confirming = ref('');
 const testing = ref('');
@@ -27,39 +29,26 @@ onBeforeUnmount(() => { window.removeEventListener('focus', onWindowFocus); });
 const list = computed(() => chat.mcpServers.servers);
 const statusOf = (name: string) => chat.mcpServers.statuses.find(s => s.name === name);
 
-function startNew(): void { Object.assign(form, blank); editingName.value = ''; err.value = ''; open.value = true; }
-function startEdit(s: Record<string, unknown>): void {
+function startNew(): void { Object.assign(form, blank); orig.value = undefined; err.value = ''; open.value = true; }
+function startEdit(s: McpOrig): void {
   err.value = '';
-  editingName.value = String(s.name);
-  form.name = String(s.name);
-  form.transport = (s.transport as 'stdio' | 'streamable-http') ?? 'stdio';
-  form.command = String(s.command ?? '');
-  form.args = Array.isArray(s.args) ? (s.args as string[]).join(' ') : '';
-  form.url = String(s.url ?? '');
-  form.note = String(s.note ?? '');
+  // 快照拷一份参数数组：列表重拉会整个换掉，快照要停在打开编辑那一刻
+  orig.value = { name: s.name, transport: s.transport, command: s.command, args: s.args ? [...s.args] : undefined, url: s.url, note: s.note };
+  Object.assign(form, formFromOrig(orig.value));
   open.value = true;
 }
-function cancel(): void { open.value = false; editingName.value = ''; err.value = ''; Object.assign(form, blank); }
+function cancel(): void { open.value = false; orig.value = undefined; err.value = ''; Object.assign(form, blank); }
 
-/** 参数按空格切：够用且可预期。真需要带空格的参数就改 servers.json——
- *  在这里做引号解析只会把「为什么我的参数被拆开了」变成第二个问题。 */
-function payload(): Record<string, unknown> {
-  const base: Record<string, unknown> = { name: form.name.trim(), transport: form.transport, enabled: true, note: form.note.trim() || undefined };
-  if (form.transport === 'stdio') {
-    base.command = form.command.trim();
-    base.args = form.args.trim() ? form.args.trim().split(/\s+/) : [];
-  } else {
-    base.url = form.url.trim();
-  }
-  return base;
-}
-
+/** W1a-7：载荷由 buildMcpUpsert 按补丁语义拼——新建交完整条目，编辑只交改过的字段、改名带 renameFrom、
+ *  清空备注发 null、从不带 enabled。原先整条提交，只改一个备注，env / headers / cwd / 超时和停用状态就全没了；
+ *  改名是先删旧条目再 upsert，upsert 一失败旧条目就找不回来。 */
 async function submit(): Promise<void> {
   err.value = '';
+  // 同名新建前端拦（设计稿 §2）：补丁语义下同名「添加」会合并进旧条目，不发请求
+  const dup = duplicateNameError(orig.value, form.name, list.value.map(s => s.name));
+  if (dup) { err.value = dup; return; }
   try {
-    // 改名 = 换了一台服务器：先删旧条目，否则会留下一条同配置的孤儿
-    if (editingName.value && editingName.value !== form.name.trim()) await chat.removeMcpServer(editingName.value);
-    await chat.upsertMcpServer(payload());
+    await chat.upsertMcpServer(buildMcpUpsert(orig.value, form));
     cancel();
   } catch (e) { err.value = e instanceof Error ? e.message : String(e); }
 }
@@ -80,14 +69,19 @@ async function onToggle(s: { name: string; enabled: boolean }, ev: Event): Promi
 }
 async function remove(name: string): Promise<void> {
   err.value = ''; confirming.value = '';
-  try { await chat.removeMcpServer(name); if (editingName.value === name) cancel(); }
+  try { await chat.removeMcpServer(name); if (orig.value?.name === name) cancel(); }
   catch (e) { err.value = e instanceof Error ? e.message : String(e); }
 }
+/** 试连与保存交同一份载荷：后端 preview 以已存条目为底合并，编辑时已存的 env / headers / cwd / 超时自然带进试连。
+ *  同名新建同样先拦：不然试的是「合并进旧条目」之后的那台，连上了也说明不了新填的配置。 */
 async function test(): Promise<void> {
   const key = form.name.trim() || '__new__';
+  const dup = duplicateNameError(orig.value, form.name, list.value.map(s => s.name));
+  if (dup) { err.value = dup; return; }
+  err.value = '';
   testing.value = key;
   try {
-    const r = await chat.testMcpServer(payload());
+    const r = await chat.testMcpServer(buildMcpUpsert(orig.value, form));
     testResult.value[key] = r.ok ? `连上了，${r.toolCount ?? 0} 个工具（${r.elapsedMs ?? 0}ms）` : `连不上：${r.error ?? '未知原因'}`;
   } catch (e) {
     testResult.value[key] = `连不上：${e instanceof Error ? e.message : String(e)}`;
@@ -174,8 +168,8 @@ async function test(): Promise<void> {
         </label>
         <label class="f-label">
           <span>参数</span>
-          <input v-model="form.args" class="f-input" placeholder="空格分隔，如 -y @modelcontextprotocol/server-filesystem D:\\work" />
-          <span class="f-hint">按空格切分。要带空格的参数请直接改 servers.json。</span>
+          <textarea v-model="form.args" class="f-area" spellcheck="false" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;D:\My Docs"></textarea>
+          <span class="f-hint">每行一个参数；带空格的路径原样写一行即可。</span>
         </label>
       </template>
       <label v-else class="f-label">
@@ -193,7 +187,7 @@ async function test(): Promise<void> {
         {{ testResult[form.name.trim() || '__new__'] }}
       </p>
       <div class="f-row">
-        <button class="f-btn primary" type="submit">{{ editingName ? '保存' : '添加' }}</button>
+        <button class="f-btn primary" type="submit">{{ orig ? '保存' : '添加' }}</button>
         <button class="f-btn" type="button" :disabled="!!testing" @click="test">{{ testing ? '试连中…' : '试连接' }}</button>
         <button class="f-btn ghost" type="button" @click="cancel">取消</button>
       </div>
