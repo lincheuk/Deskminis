@@ -4,6 +4,8 @@
  * 主动连已配对对端（LAN 直连，noProxy），实现：
  *   - PASETO jti/aud/60s 防重放（决策 1 层 1，握手层防错连投毒）
  *   - sync.hello 挑战应答双向互认（决策 1 层 2，HMAC-SHA256(authKey, 'm3c-hello'||nonce)）
+ *     W2b-8：hello 两个方向都多带 protocolVersion/caps（不进 MAC）；对端不带就按 0.1.1 旧版处理，
+ *     更高版本不拒绝。MAC 校验通过后才记对端声明，经 peerInfo(fp) 公开，供 W5c 按对端能力决定推什么。
  *   - 指纹字典序主从裁决避免双连（决策 2，myFp < peerFp 者主拨）
  *   - 断线指数退避重连（决策 6，1→2→4→8→16→30s 上限）
  *   - WS ping/pong 保活（决策 6，30s ping / 60s 判死）
@@ -20,6 +22,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { PairingService } from '../remote/pairing';
 import { encodePaseto } from '../remote/paseto';
+import { LEGACY_SYNC_PEER, LOCAL_SYNC_CAPS, SYNC_PROTOCOL_VERSION, parseSyncHello, type SyncPeerInfo } from './wire';
 
 /** 默认参数（决策 6）。 */
 const DEFAULT_PING_INTERVAL_MS = 30_000;
@@ -51,6 +54,8 @@ interface PeerConnection {
   lastPongAt: number;
   /** 当前拨号的目标地址（重连用） */
   addr: string;
+  /** 对端在 sync.hello 响应里声明的协议版本与能力位；互认通过前一律按旧版（W2b-8） */
+  peer: SyncPeerInfo;
 }
 
 export class OutboundClient {
@@ -133,6 +138,8 @@ export class OutboundClient {
       stopped: false,
       lastPongAt: now,
       addr,
+      // 每次拨号都从旧版起步：上一条连接的声明不能带到新连接（对端可能已经换了版本）
+      peer: LEGACY_SYNC_PEER,
     };
     this.connections.set(peerFp, conn);
 
@@ -211,19 +218,25 @@ export class OutboundClient {
   private async doHello(peerFp: string, conn: PeerConnection, authKey: Uint8Array): Promise<boolean> {
     const nonce = randomBytes(16).toString('hex');
     try {
-      const resp = await this.callRpcOnConn(conn, 'sync.hello', { nonce }) as { mac: string; listenPort: number };
+      // 多带的 protocolVersion/caps 不进 MAC；0.1.1 的应答端忽略多余参数，只回 {mac, listenPort}
+      const raw = await this.callRpcOnConn(conn, 'sync.hello', { nonce, protocolVersion: SYNC_PROTOCOL_VERSION, caps: { ...LOCAL_SYNC_CAPS } });
+      // 响应来自网络，先当 unknown：取不到字符串 mac 就走下面的长度校验判失败，不靠抛错
+      const resp = (raw !== null && typeof raw === 'object' ? raw : {}) as { mac?: unknown; listenPort?: unknown };
+      const respMac = typeof resp.mac === 'string' ? resp.mac : '';
       // 本地算 HMAC 比对
       const expectedMac = hmac(sha256, authKey, new TextEncoder().encode('m3c-hello' + nonce));
       const expectedHex = Buffer.from(expectedMac).toString('hex');
       // 常量时间比较：先比长度，长度不等直接返回 false（timingSafeEqual 长度不等会抛，必须先比长度）
       const expectedBuf = Buffer.from(expectedHex, 'hex');
-      const respBuf = Buffer.from(resp.mac, 'hex');
+      const respBuf = Buffer.from(respMac, 'hex');
       const ok = expectedBuf.length === respBuf.length && expectedBuf.length > 0
         ? timingSafeEqual(expectedBuf, respBuf)
         : false;
       if (!ok) return false; // 伪造/中间人
+      // MAC 通过之后才采信对端的版本声明（未通过的连接会被 terminate，它说的什么都不记）
+      conn.peer = parseSyncHello(raw);
       // 端口漂移自愈：用响应的 listenPort 刷新地址簿
-      if (resp.listenPort && resp.listenPort > 0) {
+      if (typeof resp.listenPort === 'number' && resp.listenPort > 0) {
         const addrParts = conn.addr.split(':');
         const host = addrParts[0] || '127.0.0.1';
         const newAddr = `${host}:${resp.listenPort}`;
@@ -356,6 +369,12 @@ export class OutboundClient {
 
   isOnline(fp: string): boolean {
     return this.connections.get(fp)?.online ?? false;
+  }
+
+  /** 对端在 sync.hello 里声明的协议版本与能力位（W2b-8）。只在在线时返回：离线时那份声明属于已断开的连接，不代表现状。 */
+  peerInfo(fp: string): SyncPeerInfo | undefined {
+    const conn = this.connections.get(fp);
+    return conn?.online ? conn.peer : undefined;
   }
 
   lastSeen(fp: string): number {

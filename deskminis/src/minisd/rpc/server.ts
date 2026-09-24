@@ -4,7 +4,12 @@ import type { AddressInfo } from 'node:net';
 
 export type AuthMode = 'local' | 'pairing' | 'remote';
 
-export interface RpcConnection { notify(method: string, params: unknown): void; authMode: AuthMode; peerFingerprint?: string; remoteAddress?: string }
+export interface RpcConnection {
+  notify(method: string, params: unknown): void; authMode: AuthMode; peerFingerprint?: string; remoteAddress?: string;
+  /** W2b-8：对端在 sync.hello 里声明的协议版本与能力位（应答端鉴权通过后才写）。一个连接一份，随连接而灭；
+   *  W5c 在 sync.pull/sync.push 里按它过滤。用结构类型而不 import sync/wire 的 SyncPeerInfo：rpc 层不依赖 sync 层。 */
+  syncPeer?: { readonly protocolVersion: number; readonly caps: Readonly<Record<string, boolean>> };
+}
 export interface RpcMethods { [method: string]: (params: any, conn: RpcConnection) => Promise<unknown> | unknown }
 
 export type AdditionalVerifyResult = { ok: true; authMode: AuthMode; peerFingerprint?: string } | { ok: false };

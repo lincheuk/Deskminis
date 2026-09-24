@@ -3,7 +3,10 @@ import type { ChatStore } from '../store/chat-store';
 import type { PairingService } from '../remote/pairing';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { toWireMessage, toWireMarker, toWireSession, type WireCompactMarker, type WireMessage, type WireSession } from './wire';
+import {
+  toWireMessage, toWireMarker, toWireSession, parseSyncHello, SYNC_PROTOCOL_VERSION, LOCAL_SYNC_CAPS,
+  type WireCompactMarker, type WireMessage, type WireSession,
+} from './wire';
 
 const MAX_PUSH_PAYLOAD_BYTES = 1 * 1024 * 1024; // 1MB
 
@@ -74,14 +77,20 @@ export function createSyncMethods(chat: ChatStore, opts?: SyncMethodsOpts): RpcM
     // 服务端用 conn.peerFingerprint 找 PairingKey.authKey 算 HMAC-SHA256(authKey, 'm3c-hello'||nonce)，
     // 客户端用本地 authKey 算同样 HMAC 比对——验证失败即 terminate + 退避。
     // 响应带 listenPort 供对端刷新地址簿（端口漂移自愈，必改 4）。
-    'sync.hello': async (p: { nonce: string }, conn) => {
+    // W2b-8 版本协商：请求与响应都可多带 protocolVersion/caps；对端不带（0.1.1）就记为旧版 {1, {}}。
+    // 0.1.1 的应答端忽略多余参数、0.1.1 的发起端只读 mac/listenPort，所以多带字段两个方向都互通；
+    // MAC 输入保持 'm3c-hello'+nonce 不变——并进版本或能力位会让 0.1.1 互认失败。
+    'sync.hello': async (p: { nonce: string; protocolVersion?: unknown; caps?: unknown }, conn) => {
       assertAuthMode(conn, ['remote'], 'sync.hello');
       if (!conn.peerFingerprint) throw new Error('sync.hello 需要 peerFingerprint（出站连接专用）');
       if (!opts?.pairingService) throw new Error('sync.hello 需要 pairingService 注入');
       const key = opts.pairingService.get(conn.peerFingerprint);
       if (!key) throw new Error('未配对设备');
+      // 鉴权（已配对）通过之后才记对端声明：未配对连接发来的参数不能留在 conn 上被后续 sync.* 采信
+      conn.syncPeer = parseSyncHello(p);
       const mac = hmac(sha256, key.authKey, new TextEncoder().encode('m3c-hello' + p.nonce));
-      return { mac: Buffer.from(mac).toString('hex'), listenPort: opts.listenPort ?? 0 };
+      // caps 给副本：LOCAL_SYNC_CAPS 是全进程共享的冻结常量，响应对象交出去后谁再改它都不该碰到本端声明
+      return { mac: Buffer.from(mac).toString('hex'), listenPort: opts.listenPort ?? 0, protocolVersion: SYNC_PROTOCOL_VERSION, caps: { ...LOCAL_SYNC_CAPS } };
     },
   };
 }

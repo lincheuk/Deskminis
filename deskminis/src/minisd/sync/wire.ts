@@ -158,3 +158,69 @@ export function toWireSession(s: SessionMeta): WireSession {
     pinnedAt: s.pinnedAt,
   };
 }
+
+// ---- sync.hello 协议版本与能力位（W2b-8） ----
+//
+// 为什么要有：0.1.1 的 hello 只交换 {nonce} / {mac, listenPort}，对端是哪一版、能收哪些数据种类都无从得知；
+// 以后（W5c）加新的同步数据种类时，必须能分清对端是 0.1.1 还是更新的版本，才能做到「对端不声明就不推」。
+// 所以 0.3.0 起两端在 hello 里多带 protocolVersion 与 caps，但规则是「缺失一律视为旧版」：
+//   - 不带合法版本号（≥2 的整数）的一方就是 0.1.1 那一代，记为 {protocolVersion: 1, caps: {}}，它发来的 caps 一概不信；
+//   - 更高的版本号不拒绝、未知能力位照记但不使用——按版本拒绝对端会让新旧设备互相断连；
+//   - 这些字段不进 MAC（MAC 输入仍是 'm3c-hello'+nonce）：一旦并进 MAC，0.1.1 两个方向的互认都会失败，
+//     而同步本身走 ws:// 明文，绑进 MAC 也不增加实际防护（中间人能剥掉 caps，后果只是少推数据）。
+// 解析必须是纯同步计算：0.1.1 的发起端对 RPC 有 10s 超时。
+
+/** 本端说的 sync 协议版本。0.1.1 不带这个字段，视为 1。 */
+export const SYNC_PROTOCOL_VERSION = 2;
+
+/** 本端声明的能力位。0.3.0 没有新的数据种类，所以是空的；第一个能力位留给 W5c。冻结防止运行期被顺手改掉。 */
+export const LOCAL_SYNC_CAPS: Readonly<Record<string, boolean>> = Object.freeze({});
+
+/** 从对端 hello 里解析出的声明。caps 只含值为 true 的能力位，查询一律走 peerHasCap。 */
+export interface SyncPeerInfo {
+  readonly protocolVersion: number;
+  readonly caps: Readonly<Record<string, boolean>>;
+}
+
+/** 旧版（0.1.1）对端的缺省声明。整体冻结，可以放心共享同一个对象。 */
+export const LEGACY_SYNC_PEER: SyncPeerInfo = Object.freeze({ protocolVersion: 1, caps: Object.freeze({}) });
+
+/** 能力位键名：字母开头、字母数字下划线、最长 32 位——挡掉 __proto__ 一类的键和超长垃圾。 */
+const SYNC_CAP_NAME = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
+/** 最多记 32 个能力位：对端再多也只取前 32 个合法的，防止一条 hello 把 conn 撑大。 */
+const MAX_SYNC_CAPS = 32;
+
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * 把对端 hello 的请求参数（应答端）或响应（发起端）解析成 SyncPeerInfo。
+ * 输入来自网络，按 unknown 处理；任何不合规的形状都退回旧版，绝不抛错（抛错会让互认失败、断连）。
+ */
+export function parseSyncHello(raw: unknown): SyncPeerInfo {
+  if (!isPlainRecord(raw)) return LEGACY_SYNC_PEER;
+  const v = raw.protocolVersion;
+  // 没有合法版本号就是旧版：此时 caps 也一概忽略——旧版不会发 caps，发了也说明对端不按约定来
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 2) return LEGACY_SYNC_PEER;
+  const caps: Record<string, boolean> = {};
+  if (isPlainRecord(raw.caps)) {
+    let n = 0;
+    for (const [k, val] of Object.entries(raw.caps)) {
+      if (n >= MAX_SYNC_CAPS) break;
+      // 只认严格的 true：'true'、1 这类都不算，免得对端的笔误被当成承诺
+      if (val !== true || !SYNC_CAP_NAME.test(k)) continue;
+      caps[k] = true;
+      n++;
+    }
+  }
+  return { protocolVersion: v, caps: Object.freeze(caps) };
+}
+
+/** 对端是否声明了某个能力位。对端未知（undefined）一律 false；只看自有属性，constructor 之类原型上的名字不算。 */
+export function peerHasCap(peer: SyncPeerInfo | undefined, name: string): boolean {
+  if (!peer) return false;
+  return Object.prototype.hasOwnProperty.call(peer.caps, name) && peer.caps[name] === true;
+}
