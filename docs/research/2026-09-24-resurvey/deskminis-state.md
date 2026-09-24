@@ -1,0 +1,109 @@
+# DeskMinis 现状画像
+定位：DeskMinis 是 Windows 桌面上的通用 Agent 应用（Electron + TypeScript + Vue3，个人项目，Apache-2.0）。产品方向是「cowork 化，不只写代码」：模型在本机读写文件、跑 PowerShell、生成 Office 文档，有助手预设和定时任务。数据全在本机（%APPDATA%\DeskMinis：SQLite + Markdown 记忆），设备之间走局域网直连配对同步，不经云端。代码在 main 761b862，版本 0.3.0，minis.db user_version=11，170 个测试文件、1914 例（云端 1862 过，另 52 例只能在 Windows 跑）。发布停滞：GitHub Releases 只有 v0.1.1，0.2.0 从未发布就被第二次 UI 重做覆盖；0.3.0 要在 Windows 真机重跑 e2e:m5 后才能上架。开发方式是「Claude 自己做」：先出设计稿、定稿即施工、用户事后可否决，对纪律的要求很重。已研读过的参考：OpenMinis（理念与同步协议，GPLv3，只读架构）、AionUi（界面语言，Apache-2.0，两次 UI 返工的来源）、DeepSeek Harness（扩展市场与需求信号，见 docs/research/2026-08-19-harness-plugin-market-survey.md）、OfficeCLI、opencode（docs/research/opencode-*.md）；zcode 与 pi 还没有专门的研读记录（harness 调研里只提到 oh-my-pi 兼容 marketplace.json）。
+架构：三进程加一个独立引擎。(1) 主进程 src/main/index.ts（233 行）：窗口、托盘、原生对话框、electron-updater，用 utilityProcess.fork 拉起 minisd。(2) 渲染进程 Vue3 + Pinia：唯一的 UI 是 src/renderer/src/ui/（T 波重建的新树，AppShell 三栏：TopBar / NavRail | Stage | WorkspacePanel + 底部终端抽屉；view 状态在 chat/search/cron/assistants/market/settings/devices 七个舞台之间切换，没有路由库，也没有模态，唯一例外是 Market 的确认卡）；stores/chat.ts（627 行）是全树共享的单一 store；样式有两套令牌并存：theme.css（新，唯一真相源）和 tokens.css（旧，737 行，MarkdownView 还依赖其中 18 个变量）；Markdown 用自研零依赖白名单 AST。(3) preload 是白名单 IPC。(4) minisd 引擎（src/minisd，约 1.4 万行）：渲染层只通过 WebSocket JSON-RPC（per-run token）和它通信，约 80 个 RPC 方法集中注册在 index.ts（1235 行，还包含 FakeProvider、权限广播、cron 调度器）。模块：agent/（loop.ts 流式循环：10 路并发工具、重试梯、降级链、截断续写、压缩/卸载/修剪；system-prompt 分 stable/context 两层；auto-title）、providers/（anthropic、openai 兼容、gemini、ollama 走 openai 兼容，SSE 自解析，models.dev/basellm 模型目录）、tools/（13 个内置工具 + permissions.ts 权限网关）、mcp/（stdio + streamable-http 客户端）、skills/（SKILL.md 解析、导入、分级注入）、market/（ClawHub、MCP Registry、awesome-dsh 三源）、store/（better-sqlite3 只追加迁移 MIGRATIONS[0..10]、chat/provider/search/settings/audit/memory）、office/（ZIP+OOXML 自建读写）、bridge/（6 个 Windows 能力桥，经 PowerShell）、terminal.ts（长驻 PowerShell，与 agent 共用）、cron/、remote/（X25519 配对 + PASETO）+ sync/（去抖 dirty 广播 + push/pull 合并）。另有 cli/ 下的 remote-cli、sync-cli，只做配对和同步调试。测试：vitest 跑在 ELECTRON_RUN_AS_NODE 下；renderer 靠源码文本守卫；GUI 验收靠 docs 分支 docs/handoff/driver/ 的 27 个 playwright-core + xvfb 剧本（不在主库，没有 CI）。
+
+能力：
+- [solid] Agent 循环 / 工具调用：已核实 loop.ts：10 路并发执行工具，maxTurns 200，截断后最多续写 2 次，空响应会追加提醒并降级，取消时已流出的半截回复会落库，工具入参以 JSON 字符串落库。
+- [solid] 内置工具集：已核实共 13 个：shell_execute / file_read / file_write / file_edit（唯一串替换）/ file_list / file_glob / file_grep / web_fetch / web_search / memory_get / memory_write / office_read / office_write。没有 multi-edit、apply_patch，也没有删文件工具。
+- [solid] Shell 执行：每个会话一个长驻 PowerShell（-EncodedCommand），cd 与环境变量跨命令保留、与终端抽屉共用，GBK 乱码有兜底解码。只支持 PowerShell，没有 bash/WSL 路径。
+- [solid] 多 Provider 接入：支持 anthropic / openai-compat / gemini / ollama 四类，模型 ID 可以从端点拉取；Anthropic 请求在 system、最后一个工具和近期 user 消息上打了 cache_control，会走提示缓存。
+- [solid] 模型组降级 / 重试：重试梯为 3/5/10/15/30 秒；限流、401、被拒这类可降级错误立即换下一个模型；降级成功后会话改绑到接手的模型并广播。Z 波已补上设置页的组编辑器和绑定下拉。
+- [basic] 思考 / 推理：思考块能渲染，DeepSeek 类 reasoning_content 也能显示；但已核实渲染层从不传 thinkingLevel，后端默认 off，所以 Anthropic 和 Gemini 的原生思考在任何界面上都开不起来。README 写的「思考过程可见」只对 DeepSeek 类模型成立。
+- [solid] 图片输入：粘贴、拖拽、＋选择三个入口；渲染端降采样；图片字节只在请求时合成、不写进会话库；较早轮次的图片自动换成占位文本。
+- [missing] 非图像附件：只收图片，PDF 等其他文件做附件还在候选池。
+- [solid] 权限网关：三档预设，重启后保留；只读命令白名单（含受限管道）；写文件审批带 diff 预览；网络单独一档；无人值守时 90 秒自动拒绝。例外：danger 类命令在「完全访问」下也一律拒绝，见约束。
+- [missing] 执行隔离 / 沙箱：设计决策里有「可选 WSL2 沙箱」，代码里零实现，所有命令直接在宿主机执行，只靠权限网关把关。
+- [solid] 上下文管理（压缩 / 卸载 / 修剪）：context-policy 按窗口大小分档决策（例如 >128K 窗口在 40% 卸载、60% 压缩）；每个循环最多做 3 次 LLM 摘要压缩；大工具结果卸载到文件；陈旧结果会修剪。token 数是按字符估的（CJK 除 1.6、其余除 4），没有手动 /compact。
+- [basic] 持久记忆：GLOBAL.md、SOUL.md 加每日日志，都是 Markdown，有两个记忆工具，会话级可以关掉记忆。应用内没有记忆查看或编辑界面，只能自己去改文件。
+- [missing] 项目级指令文件（AGENTS.md / CLAUDE.md）：全仓 grep 零命中，不会自动加载工作区里的约定文件。
+- [solid] 技能系统（SKILL.md）：兼容 agentskills 格式；系统提示里只放名称、描述和路径，正文不预载；超过 20 个时分级披露；设置页可以启停、删除、导入；助手可以绑定默认技能。
+- [basic] MCP：stdio 和 streamable-http 两种传输都能用，工具权限卡、会话级禁用、试连都有；但只实现了 tools，没有 resources、prompts、OAuth、sampling；env/headers 编辑器在换壳时丢了，只能手改 servers.json。
+- [solid] 扩展市场：ClawHub、MCP Registry、awesome-dsh 三个源；装前确认卡显示落盘清单或完整启动命令；上游标记为恶意的硬阻断；已装项可以检查更新。
+- [missing] 代码级插件 / 扩展 API / Hooks：扩展面只有技能和 MCP，没有生命周期 hooks，没有自定义工具或 UI 的插件 API（pi 的 extensions、DSH 的 Cordis 这一类都没有）。
+- [missing] 子 agent / 任务委派：没有 subagent 或 task 工具，一个会话只有一条循环。
+- [missing] 规划模式 / Todo：没有 todo 工具和 plan 模式，「规划模式」在候选池。
+- [basic] 会话管理：首回合后自动命名，⋮ 菜单可以重命名、删除、开关记忆、绑定模型；搜索只按标题。pinnedAt 字段存在但没有置顶入口；不能导出。
+- [missing] 会话分叉 / 回退 / 撤销（checkpoint）：没有 fork、树状会话、消息编辑重发、重新生成或文件改动回滚的 RPC，也没有对应界面。
+- [missing] 运行中插话 / 排队：Composer 在 running 时 canSend=false，只能等回合结束或点停止；「排队草稿」在候选池。
+- [missing] 用量与成本：每条消息落了 tokenUsage，但界面不展示；任务面板只显示上下文水位。候选池里需求信号最强的就是这一项。
+- [solid] 助手预设：名称 / emoji / 规则 / 默认模型或模型组 / 默认技能 / 开场提示；内置 3 个种子；欢迎页选中助手后再输入就按该助手建会话。
+- [basic] 定时任务：interval（≥5 分钟）、once、cron 三种调度，可以绑定助手、立即运行、回看结果；只在应用运行时生效，不常驻后台。
+- [solid] 工作区 / 文件树：每个会话可以绑定真实目录（原生选择器或粘贴路径），新会话继承；T6b 修好了围栏基准 bug 之后文件面板可用。
+- [basic] 产出物预览：源码 / 渲染 / 分栏三态，多标签，有行号；没有代码语法高亮、没有历史快照、不能用系统程序打开、不能下载。
+- [basic] 改动追踪 / Git：「改动」tab 只汇总 file_write / file_edit / office_write 工具调用和增删行数，shell 造成的改动看不到；没有任何 git 集成，也不能一键撤销。
+- [basic] Markdown 渲染：自研 GFM 小子集：只有 h2/h3、列表、表格、围栏代码、引用、链接；没有代码高亮、数学公式、图片、任务列表、mermaid。
+- [solid] Office 文档：零依赖自建 docx/xlsx/pptx 读写，用 python-docx、openpyxl、python-pptx 交叉验证过；预览是内容预览而非版式还原，这是刻意划定的边界；旧二进制格式明确不支持。
+- [solid] 内嵌终端：xterm 底部抽屉，和 agent 共用同一个长驻 shell。
+- [solid] 选区注释 / 引用追问：TextQuoteSelector 锚定，用 CSS Highlight 零改写 DOM，重启后能重新锚定；注释不进上下文、不参与同步。
+- [basic] 设备同步 / 接力：X25519 + PASETO 配对，要手输 host:port 和 8 位配对码，没有 mDNS 自动发现（README 架构图写着 mDNS）。同步线格式只有会话、消息、压缩标记和会话文件元数据，没看到记忆 Markdown，README 的「记忆双向同步」有待核实；反向同步只有单测。
+- [missing] 浏览器 / 屏幕操作：README 标为 ⛔，只有 windows-screenshot 桥能截屏。
+- [solid] Windows 能力桥：通知、剪贴板读写、打开链接或文件、语音播报、截屏、设备信息，共 6 个，都经权限网关。
+- [basic] 网络搜索：web_search 支持 brave、tavily、searxng；brave 和 tavily 还没用真 key 首跑验收过。
+- [basic] 无头 / CLI / SDK：minisd 的 JSON-RPC 能被脚本复用，但产品 CLI 只有 pair 和 sync 调试，没有类似 -p 的无头提示模式，也没有对外 SDK。
+- [missing] 快捷键 / 命令面板：全渲染层没有全局 keydown 监听；Ctrl+, 在换壳时丢了；Ctrl+K 命令面板在候选池。
+- [basic] 设计系统 / 主题：theme.css 按色、字号行高、圆角、间距、阴影分命名空间，字号和行高成对定义，有浅、深、跟随系统三态，随包带思源黑体；旧 tokens.css 仍然共存。
+- [basic] 可访问性：有键盘可达和焦点环的全树扫描守卫，但没有做过读屏实测。
+- [missing] 国际化：界面文案是中文硬编码。
+- [missing] 跨平台：shell、桥、终端都硬依赖 powershell.exe，只在 Windows 上验证过。
+- [basic] 打包 / 分发 / 自动更新：NSIS 安装版、便携版和 updater 都接好了，但没有代码签名；私仓期间版本检查 404；0.2.0 和 0.3.0 都没发布过。
+- [basic] 可观测性 / 审计：有审计日志、diagnostics 和任务面板四种状态；audit.list 的 RPC 存在但没有界面入口。
+- [missing] genui / 多窗口对话墙 / 图片生成：都在三档候选里，需要先出设计稿。
+体验弱项：
+- 对话区没有消息级操作：不能复制（用户消息的复制钮在换壳时丢了）、编辑重发、重新生成、删除或分叉，只能选区引用和标注。
+- 回合进行中不能插话或排队，发送键直接变灰；主动性和节奏感明显弱于 pi、DSH 这类可以边跑边补充指令的 harness。
+- 思考力度没有入口，Anthropic 和 Gemini 的原生思考在界面上永远是关的，用户以为「思考可见」，实际上多数模型不会出思考块。
+- 用量和成本看不见：token 已经落库，但界面只显示上下文水位。
+- 完全没有键盘快捷键和命令面板（Ctrl+, 也丢了），重度用户效率低。
+- Markdown 渲染偏弱：代码块没有语法高亮，h1 和 h4 以上不区分，没有图片和数学公式，对写代码的场景很吃亏。
+- ModelBar（默认模型）和输入卡胶囊（这条消息实际用的模型）并排显示，看上去互相矛盾，界面上也没写明前者只是「默认」。
+- 欢迎页选助手存在一处「撒谎」：先新建了空会话再选助手，副标题写「以该预设开始」，实际消息发进空会话、不带预设。
+- 会话菜单的开合状态跨视图保留；降级卡直接显示原始报文；StageWelcome 的 .hero 样式泄漏到 Composer 根节点，导致错误行居中。
+- 换壳后有九处入口收窄，至今没补：消息来源设备标、☰ 只剩主题切换、MCP env/headers 编辑器、MCP 列表逐台试连、会话行运行态徽标与产物数、拖拽分栏、任务栏耗时读数等。
+- 会话搜索只按标题，不搜正文；记忆没法在应用内查看或编辑；会话不能导出；置顶字段有了但没有入口。
+- danger 类命令（Remove-Item、rm、del、Stop-Process 等）在「完全访问」下也一律拒绝，又没有删文件工具，涉及删文件、杀进程的正常开发任务只能绕路或失败，用户想批准也批准不了。
+- 「改动」面板只统计文件工具的写入，agent 用 shell 改的文件看不到，也没有 git diff 视图和撤销。
+- 设备配对要手输 host:port 和配对码，没有自动发现；定时任务只在应用开着时生效。
+- 首次上手要手填 provider 的 base URL、模型和 Key，没有引导式 onboarding；没配模型时只在欢迎页输入卡上给一句提示。
+- 长会话性能有隐患（从代码推断，未实测）：没有虚拟列表；模板里 mdOf 没有缓存，每个流式 delta 都会让整页历史 Markdown 重新解析；resultOf 每个工具调用都要遍历全部消息，是 O(n²)。
+- 界面只有中文、只支持 Windows；视觉经过两次重做，至今仍以「对齐参考项目」为主，还没有形成自己的产品主张和交互语言。
+技术债：
+- .vue 文件不在 typecheck 覆盖范围内（没有 vue-tsc，因为撞零新依赖红线）。界面正确性只能靠正则式的源码文本守卫加 xvfb 实拍兜底，「全绿 ≠ 界面正常」已经兑现五次；守卫数量多、写法脆弱，维护成本高。
+- 两套令牌共存：tokens.css（737 行）要等 MarkdownView 和 MarkdownInline 依赖的 18 个变量迁进 theme.css 才能删；--sp-7 与 --sp-5 同值是历史遗留；「同名令牌必须同值」靠守卫钉着。
+- GUI e2e 全部是 docs 分支上的 27 个 driver 剧本，每次要手改 scratchpad 路径、自带 playwright-core，不在主库、没有 CI；旧 GUI e2e 已经随旧 UI 删除。
+- 打包验证过期：R 波的 asar 结论是基于 0.2.0 快照做的，之后又改了八波，e2e:m5 必须重跑；--win 交叉构建在 Linux 上不可行（spawn wine ENOENT）；推 tag 被 403 拒；没有代码签名；私仓期间自动更新失效。
+- 反向同步（持数据方是监听方的那一向）只有 tests/auto-sync.test.ts 单测，e2e 覆盖在 T6f 时随旧脚本一起删了。
+- 有 52 例 Windows-only 测试在云端必然失败，只能靠 diff 基线清单比对，Windows 真机上是否全绿要到发布时才知道。
+- 对外文档与代码不一致（发现时本次只读、未修）：README 构建段写「1832 例」，实际是 1914；架构图写「mDNS + 直连」，代码里是手输 host:port；「只有一处主动出网」，但 minisd 启动时还会按 TTL 拉 models.dev / basellm 的模型元数据；「会话与记忆双向同步」，线格式里没有记忆；「思考过程可见」，但原生思考没有开启入口。
+- 上下文 token 数是字符启发式估算，没用 provider 返回的 usage 校准，压缩触发的时机可能偏离实际。
+- 入口集中：minisd/index.ts 1235 行，里面既注册全部 RPC，又放了 FakeProvider、权限广播和 cron 调度器；renderer 的 stores/chat.ts 627 行是全树唯一 store，被 20 多个测试断言锁死，改动牵一发动全身。
+- fixture 环境变量（DESKMINIS_FAKE_PROVIDER 等）在生产包里没有门控。
+- 技能覆盖是建会话时拍的快照，「全局 / 助手 / 会话」三层判定没做；会话级权限覆盖也没做。
+- 记账不修的缺陷：chat.send() 用的是调用那一刻的 activeId，建会话期间切到别的会话，消息会发错地方；空会话下选助手不生效。
+- 仓库卫生：有一个测试产物 deskminis/C:\Users\me\Documents\notes.txt 被 git 跟踪了；在 Linux 上跑测试会在 deskminis/ 目录留下 35 个 \\.\pipe\deskminis-* socket 文件。
+- 账本分裂：权威记账线 claude/deskminis-handoff-dd9wrk 叉在 G 波代码之前，怎么合进 main 用户还没裁定；云端指定分支要和 main 手动保持同点。
+- 每加一次 DB 迁移都要连带改六个 user_version 版本钉测试，外加 m5 的 version 钉和 mu6 能力清单绊线。这种摩擦是刻意设计的，但会拖慢节奏。
+- MCP 只实现了 tools；market provenance 缺 version；marketplace.json 自定义源没做；audit.list 和 pinnedAt 这类后端已有的能力没有界面入口。
+约束：
+- 纪律一：零新 npm 依赖，dependencies 和 devDependencies 一行都不能动。这直接挡住了 vue-tsc、语法高亮、成熟 Markdown 库、虚拟列表等，能力只能自建（Office、Markdown、SSE、差分都是这么来的）。
+- 纪律二：TDD 先写失败测试并存档红输出；完成后 npm test（对 52 例基线做 diff，必须为空）和 typecheck 全绿；renderer 改动要配 tests/renderer-*.test.ts 源码守卫，UI 改动必须 xvfb 目视。
+- 纪律三：DB 只做追加式迁移，同时改六个版本钉并在提交里申报；最小改动面；注释用中文写「为什么」。
+- 纪律四：提交用 -F 传 UTF-8 消息文件，格式为「步骤号: 简述」，用固定作者身份；正文写验证输出、逐条申报偏差、自己判错又改回的也写；推送后要做远端验证；退出码必须来自目标命令本身。
+- 纪律五（产品伦理）：诚实边界优先，界面撒谎比界面难看更严重；内部标识符不许上屏；守卫是资产，守卫变红先想它对不对，确要豁免只做值级、不做文件级。
+- 纪律六（协作模式）：自己做模式，设计稿先行、定稿即施工、事后可否决；用户决策快、放权，但要求申报且可否决。
+- 许可约束：OpenMinis 是 GPLv3，只研读架构、不复用代码；AionUi 按 Apache-2.0 只参考界面语言；OfficeCLI（C#）只借设计；市场文案对 DeepSeek Harness 商标只能描述性使用。
+- 平台约束：只在 Windows 真机发布和验证；shell、桥、终端硬依赖 powershell.exe；云端 Linux 只能跑测试和 xvfb 实拍；安装包必须在 Windows 上构建；better-sqlite3 有 ABI 限制，测试必须经 electron 以 node 模式运行。
+- 架构约束：后端必须留在独立的 minisd utilityProcess 里，渲染层只走 JSON-RPC（为 CLI、e2e 和将来的手机端复用留路）；数据只在本机，同步只走局域网直连、没有中继；除用户配置的模型 API 外尽量不主动出网。
+- 发布约束：仓库是私有的，所以自动更新失效；推 tag 被 403，要靠 GitHub Release 自动建 tag；安装包未签名，会触发 SmartScreen 警告；上架要用户本人在 Windows 真机上走 docs/RELEASE.md。
+历史教训：
+- 第一次重做（I 波 → I6 → S 波，0.2.0）：照 AionUi「改造」，先换蓝白色板、把壳层平面化、做欢迎态。用户批评了两次，两次都成立：I6 指出「骨架还是旧壳」，S 波指出「质感缺」。搬了配色和概念，却没搬排版节奏与圆润度。
+- S 波实测出的根因：全局根本没有 line-height（「质感不对」的头号成因，比圆角更致命）；字号七档挤在 11–17px，相邻档只差 1px；圆角偏紧；静止态的输入卡带投影显得廉价；主色误把参考项目 arco 的一档灰阶当成了品牌色；照搬的 macOS 字体栈让中文在 Windows 上回落到雅黑。教训：先扒参考项目源码拿到真实数值，再用 A/B 试验台逐档截图选型，不靠印象调排版；字号和行高必须成对定义。
+- 第二次重做（T 波，0.3.0）：推倒重建 theme.css 和 ui/ 新树，做三栏工作台、随包字体。代价是换壳时大面积漏搬：权限卡从来没渲染过，是发布级阻断，1890 例全绿、typecheck 和所有实拍都没拦住，因为没有一个剧本走过权限门；设置页等四个视图只放了占位，导致根本配不了 provider；25 个组件和 18 个 lib 无人引用，其中一半是功能根本没接；此后又用了 V、T6、Y、Z 四波才把入口补回来。
+- 核心教训：换壳是搬家，不是在新房子里重写主要房间。搬家清单必须从旧实现逐项核对，连页面上的每句交代和顺手丢掉的字段也要核对；从新设计出发去「补全」，只会补上想得起来的那些。后来用可计算不变量兜底：mu6 双向绊线规定，store 里任何零 UI 调用的 action 都必须登记。
+- 「全绿 ≠ 界面正常」已经兑现五次（.smore、浮条 CJK 竖排、文泉驿、权限卡漏渲染、历史回放显示裸工具名）。源码守卫只能证明「传下去了」，证明不了「点开看得见」，所以 UI 改动必须实拍。
+- 有守卫不等于有覆盖：守卫锚在哪个目录就只守那个目录，新树曾经整块处在 a11y 和 v-html 守卫的真空里；只匹配裸字符串的断言会被注释里的文字喂饱，断言必须认调用形态。
+- 重做之后账本会主动误导：CHANGELOG、README、RELEASE 检查单、handoff 文件地图都在描述一个已经不存在的界面（W 波）。验错界面的检查单比没有检查单更糟；交接文档要换代，不要原地改。
+- 两套令牌同名碰撞：新旧令牌同名不同值，实际生效的是旧值；如果直接删旧令牌文件，全站间距会悄悄收缩，必须作为计划项处理。
+- 发布节奏：能力一波接一波地加，两次重做却让 0.2.0 从未发布，到现在 Releases 仍只有 v0.1.1；UI 返工的沉没成本直接拖住了交付。
+- 界面撒谎比难看更严重：默认 provider 是猜的、内部枚举原样上屏、servers.json 坏了显示成空列表、模型胶囊无视绑定。每次重做都会带出一批新的「撒谎」。
+- 剧本的判定逻辑也会撒谎（L6 首发竞态是假阳性）；缺失的广播会被别的广播掩盖（Z 波）。候选池里「偶发」类条目要先复现再立项；测降级要让主力真的失败、备用真的接手。
+- 整体结论：两次重做始终停在「照参考图改造 / 模仿」这一层，还没有形成自己的设计主张。后续对照五个参考项目时，应该从能力差距和交互模型出发，逐项迁移，而不是再一次整体换皮。
