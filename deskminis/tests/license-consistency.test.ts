@@ -16,7 +16,7 @@ import { dirname, join, relative, sep } from 'node:path';
 //          「## N. <名> — 代码改编（<许可>）」一节，节里写着同一个 URL，表里登记了这个文件；
 //    反向——改编表登记的每个文件都必须存在，且文件头带着该上游的改编声明（上游 / 许可 / 本文件已修改 三行）。
 //    只查一边的话，删了文件忘删登记、借了代码只在一边写，都不会有人发现。
-//    今天两边都是空的（本仓还没借 pi-mono / ZCode 的代码），W1a-2 起第一次借代码时生效。
+//    W1a-1 落地时两边都是空的；W1a-2 的 src/minisd/tools/edit-text.ts（借 pi-mono）是第一条登记。
 // 4. NOTICES「运行时依赖」一节与 package-lock.json 逐包对账：这份文件随安装包给用户看，许可要写实——
 //    随包的间接依赖里有 ISC / Apache-2.0 / BSD / Python-2.0 / BlueOak 的包，不能一句「都是 MIT」带过。
 //
