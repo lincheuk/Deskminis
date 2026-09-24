@@ -22,6 +22,14 @@ driver 裸 import `playwright-core`，本目录的 `package.json` 已声明它�
 FakeProvider 用法见交接文档 §3；工具 inputJSON **必带 `tool_title`**，
 缺了会报「缺少必填参数」且权限卡不弹。
 
+## Z 波 模型组降级的界面（2026-09-24）
+
+| 文件 | 用途 |
+|---|---|
+| **`mock-openai.mjs`** | 本地假 OpenAI 兼容端点：`POST /fail/v1/chat/completions` 回 429（fallbackable，loop 立刻换下一个）、`/ok/v1/chat/completions` 回 SSE。`startMockOpenAI()` 返回 `{ port, hits, close }`，`hits` 记每次请求的路径与 model，剧本据此断言「主力真的被请求过、备用真的接了手」。数据根里种 `kind: 'ollama'`（免密钥）的 provider 指向它，**不设** `DESKMINIS_FAKE_PROVIDER`。 |
+| **`drive-z1.mjs`** | 一次冷启动四段：设置页建组（空成员被拦 → 加成员 → ↑ 排序 → 创建）→ 新建会话、先改名、⋮ 绑组、发消息降级、**不手动刷新**看前端跟上改绑 → 助手编辑器绑组 → 删组（确认句报绑定数）、胶囊变色、下拉禁用项、发送如实报错。<br>**坑**：会话菜单开合跨视图保留，回来再点 ⋮ 等于收起——先查 `.srw.on.open`。 |
+| `probe-z0.mjs` | 立项前探针（不改代码）：组直接种进 `providers.json` 的 `modelGroups`，验证「胶囊无视绑定」与「改绑后前端停在旧值」。 |
+
 ## Y 波 换壳遗失的入口成批补回（2026-09-10）
 
 | 文件 | 用途 |

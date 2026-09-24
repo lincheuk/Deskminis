@@ -8,21 +8,25 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `ba4b919`，**version 0.3.0**，minis.db user_version=**11**。
-  167 测试文件 / 1880 例（云端 1828 过 + 52 Windows-only 基线），typecheck 0，build 0。
+- **代码**：main `761b862`，**version 0.3.0**，minis.db user_version=**11**。
+  170 测试文件 / 1914 例（云端 1862 过 + 52 Windows-only 基线），typecheck 0，build 0。
 - **界面**：T 波推倒重建后的新树 `src/renderer/src/ui/` 是唯一的 UI；旧树 **T6 已删净**，
   `components/` 只剩 MarkdownView 一族 3 个活文件。
-- **最近一件大事**：**Y 波换壳遗失的入口成批补回**（2026-09-10，`ba4b919`）——会话行 ⋮ 菜单 / 会话级禁用 MCP /
+- **最近一件大事**：**Z 波模型组降级的界面**（2026-09-24，`7415ee7` + `761b862`）——设置 → 模型 → 模型组（有序成员、
+  前端拦空成员）、会话菜单与助手编辑器可绑组、输入卡胶囊显示实际生效的绑定；顺带修后端两处（降级改绑不广播、
+  降级事件起点是内部标签 main）。README 🟡 清零。实拍用**本地假 OpenAI 端点跑真 provider**（`mock-openai.mjs`），
+  剧本 `drive-z1.mjs` 入册，§7 第 12 条教训。
+- **上上件**：**Y 波换壳遗失的入口成批补回**（2026-09-10，`ba4b919`）——会话行 ⋮ 菜单 / 会话级禁用 MCP /
   同步暂停 / 助手技能绑定 / 锚点轨五项从旧实现逐项搬回；README 只剩模型组一行 🟡；mu6 清单 GAPS 清空并加了
   「store action 零 UI 调用必须登记」的可计算不变量；剧本 `drive-y1.mjs` 入册。
-- **上上件**：**X 波首发竞态结案**（2026-09-10，两笔代码 `6b6e5eb` `a270df6`）——L6 记的「首条 Enter 偶发被吞」
+- **更早**：**X 波首发竞态结案**（2026-09-10，两笔代码 `6b6e5eb` `a270df6`）——L6 记的「首条 Enter 偶发被吞」
   是剧本判定的假阳性（消息从未丢过），但顺带修了首条消息双击 Enter 建双会话、无模型首发静默吞字、
   rpc 握手信号晚一个 await 三处真缺陷；剧本 `drive-x1.mjs` 入册，§7 第 11 条教训。
 - **上一件**：**T6 清场做完了**（2026-09-10，十笔代码 + 两笔记账）——删旧组件树 −6781 行、
   8 个失效 e2e 脚本；38 个测试文件的守卫逐条重指/退场；`tests/mu6-capability-wiring.test.ts`
   改成**双向绊线的能力入口清单**。过程中又挖出七处换壳漏搬并补回，另有一批记账不补的缺口
   （§6「换壳遗失的入口」）。
-- **下一件**：**0.3.0 上架**（§6 一档只剩这一件，需 Windows 真机）；云端可做的下一件是 **Z 波模型组降级 UI**（§6 二档）。
+- **下一件**：**0.3.0 上架**（§6 一档，需 Windows 真机）；云端可做的是 §6 一档新增的小修（欢迎页选助手的既有撒谎）。
 - **发布**：v0.2.0 **从未发布过**（GitHub Releases 只有 v0.1.1）。0.3.0 待 Windows 真机走 `docs/RELEASE.md`，
   **`e2e:m5` 必须重跑**——T6 之后 renderer 产物又变了一轮。
 
@@ -79,6 +83,9 @@
   playwright-core 不入库，在临时目录 `ln -s <deskminis>/node_modules node_modules` 即可。
   **发消息类剧本等回合结束照抄 `drive-x1.mjs` 的 `waitTurn`（先等 running 起来再等它落下）**——
   drive-l6 那种「按下 Enter 立刻轮询」在首条消息上必误判（X 波实证）。
+- **测降级 / 真 provider**：`docs/handoff/driver/mock-openai.mjs` 在剧本里起本地假 OpenAI 端点（`/fail` 回 429、`/ok` 流式回复），
+  数据根 `providers.json` 种 `kind: 'ollama'`（免密钥）指向它，**不设** `DESKMINIS_FAKE_PROVIDER`。FakeProvider 的
+  `__fail__` 会让组里每个成员一起失败，测不了「主力失败、备用接手」。照抄 `drive-z1.mjs`。
 - **FakeProvider**：`DESKMINIS_FAKE_PROVIDER=1` + `DESKMINIS_DATA_DIR`，数据根里种子
   `providers.json` = `{"providers":[],"defaultProviderId":"__fake__"}`。首条用户文本 `__tool__ <工具名> <inputJSON>`
   触发一次工具调用；**同会话每回合重放首条**（要不同工具就开新会话）；`DESKMINIS_FAKE_REPLY` 定制回复。
@@ -112,6 +119,7 @@
 | **T6** | **清场**（下表） | `ed1dc09`…`26f64af` |
 | **X** | **首发竞态排查**：L6 记录判为剧本假阳性；顺带修 Composer 重入闸 / 欢迎页首发交代 + 草稿交回 / rpc 握手信号 | `6b6e5eb` `a270df6` |
 | **Y** | **换壳遗失的入口成批补回**：会话行 ⋮ 菜单 / 会话级禁用 MCP / 同步暂停 / 助手技能绑定 / 锚点轨 + mu6 清单改造 | `ba4b919` |
+| **Z** | **模型组降级的界面**：设置页组编辑器 / 会话与助手可绑组 / 胶囊显示实际绑定；后端改绑广播 + 降级起点真名 | `7415ee7` `761b862` |
 
 **T6 十笔（main）+ 两笔记账（docs `33e4c0f` `e60fbc9`）：**
 
@@ -142,16 +150,16 @@
 |---|---|
 | `ui/AppShell.vue` | 三栏外壳：TopBar / [NavRail \| Stage \| WorkspacePanel] + 底部终端抽屉。**视图路由**：`view` ∈ chat/search/cron/assistants/market/settings/devices，按值切舞台（没有模态、没有惰性挂载） |
 | `ui/TopBar.vue` | 40px 标题栏；`syncDot` 三态（syncing/idle/未连接）；☰ 现在只切主题（重载/退出在主进程原生菜单）。**右侧留 146px** 给系统按钮 |
-| `ui/NavRail.vue` | 左导航 + 会话列表（`emojiOf` 助手头像）；底部「设置」「设备」。**Y1**：会话行 = `.srw` 包 `.srow` + `.smore` 两个并列按钮，⋮ 展开**行内** `.smenu`（记忆 / 模型 `bindingValue` 归一化 / 重命名 / 删除二次确认） |
+| `ui/NavRail.vue` | 左导航 + 会话列表（`emojiOf` 助手头像）；底部「设置」「设备」。**Y1**：会话行 = `.srw` 包 `.srow` + `.smore` 两个并列按钮，⋮ 展开**行内** `.smenu`（记忆 / 模型 `bindingValue` 归一化 / 重命名 / 删除二次确认）。**Z5**：模型下拉加 `<optgroup label="模型组">`，已删绑定补禁用项「组已删除 / 模型已删除」 |
 | `ui/StageWelcome.vue` / `ui/StageChat.vue` | 欢迎态 / 会话态，**并列视图**。欢迎页开场提示来自选中助手的 `prompts` |
 | `ui/StageChat.vue` | 回合切分 `turns`；用户右对齐 `.ubub`、助手满宽文档式；`toolInput()` 解析落库的 JSON 字符串载荷；用户与助手正文都挂 `data-anno-root`。**Y5**：turn 节 `data-turn-id` + 右缘 `.trail`（≥3 回合，z 15） |
 | `ui/StepGroup.vue` | 工具折叠组。**`file_edit` 走 `extractEditPair`+`UiDiff`，其余回落参数区**；`views` 只在展开时算（LCS） |
-| `ui/Composer.vue` | 输入卡 hero/chat 两态；斜杠菜单 + @ 文件（`syncAt` 挂 input/click/keyup）+ 输入历史 + 附件 + `quote()`。**X 波**：`sending` 重入闸（首条消息建会话期间）、hero 态渲染 `chat.lastError`、`takeDraft()` 从 `chat.draft` 取回被拒草稿（setup 与 send 后各一次）。**Y2**：`.mcpbtn` 胶囊 + 行内 `.mcpanel`（有会话后才 `fetchMcpServers`） |
+| `ui/Composer.vue` | 输入卡 hero/chat 两态；斜杠菜单 + @ 文件（`syncAt` 挂 input/click/keyup）+ 输入历史 + 附件 + `quote()`。**X 波**：`sending` 重入闸（首条消息建会话期间）、hero 态渲染 `chat.lastError`、`takeDraft()` 从 `chat.draft` 取回被拒草稿（setup 与 send 后各一次）。**Y2**：`.mcpbtn` 胶囊 + 行内 `.mcpanel`（有会话后才 `fetchMcpServers`）。**Z5**：模型胶囊走 `describeBinding(effectiveBinding …)`（会话绑定 > 欢迎页选中助手 > 默认），组用 link 图标，已删 → `.cap.bad` |
 | `ui/PermCard.vue` + `ui/UiDiff.vue` | 权限卡（路径/命令逐字不截断、倒计时只显示不自判、桥双段告知）+ 差分预览（`path?` 可选） |
 | `ui/PreviewPane.vue` + `ui/OfficeView.vue` | 产出物预览三态工具条 + Office 内容预览（docx 纸 / xlsx 网格 / pptx 16:9） |
 | `ui/WorkspacePanel.vue` + `ui/UiFileTree.vue` + `ui/TaskPanel.vue` | 右栏三 tab：文件（含**绑定行**，只在文件 tab）/ 改动（`collectArtifacts`）/ 任务（上下文水位） |
-| `ui/StageSettings.vue` + `ui/settings/Sec*.vue` | 七节：Models / Permission / Skills / Mcp / Search / Look / About（左 tab 列 + 右定宽内容） |
-| `ui/StageAssistants` `StageCron` `StageDevices` `StageMarket` `StageSearch` | 五个舞台。Market 是唯一的模态宿主（确认卡 + toast，z 100）。**Y3** StageDevices 首节「同步」（暂停/恢复）；**Y4** StageAssistants「默认技能」复选（`allSkills`） |
+| `ui/StageSettings.vue` + `ui/settings/Sec*.vue` | 七节：Models / Permission / Skills / Mcp / Search / Look / About（左 tab 列 + 右定宽内容）。**Z4**：「模型」tab 下是 `.secstack` 包 `SecModels` + `SecModelGroups` 两节 |
+| `ui/StageAssistants` `StageCron` `StageDevices` `StageMarket` `StageSearch` | 五个舞台。Market 是唯一的模态宿主（确认卡 + toast，z 100）。**Y3** StageDevices 首节「同步」（暂停/恢复）；**Y4** StageAssistants「默认技能」复选（`allSkills`）；**Z5** 助手模型下拉加组、列表标签走 `describeBinding` |
 | `ui/TerminalPane.vue` / `ui/AnnoLayer.vue` | 终端抽屉（xterm，兜底色走 `v('--c-…') || '#…'`）/ 选区注释（CSS Highlight，零 DOM 改写） |
 | `ui/ThinkBlock` `EventNotes` `ModelBar` `TabBar` `UiIcon` | 会话内构件 |
 
@@ -161,6 +169,8 @@
 `stores/chat.ts` 是全树共享地基，20+ 测试对它做断言；`toolCards` 带 `input`（JSON 字符串）；
 `draft` 是 X 波加的寄存字段（一处写、消费即清，与 `pendingFilePreview` 同款）。
 `rpc.ts`：`ready` 在 `connect()` **第一个 await 之前**赋值（X 波订正，此前注释是假话），期间的 call 一律排队。
+`lib/models/binding.ts`（Z2）：绑定值归一化与描述的**唯一**一处——`normalizeBinding` / `describeBinding` / `groupChain`；
+会话菜单、助手编辑器、输入卡胶囊都走它。store 的 `modelGroups` + `refresh/create/update/deleteModelGroup`（Z3）。
 `lib/` 活模块：`annotations/anchor`、`artifacts/collect`、`attach/downsample`、`composer/{autogrow,history,at-files}`、
 `cron/describe`、`devices/fmt`、`diff/{lcs,payload}`、`eventnote/copy`、`markdown/parse`、`nav/group`、
 `perm/{copy,countdown}`、`time/{hhmm,relative}`。
@@ -181,11 +191,12 @@
 - `store/db.ts`（MIGRATIONS[0..10]）、`store/chat-store.ts`、`store/provider-store.ts`、`store/search-provider-store.ts`（只认 brave/tavily/searxng）
 - `files.ts`：围栏基准 **`workspaceOf`**（认每会话覆盖值，T6b 修）
 - `office/{zip,parse,build}.ts` + `tools/office.ts`；`tools/permissions.ts`（`DEFAULT_LEVELS` readonly=bypass）；
-  `agent/loop.ts`（工具载荷 `input` 以 JSON 字符串落库）
+  `agent/loop.ts`（工具载荷 `input` 以 JSON 字符串落库；`RunOptions.primaryLabel` 给首个 slot 真名，Z1）；
+  `index.ts` 的 `slotLabel()` 是降级链显示名的唯一格式；降级改绑后广播 `chat.sessions.changed`（Z1）
 
 ### 守卫地图（动 UI 必看）
 
-- **`tests/mu6-capability-wiring.test.ts` = 能力入口清单，双向绊线**。WIRED（14 项）断言 `ui/` 里有**调用**；
+- **`tests/mu6-capability-wiring.test.ts` = 能力入口清单，双向绊线**。WIRED（17 项，Z 波加模型组三条）断言 `ui/` 里有**调用**；
   GAPS **当前为空**（Y 波清账，允许为空）。**Y 波加的可计算不变量**：store 的每个 action 要么 `ui/` 有调用、
   要么 store 内部有 `this.x(` 调用，否则必须登记在 GAPS——再掉一个入口这条先红，不用人手数。
   补入口的流程照旧：从 GAPS 挪进 WIRED，README 的 🟡 改回 ✅。
@@ -196,7 +207,9 @@
   `renderer-market-shell`、`renderer-anno-shell`、`renderer-office-preview`、`renderer-default-provider`、
   `renderer-tool-steps`、`renderer-workspace-shell`、`renderer-form-invariants`、`renderer-content-form`、
   `renderer-first-send`（X 波：重入闸 / hero 态交代 / 草稿寄存取回，认调用形态）、
-  `renderer-lost-entries`（Y 波：五项补回的调用形态 + 不能再丢的交代原句）。
+  `renderer-lost-entries`（Y 波：五项补回的调用形态 + 不能再丢的交代原句）、
+  `renderer-model-groups`（Z 波：store 行为测试 + 组编辑器 / 绑定下拉 / 胶囊的调用形态）、
+  `models-binding`（Z2 纯模块单测）、`modelgroup-fallback-rebind`（Z1：本地假端点跑真 provider，钉改绑 + 广播 + 起点真名）。
 - **守卫处置原则**：不变量仍成立 → 重指新树；随实现退场 → 连同实现一起删，**在原位留理由注释**并在 commit 说明；
   裁定被推翻的（如用户气泡回归）要写明是裁定变更不是漂移。一删了之留下的真空比死代码更危险。
 
@@ -225,12 +238,17 @@
 `Ctrl+,` 打开设置 · MCP env/headers 编辑器（只能手改 servers.json）· MCP 列表行逐台试连 · 用户消息复制钮 ·
 会话行运行态徽标与产物数 · 拖拽分栏 · 任务栏耗时读数。
 
+### 一档补充：Z 波实拍挖出的小修（云端可做）
+
+- **欢迎页选助手的既有撒谎**：点「新建会话」得到空会话后再在欢迎页选助手，副标题写「已选 X——直接输入即以该预设开始」，
+  但 `Composer.send()` 只在**没有**活动会话时才按助手建会话——消息发进当前空会话、不带预设。
+- **ModelBar 与胶囊并排显得矛盾**：条管默认模型、胶囊显示这条消息实际用谁，界面上没写明前者是「默认」（`z1-bound.png`）。
+
 ### 二档：前提已变 / 纯补入口
 
-办公技能包（原搁置理由已被 U 波消除）· **模型组降级 UI（Z 波候选）**：后端 `modelgroup.create/list/get/update/delete`
-五个 RPC 全在（Y 波盘点纠正：不只是解析，CRUD 也在），缺 store action + SecModels「模型组」节 + 会话/助手两处
-绑定选择器的 `group:` 选项，README 唯一剩下的 🟡 ·
+办公技能包（原搁置理由已被 U 波消除）·
 vue-tsc 立项评估（「全绿 ≠ 界面正常」已四次兑现；撞零新依赖红线，故是评估）。
+~~模型组降级 UI~~——**Z 波已做**（2026-09-24）。
 
 ### 三档：需先出设计稿
 
@@ -247,7 +265,7 @@ Snapshot / History / Open in system app / Download / 代码语法高亮。Office
 ### 已划掉 / 悬空
 
 已划掉：I7 会话视图对齐、首页输入卡双层、MCP 会话级禁用 UI（L5 做过、T 波丢了→见上表）、市场 MCP tab、后台作业、
-历史消息附件（chip + 点开预览；内联缩略图仍未做）、**T6 清场**。
+历史消息附件（chip + 点开预览；内联缩略图仍未做）、**T6 清场**、**换壳遗失的入口（Y）**、**模型组降级 UI（Z）**。
 悬空（等用户裁定）：docs 分支合并进 main 的方式；仓库转 public（转了自动更新即生效）；brave/tavily 真 key 首跑验收。
 
 ## 7. 教训镇魂碑（别再踩）
@@ -270,13 +288,16 @@ Snapshot / History / Open in system app / Download / 代码语法高亮。Office
 11. **剧本的判定逻辑也会撒谎**：L6 记了三周的「首发竞态」是 `waitIdle` 在首条消息 Enter→running 那 30–46ms
     窗口里轮询到「没在跑」、400ms 宽限放行、再被种子 MCP 的 2s 启动超时拖过判定期限叠出来的假阳性。
     **候选池里的「偶发」条目先复现再立项**——X 波复现只花了一个剧本，却顺带逮到两处真缺陷。
+12. **缺失的广播会被别的广播掩盖；测降级要让主力真失败、备用真接手**：Z 波降级改绑不广播，首回合自动命名那次广播
+    顺手把列表刷新了——剧本先改名才验得出来。FakeProvider 的 `__fail__` 是全组一起失败，测不了降级成功那一半，
+    所以那一半此前**没有任何测试**；本地假端点（`mock-openai.mjs`）跑真 provider 才测得到。
 
 ## 8. 已知风险与技术债
 
 - **A（已处理，T6d `906d093`）** 两套令牌同名碰撞：实测 9 个同名 / 7 个值不同 / 297 处引用（W 波记的「4 个」是数错了）。
   处置是承认现状 + 同值守卫。tokens.css 仍不能删，原因见 §5。
 - **B（已处理，T6a `ed1dc09`）** 新树守卫真空：UiIcon v-html、a11y 全树扫描、注释层 ARIA、焦点环，三者都做过「故意破坏→变红→还原」。
-- **C 打包验证已过期**：R 波 asar 结论对 0.2.0 快照；之后 S/T/U/V/T6 五波。**0.3.0 发布前 `npm run e2e:m5` 必须重跑。**
+- **C 打包验证已过期**：R 波 asar 结论对 0.2.0 快照；之后 S/T/U/V/T6/X/Y/Z 八波。**0.3.0 发布前 `npm run e2e:m5` 必须重跑。**
 - **D 反向同步无 e2e 覆盖**：持数据方=监听方这一向此前由 `e2e:m3c` 用例 6 随机覆盖；该脚本随旧 UI 失效、T6f 删除，
   现在只有 `tests/auto-sync.test.ts` 单测。记账，不假装还有。
 - 其它：`--win` 交叉构建在 Linux 不可行（`spawn wine ENOENT`，证据 `docs/handoff/r3-win-crossbuild-fail.log`）；
