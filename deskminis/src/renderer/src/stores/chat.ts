@@ -95,6 +95,14 @@ export const useChat = defineStore('chat', {
     retryNote: '' as string,
     // 当前回合是否在跑：控制发送键 ↔ 停止键、以及底部实时助手块的显隐
     running: false as boolean,
+    /** W2b-1：哪些会话的回合正在跑——按会话记账，非当前会话的事件同样维护（trackRun）。
+     *  旧实现只认当前会话的事件、换会话一律 running=false：A 跑着切到 B 再切回 A，停止键没了、发送键亮着，
+     *  按下去撞后端「该会话正在运行中」。用数组不用 Set：与其余状态同款，可响应、可序列化。 */
+    runningSessions: [] as string[],
+    /** W2b-1：当前会话的回合是从中途接上的（切回仍在跑的会话，或重载后才收到它的事件）。
+     *  这时流式缓冲里只有接上之后的半截，StageChat 显示占位，不从句子中间开始长；
+     *  回合结束（turnEnd / error）清掉，由 open() 重取完整历史。 */
+    midRun: false as boolean,
     // 后端没有暴露「读取默认 provider」的 RPC；渲染端本地镜像当前选择（模型胶囊显示 + 打勾）。
     // 初值置为首个 provider —— 后端 create() 也把首个建的 provider 设为默认。
     defaultProviderId: '' as string,
@@ -141,6 +149,8 @@ export const useChat = defineStore('chat', {
           }
           return;
         }
+        // W2b-1：先按会话记账、再按 activeId 过滤——非当前会话的事件以前在这里整条丢掉，渲染端就不知道谁在跑
+        this.trackRun(sessionId, event);
         if (sessionId === this.activeId) this.onEvent(event);
       });
       // H2：注释变更广播（本窗口的写操作也走这条回流——见 annotations 状态注释）
@@ -397,7 +407,10 @@ export const useChat = defineStore('chat', {
       // 换会话才清错误横幅：turnEnd/error 之后的自刷新调用的也是 open，
       // 在那条路径上清掉的话，刚设置的 lastError 会被立刻抹掉（错误又变成看不见）。
       if (id !== this.activeId) {
-        this.lastError = ''; this.retryNote = ''; this.running = false;
+        // W2b-1：running 取这个会话自己的运行态，不再一律归零——切回仍在跑的会话，停止键得回来（chat.cancel 按 activeId 取消）。
+        // 流式缓冲在下面清空，之后到达的只是半截，所以同时打上 midRun 占位
+        this.lastError = ''; this.retryNote = ''; this.running = this.runningSessions.includes(id);
+        this.midRun = this.running;
         this.lastStopReason = '';
         this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
         this.contextInfo = null;
@@ -448,6 +461,13 @@ export const useChat = defineStore('chat', {
       }
       this.messages.push({ id: optimisticId, role: 'user', parts, createdAt: Date.now() / 1000 });
       this.running = true;
+      // W2b-1：本窗口发起的回合是从头看着的，不算中途接上。流式缓冲上面已清空，这里不清 midRun 的话，
+      // 残留的占位会把这一回合整段挡到 turnEnd。可达路径：EventNotes 的重试钮不看 running，
+      // 别处起的回合被本窗口中途接上（midRun）时照样能点，后端拒绝后也不该留下「midRun 却没在跑」的矛盾态。
+      this.midRun = false;
+      // W2b-1：发出即记账——回合第一个事件到达之前就切走的话，切回时停止键靠这一条才回得来
+      const sid = this.activeId;
+      if (!this.runningSessions.includes(sid)) this.runningSessions = [...this.runningSessions, sid];
       // chat.prompt 会同步拒绝（未配置 provider / 空文本 / 会话运行中 / 非法 sessionId）。
       // 不 catch 的话是一次未处理拒绝：用户只看到「按了没反应」。捕获后写进 lastError 让它可见，
       // 并摘掉这条从未落库的乐观消息（否则会留下一个假的「已发送」气泡）。
@@ -457,6 +477,7 @@ export const useChat = defineStore('chat', {
         this.lastError = e instanceof Error ? e.message : String(e);
         this.messages = this.messages.filter(m => m.id !== optimisticId);
         this.running = false;
+        this.runningSessions = this.runningSessions.filter(x => x !== sid); // 回合没起来，不能留一个「在跑」的假账
       }
     },
     async cancel() {
@@ -503,6 +524,20 @@ export const useChat = defineStore('chat', {
       this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);
       await rpc.call('permission.respond', { requestId, decision });
     },
+    /** W2b-1：按会话维护运行集合。chat.event 处理器在按 activeId 过滤之前调，非当前会话的事件同样记账。
+     *  回合的终止事件只有 turnEnd 与 error（loop.ts；run IIFE 的 catch 也发 error），其余任何回合事件都说明它还在跑。
+     *  synced 不是回合事件，处理器在前面已经分流，到不了这里。 */
+    trackRun(sessionId: string, e: any) {
+      if (typeof sessionId !== 'string' || !sessionId || typeof e?.kind !== 'string') return;
+      if (e.kind === 'turnEnd' || e.kind === 'error') {
+        if (this.runningSessions.includes(sessionId)) this.runningSessions = this.runningSessions.filter(x => x !== sessionId);
+        return;
+      }
+      if (!this.runningSessions.includes(sessionId)) this.runningSessions = [...this.runningSessions, sessionId];
+      // 当前会话收到回合中途的事件、本窗口却以为它没在跑（渲染端重载后，或回合不是本窗口发起的）：
+      // 同样是从中途接上——停止键要出来，流式区打占位，否则发送键亮着、按下去撞「该会话正在运行中」
+      if (sessionId === this.activeId && !this.running) { this.running = true; this.midRun = true; }
+    },
     onEvent(e: any) {
       if (e.kind === 'textDelta') { this.retryNote = ''; this.streamingText += e.text; }
       // 思考流与正文分开累积：ThinkingBlock 折叠块渲染它，不进 Markdown 正文。
@@ -524,6 +559,9 @@ export const useChat = defineStore('chat', {
         // 思考已随消息落库（reasoningContent），历史块会接管渲染；
         // 这里同步清缓冲——open() 重取是异步的，残值会与历史块短暂并存
         this.streamingThinking = '';
+        // W2b-1：中途接上的回合，缓冲里只有切回之后的半截——open() 重取完整历史是异步的，
+        // 不在这里同步丢掉的话，占位撤下到历史到达之间会闪出从句子中间开始的半截文字
+        if (this.midRun) { this.streamingText = ''; this.toolCards = []; this.midRun = false; }
         if (e.stopReason) this.lastStopReason = String(e.stopReason);
         void this.open(this.activeId);
         void this.fetchContextInfo();
@@ -534,6 +572,7 @@ export const useChat = defineStore('chat', {
         this.retryNote = '';
         this.streamingThinking = ''; // 回合已败，半截思考没有下文，留着只会悬在界面上
         this.running = false;
+        if (this.midRun) { this.streamingText = ''; this.toolCards = []; this.midRun = false; } // 同 turnEnd：半截不闪出来
         // MU2a Task 8：错误进对话流内联（EventNote 短句 + 详情折叠 + 重试钮），errbar 横幅退场
         this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail: String(e.message ?? '未知错误'), retryable: true }];
         void this.open(this.activeId);
