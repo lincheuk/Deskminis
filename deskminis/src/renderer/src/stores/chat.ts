@@ -13,6 +13,8 @@ type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
 /** J2 助手（字段对齐后端 AssistantMeta，assistants.list 原样返回）。 */
 interface UiAssistant { id: string; name: string; avatar: string; rules: string; modelBinding?: string; skillIds: string[]; prompts: string[]; sortOrder: number }
+/** Z3 模型组（字段对齐后端 ModelGroup，modelgroup.list 原样返回）。memberIds 有序：第一个为主，其余按序降级。 */
+interface UiModelGroup { id: string; name: string; memberIds: string[]; createdAt?: number }
 /** K2 定时任务（字段对齐后端 CronJob，cron.list 原样返回）。 */
 interface UiCronJob {
   id: string; name: string; prompt: string;
@@ -47,6 +49,8 @@ export const useChat = defineStore('chat', {
      *  拒绝回来时欢迎页新建的实例只能从这里拿。与 pendingFilePreview 同款「一处写、消费即清」。 */
     draft: null as null | { text: string; attachments: { path: string; dataUrl: string }[] },
     providers: [] as UiProvider[],
+    /** Z3 模型组（设置页编辑；会话菜单 / 助手编辑器的绑定下拉与输入卡模型胶囊都要读）。 */
+    modelGroups: [] as UiModelGroup[],
     /** J2 助手目录（欢迎页卡区 + 设置管理页共用；变更经 assistants.changed 广播回流刷新）。 */
     assistants: [] as UiAssistant[],
     /** I6 欢迎屏选择态（AionUi Guid 页语义）：选中的助手 id，**不建会话**——
@@ -170,6 +174,9 @@ export const useChat = defineStore('chat', {
       rpc.on('cron.changed', () => { void this.refreshCronJobs(); });
       await this.refreshSessions();
       await this.refreshProviders();
+      // Z3：模型组是可选能力。拉不到不该让整个启动失败（后面还有会话、助手、权限档要读）；
+      // 设置页进页会再拉一次，那里的失败会显示出来——这里不是吞错，是把报错留给有地方显示的入口。
+      try { await this.refreshModelGroups(); } catch { /* 见上 */ }
       await this.refreshAssistants();
       await this.refreshAllSkills();
       // 暂停是持久化设置（settings 表），重启后仍生效——启动就得读回来，否则界面会谎报「同步中」
@@ -463,6 +470,23 @@ export const useChat = defineStore('chat', {
       // 界面高亮不得谎报「已切换」，否则用户以为关了「完全访问」其实网关还开着。
       const r = await rpc.call('permission.setPreset', { preset: tier });
       if (r && r.ok) this.permTier = tier;
+    },
+    // ---- Z3 模型组（M2b 后端全通：modelgroup.* 五个 RPC；设置页 SecModelGroups 消费，写后统一重拉）----
+    async refreshModelGroups() { this.modelGroups = await rpc.call('modelgroup.list'); },
+    async createModelGroup(name: string, memberIds: string[]) {
+      const g = await rpc.call('modelgroup.create', { name, memberIds });
+      await this.refreshModelGroups();
+      return g;
+    },
+    /** 后端对空 memberIds **静默忽略**（保留旧成员）——调用方必须先拦空成员，否则界面会谎报「已保存」。 */
+    async updateModelGroup(id: string, patch: { name?: string; memberIds?: string[] }) {
+      await rpc.call('modelgroup.update', { id, ...patch });
+      await this.refreshModelGroups();
+    },
+    /** 后端强制 confirm:true（deleteSession 同款：漏了会抛错，界面表现为「点了删除没反应」）。 */
+    async deleteModelGroup(id: string) {
+      await rpc.call('modelgroup.delete', { id, confirm: true });
+      await this.refreshModelGroups();
     },
     async createProvider(p: any) { await rpc.call('provider.instances.create', p); await this.refreshProviders(); },
     async updateProvider(id: string, p: any) { await rpc.call('provider.instances.update', { id, ...p }); await this.refreshProviders(); },

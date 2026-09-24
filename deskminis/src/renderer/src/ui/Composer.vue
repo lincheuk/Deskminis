@@ -14,6 +14,7 @@ import { rowsFor } from '../lib/composer/autogrow';
 import { histStep } from '../lib/composer/history';
 import { atToken, atMatch, applyAt, collectFiles } from '../lib/composer/at-files';
 import { downsampleImageFile } from '../lib/attach/downsample';
+import { describeBinding } from '../lib/models/binding';
 import UiIcon from './UiIcon.vue';
 
 const props = withDefaults(defineProps<{ variant?: 'hero' | 'chat' }>(), { variant: 'chat' });
@@ -36,11 +37,13 @@ const canSend = computed(() => (text.value.trim().length > 0 || atts.value.lengt
  *  会话页由 StageChat 的横幅负责，这里不重复显示同一条。 */
 const cardError = computed(() => (props.variant === 'hero' ? chat.lastError : ''));
 
-/** 底行胶囊：当前模型与权限档。原图这两枚常驻——用户随时看得见「谁在跑、能做多狠」。 */
-const modelLabel = computed(() => {
-  const p = chat.providers.find(x => x.id === chat.defaultProviderId) ?? chat.providers[0];
-  return p?.modelId || p?.name || '未配置模型';
-});
+/** 底行胶囊：当前模型与权限档。原图这两枚常驻——用户随时看得见「谁在跑、能做多狠」。
+ *  Z5：模型胶囊显示这条消息**实际会用**的模型——会话绑定 > 欢迎页选中助手的绑定（发送时按它建会话）> 默认。
+ *  此前只看默认模型：会话绑了别的模型或模型组，胶囊照旧显示默认——立项探针实测（界面撒谎，教训 §7-3）。 */
+const effectiveBinding = computed(() => (chat.activeId
+  ? (chat.sessions.find(s => s.id === chat.activeId)?.modelBinding ?? '')
+  : (chat.assistants.find(a => a.id === chat.welcomeAssistantId)?.modelBinding ?? '')));
+const modelView = computed(() => describeBinding(effectiveBinding.value, chat.providers, chat.modelGroups, chat.defaultProviderId));
 const PERM_TEXT: Record<string, string> = { ask: '每次确认', session: '本会话沿用', full: '完全访问' };
 const permLabel = computed(() => PERM_TEXT[chat.permTier] ?? '每次确认');
 
@@ -333,7 +336,7 @@ defineExpose({
         </button>
         <span class="grow"></span>
         <!-- 原图底行右侧是 模型 + 权限 两枚胶囊，再接圆形发送键 -->
-        <span class="cap" :title="modelLabel"><UiIcon name="robot" :size="13" /><span>{{ modelLabel }}</span></span>
+        <span class="cap" :class="{ bad: modelView.missing }" :title="modelView.title"><UiIcon :name="modelView.kind === 'group' ? 'link' : 'robot'" :size="13" /><span>{{ modelView.label }}</span></span>
         <span class="cap" :title="`权限档：${permLabel}`"><UiIcon name="shield" :size="13" /><span>{{ permLabel }}</span></span>
         <button v-if="!chat.running" class="go" type="button" :disabled="!canSend" title="发送" @click="send">
           <UiIcon name="send" :size="17" />
@@ -404,6 +407,9 @@ defineExpose({
 }
 .cap :deep(svg) { color: var(--c-ink-3); flex: 0 0 auto; }
 .cap > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Z5：绑定对象已删——发送会报错，胶囊必须变色，不能照常显示 */
+.cap.bad { background: var(--c-warn-soft); color: var(--c-warn); }
+.cap.bad :deep(svg) { color: var(--c-warn); }
 /* Y2 MCP 胶囊：形似 .cap，但它是入口 */
 .mcpbtn {
   display: inline-flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /** T5：助手管理。助手 = 一份预设（人设规则 + 绑定模型 + 技能集 + 开场白）。
  *  欢迎页的助手卡读的就是这份目录，改这里那边立刻变（assistants.changed 广播回流）。 */
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
+import { describeBinding, normalizeBinding } from '../lib/models/binding';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
@@ -29,7 +30,8 @@ function startEdit(id: string): void {
   if (!a) return;
   editing.value = id; confirming.value = ''; err.value = '';
   fName.value = a.name; fAvatar.value = a.avatar || '🤖'; fRules.value = a.rules;
-  fModel.value = a.modelBinding ?? '';
+  // 回显按前缀归一化：J2 之前存的是裸 id，不归一化下拉就显示成空白（保存时顺手把存量改成带前缀的格式）
+  fModel.value = normalizeBinding(a.modelBinding);
   fSkills.value = [...a.skillIds];
   // 开场白一行一条：数组编辑器在这个规模下是过度设计，一个 textarea 更好用
   fPrompts.value = (a.prompts ?? []).join('\n');
@@ -59,12 +61,13 @@ async function onDelete(id: string): Promise<void> {
 }
 async function startWith(id: string): Promise<void> { await chat.newSessionWithAssistant(id); }
 
-/** 绑定值 → 显示名。存的是 `provider:<id>`，直接拿裸 id 去比永远匹配不上；
- *  旧数据可能是裸 id（J2 之前的存量），两种都要认。 */
-function providerNameOf(binding: string): string {
-  const id = binding.startsWith('provider:') ? binding.slice('provider:'.length) : binding;
-  return chat.providers.find(p => p.id === id)?.name ?? '已绑模型';
+/** 绑定值 → 列表标签。Z2 起走纯模块 describeBinding：provider 给名称、组给「组 · 名」，
+ *  绑定对象已删时如实说「已删除」——此前这里回落成「已绑模型」，删了的模型照样显示成已绑定。 */
+function tagOf(a: { modelBinding?: string }) {
+  return describeBinding(a.modelBinding, chat.providers, chat.modelGroups, chat.defaultProviderId);
 }
+/** 编辑器里当前选中值指向已删对象时，补一个禁用项如实显示（否则下拉是一片空白）。 */
+const fModelView = computed(() => describeBinding(fModel.value, chat.providers, chat.modelGroups, chat.defaultProviderId));
 
 /** 图标底色由 id 派生（与欢迎页同一算法，两处颜色必须一致，否则同一个助手在两页是两个颜色）。 */
 function avaStyle(id: string): Record<string, string> {
@@ -99,9 +102,14 @@ function avaStyle(id: string): Record<string, string> {
             <span>绑定模型（可选）</span>
             <select v-model="fModel" class="f-select">
               <option value="">用当前默认</option>
+              <option v-if="fModelView.missing" :value="fModel" disabled>{{ fModelView.short }}（请重新选择）</option>
               <!-- 值必须带 provider: 前缀：后端 startsWith('provider:') 才认，
                    裸 id 只会落进 J2 留的兼容分支（能跑，但格式分叉且永远表达不了 group:）。 -->
               <option v-for="p in chat.providers" :key="p.id" :value="'provider:' + p.id">{{ p.name }} · {{ p.modelId }}</option>
+              <!-- Z5：模型组——排第一的出错时按序换下一个；这个助手开的会话都绑到组 -->
+              <optgroup v-if="chat.modelGroups.length" label="模型组">
+                <option v-for="g in chat.modelGroups" :key="g.id" :value="'group:' + g.id">{{ g.name }}</option>
+              </optgroup>
             </select>
           </label>
         </div>
@@ -153,7 +161,7 @@ function avaStyle(id: string): Record<string, string> {
         <div class="abody">
           <div class="atop">
             <span class="aname">{{ a.name }}</span>
-            <span v-if="a.modelBinding" class="f-tag">{{ providerNameOf(a.modelBinding) }}</span>
+            <span v-if="a.modelBinding" class="f-tag" :class="{ err: tagOf(a).missing }">{{ tagOf(a).short }}</span>
             <span v-if="a.skillIds?.length" class="f-tag">{{ a.skillIds.length }} 项技能</span>
             <span v-if="a.prompts?.length" class="f-tag">{{ a.prompts.length }} 条开场</span>
           </div>

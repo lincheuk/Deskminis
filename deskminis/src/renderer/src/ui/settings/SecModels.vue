@@ -79,6 +79,8 @@ async function submit(): Promise<void> {
   } catch (e) { err.value = e instanceof Error ? e.message : String(e); }
 }
 
+/** Z4：删 provider 前告知它在几个模型组里——后端解析组成员时静默跳过已删的，组还能用，但链变短了。 */
+function groupsUsing(id: string): number { return chat.modelGroups.filter(g => g.memberIds.includes(id)).length; }
 async function remove(id: string): Promise<void> {
   err.value = ''; confirming.value = '';
   try { await chat.deleteProvider(id); if (editingId.value === id) cancel(); }
@@ -126,7 +128,7 @@ async function fetchModels(): Promise<void> {
       <span v-else-if="p.kind !== 'ollama'" class="f-tag err">缺密钥</span>
       <button class="f-btn ghost" type="button" @click="startEdit(p)">编辑</button>
       <template v-if="confirming === p.id">
-        <span class="f-confirm">删掉？</span>
+        <span class="f-confirm">{{ groupsUsing(p.id) ? `在 ${groupsUsing(p.id)} 个模型组里，删后组内会跳过它。删掉？` : '删掉？' }}</span>
         <button class="f-btn danger" type="button" @click="remove(p.id)">确认删除</button>
         <button class="f-btn ghost" type="button" @click="confirming = ''">取消</button>
       </template>

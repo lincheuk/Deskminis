@@ -5,6 +5,7 @@
 import { computed, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import { groupSessions } from '../lib/nav/group';
+import { normalizeBinding, describeBinding } from '../lib/models/binding';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
@@ -69,12 +70,13 @@ async function submitRename(id: string): Promise<void> {
   } catch (e) { renameErr.value = e instanceof Error ? e.message : String(e); }
 }
 /** 绑定值回显归一化：旧库存量是裸 provider id（J2 之前），select 选项是带前缀的值——
- *  不补前缀，旧绑定行会错显成「跟随全局默认」（后端兼容分支同一语义）。 */
+ *  不补前缀，旧绑定行会错显成「跟随全局默认」（后端兼容分支同一语义）。
+ *  Z2 起归一化收进纯模块 lib/models/binding（此前这里与 StageAssistants 各写一份）。 */
 function bindingValue(s: S): string {
-  const b = s.modelBinding ?? '';
-  if (b === '' || b.startsWith('provider:') || b.startsWith('group:')) return b;
-  return 'provider:' + b;
+  return normalizeBinding(s.modelBinding);
 }
+/** 绑定指向的模型 / 模型组已被删除时，下拉里没有它的选项——补一个禁用项如实显示，而不是显示成空白。 */
+function bindingView(s: S) { return describeBinding(s.modelBinding, chat.providers, chat.modelGroups, chat.defaultProviderId); }
 </script>
 
 <template>
@@ -131,8 +133,14 @@ function bindingValue(s: S): string {
                 @change="chat.setSessionModelBinding(s.id, ($event.target as HTMLSelectElement).value || undefined)"
               >
                 <option value="">跟随全局默认</option>
+                <!-- 菜单里的下拉只有百来像素宽：用最短的说法，长了会把「组」字截掉，读成删的是模型（实拍逮到） -->
+                <option v-if="bindingView(s).missing" :value="bindingValue(s)" disabled>{{ bindingView(s).kind === 'group' ? '组已删除' : '模型已删除' }}</option>
                 <!-- 值带 provider: 前缀：chat.prompt 只认前缀，裸 id 只会落进 J2 留的兼容分支（能跑，但格式分叉） -->
                 <option v-for="p in chat.providers" :key="p.id" :value="'provider:' + p.id">{{ p.name }}</option>
+                <!-- Z5：模型组——排第一的出错时按序换下一个（设置 → 模型 → 模型组） -->
+                <optgroup v-if="chat.modelGroups.length" label="模型组">
+                  <option v-for="g in chat.modelGroups" :key="g.id" :value="'group:' + g.id">{{ g.name }}</option>
+                </optgroup>
               </select>
             </label>
             <button v-if="renameFor !== s.id" class="mi" type="button" @click.stop="startRename(s)">重命名</button>

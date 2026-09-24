@@ -75,6 +75,10 @@ const WIRED: Cap[] = [
   { name: '会话绑定模型', action: 'setSessionModelBinding', rpc: 'chat.sessions.setModelBinding', where: 'NavRail.vue' },
   { name: '会话级禁用 MCP', action: 'setSessionMcpDisabled', rpc: 'chat.sessions.setMcpDisabled', where: 'Composer.vue' },
   { name: '同步暂停/恢复', action: 'setSyncPaused', rpc: 'control.pause', where: 'StageDevices.vue' },
+  // Z 波（2026-09-24）：模型组的界面——M2b 后端就全了，界面从来没有过（不是换壳遗失，是一直缺）
+  { name: '模型组新建', action: 'createModelGroup', rpc: 'modelgroup.create', where: 'settings/SecModelGroups.vue' },
+  { name: '模型组修改', action: 'updateModelGroup', rpc: 'modelgroup.update', where: 'settings/SecModelGroups.vue' },
+  { name: '模型组删除', action: 'deleteModelGroup', rpc: 'modelgroup.delete', where: 'settings/SecModelGroups.vue' },
 ];
 
 /** 后端通、store 通、**界面上够不着**。每条都注明是哪一波立的、哪一波弄丢的。

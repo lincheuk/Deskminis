@@ -37,8 +37,11 @@ describe('Y1 — 会话行 ⋮ 菜单（NavRail）', () => {
     expect(rail).toMatch(/@change="chat\.setSessionModelBinding\(s\.id, \(\$event\.target as HTMLSelectElement\)\.value \|\| undefined\)"/);
     expect(rail).toMatch(/:value="'provider:' \+ p\.id"/);
     expect(rail).not.toMatch(/:value="p\.id"/);
-    // 旧库存量裸 id：显示时补前缀，否则错显成「跟随全局默认」
-    expect(rail).toMatch(/function bindingValue\([^)]*\)[^{]*\{[\s\S]*?startsWith\('provider:'\)[\s\S]*?startsWith\('group:'\)/);
+    // 旧库存量裸 id：显示时补前缀，否则错显成「跟随全局默认」。
+    // Z 波重指：归一化逻辑从这里搬进纯模块 lib/models/binding（NavRail 与 StageAssistants 原先各写一份），
+    // 语义由 tests/models-binding.test.ts 的单测接住——比这里的正则更硬；这里只钉「委托给它」。
+    expect(rail).toMatch(/function bindingValue\(s: S\): string \{\s*return normalizeBinding\(s\.modelBinding\);\s*\}/);
+    expect(rail).toContain("from '../lib/models/binding'");
     expect(rail).toMatch(/:value="bindingValue\(s\)"/);
   });
 

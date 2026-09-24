@@ -7,6 +7,7 @@
 import { ref } from 'vue';
 import UiIcon from './UiIcon.vue';
 import SecModels from './settings/SecModels.vue';
+import SecModelGroups from './settings/SecModelGroups.vue';
 import SecPermission from './settings/SecPermission.vue';
 import SecSkills from './settings/SecSkills.vue';
 import SecMcp from './settings/SecMcp.vue';
@@ -39,7 +40,8 @@ const sec = ref<Sec>('models');
     </nav>
     <div class="secbody">
       <div class="secol">
-        <SecModels v-if="sec === 'models'" />
+        <!-- Z4：模型组挂在 provider 列表之后——组的成员就是上面这些 provider，放在一页里才看得出关系 -->
+        <div v-if="sec === 'models'" class="secstack"><SecModels /><SecModelGroups /></div>
         <SecPermission v-else-if="sec === 'perm'" />
         <SecSkills v-else-if="sec === 'skills'" />
         <SecMcp v-else-if="sec === 'mcp'" />
@@ -72,4 +74,5 @@ const sec = ref<Sec>('models');
 .secbody { flex: 1; min-width: 0; overflow-y: auto; background: var(--c-bg); }
 /* 定宽居中：设置项撑满宽屏后，标签和输入框会拉开到看不出配对关系 */
 .secol { width: min(var(--w-stage), 100% - var(--sp-8) * 2); margin: 0 auto; padding: var(--sp-8) 0; }
+.secstack { display: flex; flex-direction: column; gap: var(--sp-8); }
 </style>
