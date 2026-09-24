@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -482,5 +482,51 @@ describe('G4 Update 流（installPlan/install 原路复用）', () => {
       id: 'mcp-registry:io.github.owner/mcp-fetch', confirm: true, env: {},
     }));
     expect(e.message).toContain('NEW_REQ');
+  });
+});
+
+// ── 4. W1a-5：更新不覆盖应用开着时手改的 servers.json ─────────────────────────
+// 设计稿 §4 W1a-5 / 附录 mcp.md W1a-mcpstale。store 的写方法会先对比磁盘，但市场在 upsert 之前
+// 已经拿 list() 算好了 env 合并——那份 list 若是内存旧副本，合并结果里就是旧值，upsert 照样把手改的值盖回去。
+
+describe('W1a-5 市场更新以磁盘为准', () => {
+  let ctx: Ctx;
+  beforeEach(async () => { ctx = await makeCtx(); });
+  afterEach(async () => { await ctx.close(); });
+  const ID = 'mcp-registry:io.github.owner/mcp-fetch';
+  const NAME = 'io.github.owner-mcp-fetch';
+  const file = () => join(ctx.root, 'mcp-servers', 'servers.json');
+  /** 用户在应用开着时手改：直接读写文件，不经 store */
+  function handEdit(fn: (servers: Record<string, any>) => void): void {
+    const raw = JSON.parse(readFileSync(file(), 'utf8'));
+    fn(raw.mcpServers);
+    writeFileSync(file(), JSON.stringify(raw, null, 2), 'utf8');
+  }
+
+  it('更新时 env 合并读的是磁盘：手改的密钥值不被旧副本改回去，手加的服务器也还在', async () => {
+    await ctx.installer.install({ id: ID, confirm: true, env: { FETCH_API_KEY: 'v1', FETCH_MODE: 'fast' } });
+    handEdit(s => { s[NAME].env.FETCH_API_KEY = 'rotated'; s.hand = { command: 'node', note: '手加' }; });
+    fx.registryVersion = '2.1.0';
+    expect((await ctx.installer.checkUpdates()).updates.length).toBe(1);
+    await ctx.installer.install({ id: ID, confirm: true, env: {} });
+    const raw = JSON.parse(readFileSync(file(), 'utf8'));
+    expect(raw.mcpServers[NAME].env).toEqual({ FETCH_API_KEY: 'rotated', FETCH_MODE: 'fast' });
+    expect(raw.mcpServers.hand).toMatchObject({ command: 'node', note: '手加' });
+  });
+
+  it('确认卡（installPlan）也按磁盘判断缺失：新版本的必填键已经手填了，就不再要求补填', async () => {
+    await ctx.installer.install({ id: ID, confirm: true, env: { FETCH_API_KEY: 'v1' } });
+    fx.registryVersion = '2.1.0';
+    fx.registryEnv = [
+      { name: 'FETCH_API_KEY', description: '服务密钥', isRequired: true, isSecret: true },
+      { name: 'NEW_REQ', description: '新增必填', isRequired: true },
+    ];
+    expect((await ctx.installer.checkUpdates()).updates.length).toBe(1);
+    handEdit(s => { s[NAME].env.NEW_REQ = 'hand'; });
+    const plan = await ctx.installer.installPlan({ id: ID });
+    expect(plan.gating?.envMissing).toBeUndefined();
+    expect(plan.envPrefilled).toEqual(['FETCH_API_KEY', 'NEW_REQ']);
+    await ctx.installer.install({ id: ID, confirm: true, env: {} });
+    expect(ctx.mcpStore.list().find(e => e.name === NAME)!.env).toEqual({ FETCH_API_KEY: 'v1', NEW_REQ: 'hand' });
   });
 });

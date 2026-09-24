@@ -161,7 +161,7 @@ function githubProbeFetch(log: string[]): typeof fetch {
 }
 
 /** seedServersJson：在构造 McpServersStore 之前落盘的 servers.json 原文（W1a-4 损坏拒写例用）——
- *  store 只在构造时读一次盘，晚了就看不见。 */
+ *  要测的是「启动时就读到坏文件」，所以在构造之前落盘（W1a-5 起启动后改文件也会在写前与 refresh 时重读）。 */
 async function makeCtx(opts: { seedServersJson?: string } = {}): Promise<Ctx> {
   const root = mkdtempSync(join(tmpdir(), 'dm-mkt-inst-'));
   const db = openDb(join(root, 'minis.db'));
@@ -366,7 +366,7 @@ describe('W1a-4 servers.json 损坏时市场安装被拒', () => {
   });
 
   // 模拟「改文件后重启」：同一数据根、同一个库，按给定内容重写 servers.json（传 null 则换成
-  // 同名目录，触发 read 类），再整组重建 store 与 installer——store 只在构造时读一次盘。
+  // 同名目录，触发 read 类），再整组重建 store 与 installer，走构造时那一次读盘。
   function restartWith(ctx: Ctx, content: Buffer | string | null): { mcpStore: McpServersStore; installer: MarketInstaller } {
     const file = join(ctx.root, 'mcp-servers', 'servers.json');
     if (content === null) {

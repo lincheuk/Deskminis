@@ -107,14 +107,18 @@ export type McpConfigErrorKind = 'read' | 'parse' | 'shape';
 
 /** 拒写文案：常量，只允许拼 errno 码，**绝不拼 loadError 原文**——
  *  JSON.parse 的报错会带出约 10 字符的源码上下文（Electron 38 / V8 14 实测），可能正好是密钥片段；
- *  这句会经 RPC 原样到设置页和市场确认卡上。 */
+ *  这句会经 RPC 原样到设置页和市场确认卡上。
+ *  末句不叫人重启（W1a-5）：写前和设置页拉列表前都会对比磁盘重读，文件修好后回到这页再点一次就行。 */
 function refuseMessage(kind: McpConfigErrorKind, code: string | undefined): string {
   if (kind === 'read') {
     return `servers.json 无法读取（${code ?? 'UNKNOWN'}）。为免覆盖原文件，MCP 服务器暂时不能添加、修改、启停或删除。`
-      + '请检查文件权限或是否被其它程序占用，然后重启 DeskMinis。';
+      + '请检查文件权限或是否被其它程序占用，修好后回到这页即可。';
   }
-  return 'servers.json 格式有误。为免覆盖你原来的配置，MCP 服务器暂时不能添加、修改、启停或删除。请修好这个文件后重启 DeskMinis。';
+  return 'servers.json 格式有误。为免覆盖你原来的配置，MCP 服务器暂时不能添加、修改、启停或删除。修好后回到这页即可。';
 }
+
+/** 一次读盘的结果：bytes = 读到了；absent = 没有文件（ENOENT）；error = 文件在但读不到（只留 errno 码） */
+type DiskRead = { kind: 'bytes'; bytes: Buffer } | { kind: 'absent' } | { kind: 'error'; code: string };
 
 export class McpServersStore {
   private dir: string;
@@ -127,31 +131,46 @@ export class McpServersStore {
   loadErrorKind: McpConfigErrorKind | undefined;
   /** read 类的 errno 码（EACCES / EISDIR / EBUSY…），拒写文案里用它告诉用户是哪种读不到 */
   loadErrorCode: string | undefined;
+  /** W1a-5：上一次读到或写出的磁盘原文。null = 当时没有文件；undefined = 当时读不出来（下次一定重载）。
+   *  设置页叫用户「env / headers 请直接改 servers.json」，而 save 会把内存副本整份写回——
+   *  写前与设置页拉列表前拿它对比磁盘，变了就整份重读，手改的内容才不会被旧副本盖掉。
+   *  比字节不比解码后的文本：非 UTF-8 的字节一律解码成 U+FFFD，只改了这些字节时文本对比看不出变化。 */
+  private lastDisk: Buffer | null | undefined;
 
   constructor(paths: MinisPaths) {
     this.dir = paths.globalDir('mcp-servers');
     this.file = join(this.dir, 'servers.json');
     mkdirSync(this.dir, { recursive: true });
-    this.load();
+    this.load(this.readDisk());
+  }
+
+  /** 不用 existsSync：它对任何 stat 错误都回 false，父目录 EACCES / ENOTDIR 也会被当成「没有文件」而照常可写 */
+  private readDisk(): DiskRead {
+    try {
+      return { kind: 'bytes', bytes: readFileSync(this.file) };
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException | undefined)?.code;
+      if (code === 'ENOENT') return { kind: 'absent' };
+      // 只留 errno 码（码来自 Node，形如 EACCES，校验一下再用），message 不出这个函数
+      return { kind: 'error', code: typeof code === 'string' && /^[A-Z0-9_]+$/.test(code) ? code : 'UNKNOWN' };
+    }
   }
 
   /** 三变体宽容导入：①标准 mcpServers 键控；③单裸条目（name=default）；②裸名字键控 map。
    *  判序依据：①有 mcpServers 对象键；③顶层自带 command/url（本身就是一个 server 定义）；
-   *  其余按②处理，非对象值逐条跳过。 */
-  private load(): void {
-    // 不用 existsSync：它对任何 stat 错误都回 false，父目录 EACCES / ENOTDIR 也会被当成「没有文件」而照常可写
-    let text: string;
-    try {
-      text = readFileSync(this.file, 'utf8');
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException | undefined)?.code;
-      if (code === 'ENOENT') return; // 首次运行的正常路径：空配置，可写
-      // 其它读错误不再冒充「解析失败」；只记 errno 码（码来自 Node，形如 EACCES，校验一下再用）
+   *  其余按②处理，非对象值逐条跳过。调用方保证 entries 为空、三个 loadError 字段都是 undefined。 */
+  private load(disk: DiskRead): void {
+    if (disk.kind === 'absent') { this.lastDisk = null; return; } // 首次运行的正常路径：空配置，可写
+    if (disk.kind === 'error') {
+      // 其它读错误不再冒充「解析失败」
+      this.lastDisk = undefined;
       this.loadErrorKind = 'read';
-      this.loadErrorCode = typeof code === 'string' && /^[A-Z0-9_]+$/.test(code) ? code : 'UNKNOWN';
-      this.loadError = `servers.json 读取失败: ${this.loadErrorCode}`;
+      this.loadErrorCode = disk.code;
+      this.loadError = `servers.json 读取失败: ${disk.code}`;
       return;
     }
+    this.lastDisk = disk.bytes;
+    let text = disk.bytes.toString('utf8');
     // 记事本等编辑器存 UTF-8 时会带 BOM，JSON.parse 不认它——合法文件不能因此被判成损坏
     if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
     // 0 字节或只有空白：文件里已经没有数据可丢，当可写的空配置；拒写只会让用户卡住、得自己去删文件
@@ -183,8 +202,29 @@ export class McpServersStore {
     }
   }
 
+  /** W1a-5：重读磁盘。与上次读到或写出的一样就什么都不做——内存本来就是它的样子。
+   *  不一样就清空后整份重载，包括「上次读不出来」和「这次读不出来」：read 类没有原文可比，一律重来，
+   *  权限或占用解除后就自动恢复。重载撞上坏文件会进入 loadError，写方法随后被 assertWritable 拒掉。
+   *  文件被删（ENOENT）按空配置处理，与首次运行一致：用户删掉的条目不该被旧副本写回去。 */
+  private syncFromDisk(): void {
+    const disk = this.readDisk();
+    if (disk.kind === 'absent' && this.lastDisk === null) return;
+    if (disk.kind === 'bytes' && this.lastDisk instanceof Buffer && disk.bytes.equals(this.lastDisk)) return;
+    this.entries = new Map();
+    this.loadError = undefined;
+    this.loadErrorKind = undefined;
+    this.loadErrorCode = undefined;
+    this.load(disk);
+  }
+
+  /** 只读不写：让内存跟上磁盘。mcp.servers.list 每次先调它——应用开着时手改的内容、写坏又修好的文件，
+   *  回到设置页就能看到，拒写态也随之解除，不用重启。 */
+  refresh(): void {
+    this.syncFromDisk();
+  }
+
   /** 读盘出错时内存是空的，而 save 会把内存副本整份写回——此时写任何一次都会把用户原来的配置抹掉。
-   *  所以出错后拒绝一切写入，原文件留在原位不动（不改名、不备份），等用户修好后重启。 */
+   *  所以出错后拒绝一切写入，原文件留在原位不动（不改名、不备份）；修好之后，下一次重读（写前或拉列表时）自动解除。 */
   private assertWritable(): void {
     if (this.loadErrorKind) throw new Error(refuseMessage(this.loadErrorKind, this.loadErrorCode));
   }
@@ -216,10 +256,13 @@ export class McpServersStore {
       if (e.updatedAt) o.updatedAt = e.updatedAt;
       out[name] = o;
     }
+    const text = JSON.stringify({ mcpServers: out }, null, 2);
     const tmp = this.file + '.tmp';
-    writeFileSync(tmp, JSON.stringify({ mcpServers: out }, null, 2), 'utf8');
+    writeFileSync(tmp, text, 'utf8');
     renameSync(tmp, this.file);
     this.entries = next;
+    // 记下自己写出的原文：下次对比时它不算外部修改
+    this.lastDisk = Buffer.from(text, 'utf8');
   }
 
   /** 文件序（插入序）；返回副本，调用方改不到 store 内部状态 */
@@ -231,6 +274,8 @@ export class McpServersStore {
    *  name 非空、stdio 必有 command、streamable-http 必有 url，非法抛中文 Error。
    *  新条目补 createdAt/updatedAt；更新条目只动 updatedAt，保留 createdAt 与 extra。 */
   upsert(input: Record<string, unknown>): McpServerEntry {
+    // 先对比磁盘（W1a-5）：应用开着时手改的内容先读进来，这次改动落在它上面，而不是落在旧副本上
+    this.syncFromDisk();
     // 拒写排在名称校验之前：配置读坏时，用户先要知道的是「为什么什么都写不进去」
     this.assertWritable();
     const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -262,6 +307,7 @@ export class McpServersStore {
 
   /** 配置读坏时对不存在的名字也报拒写：否则「删掉了」其实什么都没发生，界面却当成功 */
   remove(name: string): void {
+    this.syncFromDisk();
     this.assertWritable();
     if (!this.entries.has(name)) return;
     const next = new Map(this.entries);
@@ -270,6 +316,7 @@ export class McpServersStore {
   }
 
   toggle(name: string, enabled: boolean): void {
+    this.syncFromDisk();
     this.assertWritable();
     const e = this.entries.get(name);
     if (!e) throw new Error(`MCP server 不存在: ${name}`);

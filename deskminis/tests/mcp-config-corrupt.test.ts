@@ -19,7 +19,7 @@ import { MinisPaths } from '../src/minisd/paths';
 
 function mkRoot(): string { return mkdtempSync(join(tmpdir(), 'dm-mcpbad-')); }
 function cfgFile(root: string): string { return join(root, 'mcp-servers', 'servers.json'); }
-/** 原样落盘（字符串或字节）后再构造 store——McpServersStore 只在构造时读一次盘 */
+/** 原样落盘（字符串或字节）后再构造 store：这里测的是构造时那一次读盘（W1a-5 起写前与 refresh 也会重读，见 mcp-config-stale） */
 function seedRaw(root: string, content: string | Buffer): McpServersStore {
   mkdirSync(join(root, 'mcp-servers'), { recursive: true });
   writeFileSync(cfgFile(root), content);
@@ -137,10 +137,12 @@ describe('W1a-4 ② 损坏时拒绝一切写入', () => {
     expect(store.list()).toEqual([]);
   });
 
-  it('parse / shape 的拒写文案是固定中文句子，指明修好后重启', () => {
+  it('parse / shape 的拒写文案是固定中文句子，指明修好后回到这页即可', () => {
+    // W1a-5 重指：末句原为「请修好这个文件后重启 DeskMinis。」。写前与 list 前都会重读磁盘之后，
+    // 修好文件不用重启，这句改成「修好后回到这页即可。」（附录 mcp.md W1a-mcpcorrupt 文案建议的末条）
     const store = seedRaw(mkRoot(), BAD_JSON);
     const err = (() => { try { store.upsert({ name: 'a', command: 'x' }); } catch (e) { return e as Error; } })();
-    expect(err!.message).toBe('servers.json 格式有误。为免覆盖你原来的配置，MCP 服务器暂时不能添加、修改、启停或删除。请修好这个文件后重启 DeskMinis。');
+    expect(err!.message).toBe('servers.json 格式有误。为免覆盖你原来的配置，MCP 服务器暂时不能添加、修改、启停或删除。修好后回到这页即可。');
     const shape = seedRaw(mkRoot(), '"just a string"');
     expect(shape.loadErrorKind).toBe('shape');
     expect(() => shape.upsert({ name: 'a', command: 'x' })).toThrow(err!.message);
@@ -196,7 +198,7 @@ interface Boot {
   ws: WebSocket;
   call: (method: string, params?: unknown) => Promise<any>;
 }
-/** 必须在 startMinisd 之前落盘：McpServersStore 构造时一次性读盘 */
+/** 在 startMinisd 之前落盘：测的是启动时就读到坏文件（启动后才改文件的情形见 mcp-config-stale 的 RPC 例） */
 async function boot(prepare: (mcpDir: string) => void): Promise<Boot> {
   const dataDir = mkdtempSync(join(tmpdir(), 'dm-mcpbadrpc-'));
   const mcpDir = join(dataDir, 'mcp-servers');

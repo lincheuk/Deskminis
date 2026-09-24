@@ -4,7 +4,7 @@
  *  界面上展示引用名本身是安全的，真正的解析在连接时发生（后端 D3/D4）。
  *  configError 只拿到布尔：加载失败的原文可能带明文 headers，不出 minisd；
  *  W1a-4 起另有 configErrorKind 枚举（read / parse / shape），只用来选横幅文案。 */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useChat } from '../../stores/chat';
 import UiIcon from '../UiIcon.vue';
 
@@ -18,7 +18,12 @@ const confirming = ref('');
 const testing = ref('');
 const testResult = ref<Record<string, string>>({});
 
-onMounted(() => { void chat.fetchMcpServers(); });
+/** W1a-5：后端 mcp.servers.list 每次先对比磁盘重读，横幅才敢说「修好后回到这页即可」。
+ *  用户多半是切到编辑器改完 servers.json 再切回窗口，这一节并没有重新挂载——窗口重新拿到焦点时也重拉一次，
+ *  「切回来」这种回法同样算数。重拉失败（比如引擎断线）不打扰：列表停在上一次的样子，下次挂载或聚焦再拉。 */
+function onWindowFocus(): void { void chat.fetchMcpServers().catch(() => { /* 见上 */ }); }
+onMounted(() => { void chat.fetchMcpServers(); window.addEventListener('focus', onWindowFocus); });
+onBeforeUnmount(() => { window.removeEventListener('focus', onWindowFocus); });
 const list = computed(() => chat.mcpServers.servers);
 const statusOf = (name: string) => chat.mcpServers.statuses.find(s => s.name === name);
 
@@ -100,7 +105,9 @@ async function test(): Promise<void> {
          以为服务器凭空消失了。空列表和「读不出来」必须是两句不同的话。
          W1a-4：这里原先有两条横幅同时出现（T5 一条、T6e-3 补搬又加一条），T5 那条还说「修好后回到这页会重读」，
          而 store 只在启动时读一次盘——合成一条。配置读坏时后端拒绝一切写入，横幅要把这件事说出来；
-         read 类（权限 / 占用）不是语法问题，不能叫人去查语法。 -->
+         read 类（权限 / 占用）不是语法问题，不能叫人去查语法。
+         W1a-5：后端写前与 list 前都对比磁盘重读，修好文件不用重启了——末句改成「修好后回到这页即可」。
+         切到别的设置节再切回来（重新挂载），或者从编辑器切回窗口（onWindowFocus），都会重拉列表。 -->
     <p v-if="chat.mcpServers.configError" class="cfgerr t-body">
       <template v-if="chat.mcpServers.configErrorKind === 'read'">
         servers.json 读不出来——可能没有读取权限、正被其它程序占用，或者同名的是个文件夹。你配置的服务器这次都没有加载。
@@ -110,7 +117,7 @@ async function test(): Promise<void> {
       </template>
       <!-- 分两行：模板分支与后句之间的换行会被压成一个空格，夹在中文句号后面很扎眼 -->
       <br />
-      为免覆盖原文件，这里暂时不能添加、修改、启停或删除 MCP 服务器；修好后重启 DeskMinis 即可。
+      为免覆盖原文件，这里暂时不能添加、修改、启停或删除 MCP 服务器；修好后回到这页即可。
     </p>
     <p v-if="!list.length && !chat.mcpServers.configError" class="f-note">还没有配置 MCP 服务器。</p>
     <div v-for="s in list" :key="s.name" class="mrow">

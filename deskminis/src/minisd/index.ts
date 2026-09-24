@@ -836,10 +836,15 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     // 不出 minisd（D2 审核备忘的脱敏落实）；前端据布尔显示固定警示文案。
     // W1a-4：出错时另带 configErrorKind 枚举（read / parse / shape），界面据此区分「改语法」与「查权限或占用」。
     // 只在出错时带这个键——不带 null：mcp-config.test.ts 的 list 用 toEqual 精确比对，枚举也不含任何原文。
-    'mcp.servers.list': () => ({
-      servers: mcpServers.list(), statuses: mcpManager.statuses(), configError: Boolean(mcpServers.loadError),
-      ...(mcpServers.loadErrorKind ? { configErrorKind: mcpServers.loadErrorKind } : {}),
-    }),
+    // W1a-5：先对比磁盘重读（只读不写）。设置页每次打开都看到 servers.json 的现状：应用开着时手改的条目、
+    // 写坏又修好的文件（拒写态随之解除），都不用重启——横幅「修好后回到这页即可」靠的就是这一步。
+    'mcp.servers.list': () => {
+      mcpServers.refresh();
+      return {
+        servers: mcpServers.list(), statuses: mcpManager.statuses(), configError: Boolean(mcpServers.loadError),
+        ...(mcpServers.loadErrorKind ? { configErrorKind: mcpServers.loadErrorKind } : {}),
+      };
+    },
     'mcp.servers.upsert': (p: Record<string, unknown>) => {
       mcpServers.upsert(p);
       return { ok: true };

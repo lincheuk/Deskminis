@@ -379,6 +379,8 @@ export class MarketInstaller {
     const gating: { envMissing?: string[]; binsMissing?: string[] } = {};
     // plan 阶段 env 尚未收集：必填键如实列为缺失（确认卡渲染输入框）——
     // 更新流除外：已存值的必填键不列缺失（env 保留，install 层 mergeEnvForUpdate 同规则）。
+    // 先让 store 跟上磁盘（W1a-5）：用户可能在应用开着时手填了新版本要的键，确认卡不该再要一遍。
+    this.opts.mcpStore.refresh();
     const existingEnv = this.opts.mcpStore.list().find(e => e.name === shape.serverName)?.env;
     const prefilled = shape.envDecls.filter(d => existingEnv?.[d.name] !== undefined).map(d => d.name);
     if (prefilled.length > 0) plan.envPrefilled = prefilled;
@@ -476,6 +478,9 @@ export class MarketInstaller {
     // 更新流 env 保留（G4）：现存同名条目的用户 env 值原样保留（更新不得丢用户配置），
     // 仅新增必填要求确认卡补填。existing 来自 servers.json（用户此前经确认卡收集的值），
     // 不是注册表数据——env 反向锚（注册表 env 值绝不入 servers.json）不受影响。
+    // 先让 store 跟上磁盘（W1a-5）：upsert 自己会先对比磁盘，但合并在它之前就算好了——拿内存旧副本算，
+    // 用户在应用开着时手改的 env 值（比如换过的密钥）会被旧值写回去。
+    this.opts.mcpStore.refresh();
     const existingEntry = this.opts.mcpStore.list().find(e => e.name === shape.serverName);
     const merged = mergeEnvForUpdate(existingEntry?.env, shape.envDecls, provided);
     // gating 硬校验（§4-4）：必填 env 缺失（旧值也没有、本次也没补）→ 拒

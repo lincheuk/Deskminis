@@ -139,3 +139,27 @@ describe('W1a 配置损坏', () => {
     expect(chat).toMatch(/configErrorKind:[^\n]*r\?\.configErrorKind/);
   });
 });
+
+describe('W1a 外部修改：回到这页即重读', () => {
+  // 设计稿 §4 W1a-5 / 附录 mcp.md W1a-mcpstale。后端 mcp.servers.list 每次先对比磁盘重读，
+  // 横幅末句才能从「重启」改成「修好后回到这页即可」。同样先剥注释，只认模板与调用形态。
+  const tpl = mcp.slice(mcp.indexOf('<template>')).replace(/<!--[\s\S]*?-->/g, '');
+  const script = mcp.slice(0, mcp.indexOf('<template>')).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  it('横幅末句是「修好后回到这页即可」，不再叫人重启', () => {
+    const banner = tpl.match(/<p v-if="chat\.mcpServers\.configError"[\s\S]*?<\/p>/)?.[0] ?? '';
+    expect(banner, '找不到横幅').not.toBe('');
+    expect(banner).toContain('修好后回到这页即可');
+    expect(banner).not.toContain('重启');
+  });
+
+  it('窗口重新拿到焦点时重拉列表（切到编辑器改完再切回来也算回到这页），卸载时摘掉监听', () => {
+    const add = script.match(/onMounted\(\(\) => \{[^}]*window\.addEventListener\('focus', (\w+)\)/);
+    expect(add, 'onMounted 里找不到 focus 监听').not.toBeNull();
+    const h = add![1];
+    expect(script).toMatch(new RegExp(`onBeforeUnmount\\([^\\n]*window\\.removeEventListener\\('focus', ${h}\\)`));
+    const body = script.match(new RegExp(`function ${h}\\([^)]*\\)[^{]*\\{[^\\n]*`))?.[0] ?? '';
+    expect(body, `找不到 ${h} 函数体`).not.toBe('');
+    expect(body).toMatch(/chat\.fetchMcpServers\(/);
+  });
+});
