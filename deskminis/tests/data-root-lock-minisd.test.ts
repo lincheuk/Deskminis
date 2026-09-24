@@ -150,10 +150,13 @@ describe('接线（源码守卫：先去注释，认调用形态）', () => {
     expect(body).toMatch(/const db = openDb\(\s*join\(\s*root\s*,\s*'minis\.db'\s*\)\s*\);/);
   });
 
-  it('close() 的最后一条语句是 lock.release()（在 db.close() 之后：库关了才让别人进来）', () => {
-    const body = blockAfter(minisd, 'close: async () =>');
-    const stmts = body.split(/;\s*/).map(s => s.trim()).filter(Boolean);
-    expect(stmts[stmts.length - 1]).toBe('lock.release()');
+  // W1b-5 重指：close 改成幂等包装（close: (o) => (closed ??= shutdown(...))），关停步骤搬进 async function shutdown(；
+  // 前面哪一步抛错都要关库、放锁，所以收尾是 try { db.close(); } finally { lock.release(); }。意图不变：放锁是最后一步，且在关库之后。
+  it('close() 的最后一步是 lock.release()（在 db.close() 之后：库关了才让别人进来；前面抛错也照放）', () => {
+    expect(minisd).toMatch(/close: \(o\?: \{ graceMs\?: number \}\) => \(closed \?\?= shutdown\(/);
+    const body = blockAfter(minisd, 'async function shutdown(');
+    const tail = body.replace(/[\s}]+$/, '');
+    expect(tail.endsWith('try { db.close(); } finally { lock.release();')).toBe(true);
     expect(body.lastIndexOf('db.close()')).toBeGreaterThanOrEqual(0);
     expect(body.lastIndexOf('db.close()')).toBeLessThan(body.lastIndexOf('lock.release()'));
   });

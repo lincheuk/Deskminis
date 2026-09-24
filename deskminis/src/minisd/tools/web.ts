@@ -115,9 +115,10 @@ export function makeWebFetchTool(fetchImpl: typeof fetch = fetch): ToolExecutor 
       }
       // 无「内网豁免」：URL 本身可携带外传数据（查询串即外泄通道），一律按档位过卡
       const decision = await ctx.permissions.check({ kind: 'web-fetch', detail: url.href, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) });
-      if (decision === 'deny') return { output: '抓取被用户拒绝（可在设置-权限中调整）', success: false };
-      // 同 shell：权限等待可长达 90 秒，已 abort 的 signal 不补发事件，闸后必须重查
+      // 同 shell：权限等待可长达 90 秒，已 abort 的 signal 不补发事件，闸后必须重查。
+      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台按 deny 了结卡片并 abort，那不是用户拒绝的
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
+      if (decision === 'deny') return { output: '抓取被用户拒绝（可在设置-权限中调整）', success: false };
 
       const signals = [AbortSignal.timeout(TIMEOUT_MS), ctx.signal].filter((s): s is AbortSignal => Boolean(s));
       let res: Response;

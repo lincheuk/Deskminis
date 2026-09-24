@@ -36,6 +36,9 @@ export async function guardWrite(absPath: string, ctx: GuardCtx, toolTitle: stri
   // note 只在有说明时才带：数据根外的普通走卡请求与以前逐字段一致，广播与审计里不多出一个空的 note 键
   if (gate.note !== undefined) req.note = gate.note;
   const d = await ctx.permissions.check(req);
+  // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台先按 deny 了结卡片、紧接着 abort，那不是用户拒绝的；
+  // 写成「被用户拒绝」的话，重开会话时界面与模型都以为是用户点了拒绝。MCP 调用一直是这个顺序
+  if (ctx.signal?.aborted) return '[已取消]';
   if (d === 'deny') return `写入被用户拒绝: ${absPath}（可在设置-权限中调整）`;
   return undefined;
 }
@@ -56,6 +59,8 @@ export async function guardRead(absPath: string, ctx: GuardCtx, toolTitle: strin
   const req: PermissionRequest = { kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle };
   if (gate.note !== undefined) req.note = gate.note;
   const d = await ctx.permissions.check(req);
+  // 先看取消、再看拒绝：理由同 guardWrite
+  if (ctx.signal?.aborted) return '[已取消]';
   if (d === 'deny') return `读取被用户拒绝: ${absPath}（可在设置-权限中调整）`;
   return undefined;
 }

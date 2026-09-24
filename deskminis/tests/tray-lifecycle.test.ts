@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { stripComments } from './strip-comments';
 
 // 静态托盘生命周期守卫：不启动 Electron，只读源文本 + 图标文件。
 // 背景：托盘常驻是「关窗不杀 minisd」的载体（设计 §7）。M1 的 window-all-closed 直接
@@ -30,7 +31,7 @@ describe('托盘生命周期（源文本守卫）', () => {
     expect(mainSrc).toContain('退出 DeskMinis');
   });
 
-  it('存在真退出路径：quitting 标志 + before-quit 杀 minisd（close 拦截不能变成永远退不出）', () => {
+  it('存在真退出路径：quitting 标志 + before-quit 回收 minisd（close 拦截不能变成永远退不出）', () => {
     expect(/quitting\s*=\s*true/.test(mainSrc),
       '必须有 quitting 标志：托盘菜单退出时置真，close 处理器对它放行默认关闭').toBe(true);
     expect(/before-quit/.test(mainSrc),
@@ -43,9 +44,15 @@ describe('托盘生命周期（源文本守卫）', () => {
       if (mainSrc[bEnd] === '{') bDepth++;
       else if (mainSrc[bEnd] === '}') bDepth--;
     }
-    const bBody = mainSrc.slice(bOpener + 1, bEnd - 1);
-    expect(/minisd\?\.kill\(\)/.test(bBody),
-      'before-quit 必须 minisd?.kill()——否则托盘退出后 minisd 成孤儿进程，还占着 minis.db').toBe(true);
+    // W1b-5 重指：以前要求 before-quit 体内直接 minisd?.kill()；现在 before-quit 先请 minisd 有序关停
+    // （了结权限卡、等 run 收尾、关库），5 秒没退才 kill——硬杀只在 stopMinisdGracefully 的超时兜底里。
+    // 意图不变：托盘退出后 minisd 不能成孤儿、不能还占着 minis.db。先剥注释，注释里写着旧调用喂不饱断言。
+    const bBody = stripComments(mainSrc.slice(bOpener + 1, bEnd - 1));
+    expect(/stopMinisdGracefully\([^)]*\)[\s\S]*app\.quit\(\)/.test(bBody),
+      'before-quit 必须调用 stopMinisdGracefully(...) 并在停完之后 app.quit()——否则托盘退出后 minisd 成孤儿进程，还占着 minis.db').toBe(true);
+    const stopSrc = stripComments(readFileSync(join(repoRoot, 'src/main/minisd-stop.ts'), 'utf8'));
+    expect(/child\.kill\(\)/.test(stopSrc) && /setTimeout\(/.test(stopSrc),
+      'stopMinisdGracefully 的停止器必须有超时 kill() 兜底——minisd 卡住不退时，退出不能跟着卡住').toBe(true);
   });
 
   it('window-all-closed 不再杀 minisd / 退出（M1 行为必须移除）', () => {

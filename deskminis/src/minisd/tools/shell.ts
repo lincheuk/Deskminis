@@ -228,10 +228,11 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
       const command = String(input.command);
       const decision = await ctx.permissions.check({ kind: 'shell', detail: command, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) });
-      if (decision === 'deny') return { output: '命令被用户拒绝（可在设置-权限中调整）', success: false };
       // 权限等待可长达 90 秒；等待期间点了停止的话，已 abort 的 signal 之后挂监听不会再触发
       // （abort 事件不补发）——必须在闸后重查一次，否则「批准晚于取消」的命令会原样跑完。
+      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台按 deny 了结卡片并 abort，那不是用户拒绝的
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
+      if (decision === 'deny') return { output: '命令被用户拒绝（可在设置-权限中调整）', success: false };
       const cwd = ctx.paths.workspaceOf(ctx.sessionId);
       const timeoutMs = (typeof input.timeout_seconds === 'number' ? input.timeout_seconds : 120) * 1000;
       // 执行期间监听取消：abort → 杀当前命令所在驱动。杀掉后会话积累的 cd/env 会丢，
