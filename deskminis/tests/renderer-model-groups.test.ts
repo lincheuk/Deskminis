@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripComments } from './strip-comments';
 
 const { rpcCallMock } = vi.hoisted(() => ({ rpcCallMock: vi.fn() }));
 vi.mock('../src/renderer/src/rpc', () => ({
@@ -174,9 +175,15 @@ describe('Z5 — 绑定入口认组', () => {
 
   it('输入卡模型胶囊显示实际生效的绑定：会话绑定 > 欢迎页选中助手的绑定 > 默认', () => {
     const c = read('Composer.vue');
-    expect(c).toContain("from '../lib/models/binding'");
-    expect(c).toMatch(/chat\.activeId\s*\?\s*\(chat\.sessions\.find\(s => s\.id === chat\.activeId\)\?\.modelBinding \?\? ''\)\s*:\s*\(chat\.assistants\.find\(a => a\.id === chat\.welcomeAssistantId\)\?\.modelBinding \?\? ''\)/);
-    expect(c).toMatch(/describeBinding\(effectiveBinding\.value, chat\.providers, chat\.modelGroups, chat\.defaultProviderId\)/);
+    // 脚本段先剥注释再断言：读原文的话，代码退回旧三元式、上方留一行写着新调用的注释，正则照样命中
+    // （W2b-4 审查实测过这个变异；交接 §2 第 10 条）
+    const cs = stripComments(c.slice(c.indexOf('<script'), c.indexOf('</script>')));
+    expect(cs).toContain("from '../lib/models/binding'");
+    // W2b-4 重指：原来逐字锚「有会话看会话绑定、否则看欢迎页所选助手」的三元式——空会话上选了助手时，
+    // 发送前会先套用它，三元式却仍显示会话的旧绑定。三档取舍收进纯模块 previewBinding（语义由
+    // tests/renderer-welcome-assistant.test.ts 的单测接住），这里只认调用形态
+    expect(cs).toMatch(/const effectiveBinding = computed\(\(\) => previewBinding\(/);
+    expect(cs).toMatch(/describeBinding\(effectiveBinding\.value, chat\.providers, chat\.modelGroups, chat\.defaultProviderId\)/);
     expect(c).toMatch(/:name="modelView\.kind === 'group' \? 'link' : 'robot'"/);
     expect(c).toMatch(/:title="modelView\.title"/);
     expect(c).toMatch(/\{\{ modelView\.label \}\}/);

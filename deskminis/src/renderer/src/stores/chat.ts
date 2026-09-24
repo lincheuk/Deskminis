@@ -67,8 +67,10 @@ export const useChat = defineStore('chat', {
     modelGroups: [] as UiModelGroup[],
     /** J2 助手目录（欢迎页卡区 + 设置管理页共用；变更经 assistants.changed 广播回流刷新）。 */
     assistants: [] as UiAssistant[],
-    /** I6 欢迎屏选择态（AionUi Guid 页语义）：选中的助手 id，**不建会话**——
-     *  会话在发送首条消息时按此创建（ChatView send 消费）；换会话即失效清空。 */
+    /** I6 欢迎屏选择态（AionUi Guid 页语义）：选中的助手 id，点卡只改它、**不建会话**。
+     *  W2b-4 起它是「当前空会话的助手选择」：open() 换会话时从会话已绑的助手初始化（不再清成 ''），
+     *  所以 newSessionWithAssistant、「用它开始」建出的空会话回到欢迎页时卡片高亮与副标题如实；
+     *  没有会话时发送按它建会话，有空会话时发送前按它套用 / 解绑（Composer send → applyAssistantToSession）。 */
     welcomeAssistantId: '' as string,
     /** K2 定时任务列表（工作台「定时」面板数据源；变更经 cron.changed 广播回流）。 */
     cronJobs: [] as UiCronJob[],
@@ -245,12 +247,37 @@ export const useChat = defineStore('chat', {
         : (await rpc.call('skills.list', {})).filter((s: UiSkill) => s.isEnabled);
     },
     // ---- J2 助手体系（设计稿 §5）----
-    async refreshAssistants() { this.assistants = await rpc.call('assistants.list'); },
+    async refreshAssistants() {
+      this.assistants = await rpc.call('assistants.list');
+      // W2b-4：选中的助手被删了（助手页或别的窗口删的）——选择回落到会话自己绑的助手（没有会话就是「没选」）。
+      // 不回落的话卡片不亮、胶囊说默认，发送却仍去套用那个不存在的助手，每发一次「套用助手失败」一次（xvfb 场景 G 实测）。
+      // 会话绑的助手本身已删、选择只是它的镜像时回落结果还是它：两边相等，不触发套用
+      const sel = this.welcomeAssistantId;
+      if (sel && !this.assistants.some(a => a.id === sel)) {
+        this.welcomeAssistantId = this.sessions.find(s => s.id === this.activeId)?.assistantId ?? '';
+      }
+    },
     /** 点助手卡 → 新建绑定会话并切入（预设三件由后端 create 一并应用）。 */
     async newSessionWithAssistant(assistantId: string) {
       const s = await rpc.call('chat.sessions.create', { assistantId });
       await this.refreshSessions();
       await this.open(s.id);
+    },
+    /** W2b-4：给空会话套用助手（assistantId 传 '' 即解绑）。后端把助手 id、模型绑定、技能覆盖一起重置，
+     *  有消息或运行中的会话会被拒——错误原样抛给调用方（输入卡据此说「套用助手失败」、文字留在框里）。
+     *  重拉会话列表：胶囊、NavRail 的助手 emoji、标题都读它；技能覆盖变了，斜杠菜单的生效集也得重取。 */
+    async applyAssistantToSession(id: string, assistantId: string) {
+      await rpc.call('chat.sessions.applyAssistant', { sessionId: id, assistantId });
+      await this.refreshSessions();
+      void this.refreshSkills();
+    },
+    /** W2b-4：隐式建会话（贴图、选工作区都要先有会话）按欢迎页的选择建。以前这两处直接 newSession()：
+     *  建出无助手的会话，open() 再把选择清掉，「已选 X」就这样静默作废。已有会话时什么也不做——
+     *  空会话上的选择留到发送前由输入卡套用。 */
+    async ensureSession() {
+      if (this.activeId) return;
+      if (this.welcomeAssistantId) await this.newSessionWithAssistant(this.welcomeAssistantId);
+      else await this.newSession();
     },
     async createAssistant(input: { name: string; avatar?: string; rules?: string; modelBinding?: string; skillIds?: string[]; prompts?: string[] }) {
       const a = await rpc.call('assistants.create', input);
@@ -298,7 +325,8 @@ export const useChat = defineStore('chat', {
       if (this.activeId === id) {
         const next = this.sessions[0];
         if (next) await this.open(next.id);
-        else { this.activeId = ''; this.messages = []; }
+        // W2b-4：选择态镜像的是会话的助手，会话都没了就回到「没选」——不把已删会话的助手带进下一次开局
+        else { this.activeId = ''; this.messages = []; this.welcomeAssistantId = ''; }
       }
     },
     /** 重命名会话。后端会拒空标题与超 50 字，错误原样抛给调用方——
@@ -428,7 +456,10 @@ export const useChat = defineStore('chat', {
         this.lastStopReason = '';
         this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
         this.contextInfo = null;
-        this.welcomeAssistantId = ''; // I6：欢迎屏选择态只对「当下这次开局」有效，换会话即失效
+        // W2b-4：选择态镜像这个会话已绑的助手。以前一律清成 ''：新建的带助手会话回到欢迎页时卡片不亮、副标题说没选，
+        // 用户再点一次就会被当成「改选」；贴图、选工作区隐式建会话后，刚点的选择也在这里被静默作废。
+        // 只在换会话时取：同一会话的自刷新（turnEnd / error 后的 open）不能覆盖用户刚点、还没发出去的选择
+        this.welcomeAssistantId = this.sessions.find(s => s.id === id)?.assistantId ?? '';
       }
       this.activeId = id; this.messages = await rpc.call('chat.messages.list', { sessionId: id }); this.streamingText = ''; this.streamingThinking = ''; this.toolCards = [];
       void this.refreshSkills(); // 会话覆盖会改变生效启用集，换会话必须重取

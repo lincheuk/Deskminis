@@ -79,6 +79,8 @@ const WIRED: Cap[] = [
   { name: '模型组新建', action: 'createModelGroup', rpc: 'modelgroup.create', where: 'settings/SecModelGroups.vue' },
   { name: '模型组修改', action: 'updateModelGroup', rpc: 'modelgroup.update', where: 'settings/SecModelGroups.vue' },
   { name: '模型组删除', action: 'deleteModelGroup', rpc: 'modelgroup.delete', where: 'settings/SecModelGroups.vue' },
+  // W2b-4（2026-09-24）：欢迎页在已存在的空会话上选助手，发送前套用 / 解绑——此前后端没有这个能力，欢迎页的承诺是空话
+  { name: '空会话套用助手', action: 'applyAssistantToSession', rpc: 'chat.sessions.applyAssistant', where: 'Composer.vue' },
 ];
 
 /** 后端通、store 通、**界面上够不着**。每条都注明是哪一波立的、哪一波弄丢的。
