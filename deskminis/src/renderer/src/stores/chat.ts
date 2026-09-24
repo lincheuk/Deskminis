@@ -7,7 +7,7 @@ let localSeq = 0;
 let _syncDirtyTimer: ReturnType<typeof setTimeout> | undefined;
 
 interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number }; originDeviceId?: string; reasoningContent?: string }
-interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string } }
+interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string }; note?: string }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
@@ -159,6 +159,9 @@ export const useChat = defineStore('chat', {
         timeoutMs: meta?.timeoutMs, riskClass: meta?.riskClass, bridgeTriggers: meta?.bridgeTriggers,
         // 审批前变更预览（file_write/file_edit 才有）：权限卡据此渲染差分，写文件不再盲批
         preview: req.preview,
+        // W1b-2：数据根内走卡的文件操作带一句说明（改应用配置 / 其它会话 / 读会话数据库…）。
+        // 这里逐字段拷贝，不写这一行 note 就在渲染端丢了
+        note: req.note,
         deadlineMs: typeof meta?.timeoutMs === 'number' ? Date.now() + meta.timeoutMs : undefined,
       }));
       // 询问超时（90s）或别的窗口已答复时 minisd 广播 resolved：不摘掉卡片就会永远挂在界面上。

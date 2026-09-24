@@ -23,7 +23,8 @@ export interface FilePreview {
   binary: boolean;       // 嗅探为二进制：不可预览
 }
 
-/** 归一化后的包含判断（与 tools/files.ts 的 isInsideRoot 同策略：防 <root>\..\.. 前缀欺骗）。 */
+/** 归一化后的包含判断：防 <root>\..\.. 前缀欺骗。文件面板只收在工作区内；
+ *  agent 工具那边的数据根判定另走 tools/data-gate.ts（带 realpath 与 win32 规范化，W1b-2）。 */
 function isInside(abs: string, base: string): boolean {
   const rel = relative(resolve(base), resolve(abs));
   return rel === '' || (!rel.startsWith('..') && !/^[A-Za-z]:/.test(rel));

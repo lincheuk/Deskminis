@@ -1,7 +1,7 @@
 // DeskMinis M2c 端到端验收驱动（对应 docs/plans/2026-07-28-m2c-skills.md Task 8 手工验收的可自动化部分）。
 // 用法：先 `npm run build`，再 `node scripts/e2e-m2c-acceptance.mjs`。
 //
-// 覆盖：1) agent 直写技能目录（file_write 到 /var/minis/skills/<id>/SKILL.md，数据根内不弹权限卡）
+// 覆盖：1) agent 直写技能目录（file_write 到 /var/minis/skills/<id>/SKILL.md；W1b-2 起写 skills/ 会弹权限卡，脚本自动 allow-once）
 //       2) 重启 minisd → adoptOrphans 孤儿回收 → skills.list 可见
 //       3) 真实模型按 <available_skills> 提示 file_read 技能正文并遵循（暗语断言）+ use_count 计数
 // 斜杠菜单是渲染端 UI（纯输入辅助），不在本脚本，由用户手工验收。
@@ -146,7 +146,7 @@ try {
   if (!p0) throw new Error('临时根里没有带密钥的 provider');
   console.log(`provider: ${p0.name || p0.modelId} (${p0.kind}:${p0.modelId})\n`);
 
-  // —— 步骤 1：agent 直写技能目录（数据根内，不弹权限卡） ——
+  // —— 步骤 1：agent 直写技能目录（W1b-2 起会弹权限卡，由上面的 permission.request 处理自动 allow-once） ——
   console.log('— 步骤 1: agent 直写技能目录 —');
   const sA = (await inst.client.call('chat.sessions.create', { title: 'M2c验收-直写' })).id;
   const r1 = await runPrompt(inst.client, sA,

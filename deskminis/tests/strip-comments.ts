@@ -7,7 +7,8 @@
  *  - `://` 前面是冒号，不当行注释，URL 字符串原样保留；
  *  - 其余字符串或正则字面量里出现 // 或 /* 会被误删。目前扫的 src/main/index.ts、src/main/app-dirs.ts、
  *    src/minisd/index.ts、src/minisd/store/provider-store.ts 都没有这种写法（W1a-9 用 TypeScript 语法树去注释对照过，
- *    结果去掉空白后逐字相同）。以后扫的文件出现这种写法时，要换成认字符串的去法。 */
+ *    结果去掉空白后逐字相同）；W1b-2 起 src/renderer/src/stores/chat.ts 与 ui/PermCard.vue 的 <script> 段也用它，
+ *    同样对照过。以后扫的文件出现这种写法时，要换成认字符串的去法。 */
 export function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 }

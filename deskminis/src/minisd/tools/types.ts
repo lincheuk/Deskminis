@@ -18,7 +18,12 @@ export type BridgePermissionKind =
  *  注意：preview 只进权限卡广播，不进审计落盘（审计只记有无布尔，见 minisd/index.ts）。 */
 export interface PermPreview { oldText: string; newText: string }
 
-export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | 'mcp' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview }
+/** note（W1b-2，止血设计稿 §3 第 6 条）：数据根内走卡的文件操作带一句人话说明，
+ *  例如「将修改应用配置：技能…」「将读取其它会话（<id>）的文件」。与 preview 分工：
+ *  preview 只放差分正文，note 说明这次动的是什么；note 也不拼进 detail——detail 是逐字的路径，
+ *  会话授权键（permissions.ts）与既有断言都按它匹配。kind 不变，档位与标题映射都不用动。
+ *  note 进广播也进审计（审计只剔除 preview 全文）。 */
+export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | 'mcp' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview; note?: string }
 export type PermissionDecision = 'allow' | 'deny';
 export interface PermissionGateway {
   check(req: PermissionRequest): Promise<PermissionDecision>;
