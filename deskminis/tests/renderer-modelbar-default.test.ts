@@ -14,7 +14,11 @@ import { join } from 'node:path';
 
 const UI = join(__dirname, '..', 'src', 'renderer', 'src', 'ui');
 const bar = readFileSync(join(UI, 'ModelBar.vue'), 'utf8').replace(/\r\n/g, '\n');
-const tpl = bar.slice(bar.indexOf('<template>'), bar.indexOf('</template>'));
+// 交接 §2 第 10 条：断言不能被注释喂饱。模板剥 HTML 注释、样式剥 CSS 注释、脚本剥 JS 注释后再匹配。
+const tpl = bar.slice(bar.indexOf('<template>'), bar.indexOf('</template>')).replace(/<!--[\s\S]*?-->/g, '');
+const css = bar.slice(bar.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '');
+const script = bar.slice(bar.indexOf('<script'), bar.indexOf('</script>'))
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 describe('W2b-5 ModelBar 标明「默认模型」', () => {
   it('当前项胶囊里、模型名之前有「默认模型」小标签', () => {
@@ -38,10 +42,12 @@ describe('W2b-5 ModelBar 标明「默认模型」', () => {
   });
 
   it('标签是弱化的辅助字：--c-ink-3 + --t-aux-size', () => {
-    const m = /\.clabel\s*\{([^}]*)\}/.exec(bar);
+    const m = /\.clabel\s*\{([^}]*)\}/.exec(css);
     expect(m, '缺 .clabel 样式').not.toBeNull();
     expect(m![1]).toMatch(/color:\s*var\(--c-ink-3\)/);
     expect(m![1]).toMatch(/font-size:\s*var\(--t-aux-size\)/);
+    // 标签不能被藏起来：藏了等于没说「这是默认」
+    expect(m![1]).not.toMatch(/display:\s*none|visibility:\s*hidden/);
   });
 
   it('头注释里的假话改掉了：不再说「下一条消息就用它」', () => {
@@ -49,6 +55,6 @@ describe('W2b-5 ModelBar 标明「默认模型」', () => {
   });
 
   it('默认项的回落不动：后端默认失效时取列表第一个（与 store.refreshProviders、后端同一策略）', () => {
-    expect(bar).toMatch(/const activeId = computed\(\(\) => chat\.defaultProviderId \|\| items\.value\[0\]\?\.id \|\| ''\);/);
+    expect(script).toMatch(/const activeId = computed\(\(\) => chat\.defaultProviderId \|\| items\.value\[0\]\?\.id \|\| ''\);/);
   });
 });
