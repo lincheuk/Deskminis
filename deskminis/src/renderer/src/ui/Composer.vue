@@ -232,6 +232,8 @@ async function send(): Promise<void> {
         return;
       }
     }
+    // 草稿只交回发它的那个会话：见 chat.send 之后那行
+    const sid = chat.activeId;
     // 清空之前先寄存：chat.send 若被同步拒绝（未配置模型等），草稿要还给用户——见 store draft 注释
     chat.draft = { text: text.value, attachments: atts.value };
     text.value = '';
@@ -239,7 +241,11 @@ async function send(): Promise<void> {
     atQuery.value = null;
     atts.value = [];
     await chat.send(t, paths.length ? paths : undefined);
-    if (chat.lastError) takeDraft(); else chat.draft = null;
+    // 等待期间换了会话（W1b-4：先切到 B 再删 A 或停掉 A，A 的 prompt 要等 MCP 连接超时才被拒）：
+    // store 已把这次拒绝丢掉，这里也丢掉草稿——会话视图换会话不重建输入卡，交回的话 A 的话会塞进 B 的输入框。
+    // 丢的是被删或被停掉的那条；只停不删时用户回到 A 要重敲，是有意的取舍
+    if (chat.activeId !== sid) chat.draft = null;
+    else if (chat.lastError) takeDraft(); else chat.draft = null;
   } finally {
     // 闸必须在这里放：任一 await 抛错后不放，输入卡就永久失能
     sending.value = false;

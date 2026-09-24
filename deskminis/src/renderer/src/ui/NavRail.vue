@@ -45,15 +45,39 @@ const confirmDelete = ref('');
 const renameFor = ref('');
 const renameText = ref('');
 const renameErr = ref('');
+/** W1b-4：删除运行中的会话，后端要先让它停下、等它收尾（最长约 10 秒），停不下来就报错不删。
+ *  以前 onDelete await 完直接收菜单、不接异常：等待期间按钮毫无反应，失败是一次未处理拒绝——又是「点了没反应」。
+ *  现在删除中这一行的两颗按钮禁用、删除钮改字；失败原因落在这一行的菜单里（与重命名同一种 .smenu-err），
+ *  菜单不收，停下来之后可以再点一次。
+ *  删除中与报错都按行记：后端 chat.sessions.delete 逐会话各自 stopRun，并发删不同会话没问题。
+ *  审查逮到过全局闸的回归：A 删除中去 B 行点「删除」，按钮可点、却不发请求也不提示。
+ *  报错也按行留着：A 删除中用户去开了 B 的菜单，A 的失败原因要等用户回 A 行看见，不能被换行开菜单清掉。 */
+const deletingIds = ref(new Set<string>());
+const deleteErrs = ref<Record<string, string>>({});
 function closeRename(): void { renameFor.value = ''; renameText.value = ''; renameErr.value = ''; }
 function toggleMenu(id: string): void {
+  if (menuFor.value === id) delete deleteErrs.value[id]; // 自己收起这一行：报错看过了
   menuFor.value = menuFor.value === id ? '' : id;
   confirmDelete.value = ''; // 换行即清掉确认态，避免「在 A 行点了确认、切到 B 行还悬着」
   closeRename();
 }
+function cancelDelete(id: string): void {
+  confirmDelete.value = '';
+  delete deleteErrs.value[id];
+}
 async function onDelete(id: string): Promise<void> {
-  await chat.deleteSession(id);
-  menuFor.value = ''; confirmDelete.value = '';
+  if (deletingIds.value.has(id)) return; // 同一行等待期间连点不重复发；别的行照常删
+  deletingIds.value.add(id);
+  delete deleteErrs.value[id];
+  try {
+    await chat.deleteSession(id);
+    // 等待期间用户可能已经去别的行开了菜单：只收自己这一行的，别把人家刚打开的关掉
+    if (menuFor.value === id) { menuFor.value = ''; confirmDelete.value = ''; }
+  } catch (e) {
+    deleteErrs.value[id] = e instanceof Error ? e.message : String(e);
+  } finally {
+    deletingIds.value.delete(id);
+  }
 }
 /** B1 重命名：预填现标题（改名多半是微调不是重写）。后端会拒空标题与超 50 字，
  *  错误必须落在菜单里——吞掉就成了「点了确认没反应」。 */
@@ -159,10 +183,14 @@ function bindingView(s: S) { return describeBinding(s.modelBinding, chat.provide
             <template v-else>
               <div class="mask t-aux">确认删除？此操作不可撤销。</div>
               <div class="mrow">
-                <button class="mi" type="button" @click.stop="confirmDelete = ''">取消</button>
-                <button class="mi danger" type="button" @click.stop="onDelete(s.id)">删除</button>
+                <button class="mi" type="button" :disabled="deletingIds.has(s.id)" @click.stop="cancelDelete(s.id)">取消</button>
+                <button class="mi danger" type="button" :disabled="deletingIds.has(s.id)" @click.stop="onDelete(s.id)">{{ deletingIds.has(s.id) ? '删除中…' : '删除' }}</button>
               </div>
+              <!-- 运行中的会话要先停下才删，最长要等约 10 秒：给句交代，不然像卡死 -->
+              <div v-if="deletingIds.has(s.id)" class="mask t-aux">正在停止这个会话的任务…</div>
             </template>
+            <!-- 放在确认态外面：删除中去别的行开过菜单再回来，确认态已被 toggleMenu 复位，失败原因也要看得见 -->
+            <div v-if="deleteErrs[s.id]" class="smenu-err">{{ deleteErrs[s.id] }}</div>
           </div>
         </template>
       </template>
@@ -270,6 +298,9 @@ function bindingView(s: S) { return describeBinding(s.modelBinding, chat.provide
 .mi:hover { background: var(--c-bg-2); color: var(--c-ink); }
 .mi.danger { color: var(--c-err); }
 .mi.danger:hover { background: var(--c-err-soft); }
+/* 删除中：两颗按钮都禁用，要看得出点不动（与 theme.css 的 .f-btn:disabled 同一档透明度） */
+.mi:disabled { opacity: .45; cursor: default; }
+.mi:disabled:hover, .mi.danger:disabled:hover { background: none; }
 .mv { margin-left: auto; color: var(--c-ink-3); }
 .msel { cursor: default; }
 .msel:hover { background: none; }

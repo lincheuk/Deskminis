@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripComments } from './strip-comments';
 
 const SRC = join(__dirname, '../src/renderer/src/');
 const read = (p: string): string => readFileSync(join(SRC, p), 'utf8').replace(/\r\n/g, '\n');
@@ -57,7 +58,9 @@ describe('X2b — 被拒的草稿交回输入框（跨实例：欢迎页换会�
     const iClear = sendBody.indexOf("text.value = '';");
     expect(iPark).toBeGreaterThan(-1);
     expect(iClear).toBeGreaterThan(iPark);
-    expect(sendBody).toMatch(/await chat\.send\(t, paths\.length \? paths : undefined\);\s*if \(chat\.lastError\) takeDraft\(\); else chat\.draft = null;/);
+    // W1b-4 审查起：send 返回时已换了会话（先切走再删 / 停止，被拒要等 MCP 连接超时），只清寄存、不交回——
+    // 会话视图换会话不重建输入卡，交回会把 A 的话塞进 B 的输入框。中间夹了注释，剥掉再认调用形态
+    expect(stripComments(sendBody)).toMatch(/await chat\.send\(t, paths\.length \? paths : undefined\);\s*if \(chat\.activeId !== sid\) chat\.draft = null;\s*else if \(chat\.lastError\) takeDraft\(\); else chat\.draft = null;/);
   });
 
   it('takeDraft 在 setup 也跑一次——欢迎页新建的那个实例靠它', () => {

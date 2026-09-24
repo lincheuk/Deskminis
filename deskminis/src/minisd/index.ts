@@ -229,7 +229,12 @@ class FakeProvider implements AgentProvider {
   }
 }
 
-export type StartMinisdOpts = { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number };
+/** 删除运行中的会话时，等它收尾的上限（W1b-4 · 设计稿 §2 生命周期）。超时就不删、报错让用户稍后再删——
+ *  硬删的话晚到的 toolResult / user 消息会写成孤儿行，还可能继续往外写文件。 */
+const RUN_STOP_TIMEOUT_MS = 10_000;
+
+/** runStopTimeoutMs：删除运行中会话时等收尾的上限，缺省 RUN_STOP_TIMEOUT_MS（测试注入短值验超时分支）。 */
+export type StartMinisdOpts = { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number; runStopTimeoutMs?: number };
 export type MinisdHandle = { port: number; listenPort: number; authToken: string; bridgePipe?: string; close(): Promise<void> };
 
 /** 起一个 minisd：建数据根 → 拿数据根锁 → 装配。
@@ -329,6 +334,21 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     const { preview, ...reqNoPreview } = req;
     audit.append('permission.request', { requestId, req: reqNoPreview, hasPreview: preview !== undefined, meta }, { sessionId: req.sessionId });
   });
+  /** 按 deny 了结挂起的权限请求（W1b-4）：filter 为会话 id 时只了结该会话的，'all' 了结全部。
+   *  为什么要主动了结：abort 唤不醒正在等权限的工具（files/shell/web 都是拿到决议后才复查 signal），
+   *  不了结的话 run 要一直等到用户点卡或 90 秒兜底，删除就等不到它收尾；卡片也会留在别的窗口里。
+   *  逐条广播 resolved（渲染端对非 timeout 的 reason 只摘卡片）并写审计，与 timeout / answered 同形。
+   *  close() 以后复用它（W1b-5 优雅退出，reason 'shutdown'）。 */
+  function denyPendingPerms(filter: string | 'all', reason: string): void {
+    for (const [requestId, entry] of [...pendingPerms]) {
+      if (filter !== 'all' && entry.req.sessionId !== filter) continue;
+      clearTimeout(entry.timer);
+      pendingPerms.delete(requestId);
+      entry.resolve('deny');
+      rpc.broadcast('permission.resolved', { requestId, reason });
+      audit.append('permission.resolved', { requestId, reason }, { sessionId: entry.req.sessionId });
+    }
+  }
   const gateway = new PermissionGatewayImpl(prompt, undefined, permTimeoutMs);
   // 权限档位持久化（permission.preset）：启动读回并应用，否则用户上次选的「完全访问」重启后就失效。
   // 白名单校验：库里的脏值/旧值一律忽略，落到默认档（gateway 构造即默认 ask）。
@@ -426,6 +446,23 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
    *  交错落库出 Anthropic 直接 400 的消息序列（tool_use 没有配对的 tool_result）。 */
   const inFlight = new Set<string>();
   const controllers = new Map<string, AbortController>();
+  /** 每个在跑会话的「收尾完成」promise（W1b-4），与 inFlight 同生同灭：chat.prompt 在 inFlight.add 时就登记
+   *  （覆盖 ensureForRun 那段 await），IIFE 的 finally 里兑现并摘掉。以前 run promise 没留引用，
+   *  别处无法等它——删除只能不等就删，晚到的写入全成孤儿行。 */
+  const runs = new Map<string, Promise<void>>();
+  const runStopTimeoutMs = opts?.runStopTimeoutMs ?? RUN_STOP_TIMEOUT_MS;
+  /** 停下一个会话的 run 并等它收尾（W1b-4）：先把它挂着的权限卡按 deny 了结，再 abort，再等收尾 promise 与超时赛跑。
+   *  返回 true = 已停下（或本来就没在跑）；false = 超时仍未收尾。删除用它，close() 以后复用（W1b-5）。 */
+  async function stopRun(sessionId: string, timeoutMs: number, reason: string): Promise<boolean> {
+    const run = runs.get(sessionId);
+    if (!run) return true;
+    denyPendingPerms(sessionId, reason);
+    controllers.get(sessionId)?.abort(reason);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<false>(r => { timer = setTimeout(() => r(false), timeoutMs); });
+    try { return await Promise.race([run.then(() => true as const), timedOut]); }
+    finally { clearTimeout(timer); }
+  }
   /** K1 回合完成接缝（设计稿 §0）：一次性钩子，chat.prompt 的 IIFE finally 消费——
    *  调度器借此写 last_status，顺带治理「loop 抛错仅广播不落库、无人值守失败无痕」缺口。 */
   const runDoneHooks = new Map<string, (err?: string) => void>();
@@ -537,11 +574,21 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       runCronJob(j);
       return { ok: true };
     },
-    'chat.sessions.delete': (p: { sessionId: string; confirm?: boolean }) => {
+    // W1b-4：删除运行中的会话要先让它停下、等它收尾再删（顺序见 cross.md：run 收尾 → 终端 / shell 释放 → 删库 → 广播）。
+    // 以前是同步直删：挂着的权限卡没人了结，删完再点「允许」工具照样出网 / 写文件，loop 还把 toolResult 写进已删会话。
+    'chat.sessions.delete': async (p: { sessionId: string; confirm?: boolean }) => {
       const sessionId = assertSessionId(p.sessionId);
       if (p.confirm !== true) throw new Error('删除会话需 confirm:true');
+      const stopped = await stopRun(sessionId, runStopTimeoutMs, 'session-deleted');
+      // 不理会 abort 的调用（部分 MCP、卡住的连接）会拖满上限：宁可不删也不留孤儿行（设计稿 §2「超时就不删并报错」）
+      if (!stopped) throw new Error('会话仍在停止中，请稍后再删');
       terminals.dispose(sessionId);
-      chat.deleteSession(sessionId); return { ok: true };
+      // 会话的 agent shell 连同子进程树一起回收（W1b-1 的 dispose(sessionId)），否则删了会话它还在后台开着
+      shells.dispose(sessionId);
+      chat.deleteSession(sessionId);
+      // 别的窗口靠这条广播重拉左栏
+      rpc.broadcast('chat.sessions.changed', {});
+      return { ok: true };
     },
     'chat.sessions.rename': (p: { sessionId: string; title: string }) => {
       const sessionId = assertSessionId(p.sessionId);
@@ -696,23 +743,40 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       inFlight.add(sessionId);
       const controller = new AbortController();
       controllers.set(sessionId, controller);
-      // D5 MCP 接线：run 开始连接 enabled server（已连接/未 stale 的台秒回），工具动态进注册表。
-      // 会话禁用的 MCP 台：工具表剔除第一层（第二层是调用层硬执行——工具若因竞态仍在表内也会被拒）。
-      await mcpManager.ensureForRun();
-      const mcpExcluded = mcpManager.excludedToolNames(sessionId);
-      if (mcpExcluded.size > 0) {
-        excludedToolNames = excludedToolNames ? new Set([...excludedToolNames, ...mcpExcluded]) : mcpExcluded;
+      // W1b-4：收尾 promise 在占位的同一刻登记——删除可能恰好落在下面 ensureForRun 的 await 窗口里，
+      // 这时还没有 IIFE，但删除也得等得到它。finishRun 是唯一的收尾出口（IIFE 的 finally / 起跑前失败都走它）。
+      let settleRun!: () => void;
+      runs.set(sessionId, new Promise<void>(r => { settleRun = r; }));
+      const finishRun = (): void => {
+        inFlight.delete(sessionId); controllers.delete(sessionId); runs.delete(sessionId);
+        settleRun();
+      };
+      try {
+        // D5 MCP 接线：run 开始连接 enabled server（已连接/未 stale 的台秒回），工具动态进注册表。
+        // 会话禁用的 MCP 台：工具表剔除第一层（第二层是调用层硬执行——工具若因竞态仍在表内也会被拒）。
+        await mcpManager.ensureForRun();
+        // 连 MCP 期间被删除 / 取消了：不落 user 消息（会话可能正等着被删，落了就是孤儿行），直接收尾
+        if (controller.signal.aborted) throw new Error('会话已取消');
+        const mcpExcluded = mcpManager.excludedToolNames(sessionId);
+        if (mcpExcluded.size > 0) {
+          excludedToolNames = excludedToolNames ? new Set([...excludedToolNames, ...mcpExcluded]) : mcpExcluded;
+        }
+        // 落库 user 消息：文本非空才落 text part（空文本+附件时不产空 text block），
+        // 每个附件一枚 mediaRef part（文件本体留在附件桶，请求侧由 loop 合成 base64，永不落库）
+        const userParts: ContentPart[] = [];
+        if (text.trim() !== '') userParts.push({ type: 'text', value: text });
+        for (const rel of attachments) {
+          // 校验正则白名单已保证扩展名可映射；兜底 octet-stream 只是防类型收窄，实际到不了
+          userParts.push({ type: 'mediaRef', value: { id: chat.newId(), relativePath: rel, mimeType: mimeFromPath(rel) ?? 'application/octet-stream' } });
+        }
+        chat.appendMessage({ id: chat.newId(), sessionId, role: 'user', parts: userParts, createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
+        paths.ensureSessionDirs(sessionId);
+      } catch (e) {
+        // 起跑前任何一步失败都要放掉占位：以前这里抛出会让 inFlight 永远占着（会话一直「运行中」），
+        // 现在还会让删除白等满 10 秒
+        finishRun();
+        throw e;
       }
-      // 落库 user 消息：文本非空才落 text part（空文本+附件时不产空 text block），
-      // 每个附件一枚 mediaRef part（文件本体留在附件桶，请求侧由 loop 合成 base64，永不落库）
-      const userParts: ContentPart[] = [];
-      if (text.trim() !== '') userParts.push({ type: 'text', value: text });
-      for (const rel of attachments) {
-        // 校验正则白名单已保证扩展名可映射；兜底 octet-stream 只是防类型收窄，实际到不了
-        userParts.push({ type: 'mediaRef', value: { id: chat.newId(), relativePath: rel, mimeType: mimeFromPath(rel) ?? 'application/octet-stream' } });
-      }
-      chat.appendMessage({ id: chat.newId(), sessionId, role: 'user', parts: userParts, createdAt: chat.nowEpoch(), streamInterruptCount: 0 });
-      paths.ensureSessionDirs(sessionId);
       void (async () => {
         let runErr: string | undefined; // K1：完成钩子的终态入参（undefined = 正常收尾）
         let pendingRebind: string | undefined; // 降级候选 instanceId，等 turnEnd 才落库
@@ -766,6 +830,10 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
             }
             // 首回合结束即取名（内部自查标题是否仍是默认值，多轮会话不会重复发请求）
             if (event.kind === 'turnEnd') void autoTitle(sessionId, p.text, activeProvider);
+            // W1b-4（cross.md corrections / missing）：loop 失败是 yield error 事件后正常返回，不 throw——
+            // 下面的 catch 对 provider 失败、「已取消」「所有模型均不可用」都不触发，runErr 恒为 undefined，
+            // 定时任务就把失败的运行记成 ok。loop 的每个 error 事件之后都立即 return，记最后一个即终态。
+            if (event.kind === 'error') runErr = event.message;
             rpc.broadcast('chat.event', { sessionId, event });
           }
         } catch (e) {
@@ -773,7 +841,9 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
           rpc.broadcast('chat.event', { sessionId, event: { kind: 'error', message: String(e) } });
         }
         finally {
-          inFlight.delete(sessionId); controllers.delete(sessionId);
+          // 被删除打断的 run：loop 报的是「已取消」，但对定时任务来说真正的原因是会话被删了
+          if (controller.signal.aborted && controller.signal.reason === 'session-deleted') runErr = '会话已删除';
+          finishRun();
           // K1：一次性完成钩子（定时任务写终态用）；先摘再调，钩子抛错不影响清理
           const hook = runDoneHooks.get(sessionId);
           runDoneHooks.delete(sessionId);
