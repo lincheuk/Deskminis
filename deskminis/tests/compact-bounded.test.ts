@@ -598,3 +598,59 @@ describe('W2a-1 loop：compactFailed 事件与本次运行停用压缩', () => {
     expect(estimateTextTokens((big.systemPrompt ?? '') + textOf(big))).toBeLessThanOrEqual(Math.floor(64_000 * 0.6) - 16_000);
   });
 });
+
+// W2a-1b：第三轮审查指出的三处测试漏网。实现里这三道闸本来就在，这里是回归钉（非先红），
+// 用变异自检证明它们各自能抓住问题：拆掉闸 → 对应用例变红。
+describe('W2a-1b 压缩的三处边界回归钉', () => {
+  it('loop 把本次运行的取消信号原样交给摘要请求（不是 provider 自己造的）', async () => {
+    const { store, tools, toolContext, sessionId } = mkLoopCtx();
+    seedBig(store, sessionId);
+    const ac = new AbortController();
+    const summarySignals: (AbortSignal | undefined)[] = [];
+    const provider: AgentProvider = {
+      name: 'p', modelId: 'fake',
+      async *streamAgentMessage(req, signal): AsyncIterable<AgentStreamEvent> {
+        if (isSummaryReq(req)) summarySignals.push(signal);
+        yield { kind: 'textDelta', text: isSummaryReq(req) ? '摘要' : '回复' }; yield { kind: 'done', stopReason: 'endTurn' };
+      },
+    };
+    const policy = new ContextPolicy({ getModelContextWindow: () => 64_000 });
+    await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', contextPolicy: policy, compactEngine: new CompactEngine(store), signal: ac.signal }));
+    expect(summarySignals.length).toBeGreaterThan(0);
+    // 身份相等：只有把 opts.signal 传下去，用户点停止时摘要请求才会一起断
+    for (const s of summarySignals) expect(s).toBe(ac.signal);
+  });
+
+  it('大窗口下摘要输入封顶 10 万 token，多出的增量留给下一次压缩', async () => {
+    const { sid, engine } = fresh();
+    const history: RawMessage[] = [];
+    // 40 个回合，每条 6000 字中文（压平后单条正好不被截断），整段增量远超 10 万 token
+    for (let i = 0; i < 40; i++) {
+      history.push(mkMsg(sid, 'user', `用户回合${i}` + '中'.repeat(6000), `U${i}`, i + 1));
+      history.push(mkMsg(sid, 'assistant', `助手回复${i}` + '文'.repeat(6000), `A${i}`, i + 1.5));
+    }
+    const provider = new SummaryProvider('摘要');
+    const marker = await engine.summarize(history, sid, provider, { windowTokens: 1_000_000, maxTokens: 16_384 });
+    expect(marker).toBeDefined();
+    const req = provider.received[0];
+    // 不封顶时预算是 floor(1e6*0.6)-16384 = 583616，整段增量都能塞进去
+    expect(estimateTextTokens((req.systemPrompt ?? '') + textOf(req))).toBeLessThanOrEqual(100_000);
+    // 锚点后退：没把规则锚点（倒数第 3 个真用户回合之前的 A36）整段吃下
+    const ids = history.map(m => m.id);
+    expect(ids.indexOf(marker!.lastCompactedMessageId)).toBeLessThan(ids.indexOf('A36'));
+  });
+
+  it('增量第一条自己就超预算时仍取它（至少一条），不因取 0 条而每次都失败', async () => {
+    const { sid, engine } = fresh();
+    // 8000 窗口：输出上限 floor(8000/4)=2000，输入预算 4800-2000=2800；U0 压平后约 3750 token，单独就放不下
+    const history: RawMessage[] = [mkMsg(sid, 'user', '中'.repeat(6000), 'U0', 1), mkMsg(sid, 'assistant', '好', 'A0', 1.5)];
+    for (let i = 1; i <= 3; i++) {
+      history.push(mkMsg(sid, 'user', `用户回合${i}`, `U${i}`, i + 1));
+      history.push(mkMsg(sid, 'assistant', `助手回复${i}`, `A${i}`, i + 1.5));
+    }
+    const provider = new SummaryProvider('摘要');
+    const marker = await engine.summarize(history, sid, provider, { windowTokens: 8_000, maxTokens: 16_384 });
+    expect(provider.received).toHaveLength(1);
+    expect(marker?.lastCompactedMessageId).toBe('U0');
+  });
+});
