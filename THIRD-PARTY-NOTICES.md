@@ -65,6 +65,7 @@ SOFTWARE.
 
 | 本仓位置 | 上游位置 @ 提交 | 借了什么 | 怎么改的 |
 |---|---|---|---|
+| `deskminis/src/minisd/proc/win-exec.ts` | `packages/coding-agent/src/utils/shell.ts:216-232`（`killProcessTree` 的 win32 分支） @ 8676a0d | Windows 上回收进程树：用 System32 下的绝对路径起 `taskkill.exe`（`/F /T /PID`，不依赖 PATH），带 `windowsHide`，吞掉 spawn 的同步异常与异步 `error` | SystemRoot 先校验是盘符开头的绝对路径，否则回落 `C:\Windows`，用 `path.win32` 拼路径；不设 `detached`；taskkill 出错或非 0 退出时兜底杀根进程（上游不补杀）；根进程已自己退出时什么都不做（旧 pid 可能已被复用，上游按 pid 调用不做此判断）；平台、spawn 与环境可注入；另加 `system32`、`powershellPath` 两个路径函数，shell、终端、桥与 MCP 的 cmd.exe 共用（W1b-1） |
 
 - 项目：<https://github.com/badlogic/pi-mono>
 - 许可：MIT

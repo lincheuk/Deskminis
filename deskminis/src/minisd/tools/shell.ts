@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { ToolContext, ToolExecutor } from './types';
+import { killTree, powershellPath, type ProcOpts } from '../proc/win-exec';
+import { childEnv } from '../proc/child-env';
 
 const MAX_OUTPUT = 100 * 1024;
 
@@ -52,15 +54,29 @@ export class PersistentShell {
    *  与 disposed 正交：会话仍是活跃的，只是 shell 状态被复位。 */
   private wasReset = false;
 
-  /** env：会话级环境变量（MINIS_CHAT_SESSION_ID/桥管道等），在 shell 首次创建时捕获——长驻进程出生后无法改环境。 */
-  constructor(private cwd: string, private env?: Record<string, string>) {}
+  private readonly platform: string;
+  private readonly spawnImpl: typeof spawn;
+  private readonly sysEnv: NodeJS.ProcessEnv;
+
+  /** env：会话级环境变量（MINIS_CHAT_SESSION_ID/桥管道等），在 shell 首次创建时捕获——长驻进程出生后无法改环境。
+   *  opts：平台、spawn 与本进程环境的注入，生产用缺省值（见 proc/win-exec.ts）。 */
+  constructor(private cwd: string, private env?: Record<string, string>, opts: ProcOpts = {}) {
+    this.platform = opts.platform ?? process.platform;
+    this.spawnImpl = opts.spawnImpl ?? spawn;
+    this.sysEnv = opts.sysEnv ?? process.env;
+  }
 
   private ensure(): ChildProcessWithoutNullStreams {
     if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.proc;
     const encoded = Buffer.from(DRIVER_PS, 'utf16le').toString('base64');
-    const proc = spawn('powershell.exe', ['-NoProfile', '-NoLogo', '-NonInteractive', '-EncodedCommand', encoded], {
-      cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'],
-      env: this.env ? { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.env } : process.env,
+    // win32 用 System32 下的绝对路径：cwd 是工作区（可能是克隆来的仓库），裸名会先在 cwd 里找同名 exe。
+    // 非 win32 保留裸名，Linux 上 shell.test.ts 的失败与通过逐例不变。
+    // windowsHide：打包后的 minisd 自己没有控制台（推断），控制台程序不加这一项会另开一个可见的控制台窗口。
+    const exe = this.platform === 'win32' ? powershellPath(this.sysEnv) : 'powershell.exe';
+    const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-EncodedCommand', encoded], {
+      cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+      // 剥掉 DESKMINIS_*（§3 第 10 条，见 proc/child-env.ts）；会话级变量与 ELECTRON_RUN_AS_NODE 照旧
+      env: childEnv(this.sysEnv, this.env ? { ELECTRON_RUN_AS_NODE: '1', ...this.env } : undefined),
     });
     // spawn 失败（cwd 不存在 / ENOENT / EACCES）会在 child 上发 'error'；
     // 没有监听器时该事件会在事件循环里抛出并杀死整个 minisd 进程。常驻一个兜底监听器，
@@ -148,20 +164,29 @@ export class PersistentShell {
    *  下次 ensure() 重建；同时标记 wasReset，让下一条命令开头向模型说明状态已复位。
    *  与 dispose() 的语义差异正是关键：dispose 是会话不再需要 shell，interrupt 是状态丢了但会话还活着。 */
   interrupt(): void {
-    this.proc?.kill('SIGKILL');
+    this.killProc();
     this.proc = undefined; // 让下次 ensure() 重建，而不是复用已死的进程
     this.wasReset = true;
   }
 
-  dispose(): void { this.disposed = true; this.proc?.kill('SIGKILL'); this.proc = undefined; }
+  dispose(): void { this.disposed = true; this.killProc(); this.proc = undefined; }
+
+  /** 杀整棵进程树（win32 走 taskkill /T，不同步先杀根，见 proc/win-exec.ts）：
+   *  命令里起的孙进程（ping -t、dev server 之类）要跟着驱动一起走，只杀驱动会留孤儿。 */
+  private killProc(): void {
+    if (this.proc) killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv, 'SIGKILL');
+  }
 }
 
 export class ShellManager {
   private shells = new Map<string, PersistentShell>();
 
+  /** opts 原样透传给每个会话的 PersistentShell（测试注入用；生产不传）。 */
+  constructor(private readonly procOpts: ProcOpts = {}) {}
+
   getShell(sessionId: string, cwd: string, env?: Record<string, string>): PersistentShell {
     let s = this.shells.get(sessionId);
-    if (!s) { s = new PersistentShell(cwd, env); this.shells.set(sessionId, s); }
+    if (!s) { s = new PersistentShell(cwd, env, this.procOpts); this.shells.set(sessionId, s); }
     return s;
   }
 
@@ -172,6 +197,13 @@ export class ShellManager {
   /** 会话级中断（取消时由 shell 工具的 abort 监听触发）：杀该会话当前驱动，下条命令自动重建。 */
   interrupt(sessionId: string): void {
     this.shells.get(sessionId)?.interrupt();
+  }
+
+  /** 会话级释放（供删除会话调用，W1b-4 接线）：回收该会话驱动的整棵进程树并从表里摘掉。
+   *  与 interrupt 的区别同 PersistentShell：这里是会话不再需要 shell。未知会话静默。 */
+  dispose(sessionId: string): void {
+    this.shells.get(sessionId)?.dispose();
+    this.shells.delete(sessionId);
   }
 
   disposeAll(): void { for (const s of this.shells.values()) s.dispose(); this.shells.clear(); }

@@ -1,6 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import type { MinisPaths } from './paths';
+import { killTree, powershellPath, type ProcOpts } from './proc/win-exec';
+import { childEnv } from './proc/child-env';
 
 /** 滚动缓冲上限：超过后只保留末尾（xterm 也仅渲染可见区域 + 它自己的行缓存）。 */
 const MAX_SCROLLBACK = 10_000 * 80;
@@ -50,7 +52,21 @@ export class TerminalSession {
   private scrollback = '';
   private disposed = false;
 
-  constructor(private cwd: string, private emit: (data: string) => void, private env?: Record<string, string | undefined>) {}
+  private readonly platform: string;
+  private readonly spawnImpl: typeof spawn;
+  private readonly sysEnv: NodeJS.ProcessEnv;
+
+  /** opts：平台、spawn 与本进程环境的注入，生产用缺省值（见 proc/win-exec.ts）。 */
+  constructor(
+    private cwd: string,
+    private emit: (data: string) => void,
+    private env?: Record<string, string | undefined>,
+    opts: ProcOpts = {},
+  ) {
+    this.platform = opts.platform ?? process.platform;
+    this.spawnImpl = opts.spawnImpl ?? spawn;
+    this.sysEnv = opts.sysEnv ?? process.env;
+  }
 
   /** 返回当前滚动缓冲；壳不存在时惰性创建。 */
   attach(): string {
@@ -68,11 +84,11 @@ export class TerminalSession {
   private ensure(): ChildProcessWithoutNullStreams {
     if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.proc;
     const encoded = Buffer.from(TERMINAL_DRIVER_PS, 'utf16le').toString('base64');
-    const extraEnv = this.env ?? {};
-    const procEnv: Record<string, string | undefined> = { ...process.env };
-    for (const [k, v] of Object.entries(extraEnv)) if (v !== undefined) procEnv[k] = v;
-    const proc = spawn('powershell.exe', ['-NoProfile', '-NoLogo', '-NonInteractive', '-EncodedCommand', encoded], {
-      cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: procEnv,
+    // 与 PersistentShell 同因：win32 用 System32 绝对路径（cwd 是工作区，裸名会先在 cwd 里找）、windowsHide，
+    // 子进程环境剥掉 DESKMINIS_*、叠上会话级 MINIS_*（值为 undefined 的跳过）。非 win32 保留裸名。
+    const exe = this.platform === 'win32' ? powershellPath(this.sysEnv) : 'powershell.exe';
+    const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-EncodedCommand', encoded], {
+      cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: childEnv(this.sysEnv, this.env),
     });
     // 与 PersistentShell 同因：无监听器的 'error' / stdin 'error' 会冒泡成未捕获异常杀死整个 minisd。
     proc.on('error', () => { if (this.proc === proc) this.proc = undefined; });
@@ -87,6 +103,9 @@ export class TerminalSession {
   }
 
   private onOutput(chunk: string): void {
+    // dispose 之后 taskkill 收树要几百毫秒，旧壳这段时间的输出不能再外发：
+    // 会话删掉后同 id 重新 attach 的新终端会把它当成自己的输出显示出来。
+    if (this.disposed) return;
     this.scrollback += chunk;
     if (this.scrollback.length > MAX_SCROLLBACK) this.scrollback = this.scrollback.slice(-MAX_SCROLLBACK);
     this.emit(chunk);
@@ -94,7 +113,8 @@ export class TerminalSession {
 
   dispose(): void {
     this.disposed = true;
-    try { this.proc?.kill('SIGKILL'); } catch { /* 杀失败不挂 */ }
+    // 杀整棵树（win32 走 taskkill /T，不同步先杀根）：用户在终端里起的 dev server、ping -t 要跟着走。killTree 自己吞错。
+    if (this.proc) killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv, 'SIGKILL');
     this.proc = undefined;
   }
 }
@@ -107,6 +127,8 @@ export class TerminalManager {
     private emit: (sessionId: string, data: string) => void,
     /** 为该会话构造的桥环境变量（MINIS_*），会在 powershell spawn 时注入 env（决策 #8：终端手动调桥命令）。 */
     private envFor?: (sessionId: string) => Record<string, string | undefined>,
+    /** 原样透传给每个 TerminalSession（测试注入用；生产不传）。 */
+    private procOpts: ProcOpts = {},
   ) {}
 
   /** 惰性建壳并返回滚动缓冲。调用方（index.ts）必须已用 assertSessionId 校验 sessionId。 */
@@ -135,7 +157,7 @@ export class TerminalManager {
     let s = this.sessions.get(sessionId);
     if (!s) {
       const env = this.envFor?.(sessionId) ?? {};
-      s = new TerminalSession(this.paths.workspaceOf(sessionId), data => this.emit(sessionId, data), env);
+      s = new TerminalSession(this.paths.workspaceOf(sessionId), data => this.emit(sessionId, data), env, this.procOpts);
       this.sessions.set(sessionId, s);
     }
     return s;

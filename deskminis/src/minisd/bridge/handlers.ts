@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import type { BridgePermissionKind, PermissionGateway, PermissionRequest } from '../tools/types';
 import type { MinisPaths } from '../paths';
+import { killTree, powershellPath, type ProcOpts } from '../proc/win-exec';
 
 /** 会话 id 校验：与 index.ts 的 SESSION_ID_RE 一致（UUID 大小写不限）。 */
 const SESSION_ID_RE = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
@@ -43,13 +44,19 @@ export type PsRunner = (script: string, stdin?: string, timeoutMs?: number) => P
 /**
  * 一次性 PowerShell：-EncodedCommand（UTF-16LE base64）启动模式（M1 已验证），不复用 PersistentShell。
  * 载荷经 stdin 传入；脚本零插值。失败域隔离：本进程崩溃不影响会话壳。
+ * W1b-1：win32 用 System32 下的绝对路径（与 shell、终端同一个 helper），超时回收整棵树；非 win32 保留裸名。
+ * procOpts 只给测试注入平台与 spawn，生产不传。
  */
-export async function runPowerShell(script: string, stdin = '', timeoutMs = 30000): Promise<PsResult> {
+export async function runPowerShell(script: string, stdin = '', timeoutMs = 30000, procOpts: ProcOpts = {}): Promise<PsResult> {
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  const platform = procOpts.platform ?? process.platform;
+  const spawnImpl = procOpts.spawnImpl ?? spawn;
+  const sysEnv = procOpts.sysEnv ?? process.env;
+  const exe = platform === 'win32' ? powershellPath(sysEnv) : 'powershell.exe';
   return new Promise(resolve => {
     // -STA：System.Windows.Forms.Clipboard 等要求 STAThread，默认 powershell.exe PS5.1 是 STA，
     // 但部分 host 环境（如批处理调用）会落到 MTA——显式 -STA 防御性兜底。
-    const proc = spawn('powershell.exe', ['-NoProfile', '-NoLogo', '-NonInteractive', '-STA', '-EncodedCommand', encoded], {
+    const proc = spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-STA', '-EncodedCommand', encoded], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -64,7 +71,8 @@ export async function runPowerShell(script: string, stdin = '', timeoutMs = 3000
     proc.on('error', err => finish({ stdout, stderr: stderr + `\n[spawn 失败: ${err.message}]`, exitCode: 127 }));
     proc.on('close', code => finish({ stdout, stderr, exitCode: code ?? 0 }));
     const timer = setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch { /* 已退出 */ }
+      // 回收整棵树（win32 走 taskkill /T、不同步先杀根，树是异步收的；killTree 自己吞错），命令这边立即以 124 收口
+      killTree(proc, platform, spawnImpl, sysEnv, 'SIGKILL');
       finish({ stdout, stderr: stderr + '\n[命令超时被终止]', exitCode: 124 });
     }, timeoutMs);
     proc.on('close', () => clearTimeout(timer));
