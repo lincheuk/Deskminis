@@ -1,11 +1,46 @@
 import type { AgentStreamEvent, ContentPart, StopReason } from '../../shared/types';
-import { ProviderError, type AgentProvider, type FetchLike, type StreamRequest } from './types';
+import {
+  ProviderError, isThinkingBindingMessage, thinkingBindingMessage, type AgentProvider, type FetchLike, type StreamRequest,
+} from './types';
 import { parseSse } from './sse';
 
 const CACHE = { type: 'ephemeral' } as const;
 const BUDGETS = { low: 8192, medium: 32768, high: 65536 } as const;
 
-export function buildAnthropicBody(req: StreamRequest, modelId: string): Record<string, unknown> {
+/**
+ * 思考块绑定到对话前缀的三个模型（W2a-3 · 设计稿 §2「新一代 Claude 缓解」）。按官方 model-migration 文档：
+ *  - 思考关不掉：{type:'disabled'} 与 {type:'enabled', budget_tokens} 在任何 effort 下都 400，只能不写或写 adaptive；
+ *  - 回放的思考块签名记着当时的对话前缀（system、tools、之前每条消息），前缀一变就 400「bound to a different conversation」。
+ *    2026-08-31 之后注册的账号默认强制校验，而本仓每步重建系统提示、修剪滑窗、压缩保留回合都会改前缀。
+ * 精确匹配：带日期后缀或别名的 id 不命中、维持旧行为——宁可漏掉一个别名，也不给没核实过的模型乱加 beta 字段。
+ */
+export const BINDING_MODELS: ReadonlySet<string> = new Set(['claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5-5']);
+/** 打开 block_binding 字段所需的 beta 头值。 */
+const BINDING_BETA = 'thinking-binding-controls-2026-08-01';
+
+/**
+ * 是不是 Anthropic 官方端点：解析后要求 https 且主机名恰为 api.anthropic.com。
+ * 不用 includes / endsWith：中转商的域名、路径、userinfo 里都可能带着这串字。解析不了的一律不算。
+ * beta 头只在官方端点发：第三方中转不认这个头时，block_binding 字段会被判成多余字段而 400。
+ */
+export function isOfficialAnthropicEndpoint(baseUrl: string): boolean {
+  try {
+    const u = new URL(baseUrl);
+    return u.protocol === 'https:' && u.hostname === 'api.anthropic.com';
+  } catch { return false; }
+}
+
+/** 这次请求要不要带绑定控制（beta 头 + block_binding=drop_block）：官方端点上的三个目标模型。 */
+export function anthropicBindingControls(baseUrl: string, modelId: string): boolean {
+  return BINDING_MODELS.has(modelId) && isOfficialAnthropicEndpoint(baseUrl);
+}
+
+/** anthropic-beta 头按逗号合并去重。现在只有绑定控制一个值，留着这个口子，以后加别的 beta 不会互相覆盖。 */
+export function mergeBetas(list: readonly string[]): string {
+  return [...new Set(list.flatMap(s => s.split(',')).map(s => s.trim()).filter(s => s !== ''))].join(',');
+}
+
+export function buildAnthropicBody(req: StreamRequest, modelId: string, opts: { bindingControls?: boolean } = {}): Record<string, unknown> {
   // partToBlock 可能把整条消息的内容块全部丢弃（mediaRef-only 的既有隐患 + 不可回放 thinking-only
   // 的新形态：既无 signature 也无 redactedData 的历史思考块）。Anthropic 拒收 content 为空数组的
   // 消息，一条这样的历史消息会让该会话之后的每次请求都失败（永久变砖）。所以转成块后必须把
@@ -32,6 +67,14 @@ export function buildAnthropicBody(req: StreamRequest, modelId: string): Record<
   if (tools.length > 0) tools[tools.length - 1] = { ...tools[tools.length - 1], cache_control: CACHE };
   const body: Record<string, unknown> = { model: modelId, max_tokens: req.maxTokens, stream: true, messages, tools };
   if (req.systemPrompt) body.system = [{ type: 'text', text: req.systemPrompt, cache_control: CACHE }];
+  if (BINDING_MODELS.has(modelId)) {
+    // 这三个模型不看 thinkingLevel、也不走下面「旧数据关思考」的分支：enabled+budget_tokens 与 disabled 都是 400。
+    // 不写 thinking 就是 adaptive。官方端点显式写 drop_block：前缀对不上时服务端丢掉失效的思考块继续答，
+    // 而不是 400（只带头时缺省也是 drop_block，但文档要求显式写，免得缺省值变了悄悄换行为）。
+    // effort 映射（thinkingLevel → output_config.effort）留给 W4c。
+    if (opts.bindingControls) body.thinking = { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } };
+    return body;
+  }
   if (req.thinkingLevel !== 'off') {
     // 旧数据兼容：老版本落库的 assistant 消息含 toolUse 但没存 thinking part。Anthropic 要求
     // 思考开启时带 tool_use 的 assistant 消息必须原样带回 thinking 块（含签名），缺了会在该
@@ -55,6 +98,21 @@ function isReplayableThinking(p: ContentPart): boolean {
   if (p.type !== 'thinking') return false;
   const v = p.value as { text: string; signature?: string; redactedData?: string };
   return v.signature !== undefined || v.redactedData !== undefined;
+}
+
+/** 剥掉全部思考 part 的请求副本（thinking part 回放成 thinking 或 redacted_thinking 块，两种一并去掉）。
+ *  重建请求体而不是在 JSON 上删块：只剩思考的消息会被整条剔除；非目标模型开着思考时，末条 tool_use 没了思考块
+ *  会走「旧数据关思考」的分支，免得剥完又撞上「思考开启时 tool_use 前必须有思考块」的 400。 */
+function withoutThinking(req: StreamRequest): StreamRequest {
+  return { ...req, messages: req.messages.map(m => ({ ...m, parts: m.parts.filter(p => p.type !== 'thinking') })) };
+}
+
+/** HTTP 错误 → ProviderError。绑定错误显式带 code 与中文说明（设计稿 §3 第 3 条），其余按状态码老规则推导。 */
+function httpError(status: number, text: string): ProviderError {
+  const raw = `Anthropic HTTP ${status}: ${text}`;
+  return isThinkingBindingMessage(text, status)
+    ? new ProviderError(thinkingBindingMessage(raw), { status, code: 'thinkingBinding' })
+    : new ProviderError(raw, { status });
 }
 
 function partToBlock(p: ContentPart): Record<string, unknown> | undefined {
@@ -108,13 +166,29 @@ export class AnthropicProvider implements AgentProvider {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
+  private post(headers: Record<string, string>, body: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
+    return this.fetchImpl(`${this.baseUrl}/v1/messages`, { method: 'POST', signal, headers, body: JSON.stringify(body) })
+      .catch((e: unknown) => { throw new ProviderError(`网络错误: ${String(e)}`, { retryable: true }); });
+  }
+
   async *streamAgentMessage(req: StreamRequest, signal?: AbortSignal): AsyncIterable<AgentStreamEvent> {
-    const res = await this.fetchImpl(`${this.baseUrl}/v1/messages`, {
-      method: 'POST', signal,
-      headers: { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify(buildAnthropicBody(req, this.modelId)),
-    }).catch((e: unknown) => { throw new ProviderError(`网络错误: ${String(e)}`, { retryable: true }); });
-    if (!res.ok || !res.body) throw new ProviderError(`Anthropic HTTP ${res.status}: ${await res.text()}`, { status: res.status });
+    const binding = anthropicBindingControls(this.baseUrl, this.modelId);
+    const headers: Record<string, string> = { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' };
+    if (binding) headers['anthropic-beta'] = mergeBetas([BINDING_BETA]);
+    let res = await this.post(headers, buildAnthropicBody(req, this.modelId, { bindingControls: binding }), signal);
+    if (!res.ok || !res.body) {
+      const text = await res.text();
+      // 没带 beta 头（第三方中转，或官方端点上的非目标 id）就没法让服务端 drop_block。官方文档的恢复法：
+      // 剥掉历史里全部 thinking / redacted_thinking 块（text 与 tool_use 留着）重试一次——这一轮少了之前的推理，
+      // 但会话能走下去；否则前缀每步都在变，这个会话之后的每次请求都是同一条 400。
+      // 只重试一次：剥完仍是绑定错误说明问题不在这些块上，再发也一样。没有可回放的思考块时剥了还是同一个请求体，不白发
+      if (!binding && isThinkingBindingMessage(text, res.status) && req.messages.some(m => m.parts.some(isReplayableThinking))) {
+        res = await this.post(headers, buildAnthropicBody(withoutThinking(req), this.modelId), signal);
+        if (!res.ok || !res.body) throw httpError(res.status, await res.text());
+      } else {
+        throw httpError(res.status, text);
+      }
+    }
 
     const blocks = new Map<number, { type: string; id?: string; name?: string; json: string; thinking: string; signature: string; redactedData: string }>();
     let inputTokens = 0; let outputTokens = 0; let stopReason: StopReason = 'endTurn';
