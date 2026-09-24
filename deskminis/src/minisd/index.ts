@@ -834,7 +834,12 @@ export async function startMinisd(opts?: { dataDir?: string; host?: string; port
     //    实际解析在 D3/D4 连接时发生。D6 起 list 增 configError 布尔 + mcp.servers.test 试连。 ──
     // configError 只回布尔：loadError 原文是 parse 异常消息，可能带文件片段（内含明文 headers），
     // 不出 minisd（D2 审核备忘的脱敏落实）；前端据布尔显示固定警示文案。
-    'mcp.servers.list': () => ({ servers: mcpServers.list(), statuses: mcpManager.statuses(), configError: Boolean(mcpServers.loadError) }),
+    // W1a-4：出错时另带 configErrorKind 枚举（read / parse / shape），界面据此区分「改语法」与「查权限或占用」。
+    // 只在出错时带这个键——不带 null：mcp-config.test.ts 的 list 用 toEqual 精确比对，枚举也不含任何原文。
+    'mcp.servers.list': () => ({
+      servers: mcpServers.list(), statuses: mcpManager.statuses(), configError: Boolean(mcpServers.loadError),
+      ...(mcpServers.loadErrorKind ? { configErrorKind: mcpServers.loadErrorKind } : {}),
+    }),
     'mcp.servers.upsert': (p: Record<string, unknown>) => {
       mcpServers.upsert(p);
       return { ok: true };

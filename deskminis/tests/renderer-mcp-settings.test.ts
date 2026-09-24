@@ -95,3 +95,47 @@ describe('D6 chat store：MCP state 与五 action', () => {
     }
   });
 });
+
+describe('W1a 配置损坏', () => {
+  // 设计稿 §4 W1a-4 / 附录 mcp.md W1a-mcpcorrupt。源码守卫只认调用形态与绑定形态，不认散文里的裸字符串：
+  // 先剥掉模板里的 <!-- --> 与脚本里的注释，免得一句提到函数名的注释把守卫喂饱。
+  const tpl = mcp.slice(mcp.indexOf('<template>')).replace(/<!--[\s\S]*?-->/g, '');
+  const script = mcp.slice(0, mcp.indexOf('<template>')).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const beforeForm = tpl.slice(0, tpl.indexOf('<form'));
+
+  it('configError 横幅只有一条（:82-84 与 :89-91 曾同时出现），且不再说「自动重读」这句假话', () => {
+    expect(tpl.split('v-if="chat.mcpServers.configError"').length - 1).toBe(1);
+    expect(mcp).not.toContain('自动重读');
+  });
+
+  it("横幅按 configErrorKind 分支：read 类说权限或占用，不说「解析失败」", () => {
+    expect(tpl).toMatch(/v-if="chat\.mcpServers\.configErrorKind === 'read'"/);
+  });
+
+  it('配置损坏时「添加服务器」按钮隐藏', () => {
+    const btn = tpl.match(/<button[^>]*>[^\n]*添加服务器<\/button>/)?.[0] ?? '';
+    expect(btn, '找不到添加按钮').not.toBe('');
+    expect(btn).toMatch(/v-if="[^"]*!chat\.mcpServers\.configError[^"]*"/);
+  });
+
+  it('开关走 onToggle，函数体里 await toggleMcpServer、catch 写 err、重拉列表并拨回勾选框', () => {
+    expect(tpl).toContain('@change="onToggle(');
+    expect(tpl).not.toMatch(/@change="chat\.toggleMcpServer\(/);
+    const body = script.match(/async function onToggle\([^)]*\)[^{]*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    expect(body, '找不到 onToggle 函数体').not.toBe('');
+    expect(body).toMatch(/await chat\.toggleMcpServer\(/);
+    expect(body).toMatch(/catch\s*\(/);
+    expect(body).toMatch(/err\.value\s*=/);
+    expect(body).toMatch(/chat\.fetchMcpServers\(/);
+    expect(body).toMatch(/\.checked\s*=/);
+  });
+
+  it('表单关着时，行内操作（开关 / 删除）的错误也看得见：表单之外有一条 err 行', () => {
+    expect(beforeForm).toMatch(/<p v-if="err[^"]*" class="errline"[^>]*>\{\{ err \}\}<\/p>/);
+  });
+
+  it('store 透传 configErrorKind（类型与 fetch 两处）', () => {
+    expect(chat).toMatch(/configErrorKind\?: 'read' \| 'parse' \| 'shape'/);
+    expect(chat).toMatch(/configErrorKind:[^\n]*r\?\.configErrorKind/);
+  });
+});

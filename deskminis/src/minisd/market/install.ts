@@ -506,17 +506,23 @@ export class MarketInstaller {
   }
 
   /** market.installed({kind})：provenance 表 + 本体现状双向核对（§6）。
-   *  表里有但本体已删（技能目录/表行没了、servers.json 条目删了）→ 视为未装并清理登记行。 */
+   *  表里有但本体已删（技能目录/表行没了、servers.json 条目删了）→ 视为未装并清理登记行。
+   *  例外（W1a-4）：servers.json 读坏时 mcp 登记行原样返回、一行不删，理由见函数体。 */
   installed(p: { kind?: unknown }): { items: MarketInstalledItem[] } {
     const kind = p.kind;
     if (kind !== 'skill' && kind !== 'mcp') throw new Error(`非法 kind: ${String(kind)}（应为 skill 或 mcp）`);
     const rows = this.stmtSelect.all(kind) as InstallRow[];
+    // servers.json 读坏（read/parse/shape）时 list() 是个假空表，不代表「本体已删」。拿它核对，
+    // 每一行都会被当孤儿删掉：打开市场页（refreshInstalled）或点检查更新，就会永久丢掉全部 MCP
+    // 登记，修好文件重启后市场显示未装、更新检查也不再覆盖它们（设计稿 §2「损坏时拒绝一切写入」）。
+    // 核对不了就不核对：登记行按原样报告，市场照旧显示已装；真去重装或更新也会被 upsert 拒写。
+    const mcpUnverifiable = kind === 'mcp' && this.opts.mcpStore.loadErrorKind !== undefined;
     const mcpNames = new Set(this.opts.mcpStore.list().map(e => e.name));
     const items: MarketInstalledItem[] = [];
     for (const r of rows) {
       const alive = kind === 'skill'
         ? this.opts.skillStore.get(r.local_ref) !== undefined
-        : mcpNames.has(r.local_ref);
+        : mcpUnverifiable || mcpNames.has(r.local_ref);
       if (!alive) {
         this.stmtDelete.run(r.item_id); // 本体已删：登记行清理，视为未装
         continue;

@@ -2,7 +2,8 @@
 /** T5：MCP 服务器。两种 transport——stdio（本地进程）与 streamable-http（远端 URL）。
  *  env / headers 里可以写 $$VAR 引用环境变量：**原样存取不解析**，
  *  界面上展示引用名本身是安全的，真正的解析在连接时发生（后端 D3/D4）。
- *  configError 只拿到布尔：加载失败的原文可能带明文 headers，不出 minisd。 */
+ *  configError 只拿到布尔：加载失败的原文可能带明文 headers，不出 minisd；
+ *  W1a-4 起另有 configErrorKind 枚举（read / parse / shape），只用来选横幅文案。 */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useChat } from '../../stores/chat';
 import UiIcon from '../UiIcon.vue';
@@ -57,6 +58,21 @@ async function submit(): Promise<void> {
     cancel();
   } catch (e) { err.value = e instanceof Error ? e.message : String(e); }
 }
+/** W1a-4 开关失败要回滚。勾选框是 :checked 单向绑定，点下去 DOM 已经翻了；后端拒绝时 s.enabled 没变，
+ *  Vue 比对 vnode 发现 checked 没变就不会重写 DOM，框会一直停在错的状态。
+ *  所以失败后重拉列表（后端写盘失败时内存不变，列表即事实），再把框拨回列表里的值。 */
+async function onToggle(s: { name: string; enabled: boolean }, ev: Event): Promise<void> {
+  const box = ev.target as HTMLInputElement;
+  err.value = '';
+  try {
+    await chat.toggleMcpServer(s.name, !s.enabled);
+  } catch (e) {
+    err.value = e instanceof Error ? e.message : String(e);
+    try { await chat.fetchMcpServers(); } catch { /* 重拉也失败：按点之前的值拨回 */ }
+    const now = chat.mcpServers.servers.find(x => x.name === s.name);
+    box.checked = now ? now.enabled : s.enabled;
+  }
+}
 async function remove(name: string): Promise<void> {
   err.value = ''; confirming.value = '';
   try { await chat.removeMcpServer(name); if (editingName.value === name) cancel(); }
@@ -79,20 +95,27 @@ async function test(): Promise<void> {
     <h2>MCP 服务器</h2>
     <p class="f-note">MCP 服务器给 agent 提供额外工具。改动即时生效，不用重启。</p>
 
-    <p v-if="chat.mcpServers.configError" class="cfgerr t-body">
-      servers.json 读不出来（格式有问题）。修好文件后回到这页会自动重读。
-    </p>
-
     <!-- T6e-3 补搬：后端 mcp.servers.list 一直回 configError，store 也存着，
          但界面从没读过——servers.json 语法坏了的时候，用户看到的是一个空列表，
-         以为服务器凭空消失了。空列表和「读不出来」必须是两句不同的话。 -->
-    <p v-if="chat.mcpServers.configError" class="errline">
-      servers.json 解析失败，已按空配置加载——请检查文件语法。下面的列表不是你配置的真实内容。
+         以为服务器凭空消失了。空列表和「读不出来」必须是两句不同的话。
+         W1a-4：这里原先有两条横幅同时出现（T5 一条、T6e-3 补搬又加一条），T5 那条还说「修好后回到这页会重读」，
+         而 store 只在启动时读一次盘——合成一条。配置读坏时后端拒绝一切写入，横幅要把这件事说出来；
+         read 类（权限 / 占用）不是语法问题，不能叫人去查语法。 -->
+    <p v-if="chat.mcpServers.configError" class="cfgerr t-body">
+      <template v-if="chat.mcpServers.configErrorKind === 'read'">
+        servers.json 读不出来——可能没有读取权限、正被其它程序占用，或者同名的是个文件夹。你配置的服务器这次都没有加载。
+      </template>
+      <template v-else>
+        servers.json 解析失败，已按空配置加载——请检查文件语法。你配置的服务器这次都没有加载。
+      </template>
+      <!-- 分两行：模板分支与后句之间的换行会被压成一个空格，夹在中文句号后面很扎眼 -->
+      <br />
+      为免覆盖原文件，这里暂时不能添加、修改、启停或删除 MCP 服务器；修好后重启 DeskMinis 即可。
     </p>
     <p v-if="!list.length && !chat.mcpServers.configError" class="f-note">还没有配置 MCP 服务器。</p>
     <div v-for="s in list" :key="s.name" class="mrow">
       <label class="f-switch" :title="s.enabled ? '停用' : '启用'">
-        <input type="checkbox" :checked="s.enabled" @change="chat.toggleMcpServer(s.name, !s.enabled)" />
+        <input type="checkbox" :checked="s.enabled" @change="onToggle(s, $event)" />
         <i></i>
       </label>
       <span class="minfo">
@@ -116,7 +139,11 @@ async function test(): Promise<void> {
       <button v-else class="f-btn danger" type="button" @click="confirming = s.name"><UiIcon name="trash" :size="14" /></button>
     </div>
 
-    <button v-if="!open" class="f-btn" type="button" @click="startNew"><UiIcon name="plus" :size="14" />添加服务器</button>
+    <!-- 行内操作（开关 / 删除）的错误：表单关着时表单里那条 err 行不渲染，失败就成了「点了没反应」 -->
+    <p v-if="err && !open" class="errline">{{ err }}</p>
+
+    <!-- 配置读坏时后端拒绝写入，添加按钮留着只会让人填完一整张表才被拒 -->
+    <button v-if="!open && !chat.mcpServers.configError" class="f-btn" type="button" @click="startNew"><UiIcon name="plus" :size="14" />添加服务器</button>
 
     <form v-if="open" class="f-card" @submit.prevent="submit">
       <div class="f-grid">

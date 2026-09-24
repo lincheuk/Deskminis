@@ -1,7 +1,7 @@
 /** D2 MCP 配置与存储层：servers.json 的读写与归一。
  *  本步只做配置 CRUD——不发起任何网络请求、不起子进程（连接在 D3/D4）。
  *  读写姿态对齐 ProviderStore：临时文件 + rename 原子写，手编笔误不崩 minisd 启动。 */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MinisPaths } from '../paths';
 
@@ -101,14 +101,32 @@ function decodeEntry(name: string, raw: Record<string, unknown>): McpServerEntry
   return entry;
 }
 
+/** servers.json 读不出来的三类原因：read = 文件在但读不到（权限、占用、是个目录……）；
+ *  parse = JSON 语法错；shape = 顶层不是对象。只作为枚举出 minisd，界面据此选横幅文案。 */
+export type McpConfigErrorKind = 'read' | 'parse' | 'shape';
+
+/** 拒写文案：常量，只允许拼 errno 码，**绝不拼 loadError 原文**——
+ *  JSON.parse 的报错会带出约 10 字符的源码上下文（Electron 38 / V8 14 实测），可能正好是密钥片段；
+ *  这句会经 RPC 原样到设置页和市场确认卡上。 */
+function refuseMessage(kind: McpConfigErrorKind, code: string | undefined): string {
+  if (kind === 'read') {
+    return `servers.json 无法读取（${code ?? 'UNKNOWN'}）。为免覆盖原文件，MCP 服务器暂时不能添加、修改、启停或删除。`
+      + '请检查文件权限或是否被其它程序占用，然后重启 DeskMinis。';
+  }
+  return 'servers.json 格式有误。为免覆盖你原来的配置，MCP 服务器暂时不能添加、修改、启停或删除。请修好这个文件后重启 DeskMinis。';
+}
+
 export class McpServersStore {
   private dir: string;
   private file: string;
   /** Map 天然保持插入序 → list() 与写回的键序即文件序 */
   private entries = new Map<string, McpServerEntry>();
-  /** 整文件 JSON 解析失败按空配置处理（手编笔误不崩 minisd 启动），
-   *  诊断字符串留在 store 上供以后的 UI 展示 */
+  /** 读盘出错时按空配置加载（手编笔误不崩 minisd 启动），但**之后拒绝一切写入**（见 assertWritable）。
+   *  loadError 是诊断原文，只留在 minisd 内部（parse 类可能带文件片段）；对外只给 loadErrorKind 枚举。 */
   loadError: string | undefined;
+  loadErrorKind: McpConfigErrorKind | undefined;
+  /** read 类的 errno 码（EACCES / EISDIR / EBUSY…），拒写文案里用它告诉用户是哪种读不到 */
+  loadErrorCode: string | undefined;
 
   constructor(paths: MinisPaths) {
     this.dir = paths.globalDir('mcp-servers');
@@ -121,15 +139,33 @@ export class McpServersStore {
    *  判序依据：①有 mcpServers 对象键；③顶层自带 command/url（本身就是一个 server 定义）；
    *  其余按②处理，非对象值逐条跳过。 */
   private load(): void {
-    if (!existsSync(this.file)) return;
+    // 不用 existsSync：它对任何 stat 错误都回 false，父目录 EACCES / ENOTDIR 也会被当成「没有文件」而照常可写
+    let text: string;
+    try {
+      text = readFileSync(this.file, 'utf8');
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException | undefined)?.code;
+      if (code === 'ENOENT') return; // 首次运行的正常路径：空配置，可写
+      // 其它读错误不再冒充「解析失败」；只记 errno 码（码来自 Node，形如 EACCES，校验一下再用）
+      this.loadErrorKind = 'read';
+      this.loadErrorCode = typeof code === 'string' && /^[A-Z0-9_]+$/.test(code) ? code : 'UNKNOWN';
+      this.loadError = `servers.json 读取失败: ${this.loadErrorCode}`;
+      return;
+    }
+    // 记事本等编辑器存 UTF-8 时会带 BOM，JSON.parse 不认它——合法文件不能因此被判成损坏
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    // 0 字节或只有空白：文件里已经没有数据可丢，当可写的空配置；拒写只会让用户卡住、得自己去删文件
+    if (text.trim() === '') return;
     let parsed: unknown;
     try {
-      parsed = JSON.parse(readFileSync(this.file, 'utf8'));
+      parsed = JSON.parse(text);
     } catch (e) {
+      this.loadErrorKind = 'parse';
       this.loadError = `servers.json 解析失败: ${e instanceof Error ? e.message : String(e)}`;
       return;
     }
     if (!isPlainObject(parsed)) {
+      this.loadErrorKind = 'shape';
       this.loadError = 'servers.json 顶层不是 JSON 对象';
       return;
     }
@@ -147,11 +183,21 @@ export class McpServersStore {
     }
   }
 
+  /** 读盘出错时内存是空的，而 save 会把内存副本整份写回——此时写任何一次都会把用户原来的配置抹掉。
+   *  所以出错后拒绝一切写入，原文件留在原位不动（不改名、不备份），等用户修好后重启。 */
+  private assertWritable(): void {
+    if (this.loadErrorKind) throw new Error(refuseMessage(this.loadErrorKind, this.loadErrorCode));
+  }
+
   /** 原子写（对齐 ProviderStore 模式）；始终写标准形态，条目序保持插入序。
-   *  extra 先铺、识别字段后盖——未识别字段原样合并，写回不丢数据。 */
-  private save(): void {
+   *  extra 先铺、识别字段后盖——未识别字段原样合并，写回不丢数据。
+   *  写的是调用方给的新 Map，**落盘成功后才换进内存**：写盘失败时内存仍与磁盘一致，
+   *  设置页开关失败后重拉列表拿到的才是真相（否则界面会显示一个磁盘上并不存在的状态）。 */
+  private save(next: Map<string, McpServerEntry> = this.entries): void {
+    // 第二道防线：以后新增的写路径即使忘了在入口调 assertWritable，也覆盖不了读坏的文件
+    this.assertWritable();
     const out: Record<string, unknown> = {};
-    for (const [name, e] of this.entries) {
+    for (const [name, e] of next) {
       const o: Record<string, unknown> = { ...(e.extra ?? {}) };
       if (e.transport === 'stdio') {
         o.command = e.command;
@@ -173,6 +219,7 @@ export class McpServersStore {
     const tmp = this.file + '.tmp';
     writeFileSync(tmp, JSON.stringify({ mcpServers: out }, null, 2), 'utf8');
     renameSync(tmp, this.file);
+    this.entries = next;
   }
 
   /** 文件序（插入序）；返回副本，调用方改不到 store 内部状态 */
@@ -184,6 +231,8 @@ export class McpServersStore {
    *  name 非空、stdio 必有 command、streamable-http 必有 url，非法抛中文 Error。
    *  新条目补 createdAt/updatedAt；更新条目只动 updatedAt，保留 createdAt 与 extra。 */
   upsert(input: Record<string, unknown>): McpServerEntry {
+    // 拒写排在名称校验之前：配置读坏时，用户先要知道的是「为什么什么都写不进去」
+    this.assertWritable();
     const name = typeof input.name === 'string' ? input.name.trim() : '';
     if (name === '') throw new Error('MCP server 名称不能为空');
     const entry = decodeEntry(name, input);
@@ -205,21 +254,28 @@ export class McpServersStore {
       entry.createdAt ??= now;
     }
     entry.updatedAt = now;
-    this.entries.set(name, entry);
-    this.save();
+    const next = new Map(this.entries);
+    next.set(name, entry); // 已有键原位替换，Map 保持原插入序
+    this.save(next);
     return { ...entry };
   }
 
+  /** 配置读坏时对不存在的名字也报拒写：否则「删掉了」其实什么都没发生，界面却当成功 */
   remove(name: string): void {
-    if (!this.entries.delete(name)) return;
-    this.save();
+    this.assertWritable();
+    if (!this.entries.has(name)) return;
+    const next = new Map(this.entries);
+    next.delete(name);
+    this.save(next);
   }
 
   toggle(name: string, enabled: boolean): void {
+    this.assertWritable();
     const e = this.entries.get(name);
     if (!e) throw new Error(`MCP server 不存在: ${name}`);
-    e.enabled = enabled === true;
-    e.updatedAt = new Date().toISOString();
-    this.save();
+    // 换新对象而不是原地改：写盘失败时旧对象原样留在内存里
+    const next = new Map(this.entries);
+    next.set(name, { ...e, enabled: enabled === true, updatedAt: new Date().toISOString() });
+    this.save(next);
   }
 }

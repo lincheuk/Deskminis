@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
@@ -160,7 +160,9 @@ function githubProbeFetch(log: string[]): typeof fetch {
   }) as typeof fetch;
 }
 
-async function makeCtx(): Promise<Ctx> {
+/** seedServersJson：在构造 McpServersStore 之前落盘的 servers.json 原文（W1a-4 损坏拒写例用）——
+ *  store 只在构造时读一次盘，晚了就看不见。 */
+async function makeCtx(opts: { seedServersJson?: string } = {}): Promise<Ctx> {
   const root = mkdtempSync(join(tmpdir(), 'dm-mkt-inst-'));
   const db = openDb(join(root, 'minis.db'));
   const paths = new MinisPaths(root);
@@ -177,6 +179,10 @@ async function makeCtx(): Promise<Ctx> {
   mkdirSync(skillsRoot, { recursive: true });
   const skillStore = new SkillStore(db);
   const importer = new SkillImporter(skillsRoot, skillStore, githubProbeFetch(githubFetches));
+  if (opts.seedServersJson !== undefined) {
+    mkdirSync(paths.globalDir('mcp-servers'), { recursive: true });
+    writeFileSync(join(paths.globalDir('mcp-servers'), 'servers.json'), opts.seedServersJson, 'utf8');
+  }
   const mcpStore = new McpServersStore(paths);
   let skillsChangedCalls = 0;
   const installer = new MarketInstaller({
@@ -336,6 +342,96 @@ describe('G2 market.install 安全闸', () => {
     const e = await errOf(ctx.installer.install({ id: 'mcp-registry:io.github.owner/mcp-fetch', confirm: true, env: {} }));
     expect(e.message).toContain('FETCH_API_KEY');
     expect(ctx.mcpStore.list().length).toBe(0);
+  });
+});
+
+describe('W1a-4 servers.json 损坏时市场安装被拒', () => {
+  it('坏 JSON 下安装 MCP → 中文拒写错误、文件字节不变、不登记 provenance', async () => {
+    const ctx = await makeCtx({ seedServersJson: '{ 这根本不是 json' });
+    try {
+      const file = join(ctx.root, 'mcp-servers', 'servers.json');
+      const before = readFileSync(file);
+      const e = await errOf(ctx.installer.install({
+        id: 'mcp-registry:io.github.owner/mcp-fetch', confirm: true, env: { FETCH_API_KEY: 'v' },
+      }));
+      expect(e).toBeInstanceOf(Error);
+      expect(e.message).toMatch(/servers\.json/);
+      expect(readFileSync(file).equals(before)).toBe(true);
+      // 「没登记」直接查库：配置读坏时 installed() 核对不了本体，拿它的返回值作证，
+      // recordInstall 即便跑了也看不出来（审查实验：挪到 upsert 之前这条照样绿）。
+      expect(ctx.db.prepare('SELECT count(*) AS n FROM market_installs WHERE kind = ?').get('mcp')).toEqual({ n: 0 });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  // 模拟「改文件后重启」：同一数据根、同一个库，按给定内容重写 servers.json（传 null 则换成
+  // 同名目录，触发 read 类），再整组重建 store 与 installer——store 只在构造时读一次盘。
+  function restartWith(ctx: Ctx, content: Buffer | string | null): { mcpStore: McpServersStore; installer: MarketInstaller } {
+    const file = join(ctx.root, 'mcp-servers', 'servers.json');
+    if (content === null) {
+      rmSync(file, { force: true });
+      mkdirSync(file);
+    } else {
+      writeFileSync(file, content);
+    }
+    const mcpStore = new McpServersStore(new MinisPaths(ctx.root));
+    const installer = new MarketInstaller({
+      db: ctx.db, sources: [], client: {} as MarketClient, importer: ctx.importer, skillStore: ctx.skillStore, mcpStore,
+    });
+    return { mcpStore, installer };
+  }
+  const FETCH_ID = 'mcp-registry:io.github.owner/mcp-fetch';
+  const rowCount = (ctx: Ctx): number =>
+    (ctx.db.prepare('SELECT count(*) AS n FROM market_installs WHERE item_id = ?').get(FETCH_ID) as { n: number }).n;
+
+  it('坏 JSON 下打开市场（installed kind=mcp）不删登记行；修好重启后仍算已装', async () => {
+    const ctx = await makeCtx();
+    try {
+      const r = await ctx.installer.install({ id: FETCH_ID, confirm: true, env: { FETCH_API_KEY: 'v' } });
+      const good = readFileSync(join(ctx.root, 'mcp-servers', 'servers.json'));
+      expect(rowCount(ctx)).toBe(1);
+      // 用户手改留下一个尾逗号：条目都还在文件里，只是语法坏了
+      const broken = restartWith(ctx, good.toString('utf8').trimEnd().replace(/\}$/, ',}'));
+      expect(broken.mcpStore.loadErrorKind).toBe('parse');
+      const whileBroken = broken.installer.installed({ kind: 'mcp' }).items;
+      expect(rowCount(ctx)).toBe(1);
+      // 核对不了就按登记原样报告：市场照旧显示「已装」，不诱导用户去点一次注定被拒的重装
+      expect(whileBroken.map(i => [i.id, i.localRef])).toEqual([[FETCH_ID, r.localRef]]);
+      // 修好（字节还原）再重启：登记还在，更新检查照旧覆盖它
+      const fixed = restartWith(ctx, good);
+      expect(fixed.mcpStore.loadErrorKind).toBeUndefined();
+      expect(fixed.installer.installed({ kind: 'mcp' }).items.map(i => [i.id, i.localRef])).toEqual([[FETCH_ID, r.localRef]]);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  it('servers.json 读不出来（同名目录，read 类）时同样不删登记行', async () => {
+    const ctx = await makeCtx();
+    try {
+      await ctx.installer.install({ id: FETCH_ID, confirm: true, env: { FETCH_API_KEY: 'v' } });
+      const broken = restartWith(ctx, null);
+      expect(broken.mcpStore.loadErrorKind).toBe('read');
+      expect(broken.installer.installed({ kind: 'mcp' }).items.map(i => i.id)).toEqual([FETCH_ID]);
+      expect(rowCount(ctx)).toBe(1);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  it('只停 mcp 的核对：servers.json 读坏时，技能本体删了照旧清理登记行', async () => {
+    const ctx = await makeCtx({ seedServersJson: '{ 这根本不是 json' });
+    try {
+      expect(ctx.mcpStore.loadErrorKind).toBe('parse');
+      const r = await ctx.installer.install({ id: 'clawhub:owner-0/any', confirm: true });
+      rmSync(join(ctx.root, 'skills', r.localRef), { recursive: true, force: true });
+      ctx.skillStore.delete(r.localRef);
+      expect(ctx.installer.installed({ kind: 'skill' }).items).toEqual([]);
+      expect(ctx.db.prepare('SELECT count(*) AS n FROM market_installs WHERE kind = ?').get('skill')).toEqual({ n: 0 });
+    } finally {
+      await ctx.close();
+    }
   });
 });
 
