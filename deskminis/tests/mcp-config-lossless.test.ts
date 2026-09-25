@@ -6,6 +6,7 @@
  *  (c) args / env / headers 里写成数字或布尔值的元素被当成「不是字符串」过滤掉（"--port", 8080 只剩 "--port"）。
  *  本文件钉住：
  *  ① 认不出的条目按原键存原文，保存时原样写回，跟在识别出的条目后面；撞名时以识别出的为准，被顶掉的旧草稿不会复活；
+ *     单个裸条目认不出时整份按 default 存，mcpServers 写成数组时按名为 mcpServers 的条目存（W1a-7c）；
  *  ② 顶层其它键原样写回，键序照原文件（mcpServers 留在原来的位置）；
  *  ③ 有限数字与布尔值转成字符串收下；NaN / Infinity、对象、数组、null 仍不收；
  *  ④ 各条写路径（添加、改备注、改名、删除、启停）都不丢；应用开着时手改后重读（W1a-5）按新文件重新记，
@@ -129,6 +130,32 @@ describe('W1a-7b ① 认不出的条目原样写回', () => {
     expect(raw.mcpServers.fs).toMatchObject({ command: 'npx', enabled: false });
     expect(raw.mcpServers.stray).toBe('not-an-object');
     expect(raw.mcpServers.draft).toEqual(DRAFT);
+  });
+
+  it('变体③（单个裸条目）认不出时，整份按 default 原样写回——连同请求头里的密钥（W1a-7c）', () => {
+    // 顶层自带 url 就按单个裸条目认；command 写成 null 解码不了。以前（与只解码不收原文的写法）这一整条读入时就丢了，
+    // 下一次任意保存把只含新条目的配置写回去，密钥跟着永久消失（W1a-7b 三审变异 R1）
+    const root = mkRoot();
+    const lone = { url: 'https://x.example/mcp', command: null, headers: { Authorization: 'Bearer keep-me' } };
+    const store = seed(root, lone);
+    expect(names(store)).toEqual([]);
+    store.upsert({ name: 'added', command: 'y' });
+    const raw = readCfg(root);
+    expect(Object.keys(raw.mcpServers)).toEqual(['added', 'default']);
+    expect(raw.mcpServers.default).toEqual(lone);
+  });
+
+  it('变体②里 mcpServers 写成数组（从别家配置转过来的常见误写）：按名为 mcpServers 的条目原样写回（W1a-7c）', () => {
+    // mcpServers 不是对象就不走标准形态，按裸名字键控读，它自己成了一个认不出的条目。觉得 mcpServers.mcpServers 看着怪、
+    // 读入时把它跳过，数组就丢了（W1a-7b 三审变异 Y5）
+    const root = mkRoot();
+    const list = [{ name: 'fs', command: 'npx', args: ['-y', '@mcp/fs'] }];
+    const store = seed(root, { mcpServers: list });
+    expect(names(store)).toEqual([]);
+    store.upsert({ name: 'added', command: 'y' });
+    const raw = readCfg(root);
+    expect(Object.keys(raw.mcpServers)).toEqual(['added', 'mcpServers']);
+    expect(raw.mcpServers.mcpServers).toEqual(list);
   });
 });
 
