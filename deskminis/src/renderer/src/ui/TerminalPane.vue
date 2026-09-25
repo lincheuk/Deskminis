@@ -1,5 +1,10 @@
 <script setup lang="ts">
-/** V4：终端。会话的长驻 shell 实况——底部抽屉，全宽（244px 的右栏放不下一个终端）。
+/** V4：终端。本会话的交互式 PowerShell——底部抽屉，全宽（244px 的右栏放不下一个终端）。
+ *
+ *  它和 agent 跑命令用的 shell 是两套实例（minisd 里终端归 TerminalManager、shell_execute 归 ShellManager，
+ *  terminal.ts 自己也写着「与工具 shell 独立实例」），只是都起在本会话的工作区目录：cd、环境变量互不相通。
+ *  W2b-11a 订正：这里和标题行、连接提示原先都写「与 agent 共用同一个长驻 shell」，用户照着在终端里 cd、设变量，
+ *  以为 agent 接着用得上。
  *
  *  无 PTY 架构：minisd 侧终端驱动逐字符回显，前端**不做本地回显**，
  *  xterm 显示的一切都来自 terminal.attach 的滚动缓冲 + terminal.output 推送。
@@ -60,7 +65,7 @@ async function attach(sessionId: string): Promise<void> {
     if (r?.scrollback) term.write(String(r.scrollback));
     // 空滚动缓冲 = 这个会话的 shell 还没吐过任何东西。给一行灰提示，
     // 否则用户面对的是一整块纯黑，分不清「还没开始」和「坏了」。
-    else term.writeln('\x1b[90m[终端已连接。输入命令回车执行；这个 shell 与 agent 共用]\x1b[0m');
+    else term.writeln('\x1b[90m[终端已连接。输入命令回车执行；这是独立的 PowerShell，不与 agent 的 shell 共享 cd 和环境变量]\x1b[0m');
     const queued = pending; pending = []; attaching = false;
     for (const d of queued) term.write(d);
   } catch (e) {
@@ -105,7 +110,7 @@ onBeforeUnmount(() => {
   <section class="term">
     <header class="thead">
       <UiIcon name="terminal" :size="15" />
-      <span class="t-aux">终端 · 与 agent 共用同一个长驻 shell（cd 与环境变量互通）</span>
+      <span class="t-aux">终端 · 独立的 PowerShell，起在本会话工作区；不与 agent 的 shell 共享 cd 和环境变量</span>
       <button class="ib" type="button" title="收起终端" @click="emit('close')"><UiIcon name="x" :size="15" /></button>
     </header>
     <div ref="host" class="host"></div>

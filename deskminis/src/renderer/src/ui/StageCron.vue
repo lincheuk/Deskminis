@@ -2,8 +2,10 @@
 /** T5：定时任务。逻辑照搬旧面板（调度值三态转换、once 的本地墙钟 ↔ epoch 秒），
  *  版面重做成「舞台页」而不是右栏窄面板——定时任务是要读 prompt 全文的东西。
  *
- *  运行边界常驻页头：**应用没开就不会跑**。不写清楚的话，用户会以为它是 24/7 服务，
- *  错过一次就来问「为什么没执行」。 */
+ *  运行边界常驻页头：关掉窗口只是隐藏到托盘（main/index.ts 的 close 处理），minisd 照常每 30 秒查一次到点的任务；
+ *  从托盘退出或关机后才不跑，错过的任务下次启动时只补跑一次（cron/store.ts：dueJobs 取过点的，markRun 从当下重算下次）。
+ *  不写清楚的话，用户要么以为关了窗口任务就停了，要么以为它是 24/7 服务、错过一次就来问「为什么没执行」。
+ *  W2b-11a 订正：这里原写「应用没开就不会跑——它不是后台服务」，关窗后它恰恰还在后台跑。 */
 import { onMounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import { describeSchedule } from '../lib/cron/describe';
@@ -89,7 +91,7 @@ function fmtTime(sec?: number): string {
       <header class="head">
         <div class="htxt">
           <h1 class="t-h1">定时任务</h1>
-          <p class="t-body sub">到点自动开一个会话跑你写好的 prompt。<b>应用没开就不会跑</b>——它不是后台服务。</p>
+          <p class="t-body sub">到点自动开一个会话跑你写好的 prompt。关掉窗口后应用仍在托盘里运行，任务照常触发；<b>从托盘退出或关机后就不会跑</b>，错过的任务下次启动时只补跑一次。</p>
           <!-- T6e-3 补搬：旧 CronPanel 写明了这一句，换壳时丢了。定时任务跑起来时**没人在看**——
                遇到要确认的权限请求（写工作区外、gated 命令），minisd 会在 90 秒后按超时自动拒绝，
                任务往往就此半途失败。不说清楚，用户只会看到「定时任务莫名其妙没做完」。 -->
