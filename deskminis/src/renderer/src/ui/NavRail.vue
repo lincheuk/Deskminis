@@ -6,6 +6,7 @@ import { computed, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import { groupSessions } from '../lib/nav/group';
 import { normalizeBinding, describeBinding } from '../lib/models/binding';
+import { waitingSessionIds } from '../lib/perm/scope';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
@@ -19,6 +20,9 @@ setInterval(() => { nowSec.value = Math.floor(Date.now() / 1000); }, 60_000);
 
 const groups = computed(() => groupSessions(chat.sessions, nowSec.value));
 const emojiOf = (id: string): string => chat.assistants.find(a => a.id === id)?.avatar ?? '';
+/** W2b-2：哪些会话的回合正卡在权限卡上。卡只在它自己的会话里渲染，行上不标的话，
+ *  用户在别的会话里看不出谁在等——没人去批，那张卡 90 秒后被自动拒绝。 */
+const waiting = computed(() => waitingSessionIds(chat.pendingPerms));
 /** 会话前的彩色小图标：原图每条 conversation 都带一个彩色圆图标，
  *  一列纯文字很难扫。没有助手 emoji 时退化成纯色圆点，色相由会话 id 派生（稳定）。 */
 function dotStyle(id: string): Record<string, string> {
@@ -143,6 +147,8 @@ function bindingView(s: S) { return describeBinding(s.modelBinding, chat.provide
             <button type="button" class="srow" @click="openSession(s.id)">
               <span class="semo" :style="dotStyle(s.id)">{{ emojiOf(String(s.assistantId ?? '')) || '' }}</span>
               <span class="stitle">{{ s.title || '新会话' }}</span>
+              <!-- W2b-2：这个会话在等你批准。当前会话的行也标：切到设置等视图时，对话流里的卡看不见 -->
+              <span v-if="waiting.has(s.id)" class="swait" title="有权限请求等你批准" role="img" aria-label="有权限请求等你批准"><UiIcon name="shield" :size="13" /></span>
             </button>
             <button type="button" class="smore" :title="`${s.title || '新会话'} 的更多操作`" :aria-expanded="menuFor === s.id" @click.stop="toggleMenu(s.id)">⋮</button>
           </div>
@@ -318,6 +324,8 @@ function bindingView(s: S) { return describeBinding(s.modelBinding, chat.provide
   font-size: 12px; line-height: 1;
 }
 .stitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* W2b-2 等批准标：与权限卡、任务面板的「等你批准」同一图标同一令牌；不缩，长标题让它先截断 */
+.swait { flex: 0 0 auto; display: inline-flex; color: var(--c-warn); }
 
 .foot {
   flex: 0 0 auto; padding: var(--sp-3); display: flex; flex-direction: column; gap: 2px;

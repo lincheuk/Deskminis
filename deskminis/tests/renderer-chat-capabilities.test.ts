@@ -11,16 +11,21 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { sfcBlocks } from './sfc-blocks';
 
 const UI = join(__dirname, '../src/renderer/src/ui/');
 const read = (p: string): string => readFileSync(join(UI, p), 'utf8').replace(/\r\n/g, '\n');
 const chatv = read('StageChat.vue');
 
 describe('V1 — 权限卡', () => {
-  it('StageChat 渲染 pendingPerms，不是只在 watch 里数一下个数', () => {
+  it('StageChat 渲染当前会话的权限卡，不是只在 watch 里数一下个数', () => {
     expect(existsSync(join(UI, 'PermCard.vue'))).toBe(true);
     expect(chatv).toContain("import PermCard from './PermCard.vue'");
-    expect(chatv).toMatch(/v-for="p in chat\.pendingPerms"/);
+    // W2b-2 重指：原断言是 v-for="p in chat.pendingPerms"（渲染全部会话的卡）。卡按会话区分后改渲染 permsHere，
+    // 即当前会话自己的卡；不变量「权限卡真的渲染在对话流里」不变。先剥注释再认，注释里留一句旧写法喂不饱它
+    const { script, template } = sfcBlocks(chatv, 'StageChat.vue');
+    expect(template).toMatch(/v-for="p in permsHere"[^>]*>\s*<PermCard :perm="p" \/>/);
+    expect(script).toMatch(/const permsHere = computed\(\(\) => permsOf\(chat\.pendingPerms, chat\.activeId\)\)/);
   });
 
   it('三个决议按钮齐全（少一个就有一条路走不通）', () => {

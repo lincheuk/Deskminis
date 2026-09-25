@@ -5,6 +5,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
 import { parseMarkdown } from '../lib/markdown/parse';
 import { fmtHHMM } from '../lib/time/hhmm';
+import { permsOf, waitingElsewhere } from '../lib/perm/scope';
 import MarkdownView from '../components/MarkdownView.vue';
 import Composer from './Composer.vue';
 import StepGroup from './StepGroup.vue';
@@ -138,6 +139,18 @@ function jumpTurn(id: string): void {
 }
 const mdOf = (s: string) => parseMarkdown(s);
 
+/** W2b-2：权限卡按会话区分。这里只渲染当前会话自己的卡——以前渲染全部会话的，
+ *  B 的回合卡在权限上，卡却出现在 A 的对话流里，在 A 里点「允许」放行的是 B 的操作。 */
+const permsHere = computed(() => permsOf(chat.pendingPerms, chat.activeId));
+/** 其余在等批准的会话（最早在等的排第一）。它们的卡不在这里渲染，得有句话告诉用户：
+ *  NavRail 收起、或打开预览变成图标条时看不到行上的盾牌标，没人去批的话那张卡 90 秒后会被自动拒绝。 */
+const elsewhere = computed(() => waitingElsewhere(chat.pendingPerms, chat.activeId));
+/** 点提示切到最早在等的那个会话：它的卡离超时最近。 */
+function openWaiting(): void {
+  const id = elsewhere.value[0];
+  if (id) void chat.open(id);
+}
+
 // 新内容到达贴底（用户上翻时不抢——scrollTop 距底 >120 视为在看历史）
 const following = ref(true);
 function onScroll(): void {
@@ -154,8 +167,9 @@ function stickBottom(): void {
     if (el) el.scrollTop = el.scrollHeight;
   })));
 }
+// 卡只数当前会话的（W2b-2）；顶部提示行出现、消失会改变滚动区的高度，同样要重新贴底
 watch(
-  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.pendingPerms.length] as const,
+  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, permsHere.value.length, elsewhere.value.length > 0] as const,
   stickBottom,
 );
 // 分栏开合会改变列宽 → 内容重排、总高改变。不重新贴底的话，刚才还在视野里的
@@ -165,6 +179,15 @@ watch(() => props.narrow, stickBottom);
 
 <template>
   <div class="stage" :class="{ narrow: props.narrow }">
+    <!-- W2b-2：别的会话的回合正卡在权限卡上（卡只在它自己的会话里渲染）。钉在对话流顶部、放在滚动区外面——
+         放进滚动区的话，贴底跟随时它在视野上方，用户看不见 -->
+    <div v-if="elsewhere.length" class="col waitrow">
+      <button type="button" class="waitbar" @click="openWaiting">
+        <span class="waitic"><UiIcon name="shield" :size="14" /></span>
+        <span class="waitt">另有 {{ elsewhere.length }} 个会话在等你批准</span>
+        <span class="waitgo">去批准<UiIcon name="chevronRight" :size="13" /></span>
+      </button>
+    </div>
     <!-- keyup 与 mouseup 同接：键盘用户靠 Shift+方向键选中，只认 mouseup 等于对他们关门 -->
     <div ref="scroller" class="scroll" @scroll="onScroll" @mouseup="anno?.onMouseUp($event)" @keyup="anno?.onMouseUp($event)">
       <div class="col">
@@ -217,8 +240,9 @@ watch(() => props.narrow, stickBottom);
         <EventNotes />
 
         <!-- V1：权限卡。**没有它，agent 一请求权限就无声卡死到超时**——
-             T 波换壳时这块被落在旧组件树里，是当时最严重的一处漏接。 -->
-        <div v-for="p in chat.pendingPerms" :key="p.requestId" class="ablock">
+             T 波换壳时这块被落在旧组件树里，是当时最严重的一处漏接。
+             W2b-2：只渲染当前会话自己的卡，别的会话在等由顶部提示行与 NavRail 的盾牌标交代 -->
+        <div v-for="p in permsHere" :key="p.requestId" class="ablock">
           <PermCard :perm="p" />
         </div>
 
@@ -290,6 +314,20 @@ watch(() => props.narrow, stickBottom);
 .err :deep(svg) { flex: 0 0 auto; }
 
 .dock { flex: 0 0 auto; padding: 0 0 var(--sp-6); background: var(--c-bg); }
+
+/* W2b-2 别的会话在等批准的提示行：与权限卡、任务面板的「等你批准」同一图标同一令牌（盾牌 + 警示色）。
+   正文用主文字色——橙字压在浅橙底上对比度不到 3:1（PermCard .note 同一取舍）；「去批准」是去处，走链接色 */
+.waitrow { flex: 0 0 auto; padding-top: var(--sp-3); }
+.waitbar {
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  padding: var(--sp-2) var(--sp-4); border-radius: var(--r-s); cursor: pointer; text-align: left;
+  background: var(--c-warn-soft); color: var(--c-ink);
+  font-family: inherit; font-size: var(--t-item-size); line-height: var(--t-item-lh); font-weight: var(--w-md);
+}
+.waitbar:hover { filter: brightness(.97); }
+.waitic { display: inline-flex; flex: 0 0 auto; color: var(--c-warn); }
+.waitt { flex: 1; min-width: 0; }
+.waitgo { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; color: var(--c-link); }
 
 /* Y5 锚点导航轨：右缘竖点（绝对定位吃 .stage 的 position:relative）。点多时轨内静默滚动；
    z-index 15 < 50 槽位；焦点环走 theme.css 全局，不在这里另写一份。 */

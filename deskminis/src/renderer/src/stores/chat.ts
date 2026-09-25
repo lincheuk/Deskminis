@@ -9,7 +9,9 @@ const errText = (e: unknown): string => (e instanceof Error ? e.message : String
 let _syncDirtyTimer: ReturnType<typeof setTimeout> | undefined;
 
 interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number }; originDeviceId?: string; reasoningContent?: string }
-interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string }; note?: string }
+/** 待批的权限卡。sessionId（W2b-2）是卡所属的会话，取自引擎广播的 PermissionRequest.sessionId（必填，设计稿 §3 第 6 条）——
+ *  卡按会话分开渲染、超时留条只写给卡所属的会话，都靠它（判据在 lib/perm/scope）。 */
+interface PendingPerm { requestId: string; sessionId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string }; note?: string }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
@@ -181,7 +183,9 @@ export const useChat = defineStore('chat', {
       });
       // MU2a Task 10：params.meta 并入条目（超时秒数/风险分级/桥触发列表）；deadlineMs 在 push 时一次算定
       rpc.on('permission.request', ({ requestId, req, meta }: any) => this.pendingPerms.push({
-        requestId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle,
+        // W2b-2：记下卡属于哪个会话。以前不记，界面只能把所有会话的卡都渲染进当前对话流——
+        // B 的回合卡在权限上，卡却出现在 A 里，在 A 里点「允许」放行的其实是 B 的操作
+        requestId, sessionId: req.sessionId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle,
         timeoutMs: meta?.timeoutMs, riskClass: meta?.riskClass, bridgeTriggers: meta?.bridgeTriggers,
         // 审批前变更预览（file_write/file_edit 才有）：权限卡据此渲染差分，写文件不再盲批
         preview: req.preview,
@@ -191,11 +195,16 @@ export const useChat = defineStore('chat', {
         deadlineMs: typeof meta?.timeoutMs === 'number' ? Date.now() + meta.timeoutMs : undefined,
       }));
       // 询问超时（90s）或别的窗口已答复时 minisd 广播 resolved：不摘掉卡片就会永远挂在界面上。
-      // 决策 4b' 按 reason 分流：timeout → 摘卡 + 补「已超时拒绝」事件条（设计 §5.2-1）；answered/无 reason → 只摘卡。
+      // 决策 4b' 按 reason 分流：timeout → 摘卡，卡属于当前会话时再补「已超时拒绝」事件条（设计 §5.2-1；W2b-2 起按会话判）；
+      // answered/无 reason → 只摘卡。
       // renderer 不做 deadline 自判（恒晚于 minisd 一个广播延迟，自判永不触发——评审命门 1）。
       rpc.on('permission.resolved', ({ requestId, reason }: any) => {
+        // W2b-2：摘卡之前先认出它属于哪个会话——超时留条只写给卡所属的会话。eventNotes 是当前会话的单会话缓冲，
+        // 别的会话的卡超时了写进来，就串进了当前会话的对话流；手里没有这张卡（渲染端重载后才收到）就不猜、不写。
+        // 卡属于别的会话时这条留条没有去处（切过去时 open() 会清 eventNotes），留给 W6c 的交互登记
+        const hit = this.pendingPerms.find(x => x.requestId === requestId);
         this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);
-        if (reason === 'timeout') {
+        if (reason === 'timeout' && hit?.sessionId === this.activeId) {
           this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail: '权限请求已超时，自动拒绝', retryable: false }];
         }
       });
