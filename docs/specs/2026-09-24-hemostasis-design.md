@@ -167,6 +167,7 @@
 | W1b-2g（新，接 W1b-2） | shell 只读白名单堵出网口：npm 的 view、outdated 移出免批（连 npm 源，view 能取任意网址）；只读命令的文本里出现 UNC 或类 UNC 路径（以 `\\` 或 `//` 起头的路径记号，含 `::\\` 提供程序前缀与 `\\?\`、`\\.\` 设备路径）时回落 gated；不带 `$` 的 `env:` 提供程序路径同 `$env:` 一样回落 gated。另改两处权限文案：危险命令被规则拦下时，shell 回给模型的话不再说「被用户拒绝」；设置页「完全访问」的副标题按危险规则的实际覆盖面写，不再许诺「不可逆的系统操作仍拦截」。顺带删掉测试误建进仓库的 `C:\Users\me\Documents\notes.txt` 并修掉建它的那个测试 | W2b-11b 三审：只读白名单里 `npm view <网址>` 与点到远程共享路径的只读命令，在任何档位下都不询问就会访问外部网络或远程主机；免询问白名单只应包含只读本地的命令 |
 | W2b-6b（新，接 W2b-6、W2b-11a） | 终端抽屉的 OSC 8 超链接交给系统浏览器：TerminalPane 的 Terminal 选项加 linkHandler，activate 里 window.open(uri)，经 setWindowOpenHandler 交出（xterm 默认先开空白窗口再改地址，守卫只看到 about:blank，点了没反应）；打包版不再认 ELECTRON_RENDERER_URL（只在未打包时认）；打包版去掉应用菜单（Menu.setApplicationMenu(null)），Ctrl+R 不再在回合中途重载界面、Ctrl+Shift+I 不再打开开发者工具 | W2b-6 三审（终端超链接静默失效）、W2b-6 修正者待裁项、W2b-11a 三审 nit（默认菜单在生产包里生效） |
 | W2b-11d（新，接 W2b-11a） | 右栏「改动」清单按工具结果判：失败的与历史回合里中断没有结果的写工具不再列成改动（复用 W2b-11a 的步骤状态判定，运行中回合里还没结果的照旧列）；引擎 cron 两处「错过不补跑」的注释按实际行为改正（启动后第一次检查会补跑一次） | W2b-11a 三审 nit：同一类界面假话；注释与界面新文案相反 |
+| W1b-5d（新，接 W1b-5、W1b-1） | 关停等进程树回收做完再退：`killTree` 返回一个在 taskkill 退出（或兜底杀根）之后才落定、从不拒绝的 Promise，现有不等它的调用照旧；终端、shell、MCP 的 `disposeAll` 返回全部回收落定的 Promise；minisd `shutdown` 第 6 步各自兜住地调用三者、等它们落定（另设上限，与 `CLOSE_GRACE_MS` 相加仍比主进程的 `MINISD_STOP_TIMEOUT_MS` 少至少 1 秒，由 `tests/minisd-stop.test.ts` 钉住），之后才关桥、rpc 与库。`proc/win-exec.ts` 头注释按 libuv 的实际行为订正：非 detached 的子进程放进「作业关闭即杀」的作业对象，但作业带 `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK`，随 minisd 退出的只有直接子进程，它们起的孙进程不在作业里。引擎崩溃或被强杀时孙进程仍会留下，写进已知边界（根治要自建不带 breakaway 的作业，排在 W6） | 交接复核：W3-smoke 三审实测冒烟脚本被打断时孙进程留下，追到产品——关停第 6 步起了 taskkill 不等就关库退出，taskkill 是 minisd 的直接子进程，按 libuv 源码会随作业一起被结束（推断，真机确认）；`npx` 拉起的 MCP server、终端里起的 dev server 在 Windows 上可能留成孤儿，与 W1b-5「不留孤儿」相悖 |
 
 **施工组织（2026-09-25 改为多链并行，用户要求加快）**：机器 4 核，每个工作流同时最多 2 个 agent，按下表分链：
 
@@ -179,6 +180,9 @@
 | F2 | W2b-6 → W2b-7 | main | 做完即合 |
 | H | W2b-11a | main | 做完即合 |
 | S | W3-smoke（§5.1） | main | 做完即合 |
+| M | W1a-7b | main `d00b991` | 做完即合（09-25 下午追加，下同） |
+| 文档 | W2b-11b → W2b-11c | W2b-11b 在 F1、F2、H 合入后起步；W2b-11c 并入 main `d00b991` 后起步 | 做完即合 |
+| K | W1b-5d | main `d00b991` | 做完即合 |
 
 main/index.ts、preload、TopBar.vue 会被 F1、F2、H 同时改，冲突在合流时逐处手工合并，合并后跑 typecheck 与全量基线比对，界面改动重拍一次 xvfb。
 全部合入后做 W2b-11b，再做 W3 其余部分。
