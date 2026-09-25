@@ -18,8 +18,10 @@ const TOOL = MODE === 'shell' ? 'shell_execute' : 'file_write';
 const ARGS = MODE === 'shell'
   // 必须是 gated 类命令：只读命令（Get-ChildItem 等）默认 bypass，不会弹卡
   ? { command: 'npm install --save-dev vitest', tool_title: '装一个开发依赖' }
-  : { path: 'C:\\Users\\me\\Documents\\notes.txt',
-      content: '第一行\n第二行改过了\n第三行\n第四行是新加的\n', tool_title: '更新文档目录里的笔记' };
+  // 用 guest 路径触发写入卡（设计稿 §1 第 7 条）。以前写的是 C:\\Users\\me\\Documents\\notes.txt：Linux 上盘符路径被当成
+  // 相对路径，落进应用目录，还被提交进了仓库（W1b-2g 删掉并在 .gitignore 挡住）
+  : { path: '/var/minis/skills/v1-demo/SKILL.md',
+      content: '---\nname: v1-demo\ndescription: 实拍用\n---\n第一行\n第二行改过了\n', tool_title: '更新技能说明' };
 const log = (...a) => console.log('[v1]', ...a);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const ss = async (p, n) => { await p.screenshot({ path: path.join(SHOTS, n + '.png') }); log('shot:', n); };
