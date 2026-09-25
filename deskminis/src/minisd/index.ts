@@ -1321,9 +1321,13 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
 
   rpc = new RpcServer(methods, authToken, additionalVerify);
 
-  // ---- K1 调度器（设计稿 §3）：30s tick + 启动即查一次（once 错过补跑门）----
-  // 运行边界（§0 裁定）：minisd 随 app 生命周期，应用没开就不跑——interval/cron 错过
-  // 跳过重算（markRun 从当下起算，天然如此），once 错过则 next 停在过去、启动首查捞到补跑。
+  // ---- K1 调度器（设计稿 §3）：30s tick + 启动后 3 秒先查一次 ----
+  // 运行边界：minisd 随应用进程起停——关窗只是藏到托盘，照常 tick；从托盘退出或关机后才不跑。
+  // 错过的任务（应用没在跑时过了点）：dueJobs 不分 once / interval / cron，只看 next_run_at 过没过点，
+  // 所以启动后 3 秒那次检查会把每个过点的任务各补跑一次；markRun 再从当下重算下一次，错过几次也只补这一次（不逐次补）。
+  // W2b-11d 订正：这里原写 interval/cron 错过「跳过重算（markRun 从当下起算，天然如此）」——从当下起算只管补跑之后的
+  // 下一次，挡不住补跑本身。cron 设计稿 §0 原定 interval/cron 错过不补、只补 once，实现从没按 kind 分过；
+  // 定时页页头已按实际行为告诉用户（W2b-11a），止血波不改行为，注释跟着行为改（cron/store.ts 文件头同）。
   function runCronJob(job: CronJob): void {
     // W1b-5：关停中不再建会话、不再起 run（cron.runNow 的调用方会收到这句）；30 秒 tick 在 close 第二步就停了
     if (closing) throw new Error(CLOSING_MESSAGE);

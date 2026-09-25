@@ -10,9 +10,34 @@
  *  - interrupted：没配到结果，而它所在的回合已经不在跑了——执行被打断，工具可能做完了也可能没做，结果不知道；
  *  - pending：没配到结果，所在回合还在跑——结果还没到是正常的。界面照旧画（与成功同一个点），
  *    回合结束后 open() 重取历史就有结果了；给「进行中」另画一种样子属于 W7c「各步骤的状态点」，不在这一步。
- *  「所在回合还在不在跑」由调用方判（StageChat 看运行态与最后一个回合的起点，见 lastTurnStart）。 */
+ *  「所在回合还在不在跑」由调用方判（StageChat 看运行态与最后一个回合的起点，见 lastTurnStart）。
+ *
+ *  W2b-11d：右栏「改动」清单（lib/artifacts/collect）也按这里的状态判一次写入算不算改动，配结果（toolResultsById）
+ *  与「最后一个回合还在不在跑」（lib/steps/live 的 useLastTurnLive）一并抽成共用的一份：对话流与改动清单各配各的话，
+ *  哪天一处认了新形态的结果、另一处没认，同一步在对话流里是成功、在改动清单里却消失了（或反过来）。 */
 
 export type StepStatus = 'ok' | 'failed' | 'interrupted' | 'pending';
+
+/** 一步配到的工具结果：success 原样带回（交给 stepStatus 判，只有 === false 算失败），output 给展开区显示。 */
+export interface StepResult { success: unknown; output?: string }
+
+/** 库里的 toolResult 按 toolUseId 建索引，给历史里的 toolUse 配结果（W2b-11d 从 StageChat 的 resultOf 抽出来，改动清单共用）。
+ *  认的形态与原 resultOf 相同：type 为 toolResult、value 是对象、toolUseId 是字符串。
+ *  同一个 id 出现多次时认最早那条——原 resultOf 从头逐条扫、见到就返回，是同一条。
+ *  一次建好整张表：原 resultOf 每个 toolUse 都把全部消息扫一遍，长会话里是平方级。 */
+export function toolResultsById(messages: readonly { role?: unknown; parts?: unknown }[]): Map<string, StepResult> {
+  const out = new Map<string, StepResult>();
+  for (const m of messages) {
+    if (!Array.isArray(m?.parts)) continue;
+    for (const p of m.parts as ({ type?: unknown; value?: unknown } | null)[]) {
+      if (p?.type !== 'toolResult' || !p.value || typeof p.value !== 'object') continue;
+      const v = p.value as { toolUseId?: unknown; success?: unknown; output?: unknown };
+      if (typeof v.toolUseId !== 'string' || out.has(v.toolUseId)) continue;
+      out.set(v.toolUseId, { success: v.success, output: typeof v.output === 'string' ? v.output : undefined });
+    }
+  }
+  return out;
+}
 
 /** result：这一步配到的工具结果（库里的 toolResult，或实时回合 toolEnd 带回来的）；还没有结果传 undefined / null。
  *  turnLive：这一步所在的回合是否还在跑。 */
