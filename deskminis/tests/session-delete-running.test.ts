@@ -9,6 +9,9 @@
  * 权限卡用 web_fetch 触发（askOnce，放行前不出网）；不用 POSIX 绝对路径的 file_write——
  * paths.ts 在 Linux 上对它直接抛错，走不到权限网关（cross.md corrections）。
  * 出网与否由本地计数服务器判定：它收到过请求，就说明删除之后工具还是跑了。
+ *
+ * W1b-4b（W1b-4 第三轮审查）：删除只能了结 / 中止被删的那个会话。单会话用例对「按会话过滤」写错毫无感知，
+ * 双会话一例把它钉住；它不是先红，靠 deny-all、abort-all 两个变异证明抓得住。
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
@@ -153,6 +156,49 @@ describe('W1b-4 删除运行中的会话：先中止、等收尾、再删', () =
     expect(again.error).toBeUndefined();
     expect((await c.call('chat.messages.list', { sessionId: s.id })).result).toEqual([]);
     expect((await c.call('chat.sessions.list')).result.some((x: any) => x.id === s.id)).toBe(false);
+  }, 30000);
+});
+
+describe('W1b-4b 删除只动被删的会话（双会话隔离，回归钉）', () => {
+  // 上面三例都只有一个会话：denyPendingPerms 丢了按会话过滤、stopRun 改成把所有 controller 都 abort，它们照样全绿。
+  // 这两个函数同时被 close() 以 'all' / 全部会话复用（W1b-5），过滤写错一处，删一个会话就会连带拒掉别的会话
+  // 正等用户批准的操作、掐断别的会话正在跑的回复——用户看到的是「我没动的那个会话莫名报已取消」。
+  // A、B 各指向自己的计数服务器，出网落在哪台上就知道是谁的工具跑了，不会把 A 的漏网误算成 B 照常。
+  it('A、B 各挂一张卡，删 A：只了结 A 的卡；B 的卡原样待批，批准后 B 照常出网并跑完，不报错', async () => {
+    const { c } = await boot();
+    const siteA = await localServer(false);
+    const siteB = await localServer(false);
+    const a = (await c.call('chat.sessions.create', {})).result;
+    const b = (await c.call('chat.sessions.create', {})).result;
+    await c.call('chat.prompt', { sessionId: a.id, providerId: '__fake__', text: toolScript('web_fetch', { url: siteA.url.replace('/mcp', '/page'), tool_title: 'A 抓网页' }) });
+    await c.call('chat.prompt', { sessionId: b.id, providerId: '__fake__', text: toolScript('web_fetch', { url: siteB.url.replace('/mcp', '/page'), tool_title: 'B 抓网页' }) });
+    const cardOf = (sid: string) => c.notifications.find(n => n.method === 'permission.request' && n.params.req.sessionId === sid);
+    await waitFor('A、B 各一张权限卡', () => !!cardOf(a.id) && !!cardOf(b.id));
+    const reqA = cardOf(a.id)!.params.requestId;
+    const reqB = cardOf(b.id)!.params.requestId;
+    const resolvedOf = (rid: string) => c.notifications.filter(n => n.method === 'permission.resolved' && n.params.requestId === rid);
+
+    expect((await c.call('chat.sessions.delete', { sessionId: a.id, confirm: true })).error).toBeUndefined();
+    // 了结是同步广播、先于删除的应答发出；多等一会儿，是给以后可能改成异步的了结留余量
+    await sleep(200);
+    expect(resolvedOf(reqA).map(n => n.params.reason)).toEqual(['session-deleted']);
+    expect(resolvedOf(reqB)).toEqual([]);
+
+    // permission.respond 对不存在的 requestId 也回 ok，光看应答分不出卡还在不在；
+    // 以 answered 广播为准：只有卡仍挂在 pendingPerms 里，批准才会广播 answered
+    expect((await c.call('permission.respond', { requestId: reqB, decision: 'allow-once' })).error).toBeUndefined();
+    await waitFor('B 的卡按 answered 了结', () => resolvedOf(reqB).some(n => n.params.reason === 'answered'));
+    await waitFor('B 出网', () => siteB.hits() === 1);
+    await waitFor('B 跑完', () => c.notifications.some(n => n.method === 'chat.event' && n.params.sessionId === b.id
+      && n.params.event.kind === 'turnEnd' && n.params.event.stopReason === 'endTurn'));
+
+    const eventsB = c.notifications.filter(n => n.method === 'chat.event' && n.params.sessionId === b.id).map(n => n.params.event);
+    expect(eventsB.filter(e => e.kind === 'error')).toEqual([]);
+    expect(eventsB.filter(e => e.kind === 'toolEnd').map(e => e.success)).toEqual([true]);
+    expect(siteA.hits()).toBe(0);
+    const left = (await c.call('chat.sessions.list')).result.map((x: any) => x.id);
+    expect(left).toContain(b.id);
+    expect(left).not.toContain(a.id);
   }, 30000);
 });
 
