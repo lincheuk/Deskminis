@@ -158,7 +158,7 @@
 
 | 步骤 | 并入内容 | 来由 |
 |---|---|---|
-| W1b-2d（新，S10 余项，接 W2a-5） | `file_read` 加可选 `offset`（非负整数，按 UTF-16 码元计的字符偏移，默认 0）与 `limit`（正整数，最多返回的字符数，上限 100000）。切点不落在代理对中间。带任一参数时，文件大小上限从 1MB 放宽到 16MB，返回片段末尾附一行「[第 a–b 字符，共 N 字符]」；不带参数时行为与输出逐字不变。卸载读回截断（offload.ts `clampReadBack`）与 1MB 超限提示改指 `file_read` 分段读取（写明下一段的 offset），不再叫模型用 `shell_execute`；超过 16MB 才提示 shell。工具定义变了，`provider-body-golden` 的哈希有意重指并逐条申报 | W1b-2b 审查：卸载文件在数据根里，W1b-2 起 shell 只读命令点到它回落 gated，照提示读卸载内容每次弹卡；当前会话的 offloads 对文件工具免审 |
+| W1b-2d（新，S10 余项，接 W2a-5） | `file_read` 加可选 `offset`（非负整数，按 UTF-16 码元计的字符偏移，默认 0）与 `limit`（正整数，最多返回的字符数，上限 100000）。切点不落在代理对中间。带任一参数时，文件大小上限从 1MB 放宽到 16MB，返回片段末尾附一行「[第 a–b 字符，共 N 字符]」；不带参数时行为与输出逐字不变。卸载读回截断（offload.ts `clampReadBack`）与 1MB 超限提示改指 `file_read` 分段读取（写明下一段的 offset），不再叫模型用 `shell_execute`；超过 16MB 才提示 shell。工具定义变了；`provider-body-golden` 的夹具自带冻结的工具定义、不钉真实工具，实际不用重指（实现核实，交接复核订正） | W1b-2b 审查：卸载文件在数据根里，W1b-2 起 shell 只读命令点到它回落 gated，照提示读卸载内容每次弹卡；当前会话的 offloads 对文件工具免审 |
 | W2b-3 | 「重启并安装」兜底：`quitAndInstall()` 之后若应用没有退出（electron-updater 的 install() 返回 false 时不会调 app.quit），3 秒后 `app.quit()`，不留下引擎已停、窗口还开着的状态 | W1b-5 三审 nit |
 | W2b-7 | 权限超时回调里的 `audit.append` 兜住：库写失败只进按天日志，不在定时器里抛未捕获异常 | W1b-5 修正者申报 |
 | W2b-11 拆成两步 | **W2b-11a（界面诚实）**：`StageChat.vue` 里不在运行中的回合、没有结果的工具不再显示成功，显示「已中断 · 结果未知」；release.md「W2b-readme」风险条列的界面同类假话（TerminalPane、StageCron、StageDevices，SecMcp 视 MCP 链落地情况）；托盘「打开设置」「切换右栏」两条死通道在 AppShell 接上；main/index.ts 符号色注释、TopBar 高度注释（140→146px）、AppShell「默认收起」注释三处订正。**W2b-11b（对外文档）**：README / CHANGELOG / RELEASE 逐行核对与 `readme-claims` 守卫，排在全部代码合入之后 | OpenCode V2 研读报告 §2（`docs/research/2026-09-25-opencode-v2-baseline.md`）；拆开是为了界面部分先并行做 |
