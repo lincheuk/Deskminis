@@ -79,6 +79,25 @@ onMounted(() => {
   term = new Terminal({
     fontFamily: '"Cascadia Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace',
     fontSize: 12, cursorBlink: true, scrollback: 5000, theme: readTheme(),
+    // W2b-6b：终端输出里的 OSC 8 超链接交给系统浏览器。不配 linkHandler 时 xterm 自己处理：先弹英文确认框，
+    // 再 window.open() 开一个空白窗口、事后改它的地址——主进程的新窗口守卫（W2b-6）只看得到 about:blank，
+    // 按规矩拒绝、交不出去，点了什么也不发生。这里把地址直接交给 window.open：主进程照样不开新窗口，
+    // 把 http / https 交给系统浏览器（main/index.ts 的 openInSystem）。
+    // OSC 8 的显示文字可以和地址不一样（输出里写着「文档」，指向的却是别的网站），所以先用确认框把真实地址给用户看，取消就不打开。
+    // 框里给的、交给 window.open 的都是规范形 new URL(uri).href，不是 xterm 交来的原文：原文里夹一个 U+202E（从右到左覆盖）
+    // 或一个同形字母（西里尔字母 U+0430），框里显示的主机就和实际去的不一样，显示文字骗人的把戏换到地址这一行上照样成立。
+    // 规范形里双向控制符被百分号转义、非 ASCII 的主机名成了 punycode（xn--…），和主进程 openInSystem 交给系统浏览器的
+    // 是同一个串。主机另起一行：https://apple.com@evil.example/ 这类地址前半截像 apple.com，真正去的是 @ 后面的主机。
+    // 解析不了就不打开，不回落成原文（不开 allowNonHttpProtocols 时 xterm 只交解析得了的 http / https，这里是兜底）。
+    // 不开 allowNonHttpProtocols：xterm 只让 http / https 的链接可点，javascript:、file: 之类根本不成链接。
+    linkHandler: {
+      activate: (_e, uri) => {
+        let link: URL;
+        try { link = new URL(uri); } catch { return; }
+        if (!window.confirm(`用系统浏览器打开这个链接吗？\n\n网站：${link.host}\n实际地址：${link.href}`)) return;
+        window.open(link.href);
+      },
+    },
   });
   fit = new FitAddon();
   term.loadAddon(fit);

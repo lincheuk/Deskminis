@@ -195,7 +195,13 @@ describe('② 源码守卫', () => {
     expect(main.match(/\binstallMainCrashHandlers\(/g) ?? [], '只调一次').toHaveLength(1);
     const ready = blockAfter(main, /app\.whenReady\(\)\.then\(async \(\) => \{/);
     const iInstall = ready.search(/\binstallMainCrashHandlers\(/);
-    expect(iInstall, 'whenReady 回调里调它（模块顶层会装进 import 主进程的单测 worker）').toBeGreaterThan(ready.indexOf('if (!gotSingleInstanceLock) return;'));
+    // 单实例早退按形态认（W2b-6b，同 main-window-guard-wiring 那条的修法）：锁变量名从模块顶层现取，找不到早退就红。
+    // 以前按裸串找，锁变量一改名就是 -1，「在早退之后」恒真
+    const lockVar = /\b(?:const|let|var)\s+(\w+)\s*=\s*app\.requestSingleInstanceLock\(\)/.exec(main)?.[1] ?? '';
+    expect(lockVar, '模块顶层找不到 app.requestSingleInstanceLock() 的结果').not.toBe('');
+    const iGuard = ready.search(new RegExp(`\\bif\\s*\\(\\s*!\\s*${lockVar}\\s*\\)\\s*\\{?\\s*return\\b`));
+    expect(iGuard, `whenReady 里找不到单实例早退 if (!${lockVar}) return`).toBeGreaterThanOrEqual(0);
+    expect(iInstall, 'whenReady 回调里调它（模块顶层会装进 import 主进程的单测 worker）').toBeGreaterThan(iGuard);
     for (const later of [/setPermissionRequestHandler\(/, /\bsetupUpdater\(\)/, /\bstartMinisdProcess\(\)/]) {
       expect(ready.search(later), later.source).toBeGreaterThan(iInstall);
     }

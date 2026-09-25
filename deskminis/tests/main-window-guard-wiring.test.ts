@@ -9,12 +9,14 @@
  *     窗口实际加载的页面（桩按 Electron 的 loadFile 拼法记下）必须被守卫认作本应用，否则剪贴板写入被拒、复制静默失效。
  *  ② 源码守卫：按调用形态认，读进来先剥注释（注释里写着旧调用喂不饱断言，handoff §2.10）。
  *
- *  本文件是打包形态（没设 ELECTRON_RENDERER_URL，createWindow 走 loadFile）；dev 形态（设了 ELECTRON_RENDERER_URL，
- *  走 loadURL）在 tests/main-window-guard-wiring-dev.test.ts。两个文件共用 tests/main-window-guard-harness.ts 的
+ *  本文件是 loadFile 形态（没设 ELECTRON_RENDERER_URL，createWindow 走 loadFile，与打包后加载的是同一个页面；桩的 isPackaged 为假）；
+ *  dev 形态（设了 ELECTRON_RENDERER_URL，走 loadURL）在 tests/main-window-guard-wiring-dev.test.ts；
+ *  真打包（isPackaged 为真，W2b-6b：不认 ELECTRON_RENDERER_URL、去掉应用菜单）在 tests/main-window-guard-wiring-packaged.test.ts。
+ *  三个文件共用 tests/main-window-guard-harness.ts 的
  *  electron 桩与启动器——那里的桩让 whenReady 在测试的 worker 里真跑，数据根用 mkdtemp 临时目录，注意事项写在那个文件头。 */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { stripComments } from './strip-comments';
 import { bootMain, check, h, loadedPage, navigate, openWindow, openedDuring, request } from './main-window-guard-harness';
@@ -218,9 +220,13 @@ describe('① 接线的行为：权限只放行本应用页面的 clipboard-sani
 // ─────────────────────────── ② 源码守卫（认调用形态，先剥注释） ───────────────────────────
 const read = (rel: string): string => stripComments(readFileSync(join(repoRoot, rel), 'utf8').replace(/\r\n/g, '\n'));
 const mainDir = join(repoRoot, 'src/main');
-const mainSources = readdirSync(mainDir).filter((f) => f.endsWith('.ts')).map((f) => [f, read(`src/main/${f}`)] as const);
+// 递归扫整个 src/main（W2b-6b · W2b-6 第三轮审查 nit）：以前只读顶层，代码挪进子目录后，'allow' 字面量、cb(true)、
+// shell.openExternal 计数这几条「不许出现 / 只许一处」的守卫就看不见那里的新文件。文件名记相对 src/main 的路径，分隔符统一成 /
+const mainSources = (readdirSync(mainDir, { recursive: true }) as string[])
+  .filter((f) => f.endsWith('.ts'))
+  .map((f) => [f.split(sep).join('/'), read(`src/main/${f.split(sep).join('/')}`)] as const);
 const main = read('src/main/index.ts');
-/** src/main 每个文件里 re 命中几次就记几个文件名 */
+/** src/main（含子目录）每个文件里 re 命中几次就记几个文件名 */
 const hitFiles = (re: RegExp): string[] =>
   mainSources.flatMap(([f, src]) => (src.match(new RegExp(re.source, 'g')) ?? []).map(() => f));
 
@@ -271,19 +277,21 @@ describe('② 源码守卫', () => {
     expect(iNav).toBeLessThan(iLoad);
   });
 
-  // 加载目标与守卫基址各算各的时候，只改一边（比如只让加载分支看 isPackaged）另一边不跟，本应用页面就被当成外站；
-  // 行为测试里 isPackaged 恒为假，这种分叉照样全绿。所以钉结构：本应用页面的地址只在 rendererBaseUrl() 里算，
+  // 加载目标与守卫基址各算各的时候，只改一边（比如只让加载分支看 isPackaged）另一边不跟，本应用页面就被当成外站。
+  // W2b-6 时行为测试里 isPackaged 恒为假，这种分叉照样全绿，所以钉结构：本应用页面的地址只在 rendererBaseUrl() 里算，
   // createWindow 按它加载、按它认导航，whenReady 按它认权限——要改认不认 ELECTRON_RENDERER_URL，只能改那一处，两边一起变。
+  // W2b-6b 起打包版在那一处不认它（tests/main-window-guard-wiring-packaged.test.ts 在 isPackaged 为真时从行为上核对），结构钉照留。
   it('本应用页面的地址只在 rendererBaseUrl() 里算：createWindow 按它加载、按它认导航，whenReady 按它认权限', () => {
     const baseFn = balancedAfter(main, /function rendererBaseUrl\(\): string \{/, '{', '}');
     expect(baseFn, 'rendererBaseUrl() 经 appBaseUrl( 读 ELECTRON_RENDERER_URL').toMatch(/\bappBaseUrl\([^)]*\bELECTRON_RENDERER_URL\b/);
     // 别处不另算：ELECTRON_RENDERER_URL 在 src/main 的代码里只出现这一次，appBaseUrl( 在 index.ts 里也只调这一次
     expect(hitFiles(/\bELECTRON_RENDERER_URL\b/), 'ELECTRON_RENDERER_URL 只许在 rendererBaseUrl() 里读').toEqual(['index.ts']);
     expect(main.match(/\bappBaseUrl\(/g) ?? []).toHaveLength(1);
-    // createWindow：will-navigate 认本应用用的基址，与 loadURL / loadFile 的实参是同一个名字，它出自 rendererBaseUrl()
+    // createWindow：will-navigate 认本应用用的基址，与 loadURL / loadFile 的实参是同一个名字，它出自 rendererBaseUrl()。
+    // 导航地址取事件对象的 e.url 或 Electron 传的位置参数 url 都认（W2b-6b：两种写法在真 Electron 下等价）
     const body = balancedAfter(main, /async function createWindow\(\): Promise<BrowserWindow> \{/, '{', '}');
-    const base = /\bisAppUrl\(\s*\w+\.url\s*,\s*(\w+)\s*\)/.exec(body)?.[1] ?? '';
-    expect(base, 'createWindow 里找不到 isAppUrl(e.url, <基址>)').not.toBe('');
+    const base = /\bisAppUrl\(\s*\w+(?:\.url)?\s*,\s*(\w+)\s*\)/.exec(body)?.[1] ?? '';
+    expect(base, 'createWindow 里找不到 isAppUrl(<导航地址>, <基址>)').not.toBe('');
     expect(body).toMatch(new RegExp(`\\bconst ${base} = rendererBaseUrl\\(\\);`));
     const loads = [...body.matchAll(/\.(loadURL|loadFile)\(/g)];
     expect(loads.length, 'createWindow 里找不到 loadURL / loadFile').toBeGreaterThan(0);
@@ -302,7 +310,13 @@ describe('② 源码守卫', () => {
     expect(hitFiles(/\.setPermissionRequestHandler\(/)).toEqual(['index.ts']);
     expect(hitFiles(/\.setPermissionCheckHandler\(/)).toEqual(['index.ts']);
     const ready = balancedAfter(main, /app\.whenReady\(\)\.then\(async \(\) => \{/, '{', '}');
-    const iGuard = ready.indexOf('if (!gotSingleInstanceLock) return;');
+    // 单实例早退按形态认（W2b-6b · W2b-6 第三轮审查 nit）：锁变量叫什么，从模块顶层 app.requestSingleInstanceLock() 赋给谁现取，
+    // 再在 whenReady 里找 if (!<它>) return。以前按裸串 'if (!gotSingleInstanceLock) return;' 找，锁变量一改名就是 -1，
+    // 「在早退之后」恒真——改名后再把两个处理器挪到早退之前，照样全绿。现在找不到早退就红
+    const lockVar = /\b(?:const|let|var)\s+(\w+)\s*=\s*app\.requestSingleInstanceLock\(\)/.exec(main)?.[1] ?? '';
+    expect(lockVar, '模块顶层找不到 app.requestSingleInstanceLock() 的结果').not.toBe('');
+    const iGuard = ready.search(new RegExp(`\\bif\\s*\\(\\s*!\\s*${lockVar}\\s*\\)\\s*\\{?\\s*return\\b`));
+    expect(iGuard, `whenReady 里找不到单实例早退 if (!${lockVar}) return`).toBeGreaterThanOrEqual(0);
     const iWindow = ready.search(/\bcreateWindow\(/);
     for (const re of [/session\.defaultSession\.setPermissionRequestHandler\(/, /session\.defaultSession\.setPermissionCheckHandler\(/]) {
       const i = ready.search(re);
@@ -321,5 +335,13 @@ describe('② 源码守卫', () => {
     const at = main.search(/\bshell\.openExternal\(/);
     const call = balancedAfter(main.slice(at), /\bshell\.openExternal\(/);
     expect(main.slice(at + 'shell.openExternal('.length + call.length + 1)).toMatch(/^\s*\.catch\(/);
+  });
+});
+
+describe('未打包、走 loadFile：保留 Electron 的默认菜单（W2b-6b 三审）', () => {
+  it('Menu.setApplicationMenu 一次也没调——开发与实拍剧本用的就是这个形态，重载与开发者工具要留着', () => {
+    // 换菜单的条件只该看 isPackaged：改成看「加载的是不是打包页面」的话，dev 服务器形态照样不换、全绿，只有这一例红
+    expect(h.trayCreated, '启动走完了（托盘已建）').toBe(true);
+    expect(h.appMenus).toEqual([]);
   });
 });

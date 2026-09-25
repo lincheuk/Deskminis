@@ -23,7 +23,9 @@ vi.mock('electron', () => ({
   ipcMain: { handle: () => {} },
   BrowserWindow: class { static getAllWindows() { return []; } static getFocusedWindow() { return null; } },
   dialog: { showErrorBox: () => {}, showMessageBox: () => Promise.resolve({ response: 0 }) },
-  Menu: { buildFromTemplate: () => ({}) },
+  // W2b-6b：打包版在模块顶层 Menu.setApplicationMenu(null)。这里 isPackaged 为假、import 期不调它；
+  // 补上是免得桩哪天改成打包形态时 import 期当场 TypeError（同上面 shell / session 的补法）。
+  Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
   nativeImage: { createFromPath: () => ({ isEmpty: () => true }), createEmpty: () => ({}) },
   Tray: class {},
   utilityProcess: { fork: () => ({}) },

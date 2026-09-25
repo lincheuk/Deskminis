@@ -1,10 +1,16 @@
 /** W2b-6 两个接线测试共用的 electron 桩与启动器（本文件不是测试：vitest 只收 *.test.ts）。
  *
- *  - tests/main-window-guard-wiring.test.ts：打包形态（没设 ELECTRON_RENDERER_URL，createWindow 走 loadFile）与源码守卫；
+ *  - tests/main-window-guard-wiring.test.ts：loadFile 形态（没设 ELECTRON_RENDERER_URL，createWindow 走 loadFile；桩的 isPackaged 为假）与源码守卫；
  *  - tests/main-window-guard-wiring-dev.test.ts：dev 形态（设了 ELECTRON_RENDERER_URL，走 loadURL）。
  *  两种形态都要各起一次主进程：本应用页面在 dev 下是开发服务器的 http 源，打包后是 file://…/index.html，
  *  只跑一种的话，另一种形态下「加载的页面」与「守卫认的本应用」分了叉也没有测试会红。
  *  每个测试文件一个 worker、一份本模块实例，桩的状态 h 不会互相串。
+ *
+ *  W2b-6b 加第三种：tests/main-window-guard-wiring-packaged.test.ts，bootMain 的 isPackaged 为真（app.isPackaged 读 h.isPackaged），
+ *  并且设着 ELECTRON_RENDERER_URL——打包版不认它，一律 loadFile、守卫基址也不认它，还要去掉应用菜单（Menu.setApplicationMenu
+ *  收到的实参记进 h.appMenus）。以前桩的 isPackaged 恒为假，把两道窗口守卫包进 if (!app.isPackaged) 也全绿（W2b-6 第三轮审查 P1）。
+ *  同轮审查的 nit 顺带改了两处桩的形状，与真 Electron 38 的签名一致：will-navigate 处理器除事件对象外还收到 url 等五个位置参数
+ *  （navigate()）；权限请求处理器收到的是主窗口的 webContents（有 getURL()），不是 {}。
  *
  *  W2b-7 的五个接线测试也用它：tests/crash-log-wiring.test.ts（桩子进程：直接喂 stdout / stderr、触发 exit，
  *  取 before-quit 处理器走一遍优雅退出；bootMain 的 beforeImport 预置旧的按天日志，看启动时删没删）、
@@ -35,7 +41,15 @@ import { format } from 'node:url';
 
 export type PermDetails = { requestingUrl?: string; isMainFrame?: boolean };
 type WindowOpenHandler = (d: { url: string }) => { action: string };
-type NavigateHandler = (e: { url: string; preventDefault: () => void }) => void;
+/** 'will-navigate' 的事件对象（electron.d.ts 的 WebContentsWillNavigateEventParams 加 preventDefault） */
+type NavigateEvent = {
+  url: string; isSameDocument: boolean; isMainFrame: boolean; frame: null; initiator: null; preventDefault: () => void;
+};
+/** 与 Electron 38 同签名：事件对象之后还有 url、isInPlace、isMainFrame、frameProcessId、frameRoutingId 五个位置参数
+ *  （文档标了 deprecated，但照样传）。以前桩只交事件对象，照文档写成 (e, url) => … 的正确处理器在这里读到 undefined、假红。 */
+type NavigateHandler = (
+  e: NavigateEvent, url: string, isInPlace: boolean, isMainFrame: boolean, frameProcessId: number, frameRoutingId: number,
+) => void;
 type PermRequestHandler = (wc: unknown, p: string, cb: (ok: boolean) => void, d: PermDetails) => void;
 type PermCheckHandler = (wc: unknown, p: string, origin: string, d: PermDetails) => boolean;
 export type LoadRecord = { via: 'loadURL' | 'loadFile'; arg: string; url: string };
@@ -89,17 +103,26 @@ export const h = {
   forks: [] as ForkOptions[],
   /** bootMain 期间主进程在 process 上新挂的崩溃监听（收尾时卸掉） */
   crashListeners: { uncaught: [] as AnyListener[], rejection: [] as AnyListener[] },
+  /** 桩的 app.isPackaged（W2b-6b）：bootMain 在 import 主进程之前按 opts.isPackaged 设好，缺省为假（未打包） */
+  isPackaged: false,
+  /** Menu.setApplicationMenu 每次收到的实参（W2b-6c：打包版恰好一次、是 app-menu 的模板建出来的菜单；未打包一次也不调） */
+  appMenus: [] as unknown[],
+  /** 主窗口的 webContents（权限请求处理器的第一个实参就是它；真 Electron 里发起请求的页面所在的那个） */
+  webContents: undefined as { getURL(): string } | undefined,
 };
 
 export function fakeElectron(): Record<string, unknown> {
   class FakeWebContents {
+    constructor() { h.webContents = this; }
     setWindowOpenHandler(fn: WindowOpenHandler): void { h.calls.push('setWindowOpenHandler'); h.windowOpen = fn; }
-    on(event: string, fn: NavigateHandler): this {
+    on(event: string, fn: AnyListener): this {
       h.calls.push(`webContents.on:${event}`);
-      if (event === 'will-navigate') h.willNavigate = fn;
+      if (event === 'will-navigate') h.willNavigate = fn as NavigateHandler;
       return this;
     }
     send(): void {}
+    /** 窗口里当前的页面（最后一次 loadURL / loadFile 实际加载的地址；还没加载是空串，与真 Electron 一样） */
+    getURL(): string { return h.loads.at(-1)?.url ?? ''; }
   }
   class FakeBrowserWindow {
     webContents = new FakeWebContents();
@@ -153,7 +176,9 @@ export function fakeElectron(): Record<string, unknown> {
         for (const fn of h.appOn.get('before-quit') ?? []) fn(e);
         h.quits.push({ prevented });
       },
-      getPath: () => '.', getVersion: () => '0.0.0-test', isPackaged: false,
+      getPath: () => '.', getVersion: () => '0.0.0-test',
+      // 取值时现读：主进程模块顶层与 whenReady 里各读一次，bootMain 在 import 之前按 opts.isPackaged 设好
+      get isPackaged(): boolean { return h.isPackaged; },
       setPath: () => {}, requestSingleInstanceLock: () => true, relaunch: () => {}, exit: () => {},
     },
     ipcMain: { handle: () => {} },
@@ -163,7 +188,11 @@ export function fakeElectron(): Record<string, unknown> {
       showMessageBox: () => Promise.resolve({ response: 0 }),
       showMessageBoxSync: () => { h.onBlockingDialog?.(); return 0; },
     },
-    Menu: { buildFromTemplate: () => ({}) },
+    Menu: {
+      // 带回模板本身：打包版设的应用菜单（W2b-6c）要按模板认，不再是 null
+      buildFromTemplate: (template: unknown) => ({ template }),
+      setApplicationMenu: (menu: unknown) => { h.calls.push('Menu.setApplicationMenu'); h.appMenus.push(menu); },
+    },
     nativeImage: { createFromPath: () => ({ isEmpty: () => true }), createEmpty: () => ({}) },
     Tray: class {
       constructor() { h.trayCreated = true; }
@@ -201,7 +230,9 @@ export function fakeElectronUpdater(): Record<string, unknown> {
 }
 
 /** 把 src/main/index.ts 从 import 跑到 whenReady 建好托盘。rendererUrl 是这次的 ELECTRON_RENDERER_URL，
- *  undefined 表示没设（打包形态）。数据根指向 mkdtemp 临时目录（process.env.DESKMINIS_DATA_DIR，收尾前一直有效）。
+ *  undefined 表示没设（与打包后一样走 loadFile）。数据根指向 mkdtemp 临时目录（process.env.DESKMINIS_DATA_DIR，收尾前一直有效）。
+ *  isPackaged：桩的 app.isPackaged，缺省为假（W2b-6b：为真时就是打包版，设着 ELECTRON_RENDERER_URL 也不该认它）。
+ *  打包版的数据根照样认 DESKMINIS_DATA_DIR（app-dirs.ts），只落临时目录；userData 保持 Electron 缺省，桩不 setPath。
  *  platformDirs：不设 DESKMINIS_DATA_DIR（外面设着的连同 DESKMINIS_LOG_DIR 一起清掉），改让 APPDATA 与 LOCALAPPDATA
  *  各指向一个 mkdtemp 临时目录（process.env 里这两项收尾前一直有效），主进程按平台缺省规则算目录：桩的 isPackaged 是 false，
  *  数据根 <APPDATA>/DeskMinis-dev，日志目录 <LOCALAPPDATA>/DeskMinis-dev/logs。设了 DATA_DIR 时日志目录恰好是 <数据根>/logs，
@@ -213,10 +244,11 @@ export function fakeElectronUpdater(): Record<string, unknown> {
  *  返回收尾函数：卸掉主进程新挂的崩溃监听、还原环境变量、删掉临时目录。 */
 export async function bootMain(opts: {
   rendererUrl: string | undefined; timeoutMs?: number; until?: () => boolean; beforeImport?: (dataDir: string) => void;
-  platformDirs?: boolean;
+  platformDirs?: boolean; isPackaged?: boolean;
 }): Promise<() => void> {
   if (opts.platformDirs && opts.beforeImport) throw new Error('bootMain：platformDirs 不设 DESKMINIS_DATA_DIR，beforeImport 拿不到数据根');
   const done = opts.until ?? ((): boolean => h.trayCreated);
+  h.isPackaged = opts.isPackaged ?? false;
   // 收尾时逐项还原（原来没设的删掉）
   const saved = ['ELECTRON_RENDERER_URL', 'DESKMINIS_DATA_DIR', 'DESKMINIS_LOG_DIR', 'APPDATA', 'LOCALAPPDATA']
     .map(k => ({ k, v: process.env[k] }));
@@ -275,16 +307,25 @@ export const openWindow = (url: string): { action: string } => {
   expect(h.windowOpen, '主进程没有给主窗口的 webContents 注册 setWindowOpenHandler').toBeTypeOf('function');
   return h.windowOpen!({ url });
 };
+/** 主窗口的主框架要导航到 url：按真 Electron 38 的签名调 'will-navigate' 处理器（事件对象，再加 url、isInPlace、
+ *  isMainFrame、frameProcessId、frameRoutingId 五个位置参数），处理器按事件对象的 e.url 还是位置参数 url 读都一样。 */
 export const navigate = (url: string): { prevented: boolean } => {
   expect(h.willNavigate, "主进程没有给主窗口的 webContents 挂 'will-navigate'").toBeTypeOf('function');
   let prevented = false;
-  h.willNavigate!({ url, preventDefault: () => { prevented = true; } });
+  const e = {
+    url, isSameDocument: false, isMainFrame: true, frame: null, initiator: null,
+    preventDefault: (): void => { prevented = true; },
+  };
+  h.willNavigate!(e, url, false, true, 1, 1);
   return { prevented };
 };
+/** 页面要 permission：第一个实参是主窗口的 webContents（与真 Electron 一样有 getURL()，给的是窗口里当前的页面；
+ *  跨源子框架发起时它仍是主窗口，发起者只在 details.requestingUrl 里）。 */
 export const request = (permission: string, details: PermDetails): boolean | undefined => {
   expect(h.permRequest, '主进程没有调 session.defaultSession.setPermissionRequestHandler').toBeTypeOf('function');
+  expect(h.webContents, '主进程没有建主窗口').toBeDefined();
   let granted: boolean | undefined;
-  h.permRequest!({}, permission, (ok) => { granted = ok; }, details);
+  h.permRequest!(h.webContents, permission, (ok) => { granted = ok; }, details);
   return granted;
 };
 export const check = (permission: string, origin: string, details: PermDetails): boolean => {
