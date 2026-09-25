@@ -3,8 +3,8 @@
  *  为什么不直接 kill：Windows 上 kill 就是 TerminateProcess，minisd 来不及了结权限卡、等 run 收尾、关库，
  *  它起的 MCP 与 PowerShell 子进程还会变成孤儿。先 postMessage 请它自己有序 close，超时才硬杀兜底。 */
 
-/** 主进程等 minisd 自己退出的上限。必须比 minisd 等 run 收尾的 CLOSE_GRACE_MS（3 秒）多出至少 1 秒，
- *  留给销毁子进程、关库与 WAL checkpoint；超过它就 kill——退出与「重启并安装」都不能被一个卡住的 run 拖住。 */
+/** 主进程等 minisd 自己退出的上限。必须比 minisd 关停里两段限时等待之和——等 run 收尾的 CLOSE_GRACE_MS（3 秒）
+ *  加等进程树回收的 REAP_WAIT_MS（1 秒，W1b-5d）——多出至少 1 秒，留给关桥、关 rpc、关库与 WAL checkpoint；超过它就 kill——退出与「重启并安装」都不能被一个卡住的 run 拖住。 */
 export const MINISD_STOP_TIMEOUT_MS = 5_000;
 
 /** 发给 minisd 的停止消息；minisd 的 standalone 分支在 parentPort 上认 type === 'shutdown'。 */

@@ -34,7 +34,8 @@
  * minisd 退了之后没人再握着根进程的句柄，根的 pid 可以被系统复用，迟到的 taskkill /pid 会落到无关的进程树上
  * （下面 killTree 开头跳过已退出的根，防的是同一件事）。
  *
- * 已知边界：等待超过上限、引擎崩溃或被主进程强杀时，taskkill 来不及跑完，孙进程会留下。
+ * 已知边界：引擎崩溃或被主进程强杀时根本来不及起 taskkill——直接子进程随作业被结束，它们起的孙进程留下；
+ * 关停时等待超过上限，还没跑完的 taskkill 同样随作业被结束，没收到的孙进程留下。
  * 根治要自建不带 breakaway 的作业对象，把子进程和它们再起的进程都收进去（排在 W6）。
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -123,7 +124,14 @@ export function killTree(
   return new Promise<void>((resolve) => {
     // 常挂 'error' 监听：没有监听器的 'error' 会冒泡成未捕获异常，杀死整个 minisd。
     // 两个事件都可能来（'error' 之后还有 'exit'）：兜底只做一次，先兜底再落定，resolve 重复调用无害
-    tk.on('error', () => { fallback(); resolve(); });
-    tk.on('exit', (code: number | null) => { if (code !== 0) fallback(); resolve(); });
+    try {
+      tk.on('error', () => { fallback(); resolve(); });
+      tk.on('exit', (code: number | null) => { if (code !== 0) fallback(); resolve(); });
+    } catch {
+      // 挂不上监听（注入的 spawn 交回的东西不像 ChildProcess）：不知道 taskkill 何时跑完，兜底杀根后立即落定。
+      // 执行器里的异常会变成拒绝，「从不拒绝」要在这里也成立（W1b-5e）
+      fallback();
+      resolve();
+    }
   });
 }

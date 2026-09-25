@@ -21,7 +21,8 @@ export interface McpClientLike {
   connect(): Promise<void>;
   listTools(): Promise<McpToolInfo[]>;
   callTool(name: string, args?: Record<string, unknown>, opts?: { signal?: AbortSignal }): Promise<unknown>;
-  /** 断开并回收（stdio 收进程树、http 发告别）。返回 Promise 的，关停时 disposeAll 等它落定（W1b-5d）；别处不等 */
+  /** 断开并回收（stdio 收进程树、http 发告别）。返回 Promise 的，关停时 disposeAll 等它落定（W1b-5d）；别处不等，
+   *  所以实现必须从不拒绝——forget、空闲驱逐、出错下线这些调用点不接返回值，拒绝会变成未处理的拒绝（W1b-5e） */
   dispose(): void | Promise<void>;
   onNotification: ((n: McpNotification) => void) | undefined;
   closed: boolean;

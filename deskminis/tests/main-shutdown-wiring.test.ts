@@ -205,6 +205,11 @@ describe('minisd：shutdown 的每一步各自兜住，关库放锁在 finally',
     const head = /\bawait shutdownReap\(/;
     const at = body.search(head);
     expect(at, 'shutdown 里要 await shutdownReap(…)').toBeGreaterThan(-1);
+    // 等回收要排在等 run 收尾之后（W1b-5e，W1b-5d 审查变异 R1：整句挪到 stopRun 之前，原有断言照绿）：先 abort 在跑的工具、
+    // 等它们落下 [已取消]，再收子进程；反过来的话，在跑的 shell / MCP 工具看到的是进程没了，记成执行失败
+    const stopRuns = body.search(/await Promise\.all\(\[\.\.\.runs\.keys\(\)\]\.map\(/);
+    expect(stopRuns, '等 run 收尾那一句要在').toBeGreaterThan(-1);
+    expect(at, '等回收要排在等 run 收尾之后').toBeGreaterThan(stopRuns);
     expect(body.match(/\bshutdownReap\(/g) ?? [], '只调一次').toHaveLength(1);
     // 取出这次调用的实参（按圆括号配对）
     const open = body.indexOf('(', at);

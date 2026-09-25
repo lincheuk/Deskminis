@@ -21,9 +21,10 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import WebSocket from 'ws';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { constants as osConstants } from 'node:os';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { bootMain, h, type ForkOptions } from './main-window-guard-harness';
+import { bridgePipePath } from '../src/minisd/bridge/server';
 
 vi.mock('electron', async () => (await import('./main-window-guard-harness')).fakeElectron());
 vi.mock('electron-updater', async () => (await import('./main-window-guard-harness')).fakeElectronUpdater());
@@ -80,6 +81,9 @@ afterAll(() => {
   if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   stderrSpy?.mockRestore();
   restore();
+  // 非 Windows 上桥的命名管道 \\.\pipe\deskminis-<哈希> 是相对路径：引擎以应用目录为 cwd 起（vite-node 要在这里解析源码），
+  // 套接字文件落在应用目录，引擎被结束后留着，每跑一次多一个（W1b-5e，与 W3-smokec 同因）
+  if (process.platform !== 'win32' && dataDir) rmSync(join(appRoot, bridgePipePath(dataDir)), { force: true });
 });
 
 type Rec = { process: string; kind: string; message: string; version: string; stack: string | null; exitCode?: number; stderrTail?: string };

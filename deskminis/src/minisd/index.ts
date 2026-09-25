@@ -245,6 +245,7 @@ export const CLOSE_GRACE_MS = 3_000;
 /** 关停第 6 步等子进程树回收的上限（W1b-5d · 设计稿 §4.1）。Windows 上终端、shell、MCP 的回收是起 taskkill /T 收整棵树，
  *  taskkill 是 minisd 的直接子进程：不等它跑完就退出，它会随 libuv 的作业一并被结束，孙进程没人收（proc/win-exec.ts 头注释）。
  *  卡住的 taskkill（系统繁忙、被安全软件拦住）不能把关停拖过主进程的强杀时限：到点照样往下关桥、rpc 与库，没收完的孙进程留下。
+ *  MCP 的 streamable-http 连接关停时发的告别（DELETE）也算在这段里（W1b-5e）。
  *  与 CLOSE_GRACE_MS 相加必须比 MINISD_STOP_TIMEOUT_MS 小至少 1 秒（见上，tests/minisd-stop.test.ts 钉住）。 */
 export const REAP_WAIT_MS = 1_000;
 
@@ -281,7 +282,7 @@ export async function shutdownReap(steps: readonly ReapStep[], limitMs: number):
   const expired = new Promise<'timeout'>(r => { timer = setTimeout(() => r('timeout'), limitMs); });
   try {
     const outcome = await Promise.race([Promise.all(reaping).then(() => 'done' as const), expired]);
-    if (outcome === 'timeout') console.warn(`关停：等子进程树回收超过 ${limitMs}ms，照样往下关（没收完的孙进程会留下）`);
+    if (outcome === 'timeout') console.warn(`关停：等子进程树回收超过 ${limitMs}ms（远端 MCP 的告别也算在内），照样往下关（没收完的孙进程会留下，告别可能没发出去）`);
     return outcome;
   } finally {
     clearTimeout(timer);

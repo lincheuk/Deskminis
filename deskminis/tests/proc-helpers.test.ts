@@ -273,6 +273,15 @@ describe('killTree 返回回收落定的 Promise（W1b-5d）', () => {
     expect(await settledNow(killTree(exited, 'win32', gone.spawnImpl, {}))).toBe(true);
     expect(gone.calls).toHaveLength(0);
   });
+
+  it('注入的 spawn 交回的东西挂不上监听（没有 .on）：兜底杀根后照样落定，不拒绝（W1b-5e）', async () => {
+    // 生产里的 spawn 总是交回 ChildProcess；这里钉的是「从不拒绝」这句话本身：挂监听一抛，Promise 的执行器就把它变成拒绝，
+    // 关停第 6 步虽然兜得住，不接返回值的调用点（shell interrupt、删除会话、MCP 握手失败）会冒出未处理的拒绝
+    const spawnImpl = (() => ({})) as unknown as typeof spawn;
+    const { child, kills } = fakeChild();
+    await expect(killTree(child, 'win32', spawnImpl, {}, 'SIGKILL')).resolves.toBeUndefined();
+    expect(kills, '挂不上监听就不知道 taskkill 何时跑完：先兜底杀根').toEqual(['SIGKILL']);
+  });
 });
 
 describe('childEnv：子进程环境剥掉 DESKMINIS_*（§3 第 10 条）', () => {
