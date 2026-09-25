@@ -1,8 +1,9 @@
 import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { dataRoot, MinisPaths } from './paths';
+import { dataRoot, logRootFromEnv, MinisPaths } from './paths';
 import { openDb } from './store/db';
 import { reportStartupFailure } from './fatal';
+import { installMinisdCrashHandlers } from './diag/crash-hooks';
 import { acquireDataRootLock, type DataRootLock } from './store/data-root-lock';
 import { AuditLogger, auditRedact, type AuditListOpts } from './store/audit';
 import { SettingsStore, SYNC_PAUSE_KEY, PERMISSION_PRESET_KEY } from './store/settings';
@@ -353,7 +354,14 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       if (!pendingPerms.has(requestId)) return;
       pendingPerms.delete(requestId);
       rpc.broadcast('permission.resolved', { requestId, reason: 'timeout' }); // 决策 4b'：Task 10 超时留条的判定源
-      audit.append('permission.resolved', { requestId, reason: 'timeout' }, { sessionId: req.sessionId });
+      // 审计写入兜住（W2b-7 · 设计稿 §4.1）：库写失败（SQLITE_FULL / SQLITE_BUSY）时这一抛发生在定时器里，
+      // 就是一次未捕获异常——standalone 下引擎当场退出、所有会话断线，下面的 resolve 也被跳过。
+      // 失败只记一笔警告（stderr 经主进程落进按天日志）；卡片照常按拒绝了结，丢的只是这条审计。
+      try {
+        audit.append('permission.resolved', { requestId, reason: 'timeout' }, { sessionId: req.sessionId });
+      } catch (e) {
+        console.warn(`权限请求 ${requestId} 超时了结时审计写入失败（卡片照常按拒绝了结）:`, e);
+      }
       resolve('deny');
     }, permTimeoutMs);
     timer.unref?.();
@@ -1439,6 +1447,10 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
 
 // 作为独立进程启动时（Electron utilityProcess / --headless）
 if (process.env.DESKMINIS_STANDALONE === '1') {
+  // W2b-7 崩溃钩子（行为在 diag/crash-hooks.ts）：未捕获异常记进 <logRoot>/crashes.json 后退出，未处理拒绝记完继续跑。
+  // 分支第一句，赶在装配之前：启动途中的崩溃也记得下。只装在这里：进程内起 minisd 的测试不经过这个分支，
+  // 装进 vitest worker 会吞掉测试框架自己的未捕获异常。日志目录由主进程经 DESKMINIS_LOG_DIR 下发。
+  installMinisdCrashHandlers(logRootFromEnv(process.env));
   // M3a：MINISD_HOST env 接线（设计 §3.1）——main/index.ts utilityProcess.fork 时 env 注入，
   // standalone 分支读 env 传入 startMinisd({ host })，不改 startMinisd 签名。
   // 默认 127.0.0.1（仅本机）；设 0.0.0.0 开放局域网（配 PASETO/配对码鉴权）。
