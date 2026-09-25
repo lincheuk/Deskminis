@@ -7,8 +7,8 @@
  * 这里用 shell 工具真跑一遍：spawn 换成记账的替身（一旦被调就是命令真要执行了），不会真的起 PowerShell。
  * 「先看取消、再看拒绝」（W1b-5）的顺序不动：关停 / 删除会话时后台了结卡片并 abort，那条仍写「[已取消]」。
  */
-import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { spawn } from 'node:child_process';
@@ -20,9 +20,11 @@ import type { PermissionDecision, PermissionGateway, PermissionRequest, ToolCont
 
 const USER_DENIED = '命令被用户拒绝（可在设置-权限中调整）';
 
-let paths: MinisPaths; let reg: ToolRegistry; let spawned: unknown[][];
+let paths: MinisPaths; let reg: ToolRegistry; let spawned: unknown[][]; let root = '';
+afterEach(() => { if (root) rmSync(root, { recursive: true, force: true }); });
 beforeEach(() => {
-  paths = new MinisPaths(mkdtempSync(join(tmpdir(), 'dm-rule-blocked-')));
+  root = mkdtempSync(join(tmpdir(), 'dm-rule-blocked-'));
+  paths = new MinisPaths(root);
   paths.ensureSessionDirs('S1');
   spawned = [];
   const fakeSpawn = ((...args: unknown[]) => { spawned.push(args); throw new Error('不该启动 shell：命令要真的执行了'); }) as unknown as typeof spawn;
@@ -52,6 +54,10 @@ function expectRuleBlocked(r: { output: string; success: boolean }): void {
   expect(r.output).toContain('任何权限档位也不会放行');
   expect(r.output).not.toContain('被用户拒绝');
   expect(r.output).not.toContain('可在设置-权限中调整');
+  // 危险规则按整段文本认，读 shutdown.ps1、搜 Stop-Process 字样也会被拦（W1b-2g 审查）：
+  // 给模型一条不经 shell 的出路，免得它把无害的读、搜推给用户
+  expect(r.output).toContain('file_read');
+  expect(r.output).toContain('file_grep');
 }
 
 describe('危险命令被规则拦下：如实说是规则，不说用户拒绝', () => {

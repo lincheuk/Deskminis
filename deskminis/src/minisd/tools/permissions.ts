@@ -70,6 +70,7 @@ const READONLY_SECOND_TOKEN_RULES: Record<string, SecondTokenRule[]> = {
   npm: [
     // view / outdated 不收（W1b-2g）：两者都要连 npm 源，view 还接受任意网址（npm view <url>）——
     // 免询问白名单只收只读本地的命令；ls 读本地 node_modules、config get 读本地配置，留着
+    // （npm 自己的更新检查 update-notifier 默认最多一周连一次 npm 源，只查 npm 版本、不带命令参数，不算这里要管的访问）
     { sub: 'ls' },
     { sub: 'config', third: 'get' }, // npm config set 写配置，只放行 get 形态
   ],

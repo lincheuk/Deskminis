@@ -9,7 +9,8 @@ type Tier = 'ask' | 'session' | 'full';
 const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: boolean }[] = [
   // T6e-3 补搬：旧设置页写明了「90 秒未响应自动拒绝」，换壳时丢了。用户不知道这一点，
   // 就会以为离开一会儿回来任务还等着——其实已经按拒绝跑完了。
-  { tier: 'ask', icon: 'shield', title: '每次确认', sub: '工作区内文件直接放行；其余每次询问，90 秒没回应按拒绝处理' },
+  // W1b-2g 审查：旧副标题只说「工作区内文件直接放行」，可只读的本地命令（dir、Get-Content、rg、git log 等）同样不问
+  { tier: 'ask', icon: 'shield', title: '每次确认', sub: '工作区内的文件与只读的本地命令直接放行；其余每次询问，90 秒没回应按拒绝处理' },
   { tier: 'session', icon: 'clock', title: '本会话沿用', sub: '批准过的命令原样重复时不再询问' },
   // W1b-2g：旧副标题许诺「不可逆的系统操作仍拦截」，言过其实。危险规则是 minisd/tools/permissions.ts 的两张表
   // （DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），按命令写法匹配：完全访问下，换个写法的删除（[IO.File]::Delete）、

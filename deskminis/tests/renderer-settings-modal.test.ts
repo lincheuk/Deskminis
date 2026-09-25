@@ -92,6 +92,17 @@ describe('W1b-2g「完全访问」副标题如实：危险规则只按命令写�
     expect(fullSub).toMatch(/拦不住所有不可逆操作/);
   });
 
+  it('模板里也没有旧说法（有人把许诺挪进模板同样不行）', () => {
+    expect(sfcBlocks(perm, 'SecPermission.vue').template).not.toMatch(/不可逆的系统操作仍拦截/);
+  });
+
+  it('「每次确认」档如实：只读的本地命令同样不询问（旧副标题只说工作区内文件放行，W1b-2g 审查）', () => {
+    const askSub = /tier:\s*'ask'[^}]*?\bsub:\s*'([^']*)'/.exec(script)?.[1] ?? '';
+    expect(askSub, '没从 TIERS 里认出 ask 档的 sub').not.toBe('');
+    expect(askSub).toMatch(/只读/);
+    expect(askSub).toMatch(/90 秒/);
+  });
+
   it('副标题举的例子真在危险表里：括号「（如 …）」里的每一个都交给 classifyShellCommand，必须判 danger', () => {
     const examples = (/（如\s*([^）]+)）/.exec(fullSub)?.[1] ?? '').split('、').map((s) => s.trim()).filter(Boolean);
     expect(examples.length, `副标题里没有举例：${fullSub}`).toBeGreaterThan(0);
