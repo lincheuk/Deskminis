@@ -4,7 +4,7 @@
  *  按本地日期分文件，每行前加带时区的 ISO 时间（日期部分与文件名一致，解析回来就是那一刻）；
  *  启动时删掉超过 7 天的文件；单日超过 10MB 停写，只记一行截断说明；只落本地，写不进也不打断调用方。
  *  时间一律注入；日期用本地时间构造（new Date(年, 月, 日, …)），在哪个时区跑结果都一样。 */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +19,14 @@ function tmpLogRoot(): string {
   return d;
 }
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+
+// 整个文件钉在东八区（W2b-7 三审）：验证环境是 UTC，本地午夜就是 UTC 午夜，「按本地日期分文件」「行时间带时区」
+// 「按本地日历天清理」这几条在 UTC 里跑不出区别——改成 toISOString 或按 UTC 算日期照样全绿，
+// 可目标用户在东八区，那样每天 00:00–08:00 的日志会进前一天的文件。vitest 按文件隔离进程，影响不到别的文件；
+// Node 运行中改 TZ 立即生效，下面构造 Date 的地方都在用例里，晚于这里
+let savedTz: string | undefined;
+beforeAll(() => { savedTz = process.env.TZ; process.env.TZ = 'Asia/Shanghai'; });
+afterAll(() => { if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz; });
 
 /** 本地时间 2026-09-25 的某一刻 */
 const at = (h: number, m = 0, day = 25): Date => new Date(2026, 8, day, h, m, 7, 123);
@@ -157,5 +165,28 @@ describe('prune', () => {
 
   it('目录不存在：什么也不做', () => {
     expect(() => new DailyLog(join(tmpLogRoot(), 'nope')).prune(at(9))).not.toThrow();
+  });
+});
+
+describe('本地日期与 UTC 日期不同的时刻（东八区凌晨）', () => {
+  it('前提：这个文件确实跑在东八区（否则下面几例又成了空转）', () => {
+    expect(new Date(2026, 8, 25, 0, 30).getTimezoneOffset()).toBe(-480);
+  });
+
+  it('本地 2026-09-25 00:30（UTC 还是 09-24 16:30）写的一行：落在 25 号的文件，行首逐字是 +08:00 的本地时间', () => {
+    const root = tmpLogRoot();
+    const log = new DailyLog(root);
+    const t = new Date(2026, 8, 25, 0, 30, 7, 123);
+    expect(t.toISOString()).toBe('2026-09-24T16:30:07.123Z');
+    log.append('[main] 凌晨的一行', t);
+    expect(readdirSync(root)).toEqual(['minisd-2026-09-25.log']);
+    expect(lines(join(root, 'minisd-2026-09-25.log'))).toEqual(['2026-09-25T00:30:07.123+08:00 [main] 凌晨的一行']);
+  });
+
+  it('按本地日历天清理：本地 2026-09-25 00:30 时删 17 号、留 18 号（按 UTC 算会差一天）', () => {
+    const root = tmpLogRoot();
+    for (const day of ['2026-09-17', '2026-09-18']) writeFileSync(join(root, `minisd-${day}.log`), 'x\n');
+    new DailyLog(root).prune(new Date(2026, 8, 25, 0, 30));
+    expect(readdirSync(root).sort()).toEqual(['minisd-2026-09-18.log']);
   });
 });
