@@ -8,23 +8,37 @@
  *
  * 本文件分三层：
  *  1. 纯函数：参数解析、跳过判定、minisd 的环境、脱敏、握手行与致命行、结果表与退出码、剧本与指令、
- *     用例判定、权限卡应答、进程表、凭据库清理、明文 key 扫描；与引擎打交道的收尾逻辑（连接一断 call 立即拒绝、
- *     回合原因只报一次、引擎退出与崩溃的判定、shell-stop 抛出时摘掉回合监听）用本地 ws 或假连接测；
+ *     用例判定、权限卡应答、进程表（含停完引擎后收拾它名下的残留进程）、凭据库清理、明文 key 扫描；
+ *     清理（cleanup）与选凭据库（chooseVault）用假凭据库直接调，清理的进程操作（取进程表、看还在不在、结束）注入假的——
+ *     「结束不了」「核对不了身份」「停引擎前取不到进程表」这几处判 FAIL 在真进程表上凑不出来；凭据库在停引擎前那次取进程表
+ *     返回之前就已清掉、停完再清一遍；服务名接错成正式版 DeskMinis 或开发态 DeskMinis-dev 时选库、交给引擎、清理三处一条不碰；
+ *     runSmoke 进程内以 platform:'win32' 跑一遍（假凭据库、记下环境就退出的假引擎），钉住这三处服务名的接线；
+ *     与引擎打交道的收尾逻辑（连接一断 call 立即拒绝、被打断后连接拒绝新请求、回合原因只报一次、引擎退出与崩溃的判定、
+ *     建过的 provider 一建好就登记进凭据库清单、shell-stop 抛出时摘掉回合监听）用本地 ws 或假连接测；
  *  2. 假端点对真 provider：假端点的流式格式必须让 src 里的 AnthropicProvider / OpenAIProvider 解析出剧本里的工具调用；
  *     假端点照真端点拦下错误的请求（key 不对、思考块签名被改、tool_use 没有配对结果、DeepSeek V4 历史缺 reasoning_content）；
  *     脚本写出的最小 MCP 服务器能握手、列工具，参数被拆开时以 3 退出；
- *  3. 整条 --mock：先构建，再以 --mock --memory-vault 跑脚本——四个用例与「清理」都有结论、退出 0、输出里没有任何 key、
- *     临时目录已删；shell-stop 单独再走一遍（非 Windows 在 PATH 前面放照驱动行协议办事的假 powershell.exe 与假 ping，
+ *  3. 整条 --mock：先构建，再以 --mock --memory-vault 跑脚本——四个用例与「清理」都有结论、退出 0、临时目录已删；
+ *     打印的每一行都先脱敏（key 恰好取一段一定会打印的字，输出里只剩 [已隐藏]）；输出管道被读的一端先关掉也不崩、照样清理；
+ *     shell-stop 单独再走一遍（非 Windows 在 PATH 前面放照驱动行协议办事的假 powershell.exe 与假 ping，
  *     测的是权限卡放行、进程表里找 ping、chat.cancel 之后它退出这整条链）；清理那步的明文 key 扫描用一次植入来证明它接上了；
  *     引擎中途被杀（一握手就 kill -9；shell-stop 里 ping 一起来就杀）时几秒内判完、不干等超时，每行都写明引擎退出了；
- *     用例进行中收到 SIGINT、SIGHUP、SIGTERM（清理途中再来一次 Ctrl+C 也一样）时照样停引擎、删临时目录，再以 128+信号号退出。
- *     --memory-vault 让单测不碰系统凭据库（与产品单测用 InMemoryVault 同一个理由）。
- *  变异自检见提交正文：脚本里的每道判定、以及它守的产品链（W2a-3 回放签名、W2a-4 回放 reasoning_content、停止即中断 shell），
- *  各自改坏一处都至少有一例变红。
+ *     用例进行中收到 SIGINT、SIGHUP、SIGTERM（清理途中再来一次 Ctrl+C 也一样）时照样停引擎、删临时目录，再以 128+信号号退出，
+ *     打断之后不再开新的用例；停引擎前那次取进程表慢（Windows 上起 PowerShell 要一两秒，用小驱动把它放慢）时，在跑的用例
+ *     也不再发新回合；shell-stop 里 ping 已经起来时按 Ctrl+C，引擎名下没跟着退的驱动与 ping 也一并结束；信号那条路等清理那一行
+ *     真写出去再退（小驱动在「收到 SIG…」之后大量输出、测试这边停读一阵：POSIX 上 stdout 接管道是异步写，不等就丢掉排队的尾巴）。
+ *     --memory-vault 让整条例不碰系统凭据库（与产品单测用 InMemoryVault 同一个理由）；凭据库那一半由第 1 层的假凭据库测。
+ *  变异自检见各步提交正文（W3-smoke、W3-smokeb）：那里逐条列出的变异（脚本里的判定与接线，以及它守的产品链——
+ *  W2a-3 回放签名、W2a-4 回放 reasoning_content、停止即中断 shell），除注明「Linux 上测不到」的以外，每一条都至少让本文件
+ *  一例变红；没列出的改动不在这句话里。Linux 上测不到、只能在 Windows 真机跑 npm run smoke:release 验的：PowerShell 取进程表
+ *  与 taskkill、真的系统凭据库、SIGBREAK 与关控制台窗口的 SIGHUP 投递（连同系统给的那几秒）。stdout 截尾只在 POSIX 管道上有
+ *  （Windows 上 Node 把 stdout、stderr 的管道设成同步写），上面第 3 层那一例在 Linux 上测它。
  */
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
@@ -50,6 +64,25 @@ interface KeyringEntry { getPassword(): string | null; setPassword(v: string): v
 interface KeyringLike {
   Entry: new (service: string, account: string) => KeyringEntry;
   findCredentials?: (service: string) => Array<{ account: string; password: string }>;
+}
+type Vault = { kind: 'memory'; reason: string } | { kind: 'keyring'; service: string; keyring: KeyringLike };
+interface ExitInfo { code: number | null; signal: string | null }
+/** 清理收拾残留进程用的依赖（同 reapTree 的第二个参数），缺省是真的。 */
+interface ProcDeps {
+  snapshot?: () => Promise<ProcEntry[]>; isAlive?: (p: ProcEntry) => boolean; kill?: (pid: number) => void;
+  graceMs?: number; deadlineMs?: number; intervalMs?: number;
+}
+/** cleanup 要的那部分 ctx（runSmoke 里的 ctx 的子集）。 */
+interface CleanupCtx {
+  platform: string; tempRoot: string; secrets: string[]; vault: Vault; accounts: Set<string>;
+  engine: { child?: { pid?: number; kill(signal?: NodeJS.Signals): boolean; once(ev: 'exit', fn: () => void): unknown }; exit?: ExitInfo; booted: boolean; stopping: boolean };
+  client?: { close(): void; closed?: boolean };
+  procs?: ProcDeps;
+}
+interface FakeClient {
+  closed: boolean;
+  call(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
+  onNotify(fn: (method: string, params: unknown) => void): () => void;
 }
 interface Directive { kind: string; file?: string; content?: string; markdown?: string; command?: string }
 /** 脚本导出的形状（.mjs 没有类型声明，动态导入时在这里补上；静态 import .mjs 会让 typecheck 报缺声明）。 */
@@ -85,14 +118,21 @@ interface SmokeModule {
     deadlineMs: number; intervalMs?: number; isAlive: (p: ProcEntry) => boolean;
     snapshot: () => Promise<ProcEntry[]>; kill: (pid: number) => void;
   }): Promise<{ ok: boolean; killed: number[] }>;
+  reapTree(tree: ProcEntry[], deps: {
+    graceMs?: number; deadlineMs?: number; intervalMs?: number; isAlive: (p: ProcEntry) => boolean;
+    snapshot: () => Promise<ProcEntry[]>; kill: (pid: number) => void;
+  }): Promise<{ killed: ProcEntry[]; stuck: ProcEntry[]; unverified: ProcEntry[] }>;
   cleanupKeyring(keyring: KeyringLike, service: string, accounts: string[]): { deleted: string[]; leftovers: string[]; sweep: string };
+  chooseVault(o: { memoryVault?: boolean; platform: string; service: string; loadKeyring?: () => KeyringLike }): Vault;
+  cleanup(ctx: CleanupCtx): Promise<CaseResult>;
   cleanupSignals(platform: string): NodeJS.Signals[];
-  findSecretsInTree(dir: string, secrets: Array<string | undefined>): string[];
+  findSecretsInTree(dir: string, secrets: Array<string | undefined>, unreadable?: string[]): string[];
   mcpServerSource(expectedArgs: string[]): string;
   startMockAnthropic(o: { apiKey: string }): Promise<MockServer>;
   startMockOpenAI(o: { apiKey?: string; requireReasoningEcho?: boolean }): Promise<MockServer>;
   connectRpc(port: number, token: string): Promise<{
     call(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
+    refuse(reason: string): void;
     close(): void;
     readonly closed: boolean;
   }>;
@@ -104,7 +144,15 @@ interface SmokeModule {
   engineCrashed(ctx: {
     engine: { booted: boolean; stopping: boolean; exit?: { code: number | null; signal: string | null } }; client?: { closed: boolean };
   }): Promise<{ code: number | null; signal: string | null } | undefined>;
+  runToolSession(ctx: {
+    client: FakeClient; accounts: Set<string>; turnTimeoutMs: number; dataRoot: string;
+    denied: Array<{ sessionId: string }>; say(line: string): void;
+  }, label: string, providerParams: Record<string, unknown>): Promise<{ ok: boolean; summary: string }>;
   caseShellStop(ctx: unknown): Promise<{ status: string; detail: string }>;
+  runSmoke(o: {
+    mock: boolean; memoryVault: boolean; only?: string[]; platform?: string; env?: Record<string, string | undefined>;
+    electronBin: string; minisdEntry?: string; print?: (line: string) => void; loadKeyring?: () => KeyringLike; procs?: ProcDeps;
+  }): Promise<{ results: CaseResult[]; say: (line: string) => void; interrupted?: string }>;
 }
 const load = async (): Promise<SmokeModule> => (await import(pathToFileURL(SCRIPT).href)) as SmokeModule;
 
@@ -115,6 +163,28 @@ function tempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
+}
+
+/**
+ * 让 readdirSync 读这几个目录时报错（错误码各自给）：测试以 root 跑时 chmod 000 挡不住读。脚本经 ESM 引入 node:fs，
+ * 这里改 CommonJS 那份导出，再 syncBuiltinESMExports 让 ESM 那边也看到新函数；用例结束复原。
+ * once：每个目录只报一次错——rmSync 内部也可能经同一个函数读目录，删临时目录时得放行。
+ */
+function failReaddir(failures: Record<string, string>, once = false): void {
+  const fsCjs = createRequire(import.meta.url)('node:fs') as { readdirSync: (...a: unknown[]) => unknown };
+  const orig = fsCjs.readdirSync;
+  const pending = new Map(Object.entries(failures));
+  fsCjs.readdirSync = function (this: unknown, ...a: unknown[]): unknown {
+    const p = String(a[0]);
+    const code = pending.get(p);
+    if (code !== undefined) {
+      if (once) pending.delete(p);
+      throw Object.assign(new Error(`${code}: scandir '${p}'`), { code });
+    }
+    return orig.apply(this, a);
+  };
+  syncBuiltinESMExports();
+  cleanups.push(() => { fsCjs.readdirSync = orig; syncBuiltinESMExports(); });
 }
 
 /** 剧本要用到的工具定义（形状同 registry 交给 provider 的 AgentToolDefinition；非空才不会被假端点当成取标题请求）。 */
@@ -250,6 +320,14 @@ describe('smoke-release：隔离与脱敏', () => {
     expect(memory.DESKMINIS_DATA_DIR).toBe('/tmp/smoke/data');
   });
 
+  it('buildMinisdEnv：交给引擎的凭据库服务名不是 DeskMinis-smoke-<进程号> 就拒绝——正式版、开发态的不行，空白也不行（引擎读到空白回落正式版的 DeskMinis）', async () => {
+    const m = await load();
+    for (const svc of ['DeskMinis', 'DeskMinis-dev', ' ', 'DeskMinis-smoke-']) {
+      expect(() => m.buildMinisdEnv({ PATH: '/usr/bin' }, { dataRoot: '/d', logDir: '/l', keyringService: svc }), JSON.stringify(svc))
+        .toThrow(/不是冒烟专用的 DeskMinis-smoke-<进程号>/);
+    }
+  });
+
   it('redactSecrets 把每个 key 的每次出现都换掉，空的与过短的不当 key', async () => {
     const m = await load();
     const k = 'sk-ant-abcdefgh12345';
@@ -268,6 +346,18 @@ describe('smoke-release：隔离与脱敏', () => {
     writeFileSync(join(dir, 'clean.log'), 'nothing here');
     expect(m.findSecretsInTree(dir, [k, undefined]).map(p => p.replace(/\\/g, '/'))).toEqual(['data/sub/minis.db']);
     expect(m.findSecretsInTree(dir, ['short'])).toEqual([]);
+  });
+
+  it('findSecretsInTree：子目录读不了不抛错，记进 unreadable 交给清理报出来；扫的途中没了的目录跳过；别处照扫', async () => {
+    const m = await load();
+    const dir = tempDir('dm-smoke-scan-');
+    const k = 'sk-smoke-scan-0123456789';
+    for (const d of ['locked', 'gone', 'ok']) mkdirSync(join(dir, d));
+    writeFileSync(join(dir, 'ok', 'leak.txt'), k);
+    failReaddir({ [join(dir, 'locked')]: 'EACCES', [join(dir, 'gone')]: 'ENOENT' });
+    const unreadable: string[] = [];
+    expect(m.findSecretsInTree(dir, [k], unreadable).map(p => p.replace(/\\/g, '/'))).toEqual(['ok/leak.txt']);
+    expect(unreadable.map(p => p.replace(/\\/g, '/'))).toEqual(['locked']);
   });
 
   it('cleanupKeyring：删掉已知条目与枚举到的条目、核对无残留，别的服务名一条不碰', async () => {
@@ -297,6 +387,18 @@ describe('smoke-release：隔离与脱敏', () => {
     expect(m.cleanupKeyring(stuck, svc, ['provider:AAA']).leftovers).toEqual(['provider:AAA']);
   });
 
+  it('cleanupKeyring：服务名不是 DeskMinis-smoke-<进程号>（接错成正式版的 DeskMinis、开发态的 DeskMinis-dev）就抛错，一条也不删、连枚举都不做', async () => {
+    const m = await load();
+    for (const svc of ['DeskMinis', 'DeskMinis-dev', 'DeskMinis-smoke-', '']) {
+      const log: KeyringOp[] = [];
+      const fake = fakeKeyring(userVault(), { log });
+      expect(() => m.cleanupKeyring(fake, svc, ['pairing.static-identity', 'provider:AAA']), JSON.stringify(svc))
+        .toThrow(/不是冒烟专用的 DeskMinis-smoke-<进程号>，一条也没删/);
+      expect(Object.fromEntries(fake.store), JSON.stringify(svc)).toEqual(userVault());
+      expect(log, JSON.stringify(svc)).toEqual([]);
+    }
+  });
+
   it('cleanupSignals：Ctrl+C、SIGTERM、关终端或控制台窗口（SIGHUP）都先清理再退；Windows 上再加 Ctrl+Break（SIGBREAK）', async () => {
     const m = await load();
     // Windows 关控制台窗口时 node 收到的是 SIGHUP、Ctrl+Break 是 SIGBREAK：漏挂哪个，凭据库里本次写的条目与临时目录就一条都不删。
@@ -309,25 +411,388 @@ describe('smoke-release：隔离与脱敏', () => {
   });
 });
 
-/** 内存里的假凭据库：键为 服务名\0账户名。findThrows 模拟 Linux 无 Secret Service 时枚举抛错。 */
-function fakeKeyring(initial: Record<string, string>, opts: { findThrows?: boolean; deleteFails?: string[] } = {}): KeyringLike & { store: Map<string, string> } {
+/** 假凭据库上的一次操作（log 选项逐次记下）：op 为 get / set / delete / find，find 没有 account。 */
+interface KeyringOp { op: string; service: string; account?: string }
+
+/** 内存里的假凭据库：键为 服务名\0账户名。findThrows 模拟 Linux 无 Secret Service 时枚举抛错；
+ *  deleteFails / getFails 里的账户删除或读取时抛错（像凭据库半路出毛病）；log 给了就逐次记下读、写、删、枚举落在哪个服务名下。 */
+function fakeKeyring(initial: Record<string, string>, opts: { findThrows?: boolean; deleteFails?: string[]; getFails?: string[]; log?: KeyringOp[] } = {}): KeyringLike & { store: Map<string, string> } {
   const store = new Map(Object.entries(initial));
   const key = (s: string, a: string): string => `${s}\u0000${a}`;
   class Entry implements KeyringEntry {
     constructor(private readonly s: string, private readonly a: string) {}
-    getPassword(): string | null { return store.get(key(this.s, this.a)) ?? null; }
-    setPassword(v: string): void { store.set(key(this.s, this.a), v); }
+    getPassword(): string | null {
+      opts.log?.push({ op: 'get', service: this.s, account: this.a });
+      if (opts.getFails?.includes(this.a)) throw new Error('Couldn\'t access platform storage: AccessDenied');
+      return store.get(key(this.s, this.a)) ?? null;
+    }
+    setPassword(v: string): void { opts.log?.push({ op: 'set', service: this.s, account: this.a }); store.set(key(this.s, this.a), v); }
     deletePassword(): boolean {
+      opts.log?.push({ op: 'delete', service: this.s, account: this.a });
       if (opts.deleteFails?.includes(this.a)) throw new Error('Couldn\'t access platform storage');
       return store.delete(key(this.s, this.a));
     }
   }
   const findCredentials = (s: string): Array<{ account: string; password: string }> => {
+    opts.log?.push({ op: 'find', service: s });
     if (opts.findThrows) throw new Error('no secret service provider or dbus session found');
     return [...store].filter(([k]) => k.startsWith(`${s}\u0000`)).map(([k, v]) => ({ account: k.slice(s.length + 1), password: v }));
   };
   return { Entry, findCredentials, store };
 }
+
+/** 用户真实的凭据：正式版 DeskMinis 与开发态 DeskMinis-dev 下各几条。服务名一旦接错成这两个，清理按服务名枚举就会把它们删光。
+ *  provider:AAA 与冒烟服务名下的同名：连「按已知清单删」那条路也得挡住。 */
+const userVault = (): Record<string, string> => ({
+  ['DeskMinis\u0000pairing.static-identity']: 'real-device-identity',
+  ['DeskMinis\u0000provider:AAA']: 'sk-ant-user-real-key-0123456789',
+  ['DeskMinis\u0000provider:REAL2']: 'sk-user-real-key-9876543210',
+  ['DeskMinis-dev\u0000pairing.static-identity']: 'dev-device-identity',
+  ['DeskMinis-dev\u0000provider:DEV']: 'sk-dev-user-key-0123456789',
+});
+
+describe('smoke-release：清理与选凭据库（Windows 真跑时唯一要删的是凭据库里本次写的条目，这一半用假凭据库测）', () => {
+  /** 引擎没起来过的 ctx：清理只剩凭据库、明文 key 扫描与删临时目录。 */
+  function cleanupCtx(o: { tempRoot: string; vault: Vault; accounts?: string[]; secrets?: string[] }): CleanupCtx {
+    return {
+      platform: process.platform, tempRoot: o.tempRoot, secrets: o.secrets ?? [], vault: o.vault,
+      accounts: new Set(o.accounts ?? ['pairing.static-identity']),
+      engine: { booted: false, stopping: false }, client: undefined,
+    };
+  }
+  /** 冒烟服务名下两条（设备身份、用户的真 key），正式版 DeskMinis 下一条（绝不能碰）。 */
+  const seeded = (svc: string): Record<string, string> => ({
+    [`${svc}\u0000pairing.static-identity`]: 'id',
+    [`${svc}\u0000provider:AAA`]: 'sk-user-real-key-0123456789',
+    ['DeskMinis\u0000provider:REAL']: 'real-user-key',
+  });
+
+  it('cleanup：删掉冒烟服务名下本次写进去的凭据，正式版 DeskMinis 下的一条不碰；清理行写明凭据库已清空，临时目录也删了', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-4242';
+    const fake = fakeKeyring(seeded(svc));
+    const root = tempDir('dm-smoke-cleanup-');
+    const r = await m.cleanup(cleanupCtx({ tempRoot: root, vault: { kind: 'keyring', keyring: fake, service: svc }, accounts: ['pairing.static-identity', 'provider:AAA'] }));
+    expect(r, r.detail).toMatchObject({ name: '清理', status: 'PASS' });
+    expect(r.detail).toContain(`凭据库 ${svc} 已清空（删 2 条）`);
+    expect([...fake.store.keys()]).toEqual(['DeskMinis\u0000provider:REAL']);
+    expect(existsSync(root), '临时目录没删').toBe(false);
+  });
+
+  it('cleanup：凭据库里有删不掉的条目就判 FAIL「还剩 N 条」并点名，临时目录照删', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-4243';
+    const fake = fakeKeyring(seeded(svc), { deleteFails: ['provider:AAA'] });
+    const root = tempDir('dm-smoke-cleanup-');
+    const r = await m.cleanup(cleanupCtx({ tempRoot: root, vault: { kind: 'keyring', keyring: fake, service: svc }, accounts: ['pairing.static-identity', 'provider:AAA'] }));
+    expect(r.status, r.detail).toBe('FAIL');
+    expect(r.detail).toMatch(new RegExp(`凭据库 ${svc} 还剩 1 条（provider:AAA）`));
+    expect(fake.store.has(`${svc}\u0000pairing.static-identity`)).toBe(false);
+    expect(fake.store.has('DeskMinis\u0000provider:REAL')).toBe(true);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('cleanup：临时目录里有读不了的目录，判 FAIL「读不了、没扫到」、不说「没有明文 key」，临时目录照删', async () => {
+    const m = await load();
+    const root = tempDir('dm-smoke-cleanup-');
+    const locked = join(root, 'data', 'locked');
+    mkdirSync(locked, { recursive: true });
+    writeFileSync(join(root, 'data', 'providers.json'), '{"providers":[]}');
+    failReaddir({ [locked]: 'EACCES' }, true);
+    const r = await m.cleanup(cleanupCtx({ tempRoot: root, vault: { kind: 'memory', reason: '' }, secrets: ['sk-smoke-scan-0123456789'] }));
+    expect(r.status, r.detail).toBe('FAIL');
+    expect(r.detail).toMatch(/^临时目录里有 1 处读不了、没扫到：data[\\/]locked/);
+    expect(r.detail).not.toContain('临时目录里没有明文 key');
+    expect(r.detail).toContain('临时目录已删');
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('cleanup：前面哪一步抛错，删凭据库与删临时目录也照做（try/finally），抛的错记进清理行判 FAIL', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-4244';
+    const fake = fakeKeyring(seeded(svc));
+    const root = tempDir('dm-smoke-cleanup-');
+    const ctx = cleanupCtx({ tempRoot: root, vault: { kind: 'keyring', keyring: fake, service: svc }, accounts: ['pairing.static-identity', 'provider:AAA'] });
+    ctx.client = { close: () => { throw new Error('连接对象坏了'); } };
+    const r = await m.cleanup(ctx);
+    expect(r.status, r.detail).toBe('FAIL');
+    expect(r.detail).toContain('连接对象坏了');
+    expect([...fake.store.keys()]).toEqual(['DeskMinis\u0000provider:REAL']);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('cleanup：引擎 kill 之后又强杀仍没有退出，判 FAIL「引擎停不下来（pid N）」，不写「引擎已停」；凭据库与临时目录照样清', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-4245';
+    const fake = fakeKeyring(seeded(svc));
+    const root = tempDir('dm-smoke-cleanup-');
+    // 永远不发 exit 的假引擎；pid 取一个比 Linux 进程号上限还大的数，强杀那一下落空，碰不到任何真进程
+    const signals: unknown[] = [];
+    const child = Object.assign(new EventEmitter(), { pid: 2 ** 30, kill: (s?: NodeJS.Signals): boolean => { signals.push(s); return true; } });
+    const ctx = cleanupCtx({ tempRoot: root, vault: { kind: 'keyring', keyring: fake, service: svc }, accounts: ['pairing.static-identity', 'provider:AAA'] });
+    ctx.engine = { child, booted: true, stopping: false };
+    vi.useFakeTimers();
+    cleanups.push(() => { vi.useRealTimers(); });
+    const pending = m.cleanup(ctx);
+    // kill 后等 10 秒、强杀后再等 5 秒；Windows 上停引擎前取进程表还有自己的 10 秒时限。假时钟，推多少都不花真时间
+    await vi.advanceTimersByTimeAsync(60_000);
+    const r = await pending;
+    expect(signals.length, '没有先 kill 一次').toBeGreaterThan(0);
+    expect(r.status, r.detail).toBe('FAIL');
+    expect(r.detail).toMatch(/引擎停不下来（pid 1073741824）/);
+    expect(r.detail).not.toContain('引擎已停');
+    expect([...fake.store.keys()]).toEqual(['DeskMinis\u0000provider:REAL']);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('cleanup：系统不支持按服务名枚举时，按已知清单（设备身份、建过的 provider）删，清理行写明只核对了已知条目', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-4246';
+    const fake = fakeKeyring(seeded(svc), { findThrows: true });
+    const root = tempDir('dm-smoke-cleanup-');
+    const r = await m.cleanup(cleanupCtx({ tempRoot: root, vault: { kind: 'keyring', keyring: fake, service: svc }, accounts: ['pairing.static-identity', 'provider:AAA'] }));
+    expect(r.status, r.detail).toBe('PASS');
+    expect(r.detail).toContain(`凭据库 ${svc} 已清空（删 2 条；系统不支持按服务名枚举，只核对了已知条目）`);
+    expect([...fake.store.keys()]).toEqual(['DeskMinis\u0000provider:REAL']);
+  });
+
+  // 清理收拾引擎名下残留进程的三处判 FAIL：真进程表上凑不出「结束不了」「核对不了身份」「停引擎前取不到进程表」，
+  // 进程操作换成假的（照 chooseVault 注入 loadKeyring 的办法）。进程号都取比 Linux 进程号上限还大的数，万一落到真的强杀也碰不到任何进程
+  const ENGINE_PID = 2 ** 30;
+  const DRIVER: ProcEntry = { pid: ENGINE_PID + 1, ppid: ENGINE_PID, name: 'powershell.exe', start: '101' };
+  const PING: ProcEntry = { pid: ENGINE_PID + 2, ppid: ENGINE_PID + 1, name: 'PING.EXE', start: '102' };
+  const TABLE: ProcEntry[] = [{ pid: ENGINE_PID, ppid: 1, name: 'electron', start: '100' }, DRIVER, PING];
+  const QUICK = { graceMs: 20, deadlineMs: 100, intervalMs: 5 };
+  /** 起来了的假引擎：kill() 当场发 exit，像引擎收到 SIGTERM 当场退出（清理照常写「引擎已停」）。 */
+  const liveEngine = (): CleanupCtx['engine'] => {
+    const child = Object.assign(new EventEmitter(), { pid: ENGINE_PID, kill: (): boolean => { child.emit('exit'); return true; } });
+    return { child, booted: true, stopping: false };
+  };
+
+  it('cleanup：引擎名下有进程结束了还在，判 FAIL「结束不了」并点名，请用户去任务管理器；结束掉的照样写明', async () => {
+    const m = await load();
+    const root = tempDir('dm-smoke-cleanup-');
+    const alive = new Set([DRIVER.pid, PING.pid]);
+    const killed: number[] = [];
+    const ctx = cleanupCtx({ tempRoot: root, vault: { kind: 'memory', reason: '' } });
+    ctx.engine = liveEngine();
+    // 驱动一结束就没了，ping 怎么结束都还在
+    ctx.procs = { ...QUICK, snapshot: async () => TABLE, isAlive: p => alive.has(p.pid), kill: (pid) => { killed.push(pid); if (pid === DRIVER.pid) alive.delete(pid); } };
+    const r = await m.cleanup(ctx);
+    expect(r.status, r.detail).toBe('FAIL');
+    expect(r.detail).toMatch(new RegExp(`^引擎名下有 1 个进程结束不了（PING\\.EXE pid ${PING.pid}），请到任务管理器里结束`));
+    expect(r.detail).toContain('引擎已停');
+    expect(r.detail).toContain(`结束了引擎名下没随它退出的 1 个进程（powershell.exe pid ${DRIVER.pid}）`);
+    expect([...killed].sort()).toEqual([DRIVER.pid, PING.pid]);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('cleanup：停完引擎再取进程表失败，核对不了身份就一个也不结束，判 FAIL 并请用户去看', async () => {
+    const m = await load();
+    const root = tempDir('dm-smoke-cleanup-');
+    let snapshots = 0;
+    const killed: number[] = [];
+    const ctx = cleanupCtx({ tempRoot: root, vault: { kind: 'memory', reason: '' } });
+    ctx.engine = liveEngine();
+    // 停引擎前那次取得到（子树记下了驱动与 ping），停完核对身份那次取不到
+    ctx.procs = {
+      ...QUICK, isAlive: () => true, kill: (pid) => { killed.push(pid); },
+      snapshot: async () => { if (++snapshots > 1) throw new Error('powershell 起不来'); return TABLE; },
+    };
+    const r = await m.cleanup(ctx);
+    expect(r.status, r.detail).toBe('FAIL');
+    expect(r.detail).toMatch(new RegExp(`^引擎名下还有 2 个进程在跑（powershell\\.exe pid ${DRIVER.pid}、PING\\.EXE pid ${PING.pid}），取不到进程表、核对不了身份，没有替你结束`));
+    expect(killed, '核对不了身份就不该结束任何进程').toEqual([]);
+    expect(snapshots).toBe(2);
+    expect(r.detail).toContain('引擎已停');
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('cleanup：停引擎前就取不到进程表，判 FAIL「停引擎前取不到进程表」；引擎照停、临时目录照删', async () => {
+    const m = await load();
+    const root = tempDir('dm-smoke-cleanup-');
+    const ctx = cleanupCtx({ tempRoot: root, vault: { kind: 'memory', reason: '' } });
+    ctx.engine = liveEngine();
+    ctx.procs = { ...QUICK, snapshot: async () => { throw new Error('powershell 起不来'); }, isAlive: () => true, kill: () => { throw new Error('不该杀'); } };
+    const r = await m.cleanup(ctx);
+    expect(r.status, r.detail).toBe('FAIL');
+    expect(r.detail).toMatch(/^停引擎前取不到进程表（powershell 起不来），没法核对它名下有没有留下进程，请到任务管理器里看一眼/);
+    expect(r.detail).toContain('引擎已停');
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('cleanup：凭据库先清——停引擎前那次取进程表还没返回（Windows 上起 PowerShell 慢，关控制台窗口后系统只给几秒），用户的 key 就已删掉；停完引擎再清一遍，兜住在途的写入', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-4247';
+    const fake = fakeKeyring(seeded(svc));
+    const root = tempDir('dm-smoke-cleanup-');
+    const ctx = cleanupCtx({ tempRoot: root, vault: { kind: 'keyring', keyring: fake, service: svc }, accounts: ['pairing.static-identity', 'provider:AAA'] });
+    ctx.engine = liveEngine();
+    // 停引擎前那次取进程表挂住（像 PowerShell 冷启动、WMI 忙），测试看过凭据库再放行
+    let release!: () => void;
+    const gate = new Promise<void>(res => { release = res; });
+    let atSnapshot: string[] | undefined;
+    ctx.procs = {
+      ...QUICK, isAlive: () => false, kill: () => { throw new Error('不该杀'); },
+      snapshot: async () => {
+        if (atSnapshot === undefined) { atSnapshot = [...fake.store.keys()]; await gate; }
+        return TABLE;
+      },
+    };
+    const pending = m.cleanup(ctx);
+    for (let i = 0; atSnapshot === undefined && i < 300; i++) await new Promise(res => setTimeout(res, 10));
+    expect(atSnapshot, '停引擎前没有取进程表').toBeDefined();
+    expect(atSnapshot, '凭据库排在了取进程表之后：取表一慢，系统强杀时用户的 key 还在').toEqual(['DeskMinis\u0000provider:REAL']);
+    // 取表挂着的这段时间里引擎还活着，一次在途的写入落了盘（刚建好的 provider，脚本还不知道它的 id）：停完引擎那一遍按服务名枚举删掉它
+    fake.store.set(`${svc}\u0000provider:LATE`, 'sk-user-real-key-late-0123456789');
+    release();
+    const r = await pending;
+    expect(r.status, r.detail).toBe('PASS');
+    expect(r.detail).toContain(`凭据库 ${svc} 已清空（删 3 条）`);
+    expect([...fake.store.keys()]).toEqual(['DeskMinis\u0000provider:REAL']);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('cleanup：引擎名下的进程在缺省的宽限里自己退了（读到 stdin 结束的 MCP 服务器），不替它结束、不再取一次进程表、不算进「结束了几个」', async () => {
+    // 宽限用缺省值（不注入 graceMs）：Windows 上每取一次进程表要起一次 PowerShell（一两秒），停完引擎还在的都去核对、结束，
+    // 清理就平白慢了，清理行也把本来就会退的进程算成「结束了」
+    const m = await load();
+    const root = tempDir('dm-smoke-cleanup-');
+    const ctx = cleanupCtx({ tempRoot: root, vault: { kind: 'memory', reason: '' } });
+    const MCP: ProcEntry = { pid: ENGINE_PID + 3, ppid: ENGINE_PID, name: 'node', start: '103' };
+    let stoppedAt = 0;
+    const child = Object.assign(new EventEmitter(), { pid: ENGINE_PID, kill: (): boolean => { stoppedAt = Date.now(); child.emit('exit'); return true; } });
+    ctx.engine = { child, booted: true, stopping: false };
+    let snapshots = 0;
+    ctx.procs = {
+      snapshot: async () => { snapshots++; return [TABLE[0], MCP]; },
+      // 停引擎之后 0.15 秒才退，比缺省的宽限短得多
+      isAlive: () => stoppedAt === 0 || Date.now() - stoppedAt < 150,
+      kill: () => { throw new Error('不该结束'); },
+    };
+    const r = await m.cleanup(ctx);
+    expect(r.status, r.detail).toBe('PASS');
+    expect(r.detail).not.toContain('结束了引擎名下');
+    expect(snapshots, '停完引擎又取了一次进程表：没等宽限').toBe(1);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  for (const svc of ['DeskMinis', 'DeskMinis-dev']) {
+    it(`cleanup：凭据库服务名接错成 ${svc}（${svc === 'DeskMinis' ? '正式版' : '开发态'}）时一条也不删，判 FAIL 并写明；临时目录照删`, async () => {
+      const m = await load();
+      const fake = fakeKeyring(userVault());
+      const root = tempDir('dm-smoke-cleanup-');
+      const r = await m.cleanup(cleanupCtx({ tempRoot: root, vault: { kind: 'keyring', keyring: fake, service: svc }, accounts: ['pairing.static-identity', 'provider:AAA'] }));
+      expect(r.status, r.detail).toBe('FAIL');
+      expect(r.detail).toMatch(new RegExp(`^清凭据库时出错：服务名 ${svc} 不是冒烟专用的 DeskMinis-smoke-<进程号>，一条也没删`));
+      expect(r.detail, '同一个原因只报一次').not.toMatch(/一条也没删[^]*一条也没删/);
+      expect(Object.fromEntries(fake.store), '用户真实的凭据被动了').toEqual(userVault());
+      expect(existsSync(root)).toBe(false);
+    });
+  }
+
+  it('chooseVault：Windows 上加载得到、写读删探一次都通就用系统凭据库，探针不留下；只调一次加载器', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-7';
+    const fake = fakeKeyring({});
+    const loadKeyring = vi.fn(() => fake);
+    const v = m.chooseVault({ platform: 'win32', service: svc, loadKeyring });
+    expect(v).toMatchObject({ kind: 'keyring', service: svc });
+    expect(v.kind === 'keyring' && v.keyring).toBe(fake);
+    expect(loadKeyring).toHaveBeenCalledTimes(1);
+    expect([...fake.store.keys()], '探针条目留下了').toEqual([]);
+  });
+
+  it('chooseVault：加载 @napi-rs/keyring 抛错时退回内存凭据库并写明原因', async () => {
+    const m = await load();
+    const v = m.chooseVault({ platform: 'win32', service: 'DeskMinis-smoke-7', loadKeyring: () => { throw new Error('Cannot find module keyring.win32-x64-msvc.node\n  at require'); } });
+    expect(v.kind).toBe('memory');
+    expect(v.kind === 'memory' && v.reason).toBe('（加载 @napi-rs/keyring 失败：Cannot find module keyring.win32-x64-msvc.node）');
+  });
+
+  it('chooseVault：非 Windows 与 --memory-vault 一律用内存凭据库，连加载器都不调（Linux 的 Secret Service 在容器里写不进）', async () => {
+    const m = await load();
+    const loadKeyring = vi.fn(() => fakeKeyring({}));
+    expect(m.chooseVault({ platform: 'linux', service: 'DeskMinis-smoke-7', loadKeyring })).toMatchObject({ kind: 'memory', reason: expect.stringContaining('linux 上不用系统凭据库') });
+    expect(m.chooseVault({ platform: 'darwin', service: 'DeskMinis-smoke-7', loadKeyring }).kind).toBe('memory');
+    expect(m.chooseVault({ memoryVault: true, platform: 'win32', service: 'DeskMinis-smoke-7', loadKeyring })).toEqual({ kind: 'memory', reason: '（--memory-vault）' });
+    expect(loadKeyring).not.toHaveBeenCalled();
+  });
+
+  it('chooseVault：探针写进去之后读回出错，退回内存凭据库，探针照样删掉（删在 finally 里）', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-7';
+    const fake = fakeKeyring({}, { getFails: ['__smoke_probe__'] });
+    const v = m.chooseVault({ platform: 'win32', service: svc, loadKeyring: () => fake });
+    expect(v.kind).toBe('memory');
+    expect(v.kind === 'memory' && v.reason).toMatch(/^（系统凭据库不可用：Couldn't access platform storage: AccessDenied/);
+    expect([...fake.store.keys()], '读回出错时探针留在了凭据库里').toEqual([]);
+  });
+
+  it('chooseVault：探针删不掉就不用系统凭据库（清理时也删不掉用户的 key），原因里点名留下的探针条目', async () => {
+    const m = await load();
+    const svc = 'DeskMinis-smoke-7';
+    const fake = fakeKeyring({}, { deleteFails: ['__smoke_probe__'] });
+    const v = m.chooseVault({ platform: 'win32', service: svc, loadKeyring: () => fake });
+    expect(v.kind).toBe('memory');
+    expect(v.kind === 'memory' && v.reason).toMatch(new RegExp(`__smoke_probe__.*${svc}`));
+  });
+
+  it('chooseVault：服务名不是 DeskMinis-smoke-<进程号>（接错成正式版或开发态的）就不碰系统凭据库——不加载、不写探针，退回内存凭据库并写明原因', async () => {
+    const m = await load();
+    for (const svc of ['DeskMinis', 'DeskMinis-dev']) {
+      const log: KeyringOp[] = [];
+      const fake = fakeKeyring(userVault(), { log });
+      const loadKeyring = vi.fn(() => fake);
+      const v = m.chooseVault({ platform: 'win32', service: svc, loadKeyring });
+      expect(v.kind, svc).toBe('memory');
+      expect(v.kind === 'memory' && v.reason, svc).toMatch(new RegExp(`服务名 ${svc} 不是冒烟专用的 DeskMinis-smoke-<进程号>`));
+      expect(loadKeyring, svc).not.toHaveBeenCalled();
+      expect(log, svc).toEqual([]);
+      expect(Object.fromEntries(fake.store), svc).toEqual(userVault());
+    }
+  });
+
+  it('runSmoke 的服务名接线（Windows 上）：选库的探针、交给引擎的 DESKMINIS_KEYRING_SERVICE、清理都落在 DeskMinis-smoke-<本进程号> 下，正式版与开发态的凭据一条不碰', async () => {
+    // 进程内以 platform:'win32' 跑一遍，只选 mcp-spaces（不要 key）；引擎换成一个记下自己环境就退出的假引擎（用例因此判 FAIL，
+    // 清理照常走）。Linux 上整条例一律走内存凭据库，这三处服务名接线别处都执行不到：接错成正式版的 DeskMinis，
+    // Windows 上的清理就会按服务名枚举，把用户的全部凭据删光还报 PASS
+    const m = await load();
+    const svc = `DeskMinis-smoke-${process.pid}`;
+    const log: KeyringOp[] = [];
+    // 冒烟服务名下预先放一条设备身份（像引擎起动时写的），看清理删的是不是它
+    const fake = fakeKeyring({ ...userVault(), [`${svc}\u0000pairing.static-identity`]: 'smoke-device-identity' }, { log });
+    const dir = tempDir('dm-smoke-wiring-');
+    const dump = join(dir, 'engine-env.json');
+    const entry = join(dir, 'fake-minisd.mjs');
+    writeFileSync(entry, [
+      "import { writeFileSync } from 'node:fs';",
+      'writeFileSync(process.env.SMOKE_ENV_DUMP, JSON.stringify({ service: process.env.DESKMINIS_KEYRING_SERVICE ?? null, test: process.env.DESKMINIS_TEST ?? null }));',
+      '',
+    ].join('\n'));
+    const lines: string[] = [];
+    const { results } = await m.runSmoke({
+      mock: false, memoryVault: false, only: ['mcp-spaces'], platform: 'win32',
+      env: { ...process.env, SMOKE_ENV_DUMP: dump }, electronBin: process.execPath, minisdEntry: entry,
+      print: (line) => { lines.push(line); }, loadKeyring: () => fake,
+      // 假引擎退得比清理早，清理不该去取进程表、结束进程；万一去了也碰不到本机的进程表
+      procs: { snapshot: async () => { throw new Error('不该取进程表'); }, isAlive: () => false, kill: () => { throw new Error('不该结束进程'); } },
+    });
+    const out = lines.join('\n');
+    const root = /临时目录：(.+)$/m.exec(out)?.[1]?.trim();
+    cleanups.push(() => { if (root) rmSync(root, { recursive: true, force: true }); });
+    expect(out).toContain(`凭据库：系统凭据库，服务名 ${svc}（`);
+    expect(existsSync(dump), `假引擎没起来：\n${out}`).toBe(true);
+    expect(JSON.parse(readFileSync(dump, 'utf8')), '交给引擎的凭据库选择').toEqual({ service: svc, test: null });
+    const clean = results.find(r => r.name === '清理');
+    expect(clean?.status, clean?.detail).toBe('PASS');
+    expect(clean?.detail).toContain(`凭据库 ${svc} 已清空（删 1 条）`);
+    expect([...new Set(log.map(o => o.service))], '碰了冒烟服务名以外的凭据').toEqual([svc]);
+    expect(log.filter(o => o.op === 'set').map(o => o.account), '除了选库的探针不该写任何条目').toEqual(['__smoke_probe__']);
+    expect(Object.fromEntries(fake.store)).toEqual(userVault());
+    expect(existsSync(root!), `临时目录没删：${root}`).toBe(false);
+  });
+});
 
 describe('smoke-release：握手行、致命行、结果表', () => {
   it('parseHandshakeLine 与 main/index.ts 的 parseHandshake 同一套判定（同 ipc-contract 的向量）', async () => {
@@ -491,6 +956,31 @@ describe('smoke-release：进程表', () => {
     expect(m.findDescendants(table, 99)).toEqual([]);
   });
 
+  it('findDescendants 不把比「父进程」还早启动的进程算作后代：Windows 的父进程号不随父进程退出而更新，进程号又会复用', async () => {
+    const m = await load();
+    // 清理要结束引擎整棵子树：早先占过引擎这个进程号的程序留下的孤儿（及其子孙）绝不能算进来
+    const table: ProcEntry[] = [
+      { pid: 10, ppid: 1, name: 'electron.exe', start: '1790000005000' },
+      { pid: 11, ppid: 10, name: 'powershell.exe', start: '1790000006000' },
+      { pid: 12, ppid: 11, name: 'PING.EXE', start: '1790000007000' },
+      { pid: 13, ppid: 10, name: 'notepad.exe', start: '1789999000000' },
+      { pid: 14, ppid: 13, name: 'helper.exe', start: '1789999100000' },
+    ];
+    expect(m.findDescendants(table, 10).map(p => p.pid).sort()).toEqual([11, 12]);
+    // PowerShell 7 的 ISO 时间（七位小数）同样比较；同一毫秒起的不排除
+    const iso: ProcEntry[] = [
+      { pid: 20, ppid: 1, name: 'electron.exe', start: '2026-09-25T10:00:00.1234567+08:00' },
+      { pid: 21, ppid: 20, name: 'PING.EXE', start: '2026-09-25T10:00:00.1239999+08:00' },
+      { pid: 22, ppid: 20, name: 'old.exe', start: '2026-09-25T09:59:59.0000000+08:00' },
+    ];
+    expect(m.findDescendants(iso, 20).map(p => p.pid)).toEqual([21]);
+    // 启动时刻缺了或认不出（系统进程、macOS 的 ps 不给）就不排除
+    const unknown: ProcEntry[] = [
+      { pid: 30, ppid: 1, name: 'electron' }, { pid: 31, ppid: 30, name: 'ping', start: '5' }, { pid: 32, ppid: 30, name: 'x', start: 'garbage' },
+    ];
+    expect(m.findDescendants(unknown, 30).map(p => p.pid).sort()).toEqual([31, 32]);
+  });
+
   it('reapPings：deadline 内都退出算过；不退的核对身份后结束，进程号被复用的（启动时刻对不上）绝不误杀，核对不了就不杀', async () => {
     const m = await load();
     const a: ProcEntry = { pid: 101, ppid: 100, name: 'PING.EXE', start: 't1' };
@@ -513,6 +1003,46 @@ describe('smoke-release：进程表', () => {
     // 进程表拿不到：判失败，但谁也不杀
     const blind = await m.reapPings([a], { deadlineMs: 50, intervalMs: 10, isAlive: () => true, snapshot: async () => { throw new Error('powershell 起不来'); }, kill: () => { throw new Error('不该杀'); } });
     expect(blind).toEqual({ ok: false, killed: [] });
+  });
+
+  it('reapTree（停完引擎后收拾它名下没跟着退的）：身份核对得上的才结束；进程号被复用的不碰；结束不了的、核对不了的分开报', async () => {
+    const m = await load();
+    const drv: ProcEntry = { pid: 201, ppid: 200, name: 'powershell.exe', start: 's1' };
+    const ping: ProcEntry = { pid: 202, ppid: 201, name: 'PING.EXE', start: 's2' };
+    const mcp: ProcEntry = { pid: 203, ppid: 200, name: 'node.exe', start: 's3' };
+    const quick = { graceMs: 30, deadlineMs: 200, intervalMs: 10 };
+    const noSnapshot = async (): Promise<ProcEntry[]> => { throw new Error('不该取进程表'); };
+    const noKill = (): void => { throw new Error('不该杀'); };
+
+    // 名单是空的（引擎名下本来就没有进程），或都跟着引擎退了：什么也不做
+    expect(await m.reapTree([], { ...quick, isAlive: () => true, snapshot: noSnapshot, kill: noKill })).toEqual({ killed: [], stuck: [], unverified: [] });
+    expect(await m.reapTree([drv, ping], { ...quick, isAlive: () => false, snapshot: noSnapshot, kill: noKill })).toEqual({ killed: [], stuck: [], unverified: [] });
+    // 引擎一没就读到 stdin 结束、在 grace 里自己退了的（MCP 服务器）：先等它，不替它结束，也不算进「结束了几个」
+    let polls = 0;
+    expect(await m.reapTree([mcp], { ...quick, isAlive: () => ++polls < 3, snapshot: noSnapshot, kill: noKill })).toEqual({ killed: [], stuck: [], unverified: [] });
+
+    // 驱动跟着引擎退了；ping 还在、身份对得上 → 结束；203 号已被别的程序复用（启动时刻不同）→ 不碰
+    const alive = new Set([202, 203]);
+    const killed: number[] = [];
+    const r = await m.reapTree([drv, ping, mcp], {
+      ...quick, isAlive: p => alive.has(p.pid),
+      snapshot: async () => [{ pid: 202, ppid: 201, name: 'PING.EXE', start: 's2' }, { pid: 203, ppid: 9, name: 'node.exe', start: 'other' }],
+      kill: (pid) => { killed.push(pid); alive.delete(pid); },
+    });
+    expect(killed).toEqual([202]);
+    expect(r).toEqual({ killed: [ping], stuck: [], unverified: [] });
+
+    // 名字对不上（进程号被一个同启动时刻都查不到的别的程序占了）也不碰
+    const renamed = await m.reapTree([ping], { ...quick, isAlive: () => true, snapshot: async () => [{ ...ping, name: 'explorer.exe' }], kill: noKill });
+    expect(renamed).toEqual({ killed: [], stuck: [], unverified: [] });
+
+    // 杀了还在：记为结束不了
+    const stuck = await m.reapTree([ping], { ...quick, isAlive: () => true, snapshot: async () => [ping], kill: () => {} });
+    expect(stuck).toEqual({ killed: [], stuck: [ping], unverified: [] });
+
+    // 进程表取不到：核对不了身份，谁也不杀，记为核对不了
+    const blind = await m.reapTree([ping], { ...quick, isAlive: () => true, snapshot: async () => { throw new Error('powershell 起不来'); }, kill: noKill });
+    expect(blind).toEqual({ killed: [], stuck: [], unverified: [ping] });
   });
 
   it('takeProcessSnapshot 在本机真能列出本进程与它的父进程号', async () => {
@@ -751,6 +1281,40 @@ describe('smoke-release：与引擎的 RPC 连接', () => {
     expect(client.closed).toBe(true);
   }, 30_000);
 
+  it('connectRpc.refuse（被打断之后）：新请求当场拒绝并说明原因、一个也不发给引擎；连接不断，已经发出的请求照常收应答', async () => {
+    const m = await load();
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>(r => wss.once('listening', () => r()));
+    cleanups.push(() => new Promise<void>(r => wss.close(() => r())));
+    const got: string[] = [];
+    let answer: (() => void) | undefined;
+    wss.on('connection', s => {
+      s.on('message', (d) => {
+        const msg = JSON.parse(String(d)) as { id: number; method: string };
+        got.push(msg.method);
+        // 先收着不回：refuse 之后再回，看已经发出的请求还收不收得到应答
+        answer = () => s.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { ok: true } }));
+      });
+    });
+    const client = await m.connectRpc((wss.address() as AddressInfo).port, 'tok');
+    cleanups.push(() => client.close());
+    const inFlight = client.call('chat.sessions.create', {}, 10_000);
+    // 下面哪句先失败的话它就没人等了，收尾断开时的拒绝不该变成未处理的拒绝（照样在后面 await 它）
+    inFlight.catch(() => {});
+    for (let i = 0; got.length === 0 && i < 200; i++) await new Promise(r => setTimeout(r, 10));
+    expect(got).toEqual(['chat.sessions.create']);
+    client.refuse('已收到 SIGINT、正在清理，不再给引擎发新请求');
+    const t0 = Date.now();
+    await expect(client.call('chat.prompt', {}, 10_000)).rejects.toThrow(/^chat\.prompt：已收到 SIGINT、正在清理，不再给引擎发新请求$/);
+    await expect(client.call('permission.respond', {}, 10_000)).rejects.toThrow(/^permission\.respond：已收到 SIGINT/);
+    expect(Date.now() - t0, '被拒绝的请求不该干等超时').toBeLessThan(1_000);
+    answer!();
+    await expect(inFlight).resolves.toEqual({ ok: true });
+    await new Promise(r => setTimeout(r, 50));
+    expect(got, '被拒绝的请求不该发给引擎').toEqual(['chat.sessions.create']);
+    expect(client.closed, '连接不该断：清理还要趁引擎活着取进程表').toBe(false);
+  }, 30_000);
+
   it('runTurn：chat.prompt 当场失败（比如连接已断）时这一轮的原因只报一次，不在「以错误结束」之外再报一条同样的 error 事件', async () => {
     const m = await load();
     const why = 'chat.prompt：与引擎的连接已断开（引擎退出了？）';
@@ -804,6 +1368,53 @@ describe('smoke-release：与引擎的 RPC 连接', () => {
     expect(ctx.allow).toEqual([]);
     expect(calls).toEqual(expect.arrayContaining(['chat.sessions.delete', 'provider.instances.delete']));
   });
+
+  it('runToolSession：建过的 provider 登记成凭据库账户 provider:<id>（清理据此删用户的 key），收尾照删会话与 provider', async () => {
+    const m = await load();
+    const dir = tempDir('dm-smoke-session-');
+    const listeners = new Set<(method: string, params: unknown) => void>();
+    const calls: string[] = [];
+    const client: FakeClient = {
+      closed: false,
+      async call(method: string): Promise<unknown> {
+        calls.push(method);
+        if (method === 'provider.instances.create') return { id: 'P1' };
+        if (method === 'chat.sessions.create') return { id: 'S1' };
+        if (method === 'workspace.get') return { root: dir };
+        if (method === 'chat.prompt') {
+          // 回合立刻收尾（不调工具）：判定会是 FAIL，这里只看登记与收尾
+          setTimeout(() => { for (const l of [...listeners]) l('chat.event', { sessionId: 'S1', event: { kind: 'turnEnd', stopReason: 'endTurn' } }); }, 0);
+        }
+        return {};
+      },
+      onNotify(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
+    };
+    const ctx = { client, accounts: new Set(['pairing.static-identity']), turnTimeoutMs: 5_000, dataRoot: dir, denied: [], say: () => {} };
+    const r = await m.runToolSession(ctx, 'claude-opus-5-5', { name: '冒烟', kind: 'anthropic', modelId: 'claude-opus-5-5', apiKey: 'sk-ant-x' });
+    expect([...ctx.accounts]).toEqual(['pairing.static-identity', 'provider:P1']);
+    expect(r.ok).toBe(false);
+    expect(calls).toEqual(expect.arrayContaining(['chat.sessions.delete', 'provider.instances.delete']));
+  });
+
+  it('runToolSession：provider 一建好就登记，紧接着建会话就失败（引擎半路没了）也不漏——凭据库里那条存着用户的 key，系统不支持枚举时清理只认这份清单', async () => {
+    const m = await load();
+    const calls: string[] = [];
+    const client: FakeClient = {
+      closed: false,
+      async call(method: string): Promise<unknown> {
+        calls.push(method);
+        if (method === 'provider.instances.create') return { id: 'P2' };
+        if (method === 'chat.sessions.create') throw new Error('chat.sessions.create：与引擎的连接断了（引擎退出了？）');
+        return {};
+      },
+      onNotify() { return () => {}; },
+    };
+    const ctx = { client, accounts: new Set(['pairing.static-identity']), turnTimeoutMs: 5_000, dataRoot: tempDir('dm-smoke-session-'), denied: [], say: () => {} };
+    await expect(m.runToolSession(ctx, 'claude-opus-5-5', { name: '冒烟', kind: 'anthropic', modelId: 'claude-opus-5-5', apiKey: 'sk-ant-x' }))
+      .rejects.toThrow(/^chat\.sessions\.create：/);
+    expect([...ctx.accounts]).toEqual(['pairing.static-identity', 'provider:P2']);
+    expect(calls, '建过的 provider 收尾照删').toContain('provider.instances.delete');
+  });
 });
 
 describe('smoke-release：package.json 入口', () => {
@@ -825,19 +1436,24 @@ describe('smoke-release：整条 --mock（先构建）', () => {
 
   /** 照 npm run smoke:release 的方式起脚本（cwd 是工程目录，Electron 当 Node 跑），收齐输出。
    *  onOutput 在每块输出到达时拿到累计的全文与脚本进程：植入明文 key 的那例要赶在清理之前动手，信号那几例要在用例进行中发信号。
-   *  deadlineMs（缺省 85 秒）还没完就发 SIGINT（脚本清理后退出）。signal 非空说明脚本是被信号当场打死的，没走自己的清理。 */
-  function runScript(args: string[], env: Record<string, string | undefined>, onOutput?: (all: string, child: ChildProcess) => void, deadlineMs = 85_000): Promise<{ code: number | null; signal: NodeJS.Signals | null; out: string; elapsed: number; endedAt: number }> {
+   *  deadlineMs（缺省 85 秒）还没完就发 SIGINT（脚本清理后退出）。signal 非空说明脚本是被信号当场打死的，没走自己的清理。
+   *  file 缺省是脚本本身；换成调 runSmoke 的小驱动时，用同样的方式起。
+   *  out 是 stdout 与 stderr 按到达先后拼起来的（块与块之间可能不在行边界上），stdout 另给一份。按 utf8 流式解码：
+   *  逐块各自 toString 的话，一个汉字恰好跨两块时两边都成了乱码。 */
+  function runScript(args: string[], env: Record<string, string | undefined>, onOutput?: (all: string, child: ChildProcess) => void, deadlineMs = 85_000, file = SCRIPT): Promise<{ code: number | null; signal: NodeJS.Signals | null; out: string; stdout: string; elapsed: number; endedAt: number }> {
     const started = Date.now();
     return new Promise((resolve) => {
-      const child = spawn(process.execPath, [SCRIPT, ...args], { cwd: appRoot, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, [file, ...args], { cwd: appRoot, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '';
-      const take = (d: Buffer): void => { out += d.toString('utf8'); onOutput?.(out, child); };
-      child.stdout.on('data', take);
-      child.stderr.on('data', take);
+      let stdout = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (d: string) => { stdout += d; out += d; onOutput?.(out, child); });
+      child.stderr.on('data', (d: string) => { out += d; onOutput?.(out, child); });
       const timer = setTimeout(() => { child.kill('SIGINT'); }, deadlineMs);
       // 等 close 而不是 exit：exit 到的时候管道里可能还有没读的尾巴。信号那条路紧跟着清理那一行就 process.exit，
       // 按 exit 收会时不时丢掉最要看的那一行（脚本不把 stdout 交给任何子进程，close 不会被孙进程拖住）
-      child.on('close', (code, signal) => { clearTimeout(timer); const endedAt = Date.now(); resolve({ code, signal, out, elapsed: endedAt - started, endedAt }); });
+      child.on('close', (code, signal) => { clearTimeout(timer); const endedAt = Date.now(); resolve({ code, signal, out, stdout, elapsed: endedAt - started, endedAt }); });
     });
   }
   const row = (out: string, name: string): string | undefined => out.split(/\r?\n/).find(l => new RegExp(`^(PASS|FAIL|SKIP)\\s+${name}\\s`).test(l));
@@ -895,6 +1511,56 @@ describe('smoke-release：整条 --mock（先构建）', () => {
     expect(root, '脚本要说明临时目录在哪').toBeTruthy();
     expect(existsSync(root!), `临时目录没删：${root}`).toBe(false);
     expect(r.elapsed).toBeLessThan(90_000);
+  }, 90_000);
+
+  it('打印的每一行都先脱敏：key 恰好是一定会打印的字时，输出里只剩 [已隐藏]', async () => {
+    // --mock 不用环境里的 key，它们只进脱敏与明文扫描的名单。上一例那种 sk-… 形状的 key 本来就不会被打印，
+    // 「输出里没有它」恒为真；这里挑两段一定会打印、又不会落进临时目录的字当 key：分隔线开头由 runSmoke 的 say 打
+    // （横幅上下），结尾由 main 用 runSmoke 交回的 say 打（结果表上下）；清理行的最后半句也由 main 打。
+    // 哪一处打印绕过了脱敏，原文就会出现在输出里。横幅里的「DeskMinis 发版冒烟」不能用：mcp-spaces 写进临时目录的
+    // 服务器源码头一行注释就有这几个字，清理的明文扫描会把它当成泄露的 key
+    const rule = '═'.repeat(8);
+    const cleanTail = '临时目录里没有明文 key';
+    const r = await runScript(['--mock', '--memory-vault', '--only', 'mcp-spaces'], { ...process.env, ANTHROPIC_API_KEY: rule, DEEPSEEK_API_KEY: cleanTail });
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).not.toContain(rule);
+    expect(r.out).not.toContain(cleanTail);
+    const rules = r.out.split(/\r?\n/).filter(l => l === '[已隐藏]'.repeat(8));
+    expect(rules.length, '横幅上下两条、结果表上下两条分隔线都该换掉').toBe(4);
+    // 两段字都不在临时目录里（清理的明文扫描用的是同一份名单），所以清理照样 PASS，行尾那半句换成了 [已隐藏]
+    expect(row(r.out, '清理'), r.out).toMatch(/^PASS\s+清理\s+引擎已停；临时目录已删；\[已隐藏\]$/);
+  }, 90_000);
+
+  it('输出管道被读的一端先关掉（npm run smoke:release | head）：不因 EPIPE 崩掉，照样停引擎、删临时目录，按结论退出', async () => {
+    // 带上 deepseek：读的一端关掉之后，脚本还要在好几拍里接着打印（每轮一行、最后是结果表）。只错一拍的话，console.log 自己就把那次
+    // EPIPE 吞了——process.stdout 出错后会自己复位（dummyDestroy → _undestroy），console 只吞得住第一拍，第二拍的 'error' 没人接才崩
+    // （只跑 mcp-spaces 时切断之后多半只剩结果表那一拍，入口不挂吞错监听也常常照绿）
+    const child = spawn(process.execPath, [SCRIPT, '--mock', '--memory-vault', '--only', 'deepseek,mcp-spaces'], { cwd: appRoot, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    let cut = false;
+    child.stdout!.on('data', (d: Buffer) => {
+      out += d.toString('utf8');
+      // 拿到引擎 pid（与临时目录）就把读的一端关掉：之后脚本每写一行（用例进度、结果表）都是 EPIPE
+      if (!cut && /引擎：pid \d+/.test(out)) { cut = true; child.stdout!.destroy(); }
+    });
+    child.stderr!.on('data', (d: Buffer) => { err += d.toString('utf8'); });
+    const timer = setTimeout(() => { child.kill('SIGINT'); }, 60_000);
+    const code = await new Promise<number | null>(res => child.on('close', c => { clearTimeout(timer); res(c); }));
+    const root = tempRootOf(out);
+    const enginePid = Number(/引擎：pid (\d+)/.exec(out)?.[1]);
+    // 红的时候脚本当场崩掉，引擎与临时目录都留下：先登记收拾
+    cleanups.push(() => {
+      if (Number.isInteger(enginePid) && pidAlive(enginePid)) process.kill(enginePid, 'SIGKILL');
+      if (root) rmSync(root, { recursive: true, force: true });
+    });
+    expect(cut, `${out}\n${err}`).toBe(true);
+    expect(err, '脚本因 EPIPE 崩掉了').not.toMatch(/EPIPE|Unhandled 'error'/);
+    expect(code, err).toBe(0);
+    expect(root, out).toBeTruthy();
+    expect(existsSync(root!), `临时目录没删：${root}`).toBe(false);
+    for (let i = 0; pidAlive(enginePid) && i < 30; i++) await new Promise(res => setTimeout(res, 100));
+    expect(pidAlive(enginePid), `引擎 pid ${enginePid} 还在`).toBe(false);
   }, 90_000);
 
   it('shell-stop 整条走一遍：权限卡只放行那条命令，chat.cancel 后引擎名下的 ping 几秒内退出（Windows 上是真 powershell 与 ping）', async () => {
@@ -990,14 +1656,33 @@ describe('smoke-release：整条 --mock（先构建）', () => {
     try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
   };
 
+  /** 信号那几例的 DEEPSEEK_API_KEY：取清理行的最后半句。信号那条路打的清理行也得先脱敏（--mock 不用环境里的 key，它只进脱敏与
+   *  明文扫描的名单；这几个字不在临时目录里，清理照样 PASS），打出来的该是 [已隐藏]。 */
+  const CLEAN_TAIL = '临时目录里没有明文 key';
+
   /** 起 --mock，一到「── anthropic ──」（引擎起来了、用例正在跑）就给脚本发 first；给了 again 的话，脚本一说「收到 first」就再发它
-   *  （清理途中又按了一次）。红的时候脚本被信号当场打死，引擎与临时目录都会留下：先登记收拾，断言失败也不在测试机上留孤儿。 */
-  async function interruptRun(first: NodeJS.Signals, again?: NodeJS.Signals): Promise<Awaited<ReturnType<typeof runScript>> & { sent: number; root?: string; enginePid: number }> {
+   *  （清理途中又按了一次）。holdEngine：发 first 之前先 SIGSTOP 引擎——停引擎那一步（kill 之后等 exit）就卡住，
+   *  again 一定落在清理途中，不会因为机器忙、清理早早做完而落空；脚本一说「又收到 again」就 SIGCONT 放行。
+   *  file：换成调 runSmoke 的小驱动（同样的参数与环境）。tap：每块输出（stdout、stderr 都算）到达时在上面这些之后再调一次。
+   *  红的时候脚本被信号当场打死，引擎与临时目录都会留下：先登记收拾，断言失败也不在测试机上留孤儿（SIGKILL 对停住的进程照样有效）。 */
+  async function interruptRun(first: NodeJS.Signals, again?: NodeJS.Signals, opts: { holdEngine?: boolean; file?: string; tap?: (all: string, child: ChildProcess) => void } = {}): Promise<Awaited<ReturnType<typeof runScript>> & { sent: number; root?: string; enginePid: number }> {
     let sent = 0;
-    const r = await runScript(['--mock', '--memory-vault'], { ...process.env }, (all, child) => {
-      if (sent === 0 && all.includes('── anthropic ──')) { sent = 1; child.kill(first); return; }
-      if (again !== undefined && sent === 1 && all.includes(`收到 ${first}：`)) { sent = 2; child.kill(again); }
-    }, 45_000);
+    let held = 0;
+    const signalAt = (all: string, child: ChildProcess): void => {
+      if (sent === 0 && all.includes('── anthropic ──')) {
+        if (opts.holdEngine) { held = Number(/引擎：pid (\d+)/.exec(all)?.[1]); process.kill(held, 'SIGSTOP'); }
+        sent = 1;
+        child.kill(first);
+        return;
+      }
+      if (again !== undefined && sent === 1 && all.includes(`收到 ${first}：`)) { sent = 2; child.kill(again); return; }
+      // 「又收到」说明第二个信号是在清理途中处理的；这时清理早已发出 kill（它在头一个信号的同一轮里就发了），放行引擎让它退出
+      if (held > 0 && sent === 2 && all.includes(`又收到 ${again}：`)) { process.kill(held, 'SIGCONT'); held = 0; }
+    };
+    const r = await runScript(['--mock', '--memory-vault'], { ...process.env, DEEPSEEK_API_KEY: CLEAN_TAIL }, (all, child) => {
+      signalAt(all, child);
+      opts.tap?.(all, child);
+    }, 45_000, opts.file);
     const root = tempRootOf(r.out);
     const enginePid = Number(/引擎：pid (\d+)/.exec(r.out)?.[1]);
     cleanups.push(() => {
@@ -1007,9 +1692,17 @@ describe('smoke-release：整条 --mock（先构建）', () => {
     return { ...r, sent, root, enginePid };
   }
 
-  /** 打断之后该有的样子：清理那一行 PASS（引擎已停、临时目录已删），临时目录真没了，「引擎：pid N」那个进程真不在了。 */
+  /** 打断之后该有的样子：收到信号之后不再开新的用例；清理那一行 PASS（引擎已停、临时目录已删），行尾那半句照样脱敏；
+   *  临时目录真没了，「引擎：pid N」那个进程真不在了；不打结果表（被打断的一轮没有完整结论，被打断的用例只会是一行误导人的 FAIL）。 */
   async function expectCleanedUp(r: { out: string; root?: string; enginePid: number }): Promise<void> {
-    expect(r.out).toMatch(/^PASS\s+清理\s+引擎已停；临时目录已删/m);
+    // 清理正趁引擎还活着取进程表（Windows 上要起 PowerShell，一两秒）：这时开的用例会用真 key 调接口、新建 provider，
+    // shell-stop 还会起出不在名单上的 ping
+    const at = r.out.search(/^收到 SIG[A-Z]+：/m);
+    expect(at, r.out).toBeGreaterThanOrEqual(0);
+    expect(r.out.slice(at), `收到信号之后又开了新的用例\n${r.out}`).not.toMatch(/^── \S+ ──$/m);
+    expect(r.out).toMatch(/^PASS\s+清理\s+引擎已停；临时目录已删；\[已隐藏\]$/m);
+    expect(r.out, '信号那条路打的清理行没有脱敏').not.toContain(CLEAN_TAIL);
+    expect(r.out, '被打断的一轮不该再打结果表').not.toMatch(/^汇总：/m);
     expect(r.root, r.out).toBeTruthy();
     expect(existsSync(r.root!), `临时目录没删：${r.root}\n${r.out}`).toBe(false);
     expect(Number.isInteger(r.enginePid), r.out).toBe(true);
@@ -1031,9 +1724,157 @@ describe('smoke-release：整条 --mock（先构建）', () => {
   }
 
   it.skipIf(process.platform === 'win32')('清理途中又按一次 Ctrl+C：不被当场打死（那样本次写进凭据库的条目就留下了），清完照样以 130 退出', async () => {
-    const r = await interruptRun('SIGINT', 'SIGINT');
+    // 引擎先停住：清理卡在「等引擎退出」，第二个 Ctrl+C 一定落在清理途中（不然机器忙时它可能落在脚本退出之后，这一例就空转了）
+    const r = await interruptRun('SIGINT', 'SIGINT', { holdEngine: true });
     expect(r.sent, r.out).toBe(2);
+    expect(r.out, '第二个 Ctrl+C 没有在清理途中被接住').toContain('又收到 SIGINT：');
     expect({ code: r.code, signal: r.signal }, r.out).toEqual({ code: 130, signal: null });
     await expectCleanedUp(r);
+  }, 90_000);
+
+  it.skipIf(process.platform === 'win32')('停引擎前那次取进程表慢（Windows 上起 PowerShell 要一两秒）时，打断之后在跑的用例也不再发新回合、不开下一个用例', async () => {
+    // Linux 上读 /proc 是一瞬间，清理紧接着就断开连接，在跑的用例想发也发不出去；Windows 上取进程表要起 PowerShell，
+    // 这一两秒里连接还开着（引擎与它的子树得留给取进程表）。进程内调 runSmoke 的话，收到信号时它会 process.exit 掉测试进程：
+    // 写一个小驱动照 main 的样子调它，只把清理头一次（停引擎前那次）取进程表放慢——至少 3 秒，打断之后又正常跑完两轮就不必再等
+    // （没拒绝新请求时，3 秒够在跑的用例再跑好几轮）
+    const driver = join(tempDir('dm-smoke-slowsnap-'), 'drive.mjs');
+    writeFileSync(driver, [
+      "import { createRequire } from 'node:module';",
+      `const m = await import(${JSON.stringify(pathToFileURL(SCRIPT).href)});`,
+      `const electronBin = createRequire(${JSON.stringify(SCRIPT)})('electron');`,
+      'const printed = [];',
+      'const print = (line) => { printed.push(line); console.log(line); };',
+      'let first = true;',
+      'async function snapshot() {',
+      '  if (first) {',
+      '    first = false;',
+      '    const normalSince = () => printed.slice(printed.findIndex((l) => /^收到 SIG[A-Z]+：/.test(l))).filter((l) => /轮：正常结束/.test(l)).length;',
+      '    const t0 = Date.now();',
+      '    while (Date.now() - t0 < 3_000 && normalSince() < 2) await new Promise((r) => setTimeout(r, 20));',
+      '    console.log(`【驱动】停引擎前取进程表放慢了 ${Date.now() - t0} ms`);',
+      '  }',
+      '  return m.takeProcessSnapshot(process.platform);',
+      '}',
+      'await m.runSmoke({ mock: true, memoryVault: true, electronBin, print, procs: { snapshot } });',
+      '',
+    ].join('\n'));
+    const r = await interruptRun('SIGINT', undefined, { file: driver });
+    expect(r.sent, r.out).toBe(1);
+    expect({ code: r.code, signal: r.signal }, r.out).toEqual({ code: 130, signal: null });
+    // 慢的那次取进程表真用上了（不然清理紧接着断开连接，下面几句怎么都成立，这一例就空转了）
+    expect(r.out, `小驱动放慢的取进程表没用上：runSmoke 没把 procs 交给清理？\n${r.out}`).toMatch(/^【驱动】停引擎前取进程表放慢了 \d+ ms$/m);
+    // 打断前已经发出的那一轮可以照常跑完；之后的 chat.prompt（连同建会话、放行权限卡）当场被拒，不再发给引擎
+    const after = r.out.slice(r.out.indexOf('收到 SIGINT：'));
+    expect((after.match(/轮：正常结束/g) ?? []).length, `打断之后在跑的用例又发了新回合\n${r.out}`).toBeLessThanOrEqual(1);
+    await expectCleanedUp(r);
+  }, 90_000);
+
+  it.skipIf(process.platform === 'win32')('信号那条路等清理那一行真写出去再退：POSIX 上 stdout 接管道是异步写，读的一端慢时紧跟着 process.exit 会丢掉排队的尾巴', async () => {
+    // Windows 上 Node 把 stdout、stderr 的管道设成同步写（Node 文档 process 一节「A note on process I/O」），截不掉；POSIX 上管道一满，
+    // 写不进去的在进程里排队，process.exit 就把它们丢了——排在最后的正是清理的结论。小驱动照 main 的样子调 runSmoke，在「收到 SIG…」
+    // 之后多打 3000 行、约 670KB 垫字（像输出多、读的一端又慢，比如 | tee、| less）；测试一看到「收到 SIGINT：」就停读 stdout，等驱动在 stderr 上说
+    // 清理那一行已经交给 stdout，再过 0.2 秒才接着读。不等输出写完就退的话，这时脚本早已退出，清理那一行连同垫字的尾巴都没了
+    const PAD = 3000;
+    const MARK = '【驱动】清理那一行已交给 stdout';
+    const driver = join(tempDir('dm-smoke-flush-'), 'drive.mjs');
+    writeFileSync(driver, [
+      "import { createRequire } from 'node:module';",
+      `const m = await import(${JSON.stringify(pathToFileURL(SCRIPT).href)});`,
+      `const electronBin = createRequire(${JSON.stringify(SCRIPT)})('electron');`,
+      "const pad = 'x'.repeat(200);",
+      'const print = (line) => {',
+      '  console.log(line);',
+      `  if (/^收到 SIG[A-Z]+：/.test(line)) for (let i = 0; i < ${PAD}; i++) console.log(\`【驱动】垫字 \${i} \${pad}\`);`,
+      `  if (/^(PASS|FAIL)\\s+清理\\s/.test(line)) process.stderr.write(${JSON.stringify(`${MARK}\n`)});`,
+      '};',
+      'await m.runSmoke({ mock: true, memoryVault: true, electronBin, print });',
+      '',
+    ].join('\n'));
+    let paused = false;
+    let markSeen = false;
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    const r = await interruptRun('SIGINT', undefined, {
+      file: driver,
+      tap: (all, child) => {
+        if (!paused && all.includes('收到 SIGINT：')) {
+          paused = true;
+          child.stdout!.pause();
+          // 兜底：驱动一直不说话也不能永远停着读（那样脚本 2 秒后自己退，这一例照样红在垫字没收全）
+          timers.push(setTimeout(() => child.stdout!.resume(), 5_000));
+        }
+        // 脚本先退的话，Node 在子进程退出时会自己把 stdout 接着读完（child_process 的 flushStdio），读到的只剩已经进了管道的那一截
+        if (paused && !markSeen && all.includes(MARK)) { markSeen = true; timers.push(setTimeout(() => child.stdout!.resume(), 200)); }
+      },
+    });
+    for (const t of timers) clearTimeout(t);
+    // 断言只看 stdout（stderr 上那一行插在 stdout 两块之间，不一定落在行边界上）；垫字太长，出错时不整段打印
+    const shown = r.stdout.split('\n').filter(l => !l.startsWith('【驱动】垫字')).join('\n');
+    expect(r.sent, shown).toBe(1);
+    expect(paused, `没有在「收到 SIGINT：」时停读，这一例没测到读的一端慢\n${shown}`).toBe(true);
+    expect(markSeen, `驱动没说清理那一行已交给 stdout\n${r.out.split('\n').filter(l => !l.startsWith('【驱动】垫字')).join('\n')}`).toBe(true);
+    expect({ code: r.code, signal: r.signal }, shown).toEqual({ code: 130, signal: null });
+    expect((r.stdout.match(/^【驱动】垫字 \d+ x+$/gm) ?? []).length, `垫字没收全：排队的输出被丢了\n${shown}`).toBe(PAD);
+    await expectCleanedUp({ ...r, out: shown });
+  }, 90_000);
+
+  /** 命令行里带着 dir 的进程号（假 bin 目录里的假驱动、假 ping；僵尸的命令行是空的，不算）。 */
+  const procsWith = (dir: string): number[] => readdirSync('/proc').filter(n => /^\d+$/.test(n)).filter(n => {
+    try { return readFileSync(`/proc/${n}/cmdline`, 'utf8').includes(dir); } catch { return false; }
+  }).map(Number);
+  /** SIGTERM 是否挂在这个进程上没处理（进程被 SIGSTOP 停住时，发给它的信号都挂着，见 /proc/<pid>/status 的 SigPnd、ShdPnd）。 */
+  const termPending = (pid: number): boolean => {
+    try {
+      const status = readFileSync(`/proc/${pid}/status`, 'utf8');
+      const mask = ['SigPnd', 'ShdPnd'].reduce((acc, f) => acc | BigInt(`0x${new RegExp(`^${f}:\\s*([0-9a-f]+)$`, 'm').exec(status)?.[1] ?? '0'}`), 0n);
+      return (mask & (1n << 14n)) !== 0n; // SIGTERM 是 15 号，掩码第 14 位
+    } catch { return false; }
+  };
+
+  it.skipIf(process.platform === 'win32' || !existsSync('/proc/self/status'))('shell-stop 里 ping 已经起来时按 Ctrl+C：清理停引擎前先记下它的整棵子树，停完把没跟着退的驱动与 ping 一并结束，写明结束了几个，再以 130 退出', async () => {
+    // 假 ping 像真 ping 一样一直跑、不管父进程还在不在（最多两分钟，红的时候也不会留孤儿太久）。它一起来就先停住引擎、再给脚本发 SIGINT：
+    // 引擎停住就处理不了 chat.cancel，驱动与 ping 在清理记下子树那一刻一定还挂在引擎名下（不然 shell-stop 自己的 chat.cancel
+    // 可能抢先杀掉驱动，ping 被过继出去，这一例就时红时绿）；脚本是引擎的父进程，进程号取引擎 /proc/<pid>/stat 里最后一个「)」之后的第 2 段
+    const env = fakeShellEnv([
+      'kill -STOP "$SMOKE_ENGINE_PID"',
+      'script=$(sed -e \'s/^.*) [^ ]* \\([0-9][0-9]*\\) .*$/\\1/\' "/proc/$SMOKE_ENGINE_PID/stat")',
+      'kill -INT "$script"',
+      'n=0',
+      'while [ "$n" -lt 1200 ]; do sleep 0.1; n=$((n + 1)); done',
+    ]);
+    const bin = env.PATH!.split(delimiter)[0];
+    let enginePid = 0;
+    let released = false;
+    let poll: ReturnType<typeof setInterval> | undefined;
+    cleanups.push(() => {
+      clearInterval(poll);
+      for (const pid of procsWith(bin)) { try { process.kill(pid, 'SIGKILL'); } catch { /* 已经没了 */ } }
+      if (enginePid > 0 && pidAlive(enginePid)) process.kill(enginePid, 'SIGKILL');
+    });
+    const r = await runScript(['--mock', '--memory-vault', '--only', 'shell-stop'], env, (all) => {
+      if (enginePid === 0) enginePid = Number(/引擎：pid (\d+)/.exec(all)?.[1] ?? 0);
+      if (poll || !all.includes('收到 SIGINT：')) return;
+      // 清理对停住的引擎发了 kill（SIGTERM 挂着）才放行：这时子树早已记下，引擎一恢复就被 SIGTERM 结束，处理不了任何请求
+      poll = setInterval(() => {
+        if (released || !termPending(enginePid)) return;
+        released = true;
+        clearInterval(poll);
+        process.kill(enginePid, 'SIGCONT');
+      }, 20);
+    }, 45_000);
+    clearInterval(poll);
+    const root = tempRootOf(r.out);
+    cleanups.push(() => { if (root) rmSync(root, { recursive: true, force: true }); });
+    expect(released, r.out).toBe(true);
+    expect({ code: r.code, signal: r.signal }, r.out).toEqual({ code: 130, signal: null });
+    // 驱动（假 powershell.exe）与 ping 都没跟着引擎退：清理把它们结束掉，清理行写明几个、是谁
+    const cleanLine = r.out.split(/\r?\n/).find(l => /^(PASS|FAIL)\s+清理\s/.test(l)) ?? '';
+    expect(cleanLine, r.out).toMatch(/^PASS\s+清理\s+引擎已停；结束了引擎名下没随它退出的 \d+ 个进程（/);
+    expect(cleanLine, r.out).toMatch(/powershell\.exe pid \d+/);
+    expect(cleanLine, r.out).toMatch(/ping pid \d+/);
+    expect(r.out, '被打断的一轮不该再打结果表').not.toMatch(/^汇总：/m);
+    for (let i = 0; procsWith(bin).length > 0 && i < 30; i++) await new Promise(res => setTimeout(res, 100));
+    expect(procsWith(bin), `命令行带假 bin 的进程还在\n${r.out}`).toEqual([]);
+    expect(existsSync(root!), `临时目录没删：${root}`).toBe(false);
+    expect(pidAlive(enginePid), `引擎 pid ${enginePid} 还在`).toBe(false);
   }, 90_000);
 });

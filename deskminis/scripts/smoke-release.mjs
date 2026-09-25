@@ -23,16 +23,19 @@
 //      引擎名下的 ping 之后 chat.cancel，断言 5 秒内这些 ping 都没了。非 Windows 上 shell_execute 也起 powershell.exe，本机没有就跳过。
 //
 // 隔离：数据根与日志目录是新建的临时目录（DESKMINIS_DATA_DIR / DESKMINIS_LOG_DIR）。Windows 上凭据写进系统凭据库的
-//   DeskMinis-smoke-<pid> 服务名下（DESKMINIS_KEYRING_SERVICE），结束时删掉本次写进去的条目并核对。其它平台或 --memory-vault 时
+//   DeskMinis-smoke-<pid> 服务名下（DESKMINIS_KEYRING_SERVICE），结束时删掉本次写进去的条目并核对；选库、交给引擎、清理三处都先核对
+//   服务名确是 DeskMinis-smoke-<进程号>，不是就一条也不碰（正式版 DeskMinis、开发态 DeskMinis-dev 下是用户真实的凭据）。其它平台或 --memory-vault 时
 //   引擎用内存凭据库（既有的 DESKMINIS_TEST=1，e2e 脚本一直这么用）——Linux 的 Secret Service / keyutils 在容器与无桌面环境里
 //   靠不住（实测首次写入报 AccessDenied、枚举报没有 D-Bus），而引擎起动就要往凭据库写设备身份。绝不碰用户真实的数据根与凭据。
 //   key 只经 RPC 交给引擎（不进命令行、不进引擎的环境变量）；打印的每一行都先把 key 换成 [已隐藏]；结束前扫一遍临时目录，有明文 key 判失败。
 //
 // 输出一张 PASS / FAIL / SKIP 表（四个用例外加一行「清理」）。退出码：任一 FAIL 退 1；参数错误或没有构建产物退 2；否则 0。
-// 中途被 Ctrl+C、Ctrl+Break、关掉窗口或 SIGTERM 打断时照样清理（停引擎、清凭据库、删临时目录），再以 128+信号号退出（Ctrl+C 为 130）。
+// 中途被 Ctrl+C、Ctrl+Break、关掉窗口或 SIGTERM 打断时不再开始新的工作（不开新用例、不再给引擎发新请求），照样清理
+//   （先清凭据库，再停引擎并结束它名下没跟着退的进程、删临时目录），再以 128+信号号退出（Ctrl+C 为 130）。
 // 零新依赖：只用 node 内置模块与已有的 ws、electron、@napi-rs/keyring。照 scripts/e2e-*.mjs 的写法用 electron 以 node 模式起
 //   out/main/minisd.js（DESKMINIS_STANDALONE=1），握手行与致命行的解析照 src/main/index.ts，经 ws 走 JSON-RPC。
-// 导出纯函数、假端点与几处和引擎打交道的收尾逻辑（connectRpc、runTurn、engineGone、engineCrashed、caseShellStop）供 tests/smoke-release.test.ts 直接调用。
+// 导出纯函数、假端点与和引擎、凭据库打交道的几段（connectRpc、runTurn、engineGone、engineCrashed、runToolSession、caseShellStop、
+//   chooseVault、reapTree、cleanup，连同整条 runSmoke）供 tests/smoke-release.test.ts 直接调用或经小驱动调用。
 
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -75,7 +78,8 @@ const USAGE = [
   `  DEEPSEEK_API_KEY   用例 deepseek：${DEEPSEEK_BASE_URL}；缺了标跳过`,
   `  DEEPSEEK_MODEL     可选，缺省 ${DEEPSEEK_DEFAULT_MODEL}；须是 deepseek-v4 族（不回放 reasoning_content 就 400 的那一族）`,
   '退出码：0 没有 FAIL（跳过不算失败）；1 有 FAIL；2 参数错误或没有构建产物',
-  '        中途被 Ctrl+C、Ctrl+Break、关掉窗口或 SIGTERM 打断：照样停引擎、清凭据库、删临时目录，再以 128+信号号退出（Ctrl+C 为 130）',
+  '        中途被 Ctrl+C、Ctrl+Break、关掉窗口或 SIGTERM 打断：照样清凭据库、停引擎（连同它名下没跟着退的进程）、删临时目录，',
+  '        再以 128+信号号退出（Ctrl+C 为 130）',
 ].join('\n');
 
 // ---------------------------------------------------------------------------
@@ -155,11 +159,28 @@ export function keyringServiceName(pid) {
   return `DeskMinis-smoke-${pid}`;
 }
 
+/**
+ * 服务名是不是冒烟专用的 DeskMinis-smoke-<进程号>。选库（写探针）、交给引擎、清理（按服务名枚举、全删）三处都先核对：
+ * 正式版的 DeskMinis 与开发态的 DeskMinis-dev 下存着用户真实的凭据，哪一处接错成它们（一次自然的重构就够，比如改认环境里的
+ * DESKMINIS_KEYRING_SERVICE），Windows 上的清理就会把用户的全部凭据删光还报 PASS。只在这里认，别处不各写一份。
+ */
+function isSmokeService(name) {
+  return typeof name === 'string' && /^DeskMinis-smoke-\d+$/.test(name);
+}
+
+/** 服务名不对时的说明：规则接在服务名后面，缘由放进括号。 */
+const NOT_SMOKE_SERVICE = '不是冒烟专用的 DeskMinis-smoke-<进程号>';
+const REAL_VAULTS = '正式版的 DeskMinis、开发态的 DeskMinis-dev 下存着用户真实的凭据';
+
 /** 这些变量不交给引擎：key 只经 RPC 交给 provider 存进凭据库；外层 shell 残留的 DESKMINIS_* 会改掉数据根、凭据库或打开假 provider；
  *  MINISD_HOST 会让冒烟用的引擎监听局域网。引擎的子进程（shell、MCP）继承引擎的环境，在这里剥一处就都干净。 */
 const DROP_ENV_RE = /^(?:DESKMINIS_.*|ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|MINISD_HOST|ELECTRON_RUN_AS_NODE)$/i;
 
-/** 引擎的环境：剥掉上面那些，再写临时数据根、日志目录（不写的话以后按天日志会落进用户真实的 LOCALAPPDATA）与凭据库选择。 */
+/**
+ * 引擎的环境：剥掉上面那些，再写临时数据根、日志目录（不写的话以后按天日志会落进用户真实的 LOCALAPPDATA）与凭据库选择。
+ * 凭据库服务名不是冒烟专用的就抛错、不起引擎：引擎会在那个服务名下读写设备身份与 provider 的 key；空白也不行——
+ * 引擎读到空白回落正式版的 DeskMinis（src/minisd/store/provider-store.ts 的 keyringServiceFromEnv）。
+ */
 export function buildMinisdEnv(base, { dataRoot, logDir, keyringService }) {
   const env = {};
   for (const [k, v] of Object.entries(base)) if (typeof v === 'string' && !DROP_ENV_RE.test(k)) env[k] = v;
@@ -167,8 +188,10 @@ export function buildMinisdEnv(base, { dataRoot, logDir, keyringService }) {
   env.DESKMINIS_STANDALONE = '1'; // 走 standalone 分支，stdout 写握手行
   env.DESKMINIS_DATA_DIR = dataRoot;
   env.DESKMINIS_LOG_DIR = logDir;
-  if (keyringService) env.DESKMINIS_KEYRING_SERVICE = keyringService;
-  else env.DESKMINIS_TEST = '1'; // 既有开关：InMemoryVault（src/minisd/index.ts），不是为冒烟新加的
+  if (keyringService) {
+    if (!isSmokeService(keyringService)) throw new Error(`凭据库服务名「${keyringService}」${NOT_SMOKE_SERVICE}，不交给引擎（${REAL_VAULTS}）`);
+    env.DESKMINIS_KEYRING_SERVICE = keyringService;
+  } else env.DESKMINIS_TEST = '1'; // 既有开关：InMemoryVault（src/minisd/index.ts），不是为冒烟新加的
   return env;
 }
 
@@ -178,20 +201,27 @@ export function redactSecrets(text, secrets) {
   return out;
 }
 
-/** 逐文件（含二进制）找明文 key，返回相对 dir 的路径。符号链接不跟：临时目录里本不该有，跟了可能扫出目录外。 */
-export function findSecretsInTree(dir, secrets) {
+/**
+ * 逐文件（含二进制）找明文 key，返回相对 dir 的路径。符号链接不跟：临时目录里本不该有，跟了可能扫出目录外。
+ * 读不了的目录或文件记进 unreadable（相对路径）：没扫到就不能说「没有明文 key」，交给清理报出来；扫的途中没了的（ENOENT）跳过。
+ * 哪一处出错都不往外抛：清理在这之后还要删临时目录，信号那条路还要打出清理那一行。
+ */
+export function findSecretsInTree(dir, secrets, unreadable = []) {
   const needles = secrets.filter((s) => typeof s === 'string' && s.length >= MIN_SECRET_LEN).map((s) => Buffer.from(s, 'utf8'));
   if (needles.length === 0 || !existsSync(dir)) return [];
   const hits = [];
+  const skipped = (full, e) => { if (e?.code !== 'ENOENT') unreadable.push(relative(dir, full) || '.'); };
   const walk = (d) => {
-    for (const name of readdirSync(d)) {
+    let names;
+    try { names = readdirSync(d); } catch (e) { skipped(d, e); return; }
+    for (const name of names) {
       const full = join(d, name);
       let st;
-      try { st = lstatSync(full); } catch { continue; }
+      try { st = lstatSync(full); } catch (e) { skipped(full, e); continue; }
       if (st.isDirectory()) walk(full);
       else if (st.isFile()) {
         let buf;
-        try { buf = readFileSync(full); } catch { continue; }
+        try { buf = readFileSync(full); } catch (e) { skipped(full, e); continue; }
         if (needles.some((n) => buf.includes(n))) hits.push(relative(dir, full));
       }
     }
@@ -212,10 +242,12 @@ function credentialPresent(keyring, service, account) {
 
 /**
  * 删掉冒烟写进系统凭据库的条目并核对：已知条目（设备身份、每个建过的 provider）加上按服务名枚举到的（引擎自己写的、脚本不知道的）。
- * 只动 service 这一个服务名——正式版的 DeskMinis 与开发态的 DeskMinis-dev 一条不碰。枚举结果里的密码不看、不打印。
+ * 只动 service 这一个服务名，而且它必须是冒烟专用的 DeskMinis-smoke-<进程号>：不是就抛错，一条也不删、连枚举都不做——
+ * 这里把那个服务名下的条目全删，正式版的 DeskMinis 与开发态的 DeskMinis-dev 绝不能落到这里。枚举结果里的密码不看、不打印。
  * sweep：'ok' 枚举可用；'unsupported' 系统不支持枚举，只核对了已知条目。
  */
 export function cleanupKeyring(keyring, service, accounts) {
+  if (!isSmokeService(service)) throw new Error(`服务名 ${service} ${NOT_SMOKE_SERVICE}，一条也没删（${REAL_VAULTS}）`);
   const enumerate = () => {
     if (typeof keyring.findCredentials !== 'function') throw new Error('不支持按服务名枚举');
     return keyring.findCredentials(service).map((c) => c.account);
@@ -246,29 +278,49 @@ function firstLine(e) {
   return String(e?.message ?? e).split(/\r?\n/)[0].trim();
 }
 
+/** 删一条凭据，返回删完之后它是否确实没了：deletePassword 不抛就算删掉；抛了（本来就没有，或删不掉）再核对一次还在不在。 */
+function removeCredential(keyring, service, account) {
+  try { new keyring.Entry(service, account).deletePassword(); return true; } catch { /* 下面核对 */ }
+  try { return !credentialPresent(keyring, service, account); } catch { return false; }
+}
+
+/** 选凭据库时探一次（写、读回、删）用的账户名。 */
+const PROBE_ACCOUNT = '__smoke_probe__';
+
 /**
  * 选凭据库。系统凭据库只在 Windows 上用（产品只在 Windows 上发），而且先探一次（写、读回、删）：探不通就退回内存凭据库并说明原因，
  * 冒烟照跑——key 反正只在引擎进程内存里，不落盘。Linux 的原因见文件头；macOS 钥匙串对别的程序写入的条目会弹授权框
  * （条目是引擎 electron 写的、清理的是脚本 node），无人值守跑到清理那步会卡住。
+ * 服务名不是冒烟专用的也退回内存凭据库：不往那个服务名下写探针，引擎也就拿不到它（见 isSmokeService）。
+ * loadKeyring 注入以便单测（生产按需 require；非 Windows、--memory-vault、服务名不对时根本不加载）。
  */
-function chooseVault({ memoryVault, platform, service }) {
+export function chooseVault({ memoryVault, platform, service, loadKeyring = () => require('@napi-rs/keyring') }) {
   if (memoryVault) return { kind: 'memory', reason: '（--memory-vault）' };
   if (platform !== 'win32') {
     return { kind: 'memory', reason: `（${platform} 上不用系统凭据库：Linux 的 Secret Service / keyutils 在容器与无桌面环境里靠不住，macOS 钥匙串会弹授权框）` };
   }
+  if (!isSmokeService(service)) return { kind: 'memory', reason: `（服务名 ${service} ${NOT_SMOKE_SERVICE}，不碰系统凭据库：${REAL_VAULTS}）` };
   let keyring;
-  try { keyring = require('@napi-rs/keyring'); } catch (e) {
+  try { keyring = loadKeyring(); } catch (e) {
     return { kind: 'memory', reason: `（加载 @napi-rs/keyring 失败：${firstLine(e)}）` };
   }
+  let written = false;
+  let failure;
   try {
-    const probe = new keyring.Entry(service, '__smoke_probe__');
+    const probe = new keyring.Entry(service, PROBE_ACCOUNT);
     probe.setPassword('probe');
-    const back = probe.getPassword();
-    probe.deletePassword();
-    if (back !== 'probe') return { kind: 'memory', reason: '（系统凭据库写入后读回不一致）' };
+    written = true;
+    if (probe.getPassword() !== 'probe') failure = '系统凭据库写入后读回不一致';
   } catch (e) {
-    return { kind: 'memory', reason: `（系统凭据库不可用：${firstLine(e)}${platform === 'win32' ? '——Windows 上本不该如此，正式版的 key 也会存不进去，请先查凭据管理器' : ''}）` };
+    failure = `系统凭据库不可用：${firstLine(e)}——Windows 上本不该如此，正式版的 key 也会存不进去，请先查凭据管理器`;
+  } finally {
+    // 删探针放在 finally：写进去之后读回出错或对不上也得删——那时已经退回内存凭据库，清理根本不会再碰系统凭据库。
+    // 删不掉就不用系统凭据库：清理时同样删不掉本次写进去的条目，而 provider:<id> 存的是用户的真 key
+    if (written && !removeCredential(keyring, service, PROBE_ACCOUNT)) {
+      failure = `${failure ?? '系统凭据库写得进、删不掉'}；探针条目 ${PROBE_ACCOUNT} 留在了 ${service} 下，请在凭据管理器里手动删`;
+    }
   }
+  if (failure) return { kind: 'memory', reason: `（${failure}）` };
   return { kind: 'keyring', service, keyring };
 }
 
@@ -458,9 +510,20 @@ export function parseWin32Processes(json) {
   return out;
 }
 
+/** 启动时刻换成可比大小的数：Linux 是开机以来的时钟滴答、PowerShell 5.1 是毫秒（都是纯数字），PowerShell 7 是 ISO 时间；认不出为 undefined。 */
+function startOrder(p) {
+  const s = p?.start;
+  if (typeof s !== 'string' || s === '') return undefined;
+  if (/^\d+$/.test(s)) return Number(s);
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? undefined : t;
+}
+
 export function findDescendants(table, rootPid) {
   const children = new Map();
+  const byPid = new Map();
   for (const p of table) {
+    byPid.set(p.pid, p);
     if (p.pid === p.ppid) continue; // Windows 的 0 号进程父子都是 0
     if (!children.has(p.ppid)) children.set(p.ppid, []);
     children.get(p.ppid).push(p);
@@ -469,8 +532,14 @@ export function findDescendants(table, rootPid) {
   const seen = new Set([rootPid]);
   const queue = [rootPid];
   while (queue.length > 0) {
-    for (const c of children.get(queue.shift()) ?? []) {
+    const parentPid = queue.shift();
+    const parentStart = startOrder(byPid.get(parentPid));
+    for (const c of children.get(parentPid) ?? []) {
       if (seen.has(c.pid)) continue;
+      // Windows 的父进程号不随父进程退出而更新，进程号又会复用：比「父进程」还早启动的，是早先占过这个号的进程留下的，
+      // 不是它的后代——清理要结束引擎整棵子树，绝不能把用户别的程序算进来。启动时刻缺了或认不出就不排除
+      const childStart = startOrder(c);
+      if (parentStart !== undefined && childStart !== undefined && childStart < parentStart) continue;
       seen.add(c.pid);
       out.push(c);
       queue.push(c.pid);
@@ -505,14 +574,14 @@ function runCapture(cmd, args, timeoutMs = 30_000) {
   });
 }
 
-export async function takeProcessSnapshot(platform = process.platform) {
+export async function takeProcessSnapshot(platform = process.platform, timeoutMs = 30_000) {
   if (platform === 'win32') {
     const ps = win32.join(windowsRoot(), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     // 先把输出切成 UTF-8：中文 Windows 缺省按 GBK 吐字节，GBK 双字节字的尾字节可以是 0x5C（反斜杠），
     // 按 UTF-8 解码后落进 JSON 字符串会变成一个转义符，整份 JSON 解析失败，就再也找不到 ping 了
     const script = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
       + 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CreationDate | ConvertTo-Json -Compress';
-    return parseWin32Processes(await runCapture(ps, ['-NoProfile', '-NonInteractive', '-Command', script]));
+    return parseWin32Processes(await runCapture(ps, ['-NoProfile', '-NonInteractive', '-Command', script], timeoutMs));
   }
   if (platform === 'linux' && existsSync('/proc/self/stat')) {
     const out = [];
@@ -525,7 +594,7 @@ export async function takeProcessSnapshot(platform = process.platform) {
     }
     return out;
   }
-  const text = await runCapture('ps', ['-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'comm=']);
+  const text = await runCapture('ps', ['-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'comm='], timeoutMs);
   const out = [];
   for (const line of text.split('\n')) {
     const m = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line);
@@ -934,6 +1003,7 @@ export async function connectRpc(port, token) {
   await new Promise((resolvePromise, reject) => { ws.once('open', resolvePromise); ws.once('error', reject); });
   let nextId = 0;
   let closed = false;
+  let refused; // 不再发新请求的原因（见 refuse）
   const pending = new Map();
   const listeners = new Set();
   ws.on('message', (data) => {
@@ -961,6 +1031,7 @@ export async function connectRpc(port, token) {
     /** 连接已断（多半是引擎退出了）：之后的 call 一律立即拒绝。 */
     get closed() { return closed; },
     call(method, params = {}, timeoutMs = 30_000) {
+      if (refused) return Promise.reject(new Error(`${method}：${refused}`));
       // 断了之后的请求立即判失败：ws 在 CLOSING / CLOSED 时 send 不抛错，不给回调也不报告，不拦就只能干等满超时，
       // 结果表里只剩「30 秒没有应答」，看不出是引擎退出了
       if (closed || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(`${method}：与引擎的连接已断开（引擎退出了？）`));
@@ -971,6 +1042,12 @@ export async function connectRpc(port, token) {
         try { ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params })); } catch (e) { clearTimeout(timer); pending.delete(id); reject(e); }
       });
     },
+    /**
+     * 从此不再给引擎发新请求：call 一律当场拒绝，说明用 reason；已经发出的照常等应答。连接不断——冒烟被打断时，
+     * 清理要趁引擎还活着取进程表、记下它名下的进程（Windows 上起 PowerShell 要一两秒），这段时间里在跑的用例不能再发新回合、
+     * 建 provider 与会话、放行权限卡：不然引擎会接着拿真 key 调接口，起出不在名单上的进程（shell-stop 的驱动与 ping）。
+     */
+    refuse(reason) { refused ??= reason; },
     onNotify(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     close() { try { ws.close(); } catch { /* 已断 */ } },
   };
@@ -1080,8 +1157,9 @@ function readMemoryText(dir) {
 // ---------------------------------------------------------------------------
 // 四个用例
 
-/** 用例 1、2 共用：建 provider 与会话，照剧本跑三轮，读回工作区文件与记忆文件，按 assessToolSession 判定；收尾删会话与 provider（连同凭据库里的 key）。 */
-async function runToolSession(ctx, label, providerParams) {
+/** 用例 1、2 共用：建 provider 与会话，照剧本跑三轮，读回工作区文件与记忆文件，按 assessToolSession 判定；收尾删会话与 provider（连同凭据库里的 key）。
+ *  建好就把 provider:<id> 记进 ctx.accounts：provider 删不成（引擎半路没了）时，清理靠这份清单核对、删掉凭据库里用户的 key。 */
+export async function runToolSession(ctx, label, providerParams) {
   const { client } = ctx;
   const created = await client.call('provider.instances.create', providerParams);
   ctx.accounts.add(`provider:${created.id}`);
@@ -1223,6 +1301,27 @@ export async function reapPings(pings, { deadlineMs, isAlive, snapshot, kill, in
   return { ok: false, killed: stuck.map((p) => p.pid) };
 }
 
+/**
+ * 停完引擎之后，收拾停之前记下的它名下的进程（tree）里没跟着退的。先给 graceMs 让它们自己退（引擎一没，MCP 服务器读到 stdin
+ * 结束就退；Windows 上作业对象收走引擎直接起的子进程），还在的拿进程表核对身份——进程号、名字、启动时刻都对得上，同 reapPings——
+ * 才结束，再等 deadlineMs 看结束掉没有。进程表取不到就核对不了身份，一个也不动，交给调用方报出来。
+ * 返回 killed（结束掉的）、stuck（结束了还在的）、unverified（核对不了、没动的）。依赖注入，单测用假的。
+ */
+export async function reapTree(tree, { isAlive, snapshot, kill, graceMs = 500, deadlineMs = 3_000, intervalMs = 100 }) {
+  const none = { killed: [], stuck: [], unverified: [] };
+  if (tree.length === 0) return none;
+  await waitFor(() => (tree.some((p) => isAlive(p)) ? undefined : true), graceMs, intervalMs);
+  const alive = tree.filter((p) => isAlive(p));
+  if (alive.length === 0) return none;
+  let table;
+  try { table = await snapshot(); } catch { return { ...none, unverified: alive }; }
+  const targets = alive.filter((p) => table.some((s) => s.pid === p.pid && s.name === p.name && (p.start === undefined || s.start === p.start)));
+  for (const p of targets) { try { kill(p.pid); } catch { /* 结束不了的由下面核对 */ } }
+  await waitFor(() => (targets.some((p) => isAlive(p)) ? undefined : true), deadlineMs, intervalMs);
+  const stuck = targets.filter((p) => isAlive(p));
+  return { killed: targets.filter((p) => !stuck.includes(p)), stuck, unverified: [] };
+}
+
 export async function caseShellStop(ctx) {
   const { client, platform } = ctx;
   const command = pingCommand(platform);
@@ -1289,12 +1388,14 @@ export async function caseShellStop(ctx) {
 const CASES = { anthropic: caseAnthropic, deepseek: caseDeepseek, 'mcp-spaces': caseMcpSpaces, 'shell-stop': caseShellStop };
 
 // ---------------------------------------------------------------------------
-// 清理：停引擎 → 扫明文 key → 清凭据库 → 删临时目录。只跑一次（正常收尾与 Ctrl+C 可能同时要它）
+// 清理：清凭据库 → 记下引擎名下的进程 → 停引擎 → 再清一遍凭据库 → 结束没跟着引擎退的进程 → 扫明文 key → 删临时目录。
+// 只跑一次（正常收尾与 Ctrl+C 可能同时要它）
 
 /**
  * 收到这些信号时先清理再退。只挂 SIGINT、SIGTERM 不够：Windows 上关掉控制台窗口，node 收到的是 SIGHUP——没有监听器就当场终止，
- * 有监听器系统约 10 秒后才强杀（Node 文档 process 信号事件一节），够停引擎、删几条凭据；Ctrl+Break 是 SIGBREAK。漏挂哪个，凭据库里本次写进去的 key（provider:<id>）
- * 与设备身份就一条都不删，临时目录也留下。SIGHUP 在 Linux、macOS 上是终端挂断；SIGBREAK 只有 Windows 会发，别处不挂。
+ * 有监听器也只多出约 10 秒，之后被系统无条件结束（Node 文档 process 信号事件一节），所以清理把删凭据库放在最前头（见 cleanup）；
+ * Ctrl+Break 是 SIGBREAK。漏挂哪个，凭据库里本次写进去的 key（provider:<id>）与设备身份就一条都不删，临时目录也留下。
+ * SIGHUP 在 Linux、macOS 上是终端挂断；SIGBREAK 只有 Windows 会发，别处不挂。
  */
 export function cleanupSignals(platform) {
   return platform === 'win32' ? ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
@@ -1306,16 +1407,37 @@ function signalExitCode(sig) {
   return typeof n === 'number' ? 128 + n : 130;
 }
 
+/**
+ * 等已经交给 stdout 的输出都写完再退出（信号那条路用：处理器还挂着别的计时器与连接，不能等事件循环自己空下来）。
+ * POSIX（Linux、macOS）上 stdout 接管道时是异步写：读的一端慢、管道满了，写不进去的在进程里排队，紧跟着 process.exit
+ * 就把它们丢了，而最后一行正是清理的结论。Windows 上 Node 把 stdout、stderr 的管道设成同步写（Node 文档 process 一节
+ * 「A note on process I/O」），截不掉。空写一次，它的回调排在前面所有写入之后；管道断了或读的一端不读时回调可能迟迟不来，
+ * 最多等 2 秒。
+ */
+function exitAfterOutput(code) {
+  const exit = () => process.exit(code);
+  setTimeout(exit, 2_000);
+  try { process.stdout.write('', exit); } catch { exit(); }
+}
+
+/**
+ * 停引擎，返回它是否已经退出（没起来过、早已退出的也算退出）。引擎只在 utilityProcess 下接 shutdown 消息，这里没有那条通道，
+ * 只能直接结束：先 kill()（POSIX 上是 SIGTERM，引擎不接这个信号，当场退出；Windows 上是 TerminateProcess），10 秒还没退就强杀，
+ * 再等 5 秒。
+ * 它名下的进程不会都跟着退：Windows 上 libuv 把引擎直接起的子进程放进「句柄关闭即杀」的作业对象，但作业带
+ * JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK——libuv 的 src/win/process.c（uv__init_global_job_handle）注释写明只有它亲手放进作业的进程
+ * 受影响，这些进程再起的子进程不受影响——所以 shell 驱动会跟着退，驱动里起的 ping -t 照样活着（产品的 tools/shell.ts 为此才用
+ * taskkill /T）；Linux 上连直接子进程也不跟着退。
+ * 用例被打断时会话来不及删，这些进程就会留下：cleanup 在停引擎之前先记下整棵子树，停完再核对、结束（reapTree）。
+ */
 async function stopEngine(engine, platform) {
   const child = engine.child;
-  if (!child || engine.exit) return;
+  if (!child || engine.exit) return true;
   const exited = new Promise((r) => child.once('exit', () => r(true)));
-  // 引擎只在 utilityProcess 下接 shutdown 消息，这里没有那条通道，只能直接结束。它名下的 shell 与 MCP 子进程前面已随会话删除、
-  // mcp.servers.remove 回收；Windows 上 libuv 还把子进程放进「句柄关闭即杀」的作业对象（推断），引擎一退它们也跟着退
   child.kill();
-  if (await withTimeout(exited, 10_000, false)) return;
+  if (await withTimeout(exited, 10_000, false)) return true;
   forceKill(child.pid, platform);
-  await withTimeout(exited, 5_000, false);
+  return withTimeout(exited, 5_000, false);
 }
 
 /**
@@ -1328,35 +1450,120 @@ export async function engineCrashed(ctx) {
   return ctx.engine.exit;
 }
 
-async function cleanup(ctx) {
-  const problems = [];
-  const done = [];
-  const crashed = await engineCrashed(ctx);
-  ctx.engine.stopping = true;
-  ctx.client?.close();
-  await stopEngine(ctx.engine, ctx.platform);
-  if (crashed) problems.push(`引擎在冒烟过程中自己退出了（${crashed.code ?? crashed.signal}）`);
-  else if (ctx.engine.child) done.push('引擎已停');
-  const leaks = findSecretsInTree(ctx.tempRoot, ctx.secrets);
-  if (leaks.length > 0) problems.push(`临时目录里发现明文 key：${leaks.join('、')}`);
-  if (ctx.vault.kind === 'keyring') {
-    const r = cleanupKeyring(ctx.vault.keyring, ctx.vault.service, [...ctx.accounts]);
-    if (r.leftovers.length > 0) problems.push(`凭据库 ${ctx.vault.service} 还剩 ${r.leftovers.length} 条（${r.leftovers.join('、')}），可在系统凭据管理器里手动删`);
-    else done.push(`凭据库 ${ctx.vault.service} 已清空（删 ${r.deleted.length} 条${r.sweep === 'ok' ? '' : '；系统不支持按服务名枚举，只核对了已知条目'}）`);
-  }
-  try { rmSync(ctx.tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* 下面核对 */ }
-  if (existsSync(ctx.tempRoot)) problems.push(`临时目录删不掉：${ctx.tempRoot}`);
-  else done.push('临时目录已删');
-  if (leaks.length === 0) done.push('临时目录里没有明文 key');
-  return { name: '清理', status: problems.length > 0 ? 'FAIL' : 'PASS', detail: problems.length > 0 ? problems.join('；') : done.join('；') };
+/**
+ * 清理里取进程表的时限（停引擎前记子树、停完核对身份各一次）。Windows 上每次要起一个 PowerShell，冷启动一两秒，WMI 忙时更久，
+ * 定短了正常收尾也会误报「取不到进程表」。关控制台窗口（SIGHUP）后系统给的也就约 10 秒，所以删凭据库不排在取进程表后面（见 cleanup）。
+ */
+const CLEANUP_SNAPSHOT_MS = 10_000;
+
+function describeProcs(list) {
+  return list.map((p) => `${p.name} pid ${p.pid}`).join('、');
 }
 
 /**
- * 跑完整个冒烟，返回结果表（四个用例 + 清理）。print 收到的每一行都已脱敏。
- * 中途收到 cleanupSignals 里的信号（Ctrl+C、SIGTERM、关终端或控制台窗口的 SIGHUP、Windows 的 Ctrl+Break）时照样清理
- * （停引擎、清凭据库、删临时目录），再以 128+信号号退出。
+ * 清理，返回结果表里「清理」那一行。
+ * 凭据库最先清：Windows 上 provider:<id> 存着用户的真 key，这是清理里最要紧的一件。关控制台窗口（SIGHUP）后系统约 10 秒就强行结束
+ * 脚本，而停引擎前记子树要起 PowerShell 取进程表（冷启动一两秒，WMI 忙或控制台正在关时更久，时限 CLEANUP_SNAPSHOT_MS），删凭据
+ * 不能排在它后面（第五轮审查实验：取进程表慢 9 秒，凭据就晚 9 秒才删）。停完引擎再清一遍，兜住停之前在途的写入（引擎还活着时刚落盘的
+ * provider、起动途中才写的设备身份）；清理行按后一遍的核对写，删掉的条数两遍合计。系统真在半路结束脚本时，引擎是脚本直接起的子进程，
+ * 在 libuv 那个句柄关闭即杀的作业里，随脚本一起结束（见 stopEngine），留下的是驱动里起的 ping 与临时目录。
+ * 每一步各自兜住：哪一步抛错只记一笔、判 FAIL，后面的照做——删凭据库里本次写的条目与删临时目录一定要执行（审查指出：原先扫明文 key 时
+ * readdirSync 一抛错，这两步就一起被跳过，信号那条路连清理那一行都不打）。FAIL 时先列问题，再列做成了的。
+ * ctx.procs（可选）：收拾引擎名下残留进程用的依赖——snapshot（取进程表）、isAlive、kill，连同 reapTree 的几个等待时长
+ * （同 reapTree 的第二个参数）。缺省是真的：本机进程表（时限 CLEANUP_SNAPSHOT_MS）、stillRunning、forceKill。单测注入假的，
+ * 才测得到「结束不了」「核对不了身份」「停引擎前取不到进程表」这几处判 FAIL（真进程表上凑不出这些情形）。
  */
-export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSEEK_DEFAULT_MODEL, electronBin, minisdEntry = MINISD_ENTRY, env = process.env, platform = process.platform, print = console.log }) {
+export async function cleanup(ctx) {
+  const problems = [];
+  const done = { engine: undefined, procs: undefined, vault: undefined, removed: false, scanned: false };
+  const step = async (what, fn) => {
+    try { await fn(); } catch (e) { problems.push(`${what}时出错：${firstLine(e)}`); }
+  };
+  const { engine, platform } = ctx;
+  const procs = {
+    snapshot: () => takeProcessSnapshot(platform, CLEANUP_SNAPSHOT_MS),
+    isAlive: (p) => stillRunning(p, platform),
+    kill: (pid) => forceKill(pid, platform),
+    ...ctx.procs,
+  };
+  // 清一遍凭据库（同步，几次凭据库调用）。删掉的记进 vault.deleted（两遍合计）；leftovers、sweep、error 以最近一遍为准
+  const vault = { deleted: new Set(), leftovers: [], sweep: 'ok', error: undefined };
+  const sweepVault = () => {
+    if (ctx.vault.kind !== 'keyring') return;
+    try {
+      const r = cleanupKeyring(ctx.vault.keyring, ctx.vault.service, [...ctx.accounts]);
+      for (const a of r.deleted) vault.deleted.add(a);
+      Object.assign(vault, { leftovers: r.leftovers, sweep: r.sweep, error: undefined });
+    } catch (e) { vault.error = firstLine(e); }
+  };
+  const child = engine.child;
+  let crashed;
+  let tree = [];
+  sweepVault();
+  await step('核对引擎', async () => { crashed = await engineCrashed(ctx); });
+  engine.stopping = true;
+  if (child && !engine.exit) {
+    // 趁引擎还活着记下它的整棵子树（shell 驱动、驱动里起的 ping、MCP 服务器……）：引擎一停，它们不会都跟着退（见 stopEngine），
+    // 停完按这份名单核对、结束。Linux 上读 /proc 是一瞬间的事；Windows 上要起一次 PowerShell（一两秒），
+    // 这段时间里连接还开着，但已经不再发新请求（runSmoke 收到信号时先让连接 refuse）
+    await step('记下引擎名下的进程', async () => {
+      try {
+        tree = findDescendants(await procs.snapshot(), child.pid);
+      } catch (e) {
+        problems.push(`停引擎前取不到进程表（${firstLine(e)}），没法核对它名下有没有留下进程，请到任务管理器里看一眼`);
+      }
+    });
+  }
+  await step('断开与引擎的连接', () => ctx.client?.close());
+  await step('停引擎', async () => {
+    if (!(await stopEngine(engine, platform))) problems.push(`引擎停不下来（pid ${child.pid}），请到任务管理器里结束它`);
+    else if (crashed) problems.push(`引擎在冒烟过程中自己退出了（${crashed.code ?? crashed.signal}）`);
+    else if (child) done.engine = '引擎已停';
+  });
+  sweepVault();
+  if (ctx.vault.kind === 'keyring') {
+    const svc = ctx.vault.service;
+    if (vault.error !== undefined) problems.push(`清凭据库时出错：${vault.error}`);
+    else if (vault.leftovers.length > 0) problems.push(`凭据库 ${svc} 还剩 ${vault.leftovers.length} 条（${vault.leftovers.join('、')}），可在系统凭据管理器里手动删`);
+    else done.vault = `凭据库 ${svc} 已清空（删 ${vault.deleted.size} 条${vault.sweep === 'ok' ? '' : '；系统不支持按服务名枚举，只核对了已知条目'}）`;
+  }
+  await step('结束引擎名下留下的进程', async () => {
+    const r = await reapTree(tree, procs);
+    if (r.killed.length > 0) done.procs = `结束了引擎名下没随它退出的 ${r.killed.length} 个进程（${describeProcs(r.killed)}）`;
+    if (r.stuck.length > 0) problems.push(`引擎名下有 ${r.stuck.length} 个进程结束不了（${describeProcs(r.stuck)}），请到任务管理器里结束`);
+    if (r.unverified.length > 0) {
+      problems.push(`引擎名下还有 ${r.unverified.length} 个进程在跑（${describeProcs(r.unverified)}），取不到进程表、核对不了身份，没有替你结束，请到任务管理器里看一眼`);
+    }
+  });
+  const unreadable = [];
+  let leaks = [];
+  await step('扫明文 key', () => {
+    leaks = findSecretsInTree(ctx.tempRoot, ctx.secrets, unreadable);
+    done.scanned = true;
+  });
+  if (leaks.length > 0) problems.push(`临时目录里发现明文 key：${leaks.join('、')}`);
+  if (unreadable.length > 0) problems.push(`临时目录里有 ${unreadable.length} 处读不了、没扫到：${unreadable.join('、')}`);
+  await step('删临时目录', () => {
+    try { rmSync(ctx.tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* 下面核对 */ }
+    if (existsSync(ctx.tempRoot)) problems.push(`临时目录删不掉：${ctx.tempRoot}`);
+    else done.removed = true;
+  });
+  const doneLines = [
+    done.engine, done.procs, done.vault, done.removed && '临时目录已删',
+    done.scanned && leaks.length === 0 && unreadable.length === 0 && '临时目录里没有明文 key',
+  ].filter(Boolean);
+  return { name: '清理', status: problems.length > 0 ? 'FAIL' : 'PASS', detail: [...problems, ...doneLines].join('；') };
+}
+
+/**
+ * 跑完整个冒烟，返回 { results, say, interrupted }：results 是结果表（四个用例 + 清理），print 收到的每一行都已脱敏。
+ * 中途收到 cleanupSignals 里的信号（Ctrl+C、SIGTERM、关终端或控制台窗口的 SIGHUP、Windows 的 Ctrl+Break）时不再开始新的工作
+ * （连接不再给引擎发新请求，余下的用例不开），照样清理（清凭据库、停引擎并结束它名下没跟着退的进程、删临时目录），
+ * 打出清理那一行，等输出写完再以 128+信号号退出；这时 interrupted 是那个信号，结果表不完整，调用方不该再打它。
+ * procs 交给清理（见 cleanup 的 ctx.procs），缺省用真的；单测用它把停引擎前那次取进程表放慢，模拟 Windows 上起 PowerShell 的一两秒。
+ * loadKeyring 交给选库（见 chooseVault），缺省按需 require；单测进程内以 platform:'win32' 跑时换成假凭据库，钉住服务名的接线。
+ */
+export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSEEK_DEFAULT_MODEL, electronBin, minisdEntry = MINISD_ENTRY, env = process.env, platform = process.platform, print = console.log, procs, loadKeyring }) {
   const secrets = [env.ANTHROPIC_API_KEY, env.DEEPSEEK_API_KEY].map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean);
   const say = (line) => print(redactSecrets(line, secrets));
   const tempRoot = mkdtempSync(join(tmpdir(), 'dm-smoke-'));
@@ -1364,7 +1571,7 @@ export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSE
   const logDir = join(tempRoot, 'logs');
   mkdirSync(dataRoot, { recursive: true });
   mkdirSync(logDir, { recursive: true });
-  const vault = chooseVault({ memoryVault, platform, service: keyringServiceName(process.pid) });
+  const vault = chooseVault({ memoryVault, platform, service: keyringServiceName(process.pid), loadKeyring });
   const ctx = {
     mock, env, platform, deepseekModel, tempRoot, dataRoot, secrets, say, vault,
     turnTimeoutMs: mock ? 60_000 : 240_000,
@@ -1372,17 +1579,24 @@ export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSE
     client: undefined,
     accounts: new Set(['pairing.static-identity']), // 引擎起动时自己写的设备身份；provider 的 key 建时再记
     allow: [], denied: [],
+    procs,
   };
   let cleaning;
   const cleanupOnce = () => (cleaning ??= cleanup(ctx));
   let interruptedBy; // 第一个打断的信号，退出码按它算
   const onSignal = (sig) => {
     // 挂 on 而不是 once：清理途中再按一次 Ctrl+C（或接着关窗口）若回到默认动作，脚本当场被打死，凭据库里本次写的条目就留下了。
-    // 清理本身有上限（停引擎最多等 15 秒，其余是几次凭据库调用与删目录），清完就退
+    // 清理本身有上限（取进程表各有 10 秒时限，停引擎最多等 15 秒，收拾残留进程再等几秒，其余是几次凭据库调用与删目录），清完就退
     if (interruptedBy) { say(`又收到 ${sig}：还在清理，清完就退出……`); return; }
     interruptedBy = sig;
-    say(`收到 ${sig}：停引擎、清凭据库、删临时目录后退出……`);
-    cleanupOnce().then((r) => say(`${r.status}  清理  ${r.detail}`)).finally(() => process.exit(signalExitCode(sig)));
+    // 先不再给引擎发新请求，再清理：清理停引擎之前要取一次进程表（Windows 上一两秒），连接留着没断，这段时间里在跑的用例
+    // 若照样发新回合、放行权限卡，引擎就会接着用真 key 调接口、起出不在名单上的进程（shell-stop 的驱动与 ping）。
+    // 余下的用例也不再开（见下面的用例循环）
+    ctx.client?.refuse(`已收到 ${sig}、正在清理，不再给引擎发新请求`);
+    say(`收到 ${sig}：清凭据库、停引擎、删临时目录后退出……`);
+    cleanupOnce()
+      .then((r) => say(`${r.status}  清理  ${r.detail}`), (e) => say(`FAIL  清理  清理途中出错：${firstLine(e)}`))
+      .finally(() => exitAfterOutput(signalExitCode(sig)));
   };
   // 按本机平台挂（不是 ctx.platform）：收得到哪些信号由真实的操作系统决定
   const signals = cleanupSignals(process.platform);
@@ -1424,6 +1638,9 @@ export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSE
     if (bootError) { results.push({ name, status: 'FAIL', detail: `引擎没起来：${firstLine(bootError)}` }); continue; }
     // 引擎在前面的用例里没了：余下的用例一个 RPC 也不发，直接写明原因
     const goneBefore = await engineGone(ctx, '已在前面');
+    // 被打断了就不再开新的用例（结果表反正不打）：清理正趁引擎还活着取进程表，这时开的用例会用真 key 调接口、新建 provider，
+    // shell-stop 还会起出不在名单上的 ping。查在上面那个 await 之后、开用例之前：它等引擎退出的那几秒里也可能收到信号
+    if (interruptedBy) { results.push({ name, status: 'SKIP', detail: `被打断（收到 ${interruptedBy}），没有跑` }); continue; }
     if (goneBefore) { results.push({ name, status: 'FAIL', detail: `没有跑：${goneBefore}` }); continue; }
     say(`── ${name} ──`);
     let result;
@@ -1441,9 +1658,9 @@ export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSE
     if (result.status === 'FAIL' && ctx.engine.tail.text.trim()) say(`引擎最后的输出：\n${ctx.engine.tail.text.trimEnd().split('\n').slice(-20).join('\n')}`);
   }
   results.push(await cleanupOnce());
-  // 打断过的话，退出由信号那条路负责（清理一完就 process.exit）：处理器留到那时，这中间再来一个信号也不会把脚本当场打死
+  // 打断过的话，退出由信号那条路负责（清理一完、输出写完就 process.exit）：处理器留到那时，这中间再来一个信号也不会把脚本当场打死
   if (!interruptedBy) for (const sig of signals) process.removeListener(sig, onSignal);
-  return { results, say };
+  return { results, say, interrupted: interruptedBy };
 }
 
 async function main() {
@@ -1477,13 +1694,16 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const { results, say } = await runSmoke({ ...args, deepseekModel, electronBin });
+  const { results, say, interrupted } = await runSmoke({ ...args, deepseekModel, electronBin });
+  // 被信号打断的一轮没有完整结论：不打结果表（被打断的用例只会是一行误导人的 FAIL），清理那一行信号那条路已经打了，
+  // 退出码（128+信号号）也由它给
+  if (interrupted) return;
   const { lines, exitCode } = formatResults(results);
   say('═'.repeat(64));
   for (const l of lines) say(l);
   say('═'.repeat(64));
   if (exitCode !== 0) say('有 FAIL——先按上面的原因处理，不要发版（docs/RELEASE.md）。');
-  // 用 exitCode 而不是 process.exit：Windows 上 stdout 接管道时是异步写，process.exit 会截掉尾部输出
+  // 用 exitCode 而不是 process.exit：POSIX 上 stdout 接管道时是异步写，process.exit 会丢掉还在排队的尾巴（见 exitAfterOutput）
   process.exitCode = exitCode;
 }
 
@@ -1493,5 +1713,8 @@ const invokedDirectly = (() => {
   try { return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
 })();
 if (invokedDirectly) {
+  // 输出接到管道、读的一端先关了（npm run smoke:release | head）：之后每写一行都是 EPIPE，没人接的 'error' 会让脚本当场崩掉、
+  // 不走清理——引擎、凭据库里本次写的条目、临时目录都会留下。吞掉：结论照样由退出码给出
+  for (const stream of [process.stdout, process.stderr]) stream.on('error', () => {});
   main().catch((e) => { console.error('脚本异常：', e); process.exitCode = 1; });
 }
