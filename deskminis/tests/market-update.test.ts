@@ -605,3 +605,48 @@ describe('W1a-6 市场更新：用户设置保留，env 显式', () => {
     expect(ctx.mcpChanged).toEqual([NAME, NAME]);
   });
 });
+
+// ── 6. W1a-7b：市场更新不丢 servers.json 里原有的东西 ─────────────────────────
+// 设计稿 §4.1 W1a-7b / 附录 mcp.md W1a-mcplossy。更新同样把 servers.json 整份写回；原先写回时只剩识别出的条目，
+// 认不出的条目、顶层其它键、args / env 里写成数字的值，点一次「更新」就从文件里永久消失。
+
+describe('W1a-7b 市场更新：认不出的条目与顶层其它键原样保留', () => {
+  let ctx: Ctx;
+  beforeEach(async () => { ctx = await makeCtx(); });
+  afterEach(async () => { await ctx.close(); });
+  const ID = 'mcp-registry:io.github.owner/mcp-fetch';
+  const NAME = 'io.github.owner-mcp-fetch';
+  const file = () => join(ctx.root, 'mcp-servers', 'servers.json');
+
+  it('装好之后手改（粘进顶层键、手写一条草稿和一台带数字端口的服务器），再更新：这些都还在', async () => {
+    await ctx.installer.install({ id: ID, confirm: true, env: { FETCH_API_KEY: 'v1', FETCH_MODE: 'fast' } });
+    // 用户在应用开着时手改：把 claude_desktop_config.json 的顶层键粘进来，再手写两条
+    const raw = JSON.parse(readFileSync(file(), 'utf8'));
+    const edited = {
+      $schema: 'https://example.com/claude-desktop-config.schema.json',
+      mcpServers: {
+        ...raw.mcpServers,
+        hand: { command: 'node', args: ['srv.js', '--port', 8080], env: { RETRIES: 3 } },
+        draft: { note: '还没写完' },
+      },
+      globalShortcut: 'Ctrl+Q',
+    };
+    writeFileSync(file(), JSON.stringify(edited, null, 2), 'utf8');
+
+    fx.registryVersion = '2.1.0';
+    expect((await ctx.installer.checkUpdates()).updates.length).toBe(1);
+    await ctx.installer.install({ id: ID, confirm: true, env: {} });
+
+    const after = JSON.parse(readFileSync(file(), 'utf8'));
+    expect(Object.keys(after)).toEqual(['$schema', 'mcpServers', 'globalShortcut']);
+    expect(after.$schema).toBe('https://example.com/claude-desktop-config.schema.json');
+    expect(after.globalShortcut).toBe('Ctrl+Q');
+    expect(Object.keys(after.mcpServers)).toEqual([NAME, 'hand', 'draft']);
+    expect(after.mcpServers.draft).toEqual({ note: '还没写完' });
+    expect(after.mcpServers.hand.args).toEqual(['srv.js', '--port', '8080']);
+    expect(after.mcpServers.hand.env).toEqual({ RETRIES: '3' });
+    // 更新本身照常：env 保留合并，provenance 刷新到新版本
+    expect(after.mcpServers[NAME].env).toEqual({ FETCH_API_KEY: 'v1', FETCH_MODE: 'fast' });
+    expect(ctx.installer.installed({ kind: 'mcp' }).items[0].contentHash).toBe(sha256('@scope/mcp-fetch@2.1.0'));
+  });
+});

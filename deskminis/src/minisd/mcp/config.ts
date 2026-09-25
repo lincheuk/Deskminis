@@ -45,14 +45,29 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 function asString(v: unknown): string | undefined { return typeof v === 'string' ? v : undefined; }
+/** args / env / headers 里的单个值（W1a-7b）：字符串原样收，有限数字与布尔值转成字符串收下。
+ *  原先只收字符串：手写的 "args": ["--port", 8080]、"env": {"PORT": 3000} 读进来就被滤掉，子进程拿不到，
+ *  任意一次保存之后 8080 和 3000 还从文件里永久消失。转法就是 String(v)，与 Node 起子进程时
+ *  对非字符串的参数、环境变量值的转法相同（8080 → "8080"，false → "false"）。
+ *  仍不收的：NaN / Infinity（JSON 写不出来，1e400 这类溢出字面量读进来才变成 Infinity，转出的 "Infinity"
+ *  不是用户写的东西）；对象、数组（转出来是 "[object Object]" 或逗号拼接，交给子进程只会是乱码）；
+ *  null（JSON 里的 null 多半是「不设」，转成 "null" 反倒让子进程真拿到一个值，与写的人的意思相反）。 */
+function asScalarString(v: unknown): string | undefined {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) return String(v);
+  return undefined;
+}
 function asStringArray(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
-  return v.filter((x): x is string => typeof x === 'string');
+  return v.map(asScalarString).filter((s): s is string => s !== undefined);
 }
 function asStringRecord(v: unknown): Record<string, string> | undefined {
   if (!isPlainObject(v)) return undefined;
   const out: Record<string, string> = {};
-  for (const [k, val] of Object.entries(v)) if (typeof val === 'string') out[k] = val;
+  for (const [k, val] of Object.entries(v)) {
+    const s = asScalarString(val);
+    if (s !== undefined) out[k] = s;
+  }
   return out;
 }
 
@@ -69,7 +84,7 @@ const KNOWN_KEYS = new Set([
 
 /** 单条解码：导入与 upsert 共用的唯一归一入口（单一事实源）。
  *  解码失败（name 空、command 是数字、既无 command 又无 url 等）返回 undefined——
- *  导入侧据此跳过该条不拖垮整文件，upsert 侧据此翻译成具体中文错误。 */
+ *  导入侧据此把这条按原文另存、不拖垮整文件（W1a-7b 起保存时原样写回），upsert 侧据此翻译成具体中文错误。 */
 function decodeEntry(name: string, raw: Record<string, unknown>): McpServerEntry | undefined {
   if (typeof name !== 'string' || name.trim() === '') return undefined;
   if (raw.command !== undefined && typeof raw.command !== 'string') return undefined;
@@ -170,6 +185,14 @@ export class McpServersStore {
   private file: string;
   /** Map 天然保持插入序 → list() 与写回的键序即文件序 */
   private entries = new Map<string, McpServerEntry>();
+  /** W1a-7b：读入时认不出的条目，按原键存原文（command 写成数组、还没写完的草稿、值根本不是对象……）。
+   *  list() 看不到它们（设置页、manager、试连都只认识别出的），但保存时原样写回，跟在识别出的条目后面。
+   *  原先读入时直接跳过：下一次任意保存（添加、改名、删除、启停、市场安装与更新都整份写回）就从文件里消失了。 */
+  private rawUnknown = new Map<string, unknown>();
+  /** W1a-7b：标准形态下 servers.json 的顶层（从 claude_desktop_config.json 整份粘进来的 globalShortcut、$schema……），
+   *  保存时原样写回。mcpServers 在这里只占个位（写回时换成当前条目），顶层键序因此照原文件。
+   *  另两种变体（裸名字键控、单个裸条目）的顶层就是条目本身，没有「其它键」，这里是 undefined。 */
+  private topLevel: Record<string, unknown> | undefined;
   /** 读盘出错时按空配置加载（手编笔误不崩 minisd 启动），但**之后拒绝一切写入**（见 assertWritable）。
    *  loadError 是诊断原文，只留在 minisd 内部（parse 类可能带文件片段）；对外只给 loadErrorKind 枚举。 */
   loadError: string | undefined;
@@ -202,8 +225,11 @@ export class McpServersStore {
   }
 
   /** 三变体宽容导入：①标准 mcpServers 键控；③单裸条目（name=default）；②裸名字键控 map。
-   *  判序依据：①有 mcpServers 对象键；③顶层自带 command/url（本身就是一个 server 定义）；
-   *  其余按②处理，非对象值逐条跳过。调用方保证 entries 为空、三个 loadError 字段都是 undefined。 */
+   *  判序依据：①有 mcpServers 对象键；③顶层自带 command/url（本身就是一个 server 定义）；其余按②处理。
+   *  认不出的条目（含非对象值）按原键存进 rawUnknown，①的顶层存进 topLevel，保存时原样写回（W1a-7b）。
+   *  ②③里认不出的同样算条目：保存时写成标准形态，它们随之进 mcpServers（原样，只是换了层级；
+   *  ③认不出时整个文件就是名为 default 的那一条）。
+   *  调用方保证 entries 与 rawUnknown 为空、topLevel 与三个 loadError 字段都是 undefined。 */
   private load(disk: DiskRead): void {
     if (disk.kind === 'absent') { this.lastDisk = null; return; } // 首次运行的正常路径：空配置，可写
     if (disk.kind === 'error') {
@@ -234,11 +260,13 @@ export class McpServersStore {
       return;
     }
     const absorb = (name: string, raw: unknown): void => {
-      if (!isPlainObject(raw)) return;
-      const e = decodeEntry(name, raw);
+      const e = isPlainObject(raw) ? decodeEntry(name, raw) : undefined;
       if (e) this.entries.set(e.name, e);
+      else this.rawUnknown.set(name, raw);
     };
     if (isPlainObject(parsed.mcpServers)) {
+      // 展开再盖掉 mcpServers：其它键原样留下，mcpServers 只占原来的位置，不留一份旧条目的副本
+      this.topLevel = { ...parsed, mcpServers: null };
       for (const [name, raw] of Object.entries(parsed.mcpServers)) absorb(name, raw);
     } else if (typeof parsed.command === 'string' || typeof parsed.url === 'string') {
       absorb('default', parsed);
@@ -256,6 +284,9 @@ export class McpServersStore {
     if (disk.kind === 'absent' && this.lastDisk === null) return;
     if (disk.kind === 'bytes' && this.lastDisk instanceof Buffer && disk.bytes.equals(this.lastDisk)) return;
     this.entries = new Map();
+    // 认不出的条目与顶层其它键也按新文件重新记：手改删掉的，不能拿旧的记忆写回去
+    this.rawUnknown = new Map();
+    this.topLevel = undefined;
     this.loadError = undefined;
     this.loadErrorKind = undefined;
     this.loadErrorCode = undefined;
@@ -274,20 +305,27 @@ export class McpServersStore {
     if (this.loadErrorKind) throw new Error(refuseMessage(this.loadErrorKind, this.loadErrorCode));
   }
 
-  /** 原子写（对齐 ProviderStore 模式）；始终写标准形态，条目序保持插入序。
+  /** 原子写（对齐 ProviderStore 模式）；始终写标准形态：识别出的条目按插入序在前，认不出的条目原样跟在后面，
+   *  顶层其它键原样放回原位（W1a-7b）。
    *  单条形态见 encodeEntry：extra 先铺、识别字段后盖——未识别字段原样合并，写回不丢数据。
    *  写的是调用方给的新 Map，**落盘成功后才换进内存**：写盘失败时内存仍与磁盘一致，
    *  设置页开关失败后重拉列表拿到的才是真相（否则界面会显示一个磁盘上并不存在的状态）。 */
   private save(next: Map<string, McpServerEntry> = this.entries): void {
     // 第二道防线：以后新增的写路径即使忘了在入口调 assertWritable，也覆盖不了读坏的文件
     this.assertWritable();
-    const out: Record<string, unknown> = {};
-    for (const [name, e] of next) out[name] = encodeEntry(e);
-    const text = JSON.stringify({ mcpServers: out }, null, 2);
+    // 撞名时以识别出的为准（新建或改名到了一个认不出的条目的名字上）：同名的原文这次不写，
+    // 也从内存里去掉——否则之后删掉这台，旧原文会从内存里复活、被下一次保存写回文件
+    const unknown = new Map([...this.rawUnknown].filter(([name]) => !next.has(name)));
+    const servers = Object.fromEntries<unknown>([
+      ...[...next].map(([name, e]): [string, unknown] => [name, encodeEntry(e)]),
+      ...unknown,
+    ]);
+    const text = JSON.stringify({ ...this.topLevel, mcpServers: servers }, null, 2);
     const tmp = this.file + '.tmp';
     writeFileSync(tmp, text, 'utf8');
     renameSync(tmp, this.file);
     this.entries = next;
+    this.rawUnknown = unknown;
     // 记下自己写出的原文：下次对比时它不算外部修改
     this.lastDisk = Buffer.from(text, 'utf8');
   }
