@@ -471,6 +471,9 @@ export const useChat = defineStore('chat', {
     },
     async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
     async open(id: string) {
+      // W2b-3b：断线之后什么都不做。下面先改 activeId 再取消息，取消息被拒时标题已换成 B、对话流还是 A 的消息与半截正文；
+      // 横幅已经说「新的操作不会执行」，换会话也是新操作——当前视图原样留着，半截正文还能复制
+      if (this.connection === 'lost') return;
       // 工作区是每会话的，切会话必须重新取——否则 chip 会显示上一个会话的目录
       // 换会话才清错误横幅：turnEnd/error 之后的自刷新调用的也是 open，
       // 在那条路径上清掉的话，刚设置的 lastError 会被立刻抹掉（错误又变成看不见）。

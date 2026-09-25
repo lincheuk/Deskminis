@@ -233,6 +233,26 @@ describe('W2b-3 store：断线之后再发（Enter 硬发、事件条「重试�
   });
 });
 
+describe('W2b-3b store：断线之后点别的会话，当前视图原样不动', () => {
+  it('open(B) 不换 activeId、不清正文与消息、不发任何调用——不再出现标题是 B、对话流还是 A 的错位', async () => {
+    // W2b-3 修正者申报：open() 先改 activeId 再取消息，断线后取消息被拒，标题换成了 B，对话流里仍是 A 的消息与半截正文。
+    // 横幅已经说「新的操作不会执行」，换会话也是一个新操作：什么都不做，留给用户复制的正文也还在
+    const chat = await boot('A');
+    chat.streamingText = '答了一半的正文';
+    const messagesBefore = JSON.stringify(chat.messages);
+    fireLost();
+    rpcCallMock.mockReset();
+    rpcCallMock.mockImplementation(async () => { throw new Error(LOST); });
+
+    await chat.open('B');
+
+    expect(chat.activeId).toBe('A');
+    expect(JSON.stringify(chat.messages)).toBe(messagesBefore);
+    expect(chat.streamingText).toBe('答了一半的正文');
+    expect(rpcCallMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('W2b-3 store：relaunchApp 走桥，走不通就说清楚', () => {
   it('桥上有 relaunchApp：调它恰好一次，不写 lastError', async () => {
     const chat = await boot();
