@@ -435,6 +435,39 @@ describe('W1a-4 servers.json 损坏时市场安装被拒', () => {
   });
 });
 
+// W1a-7b（设计稿 §4.1 / 附录 mcp.md W1a-mcplossy）：安装一台就会把 servers.json 整份写回。
+// 原先写回时只剩识别出的条目：认不出的条目、顶层其它键、args / env 里写成数字的值，装一次就从文件里永久消失。
+describe('W1a-7b 市场安装不丢 servers.json 里原有的东西', () => {
+  it('安装 MCP 之后：认不出的条目、顶层其它键原样还在（键序不变），手写的数字参数与环境变量成了字符串', async () => {
+    const ctx = await makeCtx({
+      seedServersJson: JSON.stringify({
+        $schema: 'https://example.com/claude-desktop-config.schema.json',
+        mcpServers: {
+          hand: { command: 'node', args: ['srv.js', '--port', 8080], env: { RETRIES: 3 } },
+          bad: { command: ['npx', '-y', 'pkg'] },
+        },
+        globalShortcut: 'Ctrl+Q',
+      }, null, 2),
+    });
+    try {
+      const r = await ctx.installer.install({
+        id: 'mcp-registry:io.github.owner/mcp-fetch', confirm: true, env: { FETCH_API_KEY: 'v' },
+      });
+      const raw = JSON.parse(readFileSync(join(ctx.root, 'mcp-servers', 'servers.json'), 'utf8'));
+      expect(Object.keys(raw)).toEqual(['$schema', 'mcpServers', 'globalShortcut']);
+      expect(raw.$schema).toBe('https://example.com/claude-desktop-config.schema.json');
+      expect(raw.globalShortcut).toBe('Ctrl+Q');
+      // 识别出的在前（新装的排在手写的后面），认不出的跟在后面
+      expect(Object.keys(raw.mcpServers)).toEqual(['hand', r.localRef, 'bad']);
+      expect(raw.mcpServers.bad).toEqual({ command: ['npx', '-y', 'pkg'] });
+      expect(raw.mcpServers.hand.args).toEqual(['srv.js', '--port', '8080']);
+      expect(raw.mcpServers.hand.env).toEqual({ RETRIES: '3' });
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
 describe('G2 market.installPlan（确认卡数据 §4）', () => {
   let ctx: Ctx;
   beforeEach(async () => { ctx = await makeCtx(); });
