@@ -34,6 +34,8 @@ vi.mock('../src/renderer/src/rpc', () => ({
     call: rpcCallMock,
     connect: async () => {},
     on: (method: string, h: (p: any) => void) => { handlers.set(method, h); },
+    // W2b-3：init() 在 connect 之前订阅断线；本文件不测断线，给个空订阅
+    onLost: vi.fn(),
   },
 }));
 

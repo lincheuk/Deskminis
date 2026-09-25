@@ -13,7 +13,8 @@ import { sfcBlocks } from './sfc-blocks';
 
 const { rpcCallMock } = vi.hoisted(() => ({ rpcCallMock: vi.fn() }));
 vi.mock('../src/renderer/src/rpc', () => ({
-  rpc: { call: rpcCallMock, connect: async () => {}, on: vi.fn() },
+  // W2b-3：init() 在 connect 之前订阅断线（onLost）；本文件不测断线，给个空订阅
+  rpc: { call: rpcCallMock, connect: async () => {}, on: vi.fn(), onLost: vi.fn() },
 }));
 
 // eslint-disable-next-line import/first

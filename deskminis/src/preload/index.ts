@@ -29,4 +29,6 @@ contextBridge.exposeInMainWorld('deskminis', {
   // MU2b Task 6：图片粘贴/拖拽附件落盘（main 白名单一处 handler 的渲染端入口；返回会话相对路径）。
   saveAttachment: (sessionId: string, dataUrl: string): Promise<string> =>
     ipcRenderer.invoke('attachments:save', sessionId, dataUrl),
+  // W2b-3：断线横幅的「重启应用」。重启整个应用；主进程只认主窗口发来的请求，退出走 app.quit()（before-quit 里先停引擎）
+  relaunchApp: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
 });
