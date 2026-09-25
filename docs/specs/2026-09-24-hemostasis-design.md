@@ -163,6 +163,7 @@
 | W2b-7 | 权限超时回调里的 `audit.append` 兜住：库写失败只进按天日志，不在定时器里抛未捕获异常 | W1b-5 修正者申报 |
 | W2b-11 拆成两步 | **W2b-11a（界面诚实）**：`StageChat.vue` 里不在运行中的回合、没有结果的工具不再显示成功，显示「已中断 · 结果未知」；release.md「W2b-readme」风险条列的界面同类假话（TerminalPane、StageCron、StageDevices，SecMcp 视 MCP 链落地情况）；托盘「打开设置」「切换右栏」两条死通道在 AppShell 接上；main/index.ts 符号色注释、TopBar 高度注释（140→146px）、AppShell「默认收起」注释三处订正。**W2b-11b（对外文档）**：README / CHANGELOG / RELEASE 逐行核对与 `readme-claims` 守卫，排在全部代码合入之后 | OpenCode V2 研读报告 §2（`docs/research/2026-09-25-opencode-v2-baseline.md`）；拆开是为了界面部分先并行做 |
 | W2a-7（新，接 W2a-1） | URL 凭据脱敏改成线性扫描，结果与原正则逐字相同（随机对拍钉住） | W1b-2d 实现者申报：长单行平方级，20 万字一行 23 秒，每次构建请求都跑 |
+| W1b-2g（新，接 W1b-2） | shell 只读白名单堵出网口：npm 的 view、outdated 移出免批（连 npm 源，view 能取任意网址）；只读命令的文本里出现 UNC 或类 UNC 路径（以 `\\` 或 `//` 起头的路径记号，含 `::\\` 提供程序前缀与 `\\?\`、`\\.\` 设备路径）时回落 gated；不带 `$` 的 `env:` 提供程序路径同 `$env:` 一样回落 gated。另改两处权限文案：危险命令被规则拦下时，shell 回给模型的话不再说「被用户拒绝」；设置页「完全访问」的副标题按危险规则的实际覆盖面写，不再许诺「不可逆的系统操作仍拦截」。顺带删掉测试误建进仓库的 `C:\Users\me\Documents\notes.txt` 并修掉建它的那个测试 | W2b-11b 三审：只读白名单里 `npm view <任意网址>` 与 `Get-Content \\主机\共享\…` 任何档位都不弹卡，配合提示注入能不经询问外发数据；Windows 上访问 UNC 还会自动做 NTLM 认证 |
 
 **施工组织（2026-09-25 改为多链并行，用户要求加快）**：机器 4 核，每个工作流同时最多 2 个 agent，按下表分链：
 
