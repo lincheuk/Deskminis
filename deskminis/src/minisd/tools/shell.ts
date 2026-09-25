@@ -1,10 +1,21 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { ToolContext, ToolExecutor } from './types';
+import { classifyShellCommand } from './permissions';
 import { killTree, powershellPath, type ProcOpts } from '../proc/win-exec';
 import { childEnv } from '../proc/child-env';
 
 const MAX_OUTPUT = 100 * 1024;
+
+/** 危险命令被规则拦下时回给模型的话（W1b-2g）。classifyShellCommand 判 danger 的命令在网关里是 notAllowed：
+ *  不询问、三个档位都拒——没有哪个用户点过拒绝，设置里也调不开。照旧说「被用户拒绝（可在设置-权限中调整）」，
+ *  模型会以为换个档位、再问一次就能过，或者向用户转述一个没发生过的拒绝。
+ *  括号里只举危险表里真有的几类；「不要改写绕过」是因为规则按写法认，换个写法的命令会落到询问或（完全访问下）直接执行。 */
+const RULE_BLOCKED = '命令未执行：它命中了危险命令规则（删除、格式化、改注册表、结束进程、定义函数或别名等），由规则直接拦下，'
+  + '不是用户拒绝的，换任何权限档位也不会放行。请不要改写命令绕过规则；确实需要的话，把命令和理由告诉用户，由用户决定是否自己执行。'
+  // 危险规则按整段文本匹配，读 shutdown.ps1、搜 Stop-Process 字样这类无害的读和搜也会被拦（W1b-2g 审查）；
+  // 不给出路的话，听话的模型会把它们推给用户，而文件工具不走这条规则
+  + '如果只是要读的文件、要搜的文本里恰好含这些字样，改用 file_read / file_grep。';
 
 /** 超时/取消杀掉常驻驱动后，下一条命令必须带上这句——cd/环境变量已复位，
  *  模型若还按「跨命令持久」的假设继续，会拿着旧状态做错事。 */
@@ -232,7 +243,11 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       // （abort 事件不补发）——必须在闸后重查一次，否则「批准晚于取消」的命令会原样跑完。
       // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台按 deny 了结卡片并 abort，那不是用户拒绝的
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-      if (decision === 'deny') return { output: '命令被用户拒绝（可在设置-权限中调整）', success: false };
+      if (decision === 'deny') {
+        // 网关对「规则拦下」与「用户拒绝」都只回 deny；危险命令不经询问、任何档位都拒，要分开说（W1b-2g，见 RULE_BLOCKED）
+        if (classifyShellCommand(command) === 'danger') return { output: RULE_BLOCKED, success: false };
+        return { output: '命令被用户拒绝（可在设置-权限中调整）', success: false };
+      }
       const cwd = ctx.paths.workspaceOf(ctx.sessionId);
       const timeoutMs = (typeof input.timeout_seconds === 'number' ? input.timeout_seconds : 120) * 1000;
       // 执行期间监听取消：abort → 杀当前命令所在驱动。杀掉后会话积累的 cd/env 会丢，
