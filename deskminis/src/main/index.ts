@@ -26,6 +26,14 @@ const dirs = resolveAppDirs({ isPackaged: app.isPackaged, env: process.env });
 // Windows 上未实测；打包态不走这一行，最坏只影响 dev 首次启动。
 if (dirs.userData) app.setPath('userData', dirs.userData);
 
+// W2b-6b 打包版不要应用菜单。没设菜单时 Electron 自动装一套默认菜单：无边框窗口里看不见它，快捷键却都生效——
+// Ctrl+R 在回合中途把界面整页重载（流式正文、待批的权限卡、输入框里没发出去的字都没了），Ctrl+Shift+I 打开开发者工具。
+// 本应用没有一处靠它：窗口按钮由系统画（titleBarOverlay），其余入口在界面与托盘菜单里；文本框的复制、粘贴、全选、撤销
+// 由 Chromium 自己处理，不经菜单（Windows 与 Linux 如此；macOS 要靠「编辑」菜单，本应用不出 macOS 包）。
+// 默认菜单带来的其余快捷键也随之没了：缩放（Ctrl 加 + / - / 0）、F11 全屏、Ctrl+M 最小化、Ctrl+W 收进托盘。
+// 放在模块顶层、ready 之前：Electron 在 ready 之前装默认菜单，先设了 null 它就不装。开发态保留默认菜单（要用重载与开发者工具）。
+if (app.isPackaged) Menu.setApplicationMenu(null);
+
 let minisd: UtilityProcess | undefined;
 // minisd stderr 的末尾 4KB：启动失败时附进错误框（真正的原因在这里，不在主进程自己的堆栈里）。
 // 模块级只建这一个，之后的崩溃记录等复用它，不另造第二份（设计稿 §3 第 8 条）。
@@ -202,9 +210,12 @@ function createTrayMenu(win: BrowserWindow): import('electron').Menu {
 }
 
 /** 本应用页面的地址（W2b-6），只在这里算：createWindow 按它加载，导航守卫与权限白名单按它认「本应用」。
- *  加载的与认的出自同一处；要改认不认 ELECTRON_RENDERER_URL（比如打包后不认），改这里，两边一起变。 */
+ *  加载的与认的出自同一处；要改认不认 ELECTRON_RENDERER_URL，改这里，两边一起变。
+ *  W2b-6b：打包版不认 ELECTRON_RENDERER_URL，一律是 out/renderer/index.html（loadFile）。这个变量只该由 npm run dev
+ *  （electron-vite）设；以前打包版也认，用户环境里残留着它（或者别人给设了）时，装好的应用会去加载那个 http 地址，
+ *  守卫还把那个源当成本应用，放行它的导航与剪贴板写入。 */
 function rendererBaseUrl(): string {
-  return appBaseUrl(process.env.ELECTRON_RENDERER_URL, join(__dirname, '../renderer/index.html'));
+  return appBaseUrl(app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL, join(__dirname, '../renderer/index.html'));
 }
 
 /** 交给系统默认程序打开（W2b-6）：只交 http / https / mailto 的规范形，其余什么也不做。
@@ -230,7 +241,8 @@ async function createWindow(): Promise<BrowserWindow> {
   });
   // W2b-6 导航守卫，抢在加载页面之前挂上（加载期间页面就可能新开窗口或跳走）。
   // 新窗口一律拒绝：回复里的外链（target=_blank）与 window.open 以前会在应用里开出第二个 Electron 窗口加载外站；
-  // 网页与邮件改交系统默认程序。
+  // 网页与邮件改交系统默认程序。这里只看得到新窗口一开始要加载的地址：终端里的 OSC 8 超链接以前走 xterm 自带的
+  // 「先 window.open() 开空白窗口、再改地址」，这里只收到 about:blank、交不出去（W2b-6b 起 TerminalPane 直接 window.open(地址)）。
   const appBase = rendererBaseUrl();
   win.webContents.setWindowOpenHandler(({ url }) => {
     openInSystem(url);

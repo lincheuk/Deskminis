@@ -1,8 +1,9 @@
 /** W2b-6（侦察 lifecycle.md「W2b-guards」· cross.md S24 · 设计稿 §4 W2b-6）：窗口导航守卫与权限白名单的接线——dev 形态。
  *
  *  npm run dev 时 electron-vite 设 ELECTRON_RENDERER_URL，createWindow 走 loadURL 加载开发服务器的 http 源；
- *  打包后没有这个变量，走 loadFile 加载 file://…/index.html。两种都是本应用，都要放行（本步补充要求）。
- *  打包形态与源码守卫在 tests/main-window-guard-wiring.test.ts，这里另起一次主进程跑 dev 形态：
+ *  打包后不认这个变量（W2b-6b，见 tests/main-window-guard-wiring-packaged.test.ts），走 loadFile 加载 file://…/index.html。
+ *  两种都是本应用，都要放行（本步补充要求）。
+ *  loadFile 形态与源码守卫在 tests/main-window-guard-wiring.test.ts，这里另起一次主进程跑 dev 形态：
  *  以前只跑打包形态，守卫的基址若不认 ELECTRON_RENDERER_URL，dev 下页面发起权限的 requestingUrl 是
  *  http://localhost:5173/、基址却是 file://…/index.html，剪贴板写入被拒，代码块「复制」与「复制完整路径」静默失效
  *  （MarkdownView / PreviewPane catch 后不提示），测试照样全绿（W2b-6 审查的变异 A）。
@@ -108,4 +109,14 @@ describe('dev 形态：权限只放行开发服务器页面的 clipboard-sanitiz
       expect(check(p, DEV, { requestingUrl: loadedPage(), isMainFrame: true })).toBe(false);
     },
   );
+});
+
+// W2b-6b：打包版去掉应用菜单（tests/main-window-guard-wiring-packaged.test.ts），开发态不动——
+// Electron 的默认菜单留给开发：Ctrl+R 重载、Ctrl+Shift+I 开发者工具。去菜单写成不看 isPackaged 的话，这里红。
+describe('dev 形态：应用菜单保持 Electron 的默认菜单', () => {
+  it('Menu.setApplicationMenu 一次也没调', () => {
+    expect(h.trayCreated, 'whenReady 走完了').toBe(true);
+    expect(h.appMenus).toEqual([]);
+    expect(h.calls).not.toContain('Menu.setApplicationMenu');
+  });
 });

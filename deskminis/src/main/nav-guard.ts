@@ -5,6 +5,12 @@
  *  Chromium 按 file:// 导航）会把整个界面换掉，只能重启；通知、剪贴板读取、定位、摄像头等权限一律放行。
  *  现在：新窗口一律拒绝，网页与邮件交给系统默认程序；不是本应用页面的导航拦下；权限只放行剪贴板写入。
  *
+ *  W2b-6b 订正：渲染端会新开窗口的地方不止 markdown 外链。侦察（lifecycle.md 的事实清单）与 W2b-6 当初以为
+ *  「外链只有 MarkdownInline 的 <a target=_blank>、渲染端没有 window.open」，漏了终端抽屉：xterm 让输出里的 OSC 8
+ *  超链接可点，改动前打包产物里唯一的 window.open( 就是 xterm 自带的那段——先 window.open() 开空白窗口、事后才改地址。
+ *  新窗口处理器只看得到新窗口一开始要加载的地址，于是只收到 about:blank，拒绝之后什么也没交出去，终端里的链接点了没反应。
+ *  W2b-6b 起 TerminalPane 配了 linkHandler，确认后直接 window.open(地址)，地址才到得了这里、交得给系统浏览器。
+ *
  *  纯函数、不 import electron：判定都在这里，单测直接穷举（tests/main-window-guard.test.ts）；
  *  主进程（index.ts 的 createWindow 与 whenReady）只接线。 */
 import { pathToFileURL } from 'node:url';
