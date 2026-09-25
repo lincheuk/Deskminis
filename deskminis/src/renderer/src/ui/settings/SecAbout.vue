@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /** T5：关于 + 自动更新。
  *  自动更新开关归主进程管（它才是做检查的那一方），这里只读写与手动触发。
- *  仓库私有期间检查会 404——照实说明，不让用户对着「检查失败」猜。 */
+ *  失败原因由主进程译成一句中文（main/update-status.ts 的 describeUpdateError），这里原样接在状态后面，
+ *  不让用户对着「检查失败」猜，也不再漏英文堆栈和响应头。 */
 import { computed, onMounted, ref } from 'vue';
 import UiIcon from '../UiIcon.vue';
 
@@ -20,9 +21,12 @@ const STATUS_TEXT: Record<string, string> = {
   latest: '已是最新',
   downloading: '下载中…',
   downloaded: '新版已下载，重启后生效',
-  error: '检查失败',
+  // 不写「检查失败」：下载阶段的失败（如安装包校验不符）也落在 error，后面接的原因会说清是哪一步
+  error: '更新失败',
   dev: '开发模式：不检查更新',
   disabled: '已关闭自动检查',
+  // W2b-9：便携版主进程直接不检查、不下载（electron-updater 不认便携版，放它查会去下载安装包）
+  portable: '便携版不自动更新，请到发布页下载新版',
 };
 /** dev / disabled 自带解释，再把 error 字段接上去就是同一句说两遍。 */
 const showErr = computed(() => Boolean(state.value.error) && !['dev', 'disabled'].includes(state.value.status));
@@ -73,7 +77,7 @@ async function checkNow(): Promise<void> {
         </label>
         <span class="f-label" style="gap:1px">
           <span>自动检查更新</span>
-          <span class="f-hint">启动时到 GitHub Release 看一眼有没有新版</span>
+          <span class="f-hint">启动时到 GitHub 上的 lincheuk/deskminis-releases 查一次新版本</span>
         </span>
         <button class="f-btn" type="button" :disabled="checking" @click="checkNow">
           {{ checking ? '检查中…' : '现在检查' }}
@@ -84,7 +88,6 @@ async function checkNow(): Promise<void> {
         <template v-if="state.version"> · {{ state.version }}</template>
         <template v-if="showErr"> · {{ state.error }}</template>
       </p>
-      <p class="f-hint">仓库还是私有的话，检查会返回 404——这是预期的，不是坏了。</p>
     </div>
   </section>
 </template>

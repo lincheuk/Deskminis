@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { resolveAppDirs } from './app-dirs';
 import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
+import { describeUpdateError, isPortableBuild, manualCheckDialog, type UpdateState } from './update-status';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES } from './child-output';
 
@@ -117,7 +118,7 @@ function createTrayMenu(win: BrowserWindow): import('electron').Menu {
     { label: '显示主窗口', click: () => { win.show(); win.focus(); } },
     { label: '切换右栏', click: () => { win.show(); win.webContents.send('menu:toggle-right'); } },
     { label: '打开设置', click: () => { win.show(); win.webContents.send('menu:open-settings'); } },
-    { label: '检查更新…', click: () => { void checkUpdates(true); } },
+    { label: '检查更新…', click: () => { void checkUpdatesFromTray(); } },
     { type: 'separator' as const },
     { label: '退出 DeskMinis', click: () => { app.quit(); } },
   ]);
@@ -158,7 +159,7 @@ function writeUpdatePrefs(p: { autoCheck: boolean }): void {
 }
 
 /** 最近一次检查结果，供渲染端显示（不做全局状态机，够用即可）。 */
-let updateState: { status: string; version?: string; error?: string } = { status: 'idle' };
+let updateState: UpdateState = { status: 'idle' };
 
 function setupUpdater(): void {
   // 下载完**不自动装**：Agent 应用可能正跑着长任务，自动重启会把用户的活干掉一半。
@@ -184,24 +185,44 @@ function setupUpdater(): void {
       cancelId: 0,
     }).then(r => { if (r.response === 1) { quitting = true; autoUpdater.quitAndInstall(); } });
   });
-  // 检查失败是常态（离线、公司网、GitHub 限流、仓库还是 private）——
-  // 静默记录即可，绝不弹窗打扰。更新是便利功能，不是必需路径。
-  autoUpdater.on('error', (e) => { updateState = { status: 'error', error: String(e?.message ?? e) }; });
+  // 检查失败是常态（离线、公司网、GitHub 限流、发布仓库还没发过版）——
+  // 静默记录即可，绝不弹窗打扰。更新是便利功能，不是必需路径（托盘手动检查的回执另走 checkUpdatesFromTray）。
+  // 状态里只放一句中文（W2b-9）：原文带 HttpError 的响应头和内层堆栈，以前原样漏到设置→关于的状态行上。
+  // 原文写 stderr 留给排查；检查失败时 electron-updater 既发这个事件、又让 checkForUpdates reject，原文只在这里写一次。
+  autoUpdater.on('error', (e) => {
+    process.stderr.write('[update] ' + String(e?.stack ?? e) + '\n');
+    updateState = { status: 'error', error: describeUpdateError(e) };
+  });
 }
 
 /** dev 下不检查：electron-updater 在未打包应用里会抛「application is not packed」，
  *  不拦的话每次 npm run dev 都吐一条错误噪音，久了真错误也没人看了。 */
-async function checkUpdates(manual: boolean): Promise<{ status: string; version?: string; error?: string }> {
+async function checkUpdates(manual: boolean): Promise<UpdateState> {
   if (!app.isPackaged) {
     updateState = { status: 'dev', error: '开发模式不检查更新' };
+    return updateState;
+  }
+  // 便携版（W2b-9）：自动与手动都不检查、不下载。electron-updater 不区分便携版，放它查就会去下载 NSIS 安装包
+  // （侦察据源码推断，重启后会在旁边装出一份安装版，未在真机确认）。
+  // 排在「关掉自动检查」之前：便携版上那个开关没有意义，该说的是「便携版不自动更新」。
+  if (isPortableBuild(process.env)) {
+    updateState = { status: 'portable' };
     return updateState;
   }
   if (!manual && !readUpdatePrefs().autoCheck) {
     updateState = { status: 'disabled' };
     return updateState;
   }
-  try { await autoUpdater.checkForUpdates(); } catch (e) { updateState = { status: 'error', error: String(e) }; }
+  try { await autoUpdater.checkForUpdates(); } catch (e) { updateState = { status: 'error', error: describeUpdateError(e) }; }
   return updateState;
+}
+
+/** 托盘「检查更新…」（W2b-9）：手动检查要有回音——以前点了界面上毫无反应，结果只躺在 updateState 里。
+ *  对话框不挂父窗口 = 非模态：主窗口可能藏在托盘里，挂上去会把它拽出来，还会挡住正在进行的对话。
+ *  启动 8 秒后的自动检查不走这里，维持静默。 */
+async function checkUpdatesFromTray(): Promise<void> {
+  const r = await checkUpdates(true);
+  await dialog.showMessageBox(manualCheckDialog(r, app.getVersion()));
 }
 
 ipcMain.handle('update:getPrefs', () => ({ ...readUpdatePrefs(), version: app.getVersion(), state: updateState }));

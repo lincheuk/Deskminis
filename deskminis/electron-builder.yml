@@ -59,12 +59,15 @@ portable:
 # 自动更新（用户 2026-08-11 拍板：GitHub Releases 全自动 + 启动检查可关）。
 # electron-updater 靠这一段知道去哪查新版本；缺了它 checkForUpdates 直接报「找不到 publish 配置」。
 #
-# ⚠️ 仓库当前是 **private**：私有仓库的 Release 资产需要带 token 才能下载，
-#    electron-updater 对私有源要求把 GH token 打进应用——**那等于把 token 发给每个用户**。
-#    要真正跑通自动更新，二选一：① 仓库转 public；② 装机包换公开托管（另配 generic provider）。
-#    此段先按 public 配置写好，转公开后即刻可用；保持 private 的话检查会 404，
-#    主进程已按「静默吞掉」处理，不会打扰用户（见 src/main/index.ts 的 error 监听）。
+# 更新源（2026-09-24 止血设计稿 §2 落定）：公开的、只放发布资产的仓库 lincheuk/deskminis-releases，由用户在 GitHub 上创建。
+# 为什么不是源码仓：源码仓是私有的，私仓的 Release 资产要带 token 才能下载，把 token 打进应用等于发给每个用户；
+# 0.1.1 写死的就是私仓，检查永远 404，那批用户只能手动装一次 0.3.0。
+# 这一段在打包时写进安装目录的 resources/app-update.yml，装到用户机器上就改不了——日后换源，只能先在旧源发一个带新配置的过渡版。
+# github provider 走 github.com 的 releases.atom 与 /releases/latest 两个网页端点：不走 API、不吃 API 限流、不要 token。
+# 发布要求见 docs/RELEASE.md §4：Release 不能是 draft / prerelease，tag 用 v<版本>，latest.yml 与 Setup.exe.blockmap 一并上传。
+# 便携版包里也带着这份配置，但主进程认出便携版就不检查（src/main/update-status.ts 的 isPortableBuild）。
+# src/main/update-status.ts 的 RELEASES_PAGE_URL 与这里同一个 owner/repo，改源时两边一起改（tests/update-error-text.test.ts 核对）。
 publish:
   provider: github
   owner: lincheuk
-  repo: Deskminis
+  repo: deskminis-releases

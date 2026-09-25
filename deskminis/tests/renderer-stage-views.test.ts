@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripComments } from './strip-comments';
 
 const UI = join(__dirname, '../src/renderer/src/ui/');
 const read = (p: string): string => readFileSync(join(UI, p), 'utf8').replace(/\r\n/g, '\n');
@@ -69,13 +70,37 @@ describe('T5 — 更新状态文案必须对得上主进程的 status 值', () =
   /** 第一版照 electron-updater 的**事件名**写了映射（'update-available' 等），
    *  实拍下来一条都对不上，界面直接漏出原始状态串。这条守卫钉住两边一致。 */
   it('main/index.ts 里出现的每个 status 值，SecAbout 都有中文文案', () => {
-    const main = readFileSync(join(__dirname, '../src/main/index.ts'), 'utf8');
-    const about = read('settings/SecAbout.vue');
+    // 两边都先剥注释（W2b-9 审查变异 B）：SecAbout 里一句行尾注释 `// portable: '…'` 就能喂饱 `portable:`，
+    // 界面上却直接漏出原始状态串；main 这边注释里提到的旧 status 也不该被算成真在用的状态。
+    const main = stripComments(readFileSync(join(__dirname, '../src/main/index.ts'), 'utf8'));
+    const aboutSrc = read('settings/SecAbout.vue');
+    const about = stripComments(aboutSrc.slice(aboutSrc.indexOf('<script'), aboutSrc.indexOf('</script>')));
+    // 只在 STATUS_TEXT 那个对象字面量里找（W2b-9 第二轮审查变异 M-A）：整段脚本里 checkNow 的 catch 写着
+    // `{ status: 'error', error: … }`，光认 `error:` 的话删掉 STATUS_TEXT.error 也照样绿，状态行却漏出原始的「error」。
+    // 类型注解 Record<string, string> 没有花括号，STATUS_TEXT 之后第一个「{」就是对象本身。
+    const table = balancedBlock(about, about.search(/const STATUS_TEXT\b/));
+    expect(table, '找不到 const STATUS_TEXT = { … }').not.toBe('');
     const statuses = [...main.matchAll(/updateState = \{\s*status:\s*'([a-z-]+)'/g)].map(m => m[1]);
     expect(statuses.length).toBeGreaterThan(4);
-    for (const s of new Set(statuses)) expect(about).toContain(`${s}:`);
+    for (const s of new Set(statuses)) {
+      // 每个 status 在表里有一行自己的键值，值是带汉字的单引号字符串——键在、值却是英文原串也不算有文案
+      const line = new RegExp(`^\\s*'?${s}'?:\\s*'[^'\\n]*[\\u4e00-\\u9fff][^'\\n]*'`, 'm');
+      expect(table, `STATUS_TEXT 缺少 ${s} 的中文文案`).toMatch(line);
+    }
   });
 });
+
+/** 从 from 处之后第一个「{」起按花括号配平，取到对应的「}」为止（含两端）；找不到给空串。 */
+function balancedBlock(src: string, from: number): string {
+  const s = from < 0 ? -1 : src.indexOf('{', from);
+  if (s < 0) return '';
+  let depth = 0;
+  for (let i = s; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) return src.slice(s, i + 1);
+  }
+  return '';
+}
 
 describe('T6a2 — 助手绑定模型必须写 provider: 前缀', () => {
   /** J2 修过一次同样的毛病：MU6 时期 SessionList 把**裸 provider id** 写进 model_binding，
