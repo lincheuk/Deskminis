@@ -55,7 +55,7 @@ export interface RunOptions {
   contextPolicy?: ContextPolicy;       // 上下文水位分层决策（Task 4）
   compactEngine?: CompactEngine;       // LLM 压缩摘要（Task 6）
   offloadEngine?: OffloadEngine;       // 大工具结果卸载（Task 5）
-  excludedToolNames?: Set<string>;     // 按会话过滤工具（memory_enabled=false 时排除记忆工具）
+  excludedToolNames?: Set<string>;     // 按会话排除的工具（memory_enabled=false 时的记忆工具、会话禁用的 MCP 台）：不列给模型，调用了也不执行（W2a-8）
 }
 
 const DEFAULT_RETRY = [3000, 5000, 10000, 15000, 30000];
@@ -655,7 +655,11 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
     // 并发执行工具（上限 10），结果按原顺序拼回
     for (const c of calls) yield { kind: 'toolStart', toolUseId: c.toolUseId, name: c.name, title: extractTitle(c.input), input: c.input };
     const results = await runWithConcurrency(calls, CONCURRENCY, async c => {
-      const outcome = await opts.tools.execute(c.name, c.input, opts.toolContext);
+      // W2a-8：按会话排除的工具（关掉记忆的会话里的记忆工具、会话禁用的 MCP 台）执行侧也拒绝。只从工具表里剔除不够：
+      // 历史里留着以前的调用，模型照着再叫一次，provider 照样把它交回来，registry 里又有这个工具，就会真的执行
+      const outcome = opts.excludedToolNames?.has(c.name)
+        ? { output: `本会话没有启用工具 ${c.name}，没有执行`, success: false }
+        : await opts.tools.execute(c.name, c.input, opts.toolContext);
       return { c, outcome };
     });
     const resultParts: ContentPart[] = [];

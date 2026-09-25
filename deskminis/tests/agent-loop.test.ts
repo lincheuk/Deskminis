@@ -1007,4 +1007,27 @@ describe('runAgentLoop + 压缩/卸载装配', () => {
     expect(provider.seen[0].tools.find(t => t.name === 'hidden')).toBeUndefined();
     expect(events.at(-1)?.kind).toBe('turnEnd');
   });
+
+  it('excludedToolNames: 执行侧也拒绝——模型照着历史再叫被排除的工具，不执行、回一条失败的工具结果（W2a-8）', async () => {
+    const { store, tools, toolContext, sessionId } = mkCtx();
+    let ran = 0;
+    const hiddenTool: ToolExecutor = {
+      definition: { name: 'hidden', description: '应被隐藏', parameters: { tool_title: { type: 'string', description: 't' } }, required: ['tool_title'] },
+      async execute() { ran += 1; return { output: '不该被调用', success: true }; },
+    };
+    tools.register(hiddenTool);
+    store.appendMessage({ id: 'U1', sessionId, role: 'user', parts: [{ type: 'text', value: '你好' }], createdAt: 1, streamInterruptCount: 0 });
+    // 关掉记忆的会话里，历史中还留着以前的 memory_write 调用：模型照着再叫一次，工具表里没有它也照样发得出来
+    const provider = new ScriptedProvider([
+      [ { kind: 'toolCallComplete', toolUseId: 'T1', name: 'hidden', input: '{"tool_title":"照历史再叫一次"}' }, { kind: 'done', stopReason: 'toolUse' } ],
+      [ { kind: 'textDelta', text: 'ok' }, { kind: 'done', stopReason: 'endTurn' } ],
+    ]);
+    const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', excludedToolNames: new Set(['hidden']) }));
+    expect(ran, '被排除的工具不该执行').toBe(0);
+    expect(events.find(e => e.kind === 'toolEnd')).toMatchObject({ toolUseId: 'T1', success: false });
+    const msgs = store.listMessages(sessionId);
+    expect(msgs[2].parts[0]).toMatchObject({ type: 'toolResult', value: { toolUseId: 'T1', success: false, status: 'failed' } });
+    expect(JSON.stringify(msgs[2].parts[0])).toContain('本会话没有启用');
+    expect(events.at(-1)?.kind).toBe('turnEnd');
+  });
 });
