@@ -156,9 +156,23 @@
 | W1b-2d（新，S10 余项，接 W2a-5） | `file_read` 加可选 `offset`（非负整数，按 UTF-16 码元计的字符偏移，默认 0）与 `limit`（正整数，最多返回的字符数，上限 100000）。切点不落在代理对中间。带任一参数时，文件大小上限从 1MB 放宽到 16MB，返回片段末尾附一行「[第 a–b 字符，共 N 字符]」；不带参数时行为与输出逐字不变。卸载读回截断（offload.ts `clampReadBack`）与 1MB 超限提示改指 `file_read` 分段读取（写明下一段的 offset），不再叫模型用 `shell_execute`；超过 16MB 才提示 shell。工具定义变了，`provider-body-golden` 的哈希有意重指并逐条申报 | W1b-2b 审查：卸载文件在数据根里，W1b-2 起 shell 只读命令点到它回落 gated，照提示读卸载内容每次弹卡；当前会话的 offloads 对文件工具免审 |
 | W2b-3 | 「重启并安装」兜底：`quitAndInstall()` 之后若应用没有退出（electron-updater 的 install() 返回 false 时不会调 app.quit），3 秒后 `app.quit()`，不留下引擎已停、窗口还开着的状态 | W1b-5 三审 nit |
 | W2b-7 | 权限超时回调里的 `audit.append` 兜住：库写失败只进按天日志，不在定时器里抛未捕获异常 | W1b-5 修正者申报 |
-| W2b-11 | `StageChat.vue` 里没有结果的历史工具不再显示成功，显示「已中断」；main/index.ts 符号色注释、TopBar 高度注释（140→146px）、AppShell「默认收起」注释三处订正 | OpenCode V2 研读报告 §2（`docs/research/2026-09-25-opencode-v2-baseline.md`） |
+| W2b-11 拆成两步 | **W2b-11a（界面诚实）**：`StageChat.vue` 里不在运行中的回合、没有结果的工具不再显示成功，显示「已中断 · 结果未知」；release.md「W2b-readme」风险条列的界面同类假话（TerminalPane、StageCron、StageDevices，SecMcp 视 MCP 链落地情况）；托盘「打开设置」「切换右栏」两条死通道在 AppShell 接上；main/index.ts 符号色注释、TopBar 高度注释（140→146px）、AppShell「默认收起」注释三处订正。**W2b-11b（对外文档）**：README / CHANGELOG / RELEASE 逐行核对与 `readme-claims` 守卫，排在全部代码合入之后 | OpenCode V2 研读报告 §2（`docs/research/2026-09-25-opencode-v2-baseline.md`）；拆开是为了界面部分先并行做 |
+| W2a-7（新，接 W2a-1） | URL 凭据脱敏改成线性扫描，结果与原正则逐字相同（随机对拍钉住） | W1b-2d 实现者申报：长单行平方级，20 万字一行 23 秒，每次构建请求都跑 |
 
-合流顺序：D2 合入 main 后，链 F（W2b-2 → W2b-3 → W2b-6 → W2b-7）串行；W1b-2d 另开链 G，与链 F 并行；二者合入后做 W2b-11。
+**施工组织（2026-09-25 改为多链并行，用户要求加快）**：机器 4 核，每个工作流同时最多 2 个 agent，按下表分链：
+
+| 链 | 步骤 | 起点 | 合流 |
+|---|---|---|---|
+| D2 | W2b-1、W2a-6、W2b-4 及补修 | 已在施工 | 补修完、W2b-4c 接上后合入 |
+| D2c | W2b-4c：`tests/sfc-blocks.ts` 脚本段按 babel 注释区间剥、模板段按 AST 注释节点剥 | D2 当前头 | 摘到 D2 最终头上，随 D2 合入 |
+| G | W1b-2d、W1b-2e、W2a-7 | main | W2a-7 审完即合 |
+| F1 | W2b-2 → W2b-3 | D2 当前头 | D2 合入后变基到 main 再合 |
+| F2 | W2b-6 → W2b-7 | main | 做完即合 |
+| H | W2b-11a | main | 做完即合 |
+| S | W3-smoke（§5.1） | main | 做完即合 |
+
+main/index.ts、preload、TopBar.vue 会被 F1、F2、H 同时改，冲突在合流时逐处手工合并，合并后跑 typecheck 与全量基线比对，界面改动重拍一次 xvfb。
+全部合入后做 W2b-11b，再做 W3 其余部分。
 
 ## §5 发版（W3）
 
@@ -168,6 +182,19 @@
 3. 真 key 冒烟：Anthropic 官方端点跑 Fable 5.1 / Opus 5.5 多轮工具调用加一次 memory_write；DeepSeek V4 多轮工具调用；
    一台参数带 `C:\Program Files\…` 的 MCP 试连；shell 里起 `ping -t` 后点停止，任务管理器里没有残留。
 4. 在公开仓库建 Release `v0.3.0`，上传 Setup.exe、Setup.exe.blockmap、portable.exe、latest.yml 四件。
+
+### §5.1 冒烟脚本（W3-smoke）
+
+把上面第 3 条的手工冒烟做成一条命令，用户在 Windows 上跑，也能在 Linux 上用假端点自测：
+- `scripts/smoke-release.mjs`，`npm run smoke:release`。零新依赖，照 `scripts/e2e-*.mjs` 的写法：先 `npm run build`，用 electron 以 node 模式起 `out/main/minisd.js`，经 `ws` 走 JSON-RPC。
+- 隔离：数据根一律是新建的临时目录（`DESKMINIS_DATA_DIR`），keyring 服务名用 `DeskMinis-smoke-<pid>`（`DESKMINIS_KEYRING_SERVICE`），结束时删掉脚本写进凭据库的条目和临时目录；绝不碰用户真实的数据根与凭据。日志与输出里不出现 key。
+- 用例，缺对应环境变量的用例标「跳过（缺 XXX）」，不算失败：
+  1. **anthropic**（`ANTHROPIC_API_KEY`）：官方端点，Fable 5.1 与 Opus 5.5 各跑一个多轮会话，要求至少两次工具调用（工作区里 file_write 再 file_read）和一次 memory_write；断言回合正常结束、没有 error 事件、工具结果成功、记忆文件里有约定标记。
+  2. **deepseek**（`DEEPSEEK_API_KEY`）：DeepSeek V4 多轮工具调用，第二轮起不报 400（reasoning_content 回放）。
+  3. **mcp-spaces**：脚本自己写一个最小 stdio MCP 服务器到带空格的目录（Windows 上 node 本身多在 `C:\Program Files\nodejs\`），登记后能连上并列出工具。
+  4. **shell-stop**：用假端点让模型调用 shell_execute 跑长命令（Windows `ping -t 127.0.0.1`，其它平台 `ping 127.0.0.1`），然后 chat.cancel；断言几秒内进程树里没有残留的 ping。
+- `--mock`：1、2 两个用例改连本地假端点（脚本内起，Anthropic 与 OpenAI 兼容各一个，按剧本回工具调用），用来在 Linux 上验证脚本本身；另加一条 vitest 用例在 Linux 上跑 `--mock`，或把脚本里可测的纯函数单测。
+- 输出一张通过 / 失败 / 跳过表，任一失败退出码非 0。RELEASE.md 的接入留给 W2b-11b。
 
 ## §6 已知边界（写进 CHANGELOG）
 
