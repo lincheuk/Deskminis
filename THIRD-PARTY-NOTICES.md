@@ -54,6 +54,11 @@ SOFTWARE.
 文本档为过 WCAG AA 压深的自研调整。与 A 区逐行一致的是本仓参考文件
 `docs/specs/2026-08-20-aionui-tokens-reference.css`（其文件头记有换算来历）。没有复制 AionUi 的源码。
 
+现行界面的主令牌 `deskminis/src/renderer/src/styles/theme.css`（T 波新设计系统）的色值、字号与行高、圆角同样取自 AionUi v2.1.59：
+字号行高与圆角的档位按 AionUi 源码实测定下（T1，d06c74b）；色值在 T7（999bb5c）改按它 `default-color-scheme.css` 的语义色
+（交互主色 `--primary`、AOU 紫色品牌阶梯、用户消息底色等）。实测依据见源码仓 `docs/research/2026-08-21-aionui-typography-radius.md`。
+同样只取值，没有复制 AionUi 的源码。
+
 - 项目：<https://github.com/iOfficeAI/AionUi>
 - 版本：v2.1.59
 - 许可：Apache-2.0，Copyright 2025 AionUi (aionui.com)；许可全文与本仓 [LICENSE](LICENSE) 相同。
@@ -147,6 +152,18 @@ deepseek-harness 桌面端的做法。
 
 - 项目：<https://github.com/deepseek-ai/deepseek-harness>
 - 许可：MIT，Copyright (c) 2026 DeepSeek
+
+### OpenCode（MIT）— 标题栏窗控形制与「中断的工具」语义
+
+- **标题栏窗控形制**：无边框窗口加系统绘制的窗控（`frame: false` 配 `titleBarOverlay`，透明底、高 40），
+  照 OpenCode 桌面端的做法设计（研读记录在源码仓 `docs/research/opencode-0.md`）；实现是自己写的，
+  见 `deskminis/src/main/index.ts` 的 createWindow。
+- **下一次运行开始时，把历史里悬空的工具判为执行被中断**：OpenCode 引擎的 `failInterruptedTools`
+  （`packages/core/src/session/runner/llm.ts`）。W2b-11a 只在界面上借了这个语义——回合已经不在运行、却没有结果的工具步骤
+  显示「已中断 · 结果未知」（`deskminis/src/renderer/src/lib/steps/status.ts`）；引擎侧没有照做，不把悬空的工具写成失败结果。
+
+- 项目：<https://github.com/sst/opencode>
+- 许可：MIT，Copyright (c) 2025 opencode
 
 ---
 
