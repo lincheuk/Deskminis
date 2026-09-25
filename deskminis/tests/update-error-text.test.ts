@@ -17,7 +17,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { join } from 'node:path';
-import { createHttpError, newError } from 'builder-util-runtime';
+import { CancellationToken, createHttpError, HttpExecutor, newError } from 'builder-util-runtime';
+import { createServer, request as httpRequest, type ClientRequest } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { AppUpdater } from 'electron-updater';
 import { GitHubProvider } from 'electron-updater/out/providers/GitHubProvider';
 import {
@@ -231,6 +233,62 @@ describe('describeUpdateError · 真 GitHubProvider 各跳失败，各给一句�
   });
 });
 
+/** 下载安装包那一跳用的是 builder-util-runtime 的 HttpExecutor.doDownload（Electron 里的 ElectronHttpExecutor 继承它，
+ *  报错同一句）。换成 Node 的 http.request 就能在本机起服务器驱动真代码，拿到它自己拼出来的错误。 */
+class NodeHttpExecutor extends HttpExecutor<ClientRequest> {
+  createRequest(options: Parameters<HttpExecutor<ClientRequest>['createRequest']>[0], callback: (response: unknown) => void): ClientRequest {
+    return httpRequest(options as never, callback as never);
+  }
+}
+
+/** 本机服务器对下载请求回 status，返回 downloadToBuffer 抛出的原始错误。路径仿 GitHub 发布资产的签名 URL，故意很长。 */
+async function downloadFailure(status: number): Promise<unknown> {
+  const srv = createServer((_req, res) => { res.statusCode = status; res.end('nope'); });
+  await new Promise<void>(r => srv.listen(0, '127.0.0.1', () => r()));
+  const { port } = srv.address() as AddressInfo;
+  const url = new URL(`http://127.0.0.1:${port}/${OWNER}/${REPO}/releases/download/${TAG}/DeskMinis-0.3.1-Setup.exe`
+    + `?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${'A'.repeat(90)}&X-Amz-Signature=${'f'.repeat(64)}`);
+  try {
+    await new NodeHttpExecutor().downloadToBuffer(url, { headers: {}, cancellationToken: new CancellationToken() });
+    return undefined;
+  } catch (e) {
+    return e;
+  } finally {
+    srv.close();
+  }
+}
+
+describe('describeUpdateError · 下载安装包那一跳的失败（W2b-9b）', () => {
+  it('原始错误确实是 HttpExecutor 拼的「Cannot download \"<URL>\", status <码>」——下面各例的输入是真代码给的', async () => {
+    const e = await downloadFailure(404);
+    expect(e).toBeInstanceOf(Error);
+    expect((e as Error).message).toMatch(/^Cannot download "http:\/\/127\.0\.0\.1(?::\d+)?\/.+", status 404: Not Found$/);
+  });
+
+  it('404：latest.yml 已经拿到、安装包却没有 → 说漏传了安装包，不说「仓库不存在或还没发过版」', async () => {
+    const text = describeUpdateError(await downloadFailure(404));
+    expect(text).toBe('发布页上找不到新版安装包（Release 里可能漏传了 Setup.exe）');
+  });
+
+  it('403、429 →「限流」；502、503 →「服务器出错」', async () => {
+    for (const st of [403, 429]) expect(describeUpdateError(await downloadFailure(st))).toBe('更新服务器暂时拒绝访问（可能被限流），稍后再试');
+    for (const st of [502, 503]) expect(describeUpdateError(await downloadFailure(st))).toBe('更新服务器出错，稍后再试');
+  });
+
+  it('认不出的状态码：给状态码，不给 URL，不带英文原句', async () => {
+    const text = describeUpdateError(await downloadFailure(401));
+    expect(text).toBe('未知原因：下载安装包失败（HTTP 401）');
+    expect(text).not.toMatch(/https?:\/\/|Cannot download/);
+  });
+
+  it('各状态的说明都不漏 URL 与签名参数', async () => {
+    for (const st of [401, 403, 404, 429, 502, 503]) {
+      const text = describeUpdateError(await downloadFailure(st));
+      expect(text).not.toMatch(/https?:\/\/|X-Amz|Cannot download/);
+    }
+  });
+});
+
 describe('describeUpdateError · 不经 provider 的失败与怪输入', () => {
   it('Node 的网络错（errno 写在 code 上，message 里也有）→ 含「连不上」', () => {
     const enotfound = Object.assign(new Error('getaddrinfo ENOTFOUND github.com'), { code: 'ENOTFOUND' });
@@ -260,6 +318,11 @@ describe('describeUpdateError · 不经 provider 的失败与怪输入', () => {
     // 第一版这里断言「不以 Error: 开头」，可输出总以「未知原因：」开头，那条断言永远成立（W2b-9 第二轮审查变异 M-O）
     expect(describeUpdateError('Error: plain string failure')).toBe('未知原因：plain string failure');
     expect(describeUpdateError(new Error('Error: TypeError: nested failure'))).toBe('未知原因：nested failure');
+  });
+
+  it('没有原型的对象（String() 会抛）也不抛，给「未知原因」', () => {
+    expect(() => describeUpdateError(Object.create(null))).not.toThrow();
+    expect(describeUpdateError(Object.create(null))).toBe('未知原因');
   });
 
   it('不是 Error 的怪输入也不抛：字符串、null、裸对象', () => {

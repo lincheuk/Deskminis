@@ -16,6 +16,8 @@ const TEXT = {
   network: '连不上更新服务器（离线或网络受限）',
   checksum: '新版安装包校验不符，已丢弃，下次启动重试',
   badInfo: '版本信息格式不对，已跳过本次检查',
+  // 下载安装包那一跳的 404：latest.yml 已经拿到，说明 Release 在，缺的是安装包本身——不能套用 notFound 的「仓库不存在或还没发过版」
+  assetMissing: '发布页上找不到新版安装包（Release 里可能漏传了 Setup.exe）',
 } as const;
 
 /** electron-updater / GitHubProvider 报「没有可用版本」的码（LATEST_VERSION_NOT_FOUND 另走 latestTagFailure）。
@@ -32,6 +34,10 @@ const LATEST_TAG_CAUSE = /please ensure a production release exists: ([\s\S]*)$/
 const NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH']);
 /** Electron 的 net 模块报错只有 message（net::ERR_…），Node 的报错 errno 也会写进 message，两种一起认。 */
 const NET_TEXT = /net::ERR_|\b(?:ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH)\b/;
+/** 下载安装包失败时 builder-util-runtime HttpExecutor.doDownload 的原话（Electron 里的 ElectronHttpExecutor 继承它）：
+ *  「Cannot download "<整条签名 URL>", status <码>: <短语>」。这类错误不带 code；不认的话会落进兜底，
+ *  状态行上是一截英文加 URL，而且截到 RAW_MAX 时状态码正好被截掉（W2b-9 第三轮审查）。 */
+const DOWNLOAD_STATUS = /Cannot download "[^"]*", status (\d{3})/;
 /** 最后一类兜底给原文首行，截到这个长度：状态行与托盘对话框都只放得下一行。 */
 const RAW_MAX = 120;
 
@@ -43,7 +49,9 @@ function messageOf(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
   const m = (e as { message?: unknown } | null)?.message;
-  return typeof m === 'string' ? m : String(e);
+  if (typeof m === 'string') return m;
+  // 没有原型的对象（Object.create(null)）String() 会抛；说明文字不能反过来让状态处理崩掉
+  try { return String(e); } catch { return ''; }
 }
 
 /** 按 HTTP 状态码归类：429 / 403 当限流（GitHub 未登录访问被限就回这两个），5xx 当服务器出错，404 当没有版本。 */
@@ -75,6 +83,9 @@ export function describeUpdateError(e: unknown): string {
     return inner.includes(LATEST_TAG_TEXT) ? latestTagFailure(inner) : TEXT.badInfo;
   }
   if (NET_CODES.has(code) || NET_TEXT.test(msg)) return TEXT.network;
+  // 下载安装包那一跳：只认首行，状态码按下载语境归类，不把 URL 与签名参数带进界面
+  const dl = DOWNLOAD_STATUS.exec(firstLine(msg));
+  if (dl) return downloadFailure(Number(dl[1]));
 
   const direct = /^HTTP_ERROR_(\d{3})$/.exec(code);
   if (direct) return byStatus(Number(direct[1])) ?? rawLine(msg);
@@ -101,10 +112,20 @@ function latestTagFailure(text: string): string {
   return rawLine(cause);
 }
 
+/** 下载安装包失败按状态码归类：404 是安装包没传上去，限流与服务器出错沿用检查阶段的说法，其余只给状态码。 */
+function downloadFailure(status: number): string {
+  if (status === 404) return TEXT.assetMissing;
+  return byStatus(status) ?? `未知原因：下载安装包失败（HTTP ${status}）`;
+}
+
+function firstLine(msg: string): string {
+  return (msg.split(/\r?\n/).find(l => l.trim() !== '') ?? '').trim();
+}
+
 /** 兜底：原文首行，去掉 Error: 前缀，最多 RAW_MAX 字。
  *  不以「检查失败」开头：设置→关于的状态行本身已经是「更新失败 · 」，再叠一次就是同一句说两遍。 */
 function rawLine(msg: string): string {
-  const first = (msg.split(/\r?\n/).find(l => l.trim() !== '') ?? '').trim().replace(/^(?:\w*Error:\s*)+/, '');
+  const first = firstLine(msg).replace(/^(?:\w*Error:\s*)+/, '');
   if (first === '') return '未知原因';
   const cut = first.length > RAW_MAX ? first.slice(0, RAW_MAX - 1) + '…' : first;
   return `未知原因：${cut}`;
