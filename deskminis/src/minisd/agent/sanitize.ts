@@ -14,12 +14,18 @@
 const CONTROL_CC = /\p{Cc}/gu;       // U+0000-U+001F + U+007F-U+009F（含 CR/LF/TAB/NUL/DEL）
 const CONTROL_CF = /[\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/gu; // 零宽 + 双向标记 + 隔离
 const LS_PS = /[\u2028\u2029]/gu;     // 行/段分隔符
-const URL_CRED = /([a-zA-Z][a-zA-Z0-9+\-.]*):\/\/[^/\s:]+:[^/\s@]+@/g; // URL user:pass@（改它必须同步改下方 urlCredentialAcross）
+// URL 凭据 scheme://user:pass@ 的规格是正则 /([a-zA-Z][a-zA-Z0-9+\-.]*):\/\/[^/\s:]+:[^/\s@]+@/g，
+// 替换成 scheme://***:***@。实现不直接跑它（W2a-7）：它在长单行上是平方级——每个起点都把 scheme 字符吃到行尾
+// 再回退找 ':'，20 万字符的压缩 JSON 一行要 20 多秒，而工具结果每次构建请求都要整段过一遍。
+// 这里按 '://' 扫描、逐段复刻它的结构（credentialAt），结果与原正则逐字相同。基准是 tests/sanitize-spec.ts：
+// 原 sanitizeLiteral / sanitizeMultiline 的整条管线照抄（剥哪些控制字符、在脱敏前还是后剥，都影响结果），直接跑原正则；
+// tests/sanitize.test.ts 的随机对拍、逐码元扫描与 tests/compact-bounded.test.ts 的 ⑬ 都以它为准，不拿实现对实现。
+// 改规格必须同步改 credentialAt、下面两个函数里剥字符的先后，以及 sanitize-spec.ts。
 
 /** 单行值消毒：技能 name/description 等。全剥控制字符（含 \t，单行值不应含制表符）。 */
 export function sanitizeLiteral(s: unknown): string {
   if (typeof s !== 'string' || s.length === 0) return '';
-  return s.replace(CONTROL_CC, '').replace(CONTROL_CF, '').replace(LS_PS, '').replace(URL_CRED, '$1://***:***@');
+  return redactUrlCredentials(s.replace(CONTROL_CC, '').replace(CONTROL_CF, '').replace(LS_PS, ''));
 }
 
 // 多行逐行消毒时：保留 \n（已是分隔符）和 \t（制表符是合法排版），剥 Cc 其余 + Cf + LS/PS
@@ -31,13 +37,13 @@ export function sanitizeMultiline(s: unknown): string {
   const normalized = s.replace(/\r\n?/g, '\n');
   return normalized
     .split('\n')
-    .map(line => line.replace(CONTROL_CF, '').replace(LS_PS, '').replace(URL_CRED, '$1://***:***@').replace(CONTROL_CC_NO_NL_TAB, ''))
+    .map(line => redactUrlCredentials(line.replace(CONTROL_CF, '').replace(LS_PS, '')).replace(CONTROL_CC_NO_NL_TAB, ''))
     .join('\n');
 }
 
 /**
  * 删掉 sanitizeMultiline 在匹配 URL 凭据之前就会删的不可见字符（零宽、双向标记、行/段分隔符）。
- * 「先截断、后消毒」的调用方先过它，urlCredentialAcross 判切点时看到的字符才与 URL_CRED 看到的一致——
+ * 「先截断、后消毒」的调用方先过它，urlCredentialAcross 判切点时看到的字符才与脱敏看到的一致——
  * 否则 ':​//' 这类夹了零宽字符的凭据 URL，判定认不出、消毒却认得出，切开后碎片照样漏。
  * 结果最后仍要整体过 sanitizeMultiline，先删不改变最终输出。
  */
@@ -45,20 +51,25 @@ export function stripInvisible(s: string): string {
   return s.replace(CONTROL_CF, '').replace(LS_PS, '');
 }
 
+// 这三个字符类必须与规格正则逐码元相同，别为了快改成手写字符集或 charCode 判断：\s 的成员散在各处
+// （U+1680、U+2000–U+200A、U+202F、U+205F、U+FEFF…），又有常被误当空白、其实不算的（U+0085、U+180E、U+001C–U+001F）。
+// 多认一个就会把凭据当成两截、不打码，口令原样外发。tests/sanitize.test.ts 与 compact-bounded.test.ts 的逐码元扫描钉着。
 const SCHEME_CHAR = /[a-zA-Z0-9+\-.]/;
 const SCHEME_FIRST = /[a-zA-Z]/;
-const WS = /\s/; // 与 URL_CRED 里的 \s 同义
+const WS = /\s/; // 与规格正则里的 \s 同义（JS 的 \s，含 U+00A0、U+3000 等，不含 U+0085）
 
 /**
- * 切点 c（s[c-1] 与 s[c] 之间）是否落在某个 URL 凭据（URL_CRED 的一次匹配）内部：
+ * 切点 c（s[c-1] 与 s[c] 之间）是否落在某个 URL 凭据（规格正则的一次匹配）内部：
  * 是则返回该段 [起, 止)，起 < c < 止；否则 undefined。前提：s 已过 stripInvisible。
  *
  * 为什么要有它：先截断再消毒时，切点落在 scheme://user:pass@ 中间，头半段没有 '@'、尾半段没有 scheme，
- * URL_CRED 两边都认不出，口令碎片原样外发。调用方据此把切点挪到这段之外。
- * 为什么不在切点附近直接跑 URL_CRED：它在长单行上是平方级（这正是先截断的原因）；只跑固定窗口又会漏掉
+ * 脱敏两边都认不出，口令碎片原样外发。调用方据此把切点挪到这段之外。
+ * 为什么不在切点附近直接跑规格正则：它在长单行上是平方级（这正是先截断的原因）；只跑固定窗口又会漏掉
  * 比窗口长的口令（token 当口令很常见）。这里逐字复刻它的结构：scheme=[a-zA-Z][a-zA-Z0-9+.-]*、
  * user=[^/\s:]+、pass=[^/\s@]+。scheme 与 user 不含 ':'、pass 不含 '@'，各段都止于第一个分隔符，
- * 用不着回溯，所以是线性的。与 URL_CRED 逐切点一致由 tests/compact-bounded.test.ts 的随机对拍钉住。
+ * 用不着回溯，所以是线性的。与规格正则逐切点一致由 tests/compact-bounded.test.ts 的 ⑬ 随机对拍与逐码元扫描钉住——
+ * ⑬ 以 tests/sanitize-spec.ts 的原正则（管线）为基准，不用 sanitizeMultiline：W2a-7 起两者共用 credentialAt，
+ * 拿它当基准就是自己对自己。
  */
 export function urlCredentialAcross(s: string, c: number): [number, number] | undefined {
   if (c <= 0 || c >= s.length) return undefined;
@@ -95,6 +106,27 @@ function credentialAt(s: string, q: number): [number, number] | undefined {
   while (k < s.length && s[k] !== '@' && s[k] !== '/' && !WS.test(s[k])) k++;
   if (k === j + 1 || s[k] !== '@') return undefined;
   return [start, k + 1];
+}
+
+/**
+ * 把每段 URL 凭据替换成 scheme://***:***@，结果与规格正则的全局替换逐字相同（见文件头 W2a-7）。
+ * 为什么是线性的：只在 '://' 处起判；scheme 往左扫到第一个非 scheme 字符为止，各段 scheme 互不重叠；
+ * user、pass 往右扫到 '/'、空白或分隔符为止，而下一个 '://' 自带 '/'，扫描越不过它。
+ * 为什么与正则相同：scheme 不含 ':'，所以一个起点只能配它那串 scheme 字符后面的 '://'；user 不含 ':'、pass 不含 '@'，
+ * 各段止于第一个分隔符，不存在别的回退解；正则从左往右试起点，这里按 '://' 从左往右处理，次序一致。
+ * 上一段以 '@' 收尾，'@' 不是 scheme 字符，下一段的 scheme 往左扫越不过它，所以两段不会重叠。
+ */
+function redactUrlCredentials(line: string): string {
+  let out = '';
+  let last = 0; // 已输出到这里
+  for (let q = line.indexOf('://'); q >= 0; q = line.indexOf('://', q + 1)) {
+    const span = credentialAt(line, q);
+    if (!span) continue;
+    out += line.slice(last, span[0]) + line.slice(span[0], q) + '://***:***@';
+    last = span[1];
+    q = last - 1; // 段内（pass 里）不会再有 '://'，从段尾接着找
+  }
+  return last === 0 ? line : out + line.slice(last);
 }
 
 /** 不可信数据块包裹：<untrusted-text> 标签 + 显式前缀 + 转义 <> + 长度截断。内部用 sanitizeMultiline。 */

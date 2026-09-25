@@ -88,12 +88,13 @@ export function anchorIndexOf(history: RawMessage[], marker: CompactMarker | und
 /** 超长文本留头尾，中间注明原长——只看开头会丢掉结论，只看结尾会丢掉起因。 */
 function clip(raw: string, max: number, head: number, tail: number): string {
   if (raw.length <= max) return raw;
-  const s = stripInvisible(raw); // 让下面的凭据判定与 URL_CRED 看到同样的字符（见 stripInvisible）
+  const s = stripInvisible(raw); // 让下面的凭据判定与脱敏看到同样的字符（见 stripInvisible）
   if (s.length <= max) return s;
   let h = head;
   let t = s.length - tail;
-  // 这里先截断、最后才整体消毒（整体先消毒在长单行上是平方级）。切点若落在 scheme://user:pass@ 中间，
-  // 头半段没有 '@'、尾半段没有 scheme，URL_CRED 两边都认不出，口令碎片就原样进了摘要请求——
+  // 这里先截断、最后才整体消毒（W2a-1 写它时整体先消毒在长单行上是平方级；W2a-7 已把脱敏改成线性，这里的先后没跟着动）。
+  // 切点若落在 scheme://user:pass@ 中间，头半段没有 '@'、尾半段没有 scheme，URL 凭据脱敏两边都认不出，
+  // 口令碎片就原样进了摘要请求——
   // 而且切点固定，每次压缩都再发一遍。所以把切点挪到整段凭据 URL 之外：头挪到段首、尾挪到段尾，整段归入「中间省略」。
   h = urlCredentialAcross(s, h)?.[0] ?? h;
   t = urlCredentialAcross(s, t)?.[1] ?? t;

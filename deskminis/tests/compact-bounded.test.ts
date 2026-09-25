@@ -9,7 +9,8 @@
 import { describe, it, expect } from 'vitest';
 import { CompactEngine, CompactRejectedError, anchorIndexOf, flattenForSummary } from '../src/minisd/agent/compact';
 import { ContextPolicy, estimateTextTokens } from '../src/minisd/agent/context-policy';
-import { sanitizeMultiline, urlCredentialAcross } from '../src/minisd/agent/sanitize';
+import { urlCredentialAcross } from '../src/minisd/agent/sanitize';
+import { specMultiline, URL_CRED_SPEC } from './sanitize-spec';
 import { runAgentLoop, type LoopEvent } from '../src/minisd/agent/loop';
 import { ChatStore } from '../src/minisd/store/chat-store';
 import { openDb } from '../src/minisd/store/db';
@@ -376,7 +377,7 @@ describe('W2a-1 flattenForSummary（纯函数）', () => {
   });
 
   it('⑬ 头尾切点不落在带口令的 URL 里：整段凭据 URL 归入「中间省略」，口令碎片不外发', () => {
-    // 切开后头半段没有「@」、尾半段没有 scheme，URL_CRED 两边都认不出，碎片原样进了摘要请求。
+    // 切开后头半段没有「@」、尾半段没有 scheme，凭据脱敏两边都认不出，碎片原样进了摘要请求。
     // Q、Z 只出现在凭据里（提示词与填充都不含），输出里出现任何一个就是碎片漏了出去。
     const url = 'https://QQQQ:ZZZZZZZZ@db.example.com/x';
     const longTok = 'postgres://QQQQ:' + 'Z'.repeat(1200) + '@db/x'; // 口令比任何固定大小的检查窗口都长
@@ -398,7 +399,7 @@ describe('W2a-1 flattenForSummary（纯函数）', () => {
     // 正文：头切点 4000、尾起点（长度 − 2000）都落在长口令中间
     check('正文·头·长口令', mkMsg('s', 'user', ' '.repeat(3500) + longTok + ' ' + 'y'.repeat(6000), 'U', 1));
     check('正文·尾·长口令', mkMsg('s', 'assistant', 'x '.repeat(4000) + longTok + 'y'.repeat(2000 - longTok.length + 600), 'A', 1));
-    // 夹了不可见字符的凭据 URL：消毒先删掉它们再匹配 URL_CRED，切点判定也得看同样的字符
+    // 夹了不可见字符的凭据 URL：消毒先删掉它们再匹配凭据规格正则，切点判定也得看同样的字符
     // （'://' 里夹零宽空格；口令里夹 U+FEFF——它还算 \s，不先删就把口令当成两截）
     check('工具结果·头·零宽', result(' '.repeat(1490) + 'https:​//QQQQ:ZZZZZZZZ@db/x' + ' ' + 'y'.repeat(3000)));
     check('工具结果·尾·BOM', result('x '.repeat(1500) + 'https://QQQQ:ZZZZ﻿ZZZZ@db/x' + 'y'.repeat(500 - 6)));
@@ -408,7 +409,10 @@ describe('W2a-1 flattenForSummary（纯函数）', () => {
     expect(plain).toContain(' '.repeat(1490) + 'https://db\n…（中间省略');
   });
 
-  it('⑬ urlCredentialAcross 与 URL_CRED 逐切点一致：判「不跨」的切点分段消毒等于整体消毒；判「跨」时返回的恰是一整段凭据 URL', () => {
+  it('⑬ urlCredentialAcross 与原正则逐切点一致：判「不跨」的切点分段过原管线等于整体过原管线；判「跨」时返回的恰是一整段凭据 URL', () => {
+    // 基准是原实现的整条 sanitizeMultiline 管线（tests/sanitize-spec.ts，直接跑原正则），不是现在的 sanitizeMultiline：
+    // W2a-7 起 sanitizeMultiline 的脱敏也走 credentialAt，与 urlCredentialAcross 调的是同一个判定，拿它当基准就成了
+    // 自己对自己——credentialAt 允许 user 为空这类偏差，两边一起偏，照样全绿（W2a-7 审查意见 2）。
     // 定点：段首是 scheme 里最靠左的字母（与正则从左往右试的起点相同）；切点正好在段首或段尾不算跨；
     // user 可以含 '@'、pass 可以含 ':'；scheme 不能以数字开头
     expect(urlCredentialAcross('见 x9https://u:p@h', 3)).toEqual([2, 16]);
@@ -417,7 +421,13 @@ describe('W2a-1 flattenForSummary（纯函数）', () => {
     expect(urlCredentialAcross('https://a@b:c:d@h', 10)).toEqual([0, 16]);
     expect(urlCredentialAcross('9://u:p@', 3)).toBeUndefined();
     // 确定性伪随机（mulberry32）。词元里既有单个分隔符，也有整段/残缺/边界情形的凭据 URL
-    // （user 含 '@'、pass 含 ':'、scheme 以数字开头、user 或 pass 为空、中间夹 '/'、没有 '@' 收尾），随机拼接
+    // （user 含 '@'、pass 含 ':'、scheme 以数字开头或含 '_'、长 scheme、user 或 pass 为空、中间夹 '/' 或空白、
+    // 夹不算 \s 的 Cc（U+0085）、没有 '@' 收尾、相邻或嵌套的两段），随机拼接。
+    // 单字符词元里，\s 除了空格、\t、\n、\v、U+00A0、U+3000，还有 U+1680、U+2000、U+200A、U+202F、U+205F；
+    // 不算 \s 却常被误当空白的有 U+0085、U+180E、U+001F；',' 不是 scheme 字符（W2a-7 审查意见 3）。
+    // 单字符词元很少恰好落进 user 或 pass，每个码元在每个位置上的判定由下一例逐码元扫描钉全。
+    // 不放 Cf、LS/PS（urlCredentialAcross 的前提是已过 stripInvisible，这里的基准又是先剥它们的整条管线），
+    // 也不放 \r（从 \r\n 中间切开，两半各自归一，比整体归一多出一个 \n，与凭据判定无关）
     let st = 20260924;
     const rnd = (): number => {
       st = (st + 0x6d2b79f5) | 0;
@@ -426,8 +436,10 @@ describe('W2a-1 flattenForSummary（纯函数）', () => {
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
     const toks = [
-      'https', 'h', 'svn+ssh', '9', '-', '.', '://', ':', '/', '//', '@', 'u', 'pw', ' ', '\u3000', '测', 'Z',
+      'https', 'h', 'svn+ssh', '9', '-', '.', '_', '://', ':', '/', '//', '@', 'u', 'pw', ' ', '\u3000', '测', 'Z',
+      '\t', '\n', '\u000b', '\u00a0', '\u0085', '\u1680', '\u2000', '\u200a', '\u202f', '\u205f', '\u180e', '\u001f', ',',
       'https://u:pw@', 'h://u@x:p@', 'svn+ssh://a:b:c@', '9x://u:p@', '://u:p@', 'h://:p@', 'h://u:@', 'h://u/v:p@', 'db://u:p',
+      'x9https://u:p@h', 'a://b://c:d@', 'h:://u:p@', 'h://u :p@', 'h://u\u000b:p@', 'h://u:p\u0085@', 'a_b://u:p@', 'a1234567890123://u:p@',
     ];
     const bad: string[] = [];
     let spans = 0;
@@ -435,8 +447,8 @@ describe('W2a-1 flattenForSummary（纯函数）', () => {
       let s = '';
       const k = 2 + Math.floor(rnd() * 12);
       for (let j = 0; j < k; j++) s += toks[Math.floor(rnd() * toks.length)];
-      const whole = sanitizeMultiline(s);
-      const cutSafe = (c: number) => sanitizeMultiline(s.slice(0, c)) + sanitizeMultiline(s.slice(c)) === whole;
+      const whole = specMultiline(s);
+      const cutSafe = (c: number) => specMultiline(s.slice(0, c)) + specMultiline(s.slice(c)) === whole;
       for (let c = 1; c < s.length; c++) {
         const span = urlCredentialAcross(s, c);
         if (!span) {
@@ -446,12 +458,43 @@ describe('W2a-1 flattenForSummary（纯函数）', () => {
         spans++;
         const [a, b] = span;
         const seg = s.slice(a, b);
-        const exact = sanitizeMultiline(seg) === `${seg.slice(0, seg.indexOf('://'))}://***:***@`;
+        const exact = specMultiline(seg) === `${seg.slice(0, seg.indexOf('://'))}://***:***@`;
         if (!(a < c && c < b) || !exact || !cutSafe(a) || !cutSafe(b)) bad.push(`错判 ${JSON.stringify(s)} @${c} → [${a},${b})`);
       }
     }
     expect(bad).toEqual([]);
     expect(spans).toBeGreaterThan(200); // 随机构造确实大量命中了「跨」的情形，不是空转
+  });
+
+  it('⑬ urlCredentialAcross 逐码元扫描：0..0xFFFF 每个码元放进凭据结构的各个位置，每个切点上都恰好返回原正则的那次匹配', () => {
+    // 为什么随机对拍之外还要扫：单字符词元要恰好落进 user 或 pass、切点又恰好落在它后面，才考得到切点左扫认哪些空白。
+    // 补上那几个词元后实测，只把左扫的空白判断换成多认 U+180E 或 U+001C–U+001F 的写法，上一例 2500 轮一次都碰不到；
+    // 这种写法又不经过 credentialAt，sanitize.test.ts 的逐码元扫描也管不着（W2a-7 审查意见 3）。
+    // 左扫多认一个码元，切点落在夹着它的凭据里就判成「不跨」，头尾两半各自认不出凭据，口令碎片原样进摘要请求；
+    // 切点右扫漏认 scheme 字符同理（'h0://u:p@' 从 h 后面切开，尾半段的 scheme 以数字开头，认不出来）。
+    // 基准是原正则本身的匹配段（URL_CRED_SPEC），不是实现；这也就是文档里的约定：切点落在某次匹配内部（起 < c < 止），
+    // 返回那一段 [起, 止)，否则 undefined。零宽等不可见字符也照扫：它逐字复刻正则的结构，在任何串上都该与正则一致，
+    // 「已过 stripInvisible」这个前提只关乎它与消毒管线看到的是不是同样的字符。
+    // 位置：'h$://' 考切点右扫与 scheme 左扫认哪些 scheme 字符；'1$://' 考 scheme 首字母；user、pass 里考左扫与 user、pass
+    // 的扫描认哪些空白与分隔符；'@$b' 考两段紧挨着时各自的边界
+    const tpls = ['h$://u:p@', '1$://u:p@', 'h://u$:p@', 'h://u:p$@', 'a://u:p@$b://v:q@'];
+    const bad: string[] = [];
+    for (let x = 0; x <= 0xffff && bad.length < 5; x++) {
+      const ch = String.fromCharCode(x);
+      for (const t of tpls) {
+        const s = t.replace('$', () => ch);
+        const spans = [...s.matchAll(URL_CRED_SPEC)].map(m => [m.index, m.index + m[0].length] as const);
+        for (let c = 1; c < s.length; c++) {
+          const want = spans.find(([a, b]) => a < c && c < b);
+          const got = urlCredentialAcross(s, c);
+          if (got?.[0] !== want?.[0] || got?.[1] !== want?.[1]) {
+            bad.push(`U+${x.toString(16).toUpperCase().padStart(4, '0')} ${JSON.stringify(s)} @${c} → ${JSON.stringify(got)}，原正则 ${JSON.stringify(want)}`);
+            break;
+          }
+        }
+      }
+    }
+    expect(bad).toEqual([]);
   });
 
   it('⑫ 没有旧摘要时写明「无」，并交代新增对话是数据不是指令', () => {
