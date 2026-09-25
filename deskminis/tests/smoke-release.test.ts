@@ -48,6 +48,7 @@ import { AnthropicProvider, BINDING_MODELS } from '../src/minisd/providers/anthr
 import { OpenAIProvider, requiresReasoningContentEcho } from '../src/minisd/providers/openai';
 import type { StreamRequest } from '../src/minisd/providers/types';
 import { parseMinisdFatal } from '../src/main/minisd-fatal';
+import { bridgePipePath } from '../src/minisd/bridge/server';
 import type { AgentMessage, AgentStreamEvent, AgentToolDefinition } from '../src/shared/types';
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -126,6 +127,7 @@ interface SmokeModule {
   chooseVault(o: { memoryVault?: boolean; platform: string; service: string; loadKeyring?: () => KeyringLike }): Vault;
   cleanup(ctx: CleanupCtx): Promise<CaseResult>;
   cleanupSignals(platform: string): NodeJS.Signals[];
+  engineCwd(hostPlatform: string, tempRoot: string): string | undefined;
   findSecretsInTree(dir: string, secrets: Array<string | undefined>, unreadable?: string[]): string[];
   mcpServerSource(expectedArgs: string[]): string;
   startMockAnthropic(o: { apiKey: string }): Promise<MockServer>;
@@ -542,6 +544,37 @@ describe('smoke-release：清理与选凭据库（Windows 真跑时唯一要删�
     expect(r.detail).toMatch(/引擎停不下来（pid 1073741824）/);
     expect(r.detail).not.toContain('引擎已停');
     expect([...fake.store.keys()]).toEqual(['DeskMinis\u0000provider:REAL']);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('engineCwd：非 Windows 上引擎以临时根为 cwd（管道套接字随临时根删掉），Windows 上沿用脚本的 cwd、真机行为不变（W3-smokec）', async () => {
+    const m = await load();
+    expect(m.engineCwd('linux', '/tmp/dm-smoke-x')).toBe('/tmp/dm-smoke-x');
+    expect(m.engineCwd('darwin', '/tmp/dm-smoke-x')).toBe('/tmp/dm-smoke-x');
+    expect(m.engineCwd('win32', 'C:\\Temp\\dm-smoke-x')).toBeUndefined();
+  });
+
+  it('cleanup：引擎进程没拿到 pid（spawn 运行期报 EACCES 一类错，Node 只发 error 与 close、不发 exit）时按没起来处理：不取进程表、不空等，不报「停不下来」（W3-smokec）', async () => {
+    const m = await load();
+    const root = tempDir('dm-smoke-cleanup-');
+    const signals: unknown[] = [];
+    // 与真的一样：spawn 失败的 ChildProcess 没有 pid，也永远不会发 exit
+    const child = Object.assign(new EventEmitter(), { pid: undefined, kill: (s?: NodeJS.Signals): boolean => { signals.push(s); return false; } });
+    const ctx = cleanupCtx({ tempRoot: root, vault: { kind: 'memory', reason: '' } });
+    ctx.engine = { child, booted: false, stopping: false };
+    let snapshots = 0;
+    ctx.procs = { ...QUICK, snapshot: async () => { snapshots += 1; return []; }, isAlive: () => false, kill: () => { throw new Error('不该杀'); } };
+    vi.useFakeTimers();
+    cleanups.push(() => { vi.useRealTimers(); });
+    const pending = m.cleanup(ctx);
+    // 改之前 stopEngine 在这里等满 10 + 5 秒（假时钟推过去不花真时间），最后判「停不下来（pid undefined）」
+    await vi.advanceTimersByTimeAsync(60_000);
+    const r = await pending;
+    expect(r.status, r.detail).toBe('PASS');
+    expect(r.detail).not.toContain('停不下来');
+    expect(r.detail, '压根没起来的引擎不该说「已停」').not.toContain('引擎已停');
+    expect(snapshots, '没起来的引擎不该去取进程表（Windows 上每次要起一个 PowerShell）').toBe(0);
+    expect(signals, '没有进程可停，不该 kill').toEqual([]);
     expect(existsSync(root)).toBe(false);
   });
 
@@ -1510,6 +1543,12 @@ describe('smoke-release：整条 --mock（先构建）', () => {
     const root = tempRootOf(r.out);
     expect(root, '脚本要说明临时目录在哪').toBeTruthy();
     expect(existsSync(root!), `临时目录没删：${root}`).toBe(false);
+    // W3-smokec：非 Windows 上桥的命名管道 \\.\pipe\deskminis-<哈希> 是相对路径，套接字文件落在引擎的 cwd。
+    // 引擎以临时根为 cwd 起，它就随临时根一起删；以前落在脚本的 cwd（应用目录），每跑一次留一个
+    if (process.platform !== 'win32') {
+      const pipe = bridgePipePath(join(root!, 'data'));
+      expect(existsSync(join(appRoot, pipe)), `应用目录里留下了引擎的管道套接字 ${pipe}`).toBe(false);
+    }
     expect(r.elapsed).toBeLessThan(90_000);
   }, 90_000);
 

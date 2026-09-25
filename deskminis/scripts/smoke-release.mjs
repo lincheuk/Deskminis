@@ -967,10 +967,11 @@ function tailBuffer(limit = 8192) {
   return { push(s) { text = (text + s).slice(-limit); }, get text() { return text; } };
 }
 
-/** 起引擎、等握手行。按完整行扫描，致命行先认（照 src/main/index.ts 的 startMinisdProcess）；握手之后的行照样收进末尾缓冲。 */
-function startMinisd(electronBin, entry, env, engine) {
+/** 起引擎、等握手行。按完整行扫描，致命行先认（照 src/main/index.ts 的 startMinisdProcess）；握手之后的行照样收进末尾缓冲。
+ *  cwd 缺省沿用脚本的 cwd（见 engineCwd）。 */
+function startMinisd(electronBin, entry, env, engine, cwd) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(electronBin, [entry], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(electronBin, [entry], { env, cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     engine.child = child;
     let settled = false;
     const settle = (fn) => { if (!settled) { settled = true; clearTimeout(timer); fn(); } };
@@ -1421,6 +1422,24 @@ function exitAfterOutput(code) {
 }
 
 /**
+ * 引擎进程真的起来过没有。spawn 在运行期失败（EACCES、ENOENT、EAGAIN……）时 ChildProcess 没有 pid，Node 只发 'error' 与 'close'、
+ * 不发 'exit'（W3-smokeb 六审实测），engine.exit 永远是 undefined：按「起来了」处理的话，清理会去取进程表、空等停引擎。
+ */
+function engineStarted(child) {
+  return child != null && child.pid !== undefined;
+}
+
+/**
+ * 引擎的 cwd。非 Windows 上桥的命名管道 \\.\pipe\deskminis-<哈希>（src/minisd/bridge/server.ts 的 bridgePipePath）是相对路径，
+ * 套接字文件落在引擎的 cwd，引擎被结束后留着：沿用脚本的 cwd（应用目录）时每跑一次 --mock 就在那里留一个。
+ * 以临时根为 cwd，它就随临时根一起删。Windows 上命名管道不落盘，cwd 保持原样（沿用脚本的 cwd），不改真机上的行为。
+ * 按本机平台判（不是 ctx.platform）：套接字落不落盘由真实的操作系统决定。
+ */
+export function engineCwd(hostPlatform, tempRoot) {
+  return hostPlatform === 'win32' ? undefined : tempRoot;
+}
+
+/**
  * 停引擎，返回它是否已经退出（没起来过、早已退出的也算退出）。引擎只在 utilityProcess 下接 shutdown 消息，这里没有那条通道，
  * 只能直接结束：先 kill()（POSIX 上是 SIGTERM，引擎不接这个信号，当场退出；Windows 上是 TerminateProcess），10 秒还没退就强杀，
  * 再等 5 秒。
@@ -1432,7 +1451,8 @@ function exitAfterOutput(code) {
  */
 async function stopEngine(engine, platform) {
   const child = engine.child;
-  if (!child || engine.exit) return true;
+  // 没拿到 pid 的是压根没起来（spawn 运行期报错，见 engineStarted），没有进程可停；它也永远等不到 exit，不能空等 15 秒再报「停不下来」
+  if (!engineStarted(child) || engine.exit) return true;
   const exited = new Promise((r) => child.once('exit', () => r(true)));
   child.kill();
   if (await withTimeout(exited, 10_000, false)) return true;
@@ -1502,7 +1522,7 @@ export async function cleanup(ctx) {
   sweepVault();
   await step('核对引擎', async () => { crashed = await engineCrashed(ctx); });
   engine.stopping = true;
-  if (child && !engine.exit) {
+  if (engineStarted(child) && !engine.exit) {
     // 趁引擎还活着记下它的整棵子树（shell 驱动、驱动里起的 ping、MCP 服务器……）：引擎一停，它们不会都跟着退（见 stopEngine），
     // 停完按这份名单核对、结束。Linux 上读 /proc 是一瞬间的事；Windows 上要起一次 PowerShell（一两秒），
     // 这段时间里连接还开着，但已经不再发新请求（runSmoke 收到信号时先让连接 refuse）
@@ -1518,7 +1538,7 @@ export async function cleanup(ctx) {
   await step('停引擎', async () => {
     if (!(await stopEngine(engine, platform))) problems.push(`引擎停不下来（pid ${child.pid}），请到任务管理器里结束它`);
     else if (crashed) problems.push(`引擎在冒烟过程中自己退出了（${crashed.code ?? crashed.signal}）`);
-    else if (child) done.engine = '引擎已停';
+    else if (engineStarted(child)) done.engine = '引擎已停';
   });
   sweepVault();
   if (ctx.vault.kind === 'keyring') {
@@ -1617,7 +1637,7 @@ export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSE
   if (plan.some((p) => !p.skip)) {
     try {
       const minisdEnv = buildMinisdEnv(env, { dataRoot, logDir, keyringService: vault.kind === 'keyring' ? vault.service : undefined });
-      const hs = await startMinisd(electronBin, minisdEntry, minisdEnv, ctx.engine);
+      const hs = await startMinisd(electronBin, minisdEntry, minisdEnv, ctx.engine, engineCwd(process.platform, tempRoot));
       ctx.engine.booted = true;
       ctx.client = await connectRpc(hs.port, hs.token);
       say(`引擎：pid ${ctx.engine.child.pid}，端口 ${hs.port}`);
