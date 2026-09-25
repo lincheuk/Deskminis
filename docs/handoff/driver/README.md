@@ -22,6 +22,8 @@ driver 裸 import `playwright-core`，本目录的 `package.json` 已声明它�
 FakeProvider 用法见交接文档 §3；工具 inputJSON **必带 `tool_title`**，
 缺了会报「缺少必填参数」且权限卡不弹。
 
+止血波（2026-09-24～25）的剧本与步骤工作流在 `hemostasis/`，另有一份 README（跑法、模拟打包形态、userData 与单实例锁、管道残留）。
+
 ## Z 波 模型组降级的界面（2026-09-24）
 
 | 文件 | 用途 |

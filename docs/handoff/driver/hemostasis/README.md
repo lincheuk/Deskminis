@@ -17,6 +17,10 @@ NODE_PATH=<装了 playwright-core 的目录>/node_modules xvfb-run -a node <剧�
 - 模拟「已打包」：Electron 按可执行文件名判 `app.isPackaged`（Linux 上不叫 electron 就算打包）。
   把 `node_modules/electron/dist` 硬链接复制一份（`cp -al`），把里面的 `electron` 改名成 `deskminis`，
   用它起同一份 `out/` 产物，主进程里 `app.isPackaged` 就为真（见 W2b-6c-menu.mjs 的 pkg 模式）。
+- 未打包且设了 `DESKMINIS_DATA_DIR=X` 时，Electron 的 userData 在 `X/electron`（`src/main/app-dirs.ts`）。单实例锁按 userData 算，
+  所以不同的临时数据根可以各开一个实例；**同一个数据根同时只能开一个应用**（第二个当成第二实例秒退，引擎侧还有数据根锁 `minisd.lock`）。
+- 模拟打包形态时 userData 保持 Electron 默认（Linux 上是 `~/.config/deskminis`），单实例锁不随数据根分开：
+  同一时刻只能有一个打包形态的实例，前一个没退干净，下一个会被当成第二实例秒退。
 
 ## 剧本
 
@@ -32,6 +36,10 @@ NODE_PATH=<装了 playwright-core 的目录>/node_modules xvfb-run -a node <剧�
 | W2b-6c-menu.mjs | 打包形态的最小菜单：缩放可用，Ctrl+R 不重载、Ctrl+Shift+I 不开开发者工具；开发形态保留默认菜单 |
 | W2b-7-crashlog.mjs（+ W2b-7-engine-inject.cjs） | 引擎崩溃与主进程异常写进 crashes.json 与按天日志 |
 | W1b-2h-perm.mjs | 设置页权限一节三档副标题 |
+| W1b-3-gui.mjs（参数 locked 或 single） | 「DeskMinis 已在运行」原生框（配 W1a-8-x11.py 真点按钮）、第二实例唤回窗口、陈旧锁接管 |
+| W1b-5-quit.mjs | 运行中带权限卡退出：5 秒内全部进程退出、MCP 不留孤儿、数据根锁释放、库里补上「已取消」的结果 |
+| W2b-4b-r5-welcome.mjs | 欢迎页选助手：真 provider 配剧本内置的假 OpenAI 端点，四条路由核请求体里的预设与模型 |
+| W2b-11d-changes.mjs | 右栏「改动」清单按工具结果判：成功、失败、中断各一个写工具，只列成功的那个 |
 | W2b-6b-x11.py、W1a-8-x11.py | 用 XTest 发真实按键、点击与截整屏（playwright 的合成事件触发不了菜单快捷键与原生对话框） |
 
 ## 步骤工作流
