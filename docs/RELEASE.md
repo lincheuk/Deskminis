@@ -16,7 +16,7 @@
 1. [ ] **首次**：在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`（只放发布资产），
        放进仓库根的 `README.md`、`LICENSE`、`THIRD-PARTY-NOTICES.md`、`CHANGELOG.md` 四个文件（第 4 节第 1 步）。
 2. [ ] Windows 真机上构建并自测（第 1 节）：`npm ci` → `npm test`（Linux 上跑不了的 52 例 Windows 专属用例在这里也要全绿）
-       → `npm run typecheck` → `npm run dist`。`npm run dist` 之前记下当时的源码仓 commit（`git rev-parse --short HEAD`），
+       → `npm run typecheck` → `npm run dist`。`npm run dist` 之前先 `git status` 确认没有未提交的改动，再记下当时的源码仓 commit（`git rev-parse --short HEAD`），
        Release 说明里写的就是它（第 4 节第 2 步）。
 3. [ ] 打包验收（第 2 节）：`npm run e2e:m5`、`npm run verify:release`，全 PASS。
 4. [ ] 发版冒烟（第 2 节「发版冒烟」）：设好 `ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY` 后跑 `npm run smoke:release`，
@@ -80,7 +80,7 @@ FAIL 后面写着中文原因；有 FAIL 退出码 1，**有一项 FAIL 就不�
 ```powershell
 $env:ANTHROPIC_API_KEY = "<你的 Anthropic key>"   # 用例 anthropic 要它；不设就标「跳过（缺 ANTHROPIC_API_KEY）」
 $env:DEEPSEEK_API_KEY  = "<你的 DeepSeek key>"    # 用例 deepseek 要它；不设就标「跳过（缺 DEEPSEEK_API_KEY）」
-# $env:DEEPSEEK_MODEL = "deepseek-v4-flash"      # 可选，缺省就是它；只收 deepseek-v4 族，别的按参数错误退出
+# $env:DEEPSEEK_MODEL = "deepseek-v4-flash"      # 可选，缺省就是它；要跑 deepseek 时只收 deepseek-v4 族，别的按参数错误退出
 npm run smoke:release
 Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这样设的变量只在当前这个 PowerShell 窗口里有效
 ```
@@ -108,8 +108,8 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
   内存凭据库，开头会说明原因；其它平台或带 `--memory-vault` 时一律用内存凭据库。不碰你真实的数据目录与凭据。
   key 只经 RPC 交给引擎（不进命令行，也不进引擎的环境变量），打印的每一行都先把 key 换成 `[已隐藏]`，结束前再扫一遍临时目录，
   有明文 key 判失败。真 key 会产生几次付费调用。
-- **结果**：最后打一张 PASS / FAIL / SKIP 表——四个用例外加一行「清理」（停引擎并结束它名下没跟着退的进程、清凭据库、扫明文 key、
-  删临时目录，哪一步没做成、或者引擎在冒烟途中自己退出了，这一行就是 FAIL），末尾一行汇总。**有 FAIL 就不发版**，先按表里写的原因处理。
+- **结果**：最后打一张 PASS / FAIL / SKIP 表——四个用例外加一行「清理」（先清凭据库，再停引擎并结束它名下没跟着退的进程、
+  再清一遍凭据库、扫明文 key、删临时目录，哪一步没做成、或者引擎在冒烟途中自己退出了，这一行就是 FAIL），末尾一行汇总。**有 FAIL 就不发版**，先按表里写的原因处理。
 - **退出码**：`0` 没有 FAIL（跳过不算失败）；`1` 有 FAIL；`2` 参数错误、要跑 `deepseek` 而 `DEEPSEEK_MODEL` 不是 V4 族，
   或找不到构建产物 / electron（直接跑 `node scripts/smoke-release.mjs` 之前没有构建过，或没有 `npm ci`）。
   中途按 Ctrl+C、Ctrl+Break、关掉窗口或收到 SIGTERM：不再开始新的用例、不再给引擎发新请求，照样清理，只打「清理」那一行、
