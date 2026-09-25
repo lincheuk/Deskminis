@@ -1,7 +1,8 @@
 /** W1a-8：minisd stderr 末尾 4KB 环形缓冲（src/main/child-output.ts 的 TailBuffer）。
- *  设计稿 §3 第 8 条：只实现这一次，W2b 的崩溃记录（stderrTail 字段）复用它，不另造第二个。 */
+ *  设计稿 §3 第 8 条：只实现这一次，W2b 的崩溃记录（stderrTail 字段）复用它，不另造第二个。
+ *  W2b-7：同一文件的 LineSplitter——stderr 以前整块转发，按天日志要按行记（每行带时间），分块到达的半行、半个汉字都得拼回来。 */
 import { describe, it, expect } from 'vitest';
-import { TailBuffer, STDERR_TAIL_BYTES } from '../src/main/child-output';
+import { TailBuffer, STDERR_TAIL_BYTES, LineSplitter, LINE_SPLITTER_MAX_CHARS } from '../src/main/child-output';
 
 describe('TailBuffer（末尾环形缓冲）', () => {
   it('容量就是 4KB', () => {
@@ -49,5 +50,31 @@ describe('TailBuffer（末尾环形缓冲）', () => {
     expect(Buffer.byteLength(out)).toBeLessThanOrEqual(STDERR_TAIL_BYTES);
     expect(out.endsWith('line 1999\n')).toBe(true);
     expect(out).not.toContain('line 1000\n');
+  });
+});
+
+describe('LineSplitter（按行切分子进程输出，W2b-7 按天日志用）', () => {
+  it('一块里的多行各成一行；半行留着等下一块；\\r\\n 去掉 \\r；空行与纯空白行不要', () => {
+    const s = new LineSplitter();
+    expect(s.push('a\nb')).toEqual(['a']);
+    expect(s.push(Buffer.from('c\r\n\n  \nd'))).toEqual(['bc']);
+    expect(s.flush(), '收尾时把最后的半行交出来').toEqual(['d']);
+    expect(s.flush()).toEqual([]);
+  });
+
+  it('多字节字符被切在两块之间也能拼回来，不出现替换符 U+FFFD', () => {
+    const b = Buffer.from('半个汉字\n');
+    const s = new LineSplitter();
+    expect(s.push(b.subarray(0, 4))).toEqual([]);
+    expect(s.push(b.subarray(4))).toEqual(['半个汉字']);
+    expect(s.flush()).toEqual([]);
+  });
+
+  it('一直不换行的输出按上限切出来，不无限攒在内存里', () => {
+    const s = new LineSplitter();
+    const out = s.push('x'.repeat(LINE_SPLITTER_MAX_CHARS * 2 + 10));
+    expect(out.length).toBeGreaterThanOrEqual(2);
+    expect(out.every(l => l.length <= LINE_SPLITTER_MAX_CHARS)).toBe(true);
+    expect(out.join('').length + s.flush().join('').length).toBe(LINE_SPLITTER_MAX_CHARS * 2 + 10);
   });
 });

@@ -84,7 +84,12 @@ const relTime = (sec: number): string => fmtRelative(sec, Date.now() / 1000);
     <div class="col">
       <header class="head">
         <h1 class="t-h1">设备</h1>
-        <p class="t-body sub">把另一台机器上的 DeskMinis 配上来，会话与设置在两边同步。配对只走局域网直连。</p>
+        <!-- W2b-11a 订正：这里原写「会话与设置在两边同步」。按 sync/wire.ts 与 chat-store 的 mergeRemoteSession，
+             同步的只有会话：消息与压缩摘要，外加标题、记忆开关、模型绑定、置顶这几项会话属性；模型与密钥、MCP、技能、
+             助手、定时、权限档位这些设置一样都不同步，记忆文件、附件文件也不传。minisd 缺省只听 127.0.0.1
+             （index.ts 的 listenHost），主进程也不注入 MINISD_HOST，跨机器得用户自己设——界面上暂时没有开关。 -->
+        <p class="t-body sub">把另一台机器上的 DeskMinis 配上来，两边的会话（消息、标题、记忆开关、模型绑定）互相同步；设置、记忆文件和附件不同步。</p>
+        <p class="t-body sub">配对只走局域网直连。应用默认只在本机监听，跨机器使用要先在两台机器上都设好环境变量 <code>MINISD_HOST=0.0.0.0</code> 再启动，界面上暂时没有这个开关。</p>
       </header>
 
       <!-- Y3：M6 的同步暂停开关（MU6 立、T 波换壳丢）。三句文案从旧 SettingsModal 原样搬回——
@@ -95,7 +100,7 @@ const relTime = (sec: number): string => fmtRelative(sec, Date.now() / 1000);
           <div class="syncrow">
             <div class="synctxt">
               <div class="t-item synclabel">设备间同步</div>
-              <div class="t-aux syncsub">{{ chat.syncPaused ? '已暂停：不再与其它设备收发会话与记忆。' : '进行中：会话与记忆在已配对设备之间自动同步。' }}</div>
+              <div class="t-aux syncsub">{{ chat.syncPaused ? '已暂停：不再与其它设备收发会话。' : '进行中：会话在已配对设备之间自动同步。' }}</div>
             </div>
             <button class="f-btn" :class="{ primary: chat.syncPaused }" type="button" @click="chat.setSyncPaused(!chat.syncPaused)">{{ chat.syncPaused ? '恢复同步' : '暂停同步' }}</button>
           </div>

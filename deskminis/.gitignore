@@ -3,3 +3,5 @@ out/
 dist/
 dist-m5/
 *.local
+# Linux 上跑界面剧本时，工具把 C:\… 这类 Windows 路径当成相对路径写进应用目录（W1b-2g：C:\Users\me\Documents\notes.txt 曾因此误入仓库）
+/[A-Za-z]:*

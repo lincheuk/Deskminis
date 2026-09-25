@@ -6,6 +6,8 @@ import { computed, ref, watch } from 'vue';
 import { rpc } from '../rpc';
 import { useChat } from '../stores/chat';
 import { collectArtifacts } from '../lib/artifacts/collect';
+import { useLastTurnLive } from '../lib/steps/live';
+import { permsOf } from '../lib/perm/scope';
 import UiFileTree from './UiFileTree.vue';
 import TaskPanel from './TaskPanel.vue';
 import UiIcon from './UiIcon.vue';
@@ -84,8 +86,15 @@ watch(() => chat.workspaceRoot, (now, prev) => { if (now !== prev) refresh(); })
 
 /** 改动清单走 collectArtifacts 纯模块（V8）：手写的那版只扫历史 messages，
  *  拿不到**正在跑的这一轮**（实时 toolCards），也没有 edit 的增删数与路径相对化。
- *  同一份数据两处各写一遍的结果必然是两处不一致——统一走已有单测的那份。 */
-const changes = computed(() => collectArtifacts(chat.messages, chat.toolCards));
+ *  同一份数据两处各写一遍的结果必然是两处不一致——统一走已有单测的那份。
+ *  W2b-11d：按工具结果判——失败的、历史回合里中断没有结果的写工具不再列成改动，还在跑的回合里结果没到的照旧列。
+ *  「最后一个回合还在不在跑」与对话流（StageChat）用同一份判定 useLastTurnLive：只看 chat.running 的话，
+ *  回合落下、open() 还没把历史取回来的那一拍，跑到一半的那一步会从清单里闪掉再回来。
+ *  本面板常驻（AppShell 用 v-show），这份 watch 从应用启动起每一拍都看得到。 */
+const lastTurnLive = useLastTurnLive(chat);
+const changes = computed(() => collectArtifacts(chat.messages, chat.toolCards, lastTurnLive.value));
+/** W2b-2：任务 tab 的警示点只看当前会话的卡——点开任务面板，那一节数的也是当前会话的（同一个判据） */
+const permsHere = computed(() => permsOf(chat.pendingPerms, chat.activeId));
 </script>
 
 <template>
@@ -96,7 +105,7 @@ const changes = computed(() => collectArtifacts(chat.messages, chat.toolCards));
         改动<span v-if="changes.length" class="n tnum">{{ changes.length }}</span>
       </button>
       <button type="button" :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">
-        任务<span v-if="chat.pendingPerms.length" class="n dot">·</span>
+        任务<span v-if="permsHere.length" class="n dot">·</span>
       </button>
       <span class="grow"></span>
       <button class="ib" type="button" title="刷新" @click="refresh"><UiIcon name="refresh" :size="14" /></button>

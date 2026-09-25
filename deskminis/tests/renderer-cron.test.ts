@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describeSchedule } from '../src/renderer/src/lib/cron/describe';
+import { sfcBlocks } from './sfc-blocks';
 
 const root = path.resolve(__dirname, '..');
 const read = (p: string): string => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n');
@@ -56,7 +57,15 @@ describe('K2 接线守卫', () => {
     expect(p).toMatch(/confirming/);
     expect(p).toContain('describeSchedule');
     // §0 两条裁定的用户可见面：不假装 24/7；无人值守权限语义说清
-    expect(p).toMatch(/应用没开就不会跑|应用运行时/);  // 运行边界文案改写
+    // W2b-11a 有意重指：原断言 /应用没开就不会跑|应用运行时/ 读的是原文，文件头注释就能喂饱；它钉的那句
+    // 「应用没开就不会跑——它不是后台服务」本身也不实：关窗只是隐藏到托盘（main/index.ts 的 close 处理），
+    // minisd 照常每 30 秒 tick，错过的任务下次启动补跑一次（cron/store.ts dueJobs / markRun）。
+    // 改为在剥过注释的模板上钉三件事：关窗后仍在托盘里跑、退出或关机才停、错过的补一次；「不是后台服务」不许回来。
+    const tpl = sfcBlocks(p, 'StageCron.vue').template;
+    expect(tpl).toMatch(/关掉窗口后应用仍在托盘里运行/);
+    expect(tpl).toMatch(/从托盘退出或关机后就不会跑/);
+    expect(tpl).toMatch(/补跑一次/);
+    expect(tpl).not.toMatch(/不是后台服务/);
     expect(p).toMatch(/90\s*秒.*自动拒绝/);
     // 最近会话跳转（chat.open）
     expect(p).toContain('chat.open(');

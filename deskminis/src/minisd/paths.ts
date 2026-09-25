@@ -39,6 +39,23 @@ export function dataRoot(): string {
   return defaultDataRoot(process.env, 'prod');
 }
 
+/** 没设 DESKMINIS_DATA_DIR 时的日志与崩溃记录目录：LOCALAPPDATA 下的 DeskMinis[-dev]/logs，非 Windows 回退 HOME/.local/state。
+ *  放 Local 而不放数据根：数据根在 Roaming 下会被域漫游或 OneDrive 同步，日志不该跟着漫游。
+ *  主进程（src/main/app-dirs.ts）与 minisd（下面的 logRootFromEnv）共用这一条，两边不会各写一份再漂移。 */
+export function defaultLogRoot(env: Readonly<Record<string, string | undefined>>, variant: AppVariant): string {
+  const localAppData = env.LOCALAPPDATA ?? join(env.HOME ?? '.', '.local', 'state');
+  return join(localAppData, productDirName(variant), 'logs');
+}
+
+/** minisd 的日志与崩溃记录目录（W2b-7）：主进程经 DESKMINIS_LOG_DIR 下发。没下发时（不经主进程直接起的 standalone，
+ *  例如 e2e 脚本）照主进程的规则回退：设了 DESKMINIS_DATA_DIR 就是 <DATA_DIR>/logs，否则正式版的缺省目录
+ *  （与 dataRoot() 缺省正式版的根同一个取向）。空串当没设。 */
+export function logRootFromEnv(env: Readonly<Record<string, string | undefined>>): string {
+  if (env.DESKMINIS_LOG_DIR) return env.DESKMINIS_LOG_DIR;
+  if (env.DESKMINIS_DATA_DIR) return join(env.DESKMINIS_DATA_DIR, 'logs');
+  return defaultLogRoot(env, 'prod');
+}
+
 export class MinisPaths {
   constructor(public readonly root: string) {}
 

@@ -23,10 +23,16 @@ vi.mock('electron', () => ({
   ipcMain: { handle: () => {} },
   BrowserWindow: class { static getAllWindows() { return []; } static getFocusedWindow() { return null; } },
   dialog: { showErrorBox: () => {}, showMessageBox: () => Promise.resolve({ response: 0 }) },
-  Menu: { buildFromTemplate: () => ({}) },
+  // W2b-6b：打包版在模块顶层 Menu.setApplicationMenu(null)。这里 isPackaged 为假、import 期不调它；
+  // 补上是免得桩哪天改成打包形态时 import 期当场 TypeError（同上面 shell / session 的补法）。
+  Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
   nativeImage: { createFromPath: () => ({ isEmpty: () => true }), createEmpty: () => ({}) },
   Tray: class {},
   utilityProcess: { fork: () => ({}) },
+  // W2b-6：导航守卫与权限白名单用到 shell / session（cross.md 测试交叉点）。只在 createWindow 与 whenReady 里访问，
+  // 这里 whenReady 永不 resolve、import 期碰不到；补齐是免得哪天挪到模块顶层时 import 期当场出错。
+  shell: { openExternal: () => Promise.resolve() },
+  session: { defaultSession: { setPermissionRequestHandler: () => {}, setPermissionCheckHandler: () => {} } },
 }));
 // electron-updater 在**模块初始化时**就会读 app.getVersion()/getAppPath()——
 // 它不是本文件的被测对象，给一个无副作用的桩，别让它把 import 拖崩。

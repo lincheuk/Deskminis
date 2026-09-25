@@ -7,7 +7,7 @@
  *
  *  纯函数、不 import electron：isPackaged 与 env 由调用方传入，测试可以直接穷举组合。 */
 import { join, resolve } from 'node:path';
-import { defaultDataRoot, productDirName, type AppVariant } from '../minisd/paths';
+import { defaultDataRoot, defaultLogRoot, type AppVariant } from '../minisd/paths';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -18,7 +18,7 @@ export interface AppDirs {
   userData?: string;
   /** keyring 服务名，经 DESKMINIS_KEYRING_SERVICE 下发。 */
   keyringService: string;
-  /** 日志与崩溃记录目录，经 DESKMINIS_LOG_DIR 下发（本步只算出并下发，写日志在 W2b-7）。 */
+  /** 日志与崩溃记录目录，经 DESKMINIS_LOG_DIR 下发（W2b-7 的按天日志与 crashes.json 都在这里）。 */
   logRoot: string;
   variant: AppVariant;
 }
@@ -45,8 +45,8 @@ export function resolveAppDirs(input: { isPackaged: boolean; env: Env }): AppDir
   // 空串当没设，与 paths.dataRoot() 的判断一致
   const override = env.DESKMINIS_DATA_DIR ? resolve(env.DESKMINIS_DATA_DIR) : undefined;
   const dataRoot = override ?? resolve(defaultDataRoot(env, variant));
-  const localAppData = env.LOCALAPPDATA ?? join(env.HOME ?? '.', '.local', 'state');
-  const logRoot = override ? join(override, 'logs') : resolve(localAppData, productDirName(variant), 'logs');
+  // 缺省日志目录的规则在 paths.ts 的 defaultLogRoot：minisd 没收到 DESKMINIS_LOG_DIR 时按同一条回退
+  const logRoot = override ? join(override, 'logs') : resolve(defaultLogRoot(env, variant));
   const userData = isPackaged ? undefined : (override ? join(override, 'electron') : dataRoot);
   const keyringService = isPackaged ? 'DeskMinis' : 'DeskMinis-dev';
   return { dataRoot, userData, keyringService, logRoot, variant };

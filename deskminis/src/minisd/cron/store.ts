@@ -4,8 +4,15 @@ import { computeNextRun, validateSchedule, type ScheduleKind } from './schedule'
 
 /** K1 定时任务存储（设计稿 2026-08-20-cron-design.md §1/§3）。
  *  next_run_at 在 create/update/markRun 时算定（epoch 秒），调度器 tick 只做
- *  「enabled 且到点」的查表——错过的 interval/cron 在 markRun 里从**当下**重算
- *  （不补跑），once 错过则 next 仍在过去、tick 捞到即补跑一次并自动停用。 */
+ *  「enabled 且到点」的查表（dueJobs）。
+ *
+ *  错过的任务（应用没在跑时过了点）：next_run_at 停在过去，下一次 tick 捞到就补跑一次，不分 kind——
+ *  dueJobs 只看过没过点，应用启动后 3 秒那次检查（minisd/index.ts 的 cronBoot）就会把它们各补跑一次。
+ *  补跑时 markRun 重算下一次：once 自动停用；interval/cron 从**当下**起算，所以错过几次也只补这一次（不逐次补）。
+ *  W2b-11d 订正：这里原写 interval/cron 错过「从当下重算（不补跑）」，与 dueJobs 的实际行为相反。
+ *  cron 设计稿 §0 原定 interval/cron 错过跳过、只补 once（怕开机时一起触发），实现从没按 kind 分过；
+ *  定时页页头已按实际行为告诉用户「错过的任务下次启动时只补跑一次」（W2b-11a），止血波不改行为，注释跟着行为改。
+ *  行为由 tests/cron-store.test.ts「错过的任务」一组钉住。 */
 export interface CronJob {
   id: string; name: string; prompt: string;
   scheduleKind: ScheduleKind; scheduleValue: string;
@@ -113,14 +120,17 @@ export class CronStore {
     if (r.changes === 0) throw new Error(`任务不存在: ${id}`);
   }
 
-  /** enabled 且到点（含错过的：next 停在过去）。同刻 rowid 兜底稳定序。 */
+  /** enabled 且到点（含错过的：next 停在过去）。同刻 rowid 兜底稳定序。
+   *  不分 kind：错过的 interval/cron 与 once 一样会被取出来补跑一次（见文件头）。 */
   dueJobs(nowMs: number): CronJob[] {
     const rows = this.db.prepare('SELECT * FROM cron_jobs WHERE enabled=1 AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at ASC, rowid ASC')
       .all(nowMs / 1000) as Row[];
     return rows.map(toJob);
   }
 
-  /** 触发开跑：记会话/时间/running 态；once 自动停用清 next，interval/cron 从当下重算。 */
+  /** 触发开跑：记会话/时间/running 态；once 自动停用清 next，interval/cron 从当下重算。
+   *  从当下算而不是从错过的那个点往后推：补跑的这一次就把错过的几次一并顶掉了，不会接连补好几次。
+   *  它挡不住补跑本身：走到这里时，错过的那一次已经被 dueJobs 取出来、正在触发了。 */
   markRun(id: string, sessionId: string): void {
     const job = this.get(id);
     if (!job) throw new Error(`任务不存在: ${id}`);

@@ -3,11 +3,13 @@
  *
  *  与旧 App.vue 的实质差别：
  *  ① Stage 内容**定宽居中**（--w-stage 760），不再撑满列宽——长行难读是旧 UI 通病；
- *  ② Aside **默认收起**，不再常驻挤压中栏到 336px（那是「胶囊塞不下」等一连串
- *     挤压问题的总根源）；
+ *  ② Aside（右栏工作台）**默认展开**（wsOpen 初值 true），标题栏「工作台」钮与托盘「切换右栏」开合它。
+ *     设计稿写的是默认收起；T6b 之后工作区绑定入口只在右栏「文件」tab 里，收起就把它藏进了二级界面，
+ *     所以 0.3.0 保持展开，「默认收起、有产出物时自动展开」排在 W8a（W2b-11a 订正：这里原写「默认收起」，与实现相反）；
  *  ③ 欢迎态与会话态是 Stage 内两个**并列视图**，不再靠 v-if 在同一棵组件树上叠条件。 */
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onScopeDispose, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
+import { subscribeTrayMenu } from '../lib/tray/menu';
 import TopBar from './TopBar.vue';
 import NavRail from './NavRail.vue';
 import StageWelcome from './StageWelcome.vue';
@@ -26,6 +28,8 @@ import TerminalPane from './TerminalPane.vue';
 const chat = useChat();
 const railOpen = ref(true);
 const wsOpen = ref(true);
+/** 右栏开合。标题栏的「工作台」钮与托盘菜单的「切换右栏」走这同一个函数（W2b-11a）。 */
+function toggleAside(): void { wsOpen.value = !wsOpen.value; }
 /** 终端抽屉。默认收起——它是「需要时拉出来」的东西，常驻会白占 260px 高度。
  *  组件只在打开时挂载（v-if 不是 v-show）：xterm 是重实例，不用时不该活着。 */
 const termOpen = ref(false);
@@ -51,6 +55,14 @@ const inChat = computed(() => !!chat.activeId && chat.messages.length > 0);
 
 onMounted(() => { void chat.init(); });
 
+// W2b-11a：托盘菜单的「打开设置」「切换右栏」。主进程一直在 webContents.send、preload 也暴露了订阅接口，
+// 渲染端却从没订阅，两项点了没反应（死通道）。退订挂在组件作用域上：卸载时（开发态热重载会重建组件）两条一起摘，
+// 不摘的话监听越积越多、点一次切好几次。用 onScopeDispose 而不是 onBeforeUnmount：卸载时同样会调，还不依赖组件实例。
+onScopeDispose(subscribeTrayMenu((window as any).deskminis, {
+  openSettings: () => { view.value = 'settings'; },
+  toggleRight: toggleAside,
+}));
+
 // 会话切换：上一会话的预览路径在新会话里没有意义
 watch(() => chat.activeId, () => { previewPath.value = null; openDocs.value = []; });
 // 产物卡/其它入口写入的待预览路径（store 既有字段）——消费即清空
@@ -72,7 +84,7 @@ function toggleTheme(): void {
     <TopBar
       :rail-open="railOpen" :aside-open="wsOpen" :term-open="termOpen"
       @toggle-rail="railOpen = !railOpen"
-      @toggle-aside="wsOpen = !wsOpen"
+      @toggle-aside="toggleAside"
       @toggle-term="termOpen = !termOpen"
       @menu="toggleTheme"
     />

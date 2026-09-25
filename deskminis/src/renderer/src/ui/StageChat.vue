@@ -5,6 +5,9 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
 import { parseMarkdown } from '../lib/markdown/parse';
 import { fmtHHMM } from '../lib/time/hhmm';
+import { permsOf, waitingElsewhere } from '../lib/perm/scope';
+import { isResultCarrier, lastTurnStart, stepStatus, toolResultsById, type StepStatus } from '../lib/steps/status';
+import { useLastTurnLive } from '../lib/steps/live';
 import MarkdownView from '../components/MarkdownView.vue';
 import Composer from './Composer.vue';
 import StepGroup from './StepGroup.vue';
@@ -25,7 +28,7 @@ function onQuote(text: string): void { composer.value?.quote(text); }
 type Msg = (typeof chat.messages)[number];
 /** 块上带 mid（这条块来自哪条消息）：注释锚点按消息 id 定位，没有它锚不住。 */
 interface Turn { id: string; user: Msg | null; blocks: { kind: 'text' | 'steps' | 'think'; mid?: string; text?: string; steps?: Step[] }[] }
-interface Step { name: string; title: string; ok: boolean; output?: string | null; input?: string }
+interface Step { name: string; title: string; status: StepStatus; output?: string | null; input?: string }
 
 const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
 function textOf(m: Msg): string {
@@ -49,22 +52,10 @@ function attsOf(m: Msg): { path: string; name: string }[] {
   return out;
 }
 
-/** 仅承载工具结果的合成 user 消息不产生新回合（后端用它回传 toolResult）。 */
-function isResultCarrier(m: Msg): boolean {
-  return Array.isArray(m.parts) && m.parts.length > 0
-    && m.parts.every((p: { type?: string }) => p?.type === 'toolResult');
-}
-function resultOf(id: string | undefined): { ok: boolean; output?: string } | undefined {
-  if (!id) return undefined;
-  for (const m of chat.messages) {
-    for (const p of (Array.isArray(m.parts) ? m.parts : [])) {
-      if (p?.type === 'toolResult' && isRec(p.value) && p.value.toolUseId === id) {
-        return { ok: p.value.success !== false, output: typeof p.value.output === 'string' ? p.value.output : undefined };
-      }
-    }
-  }
-  return undefined;
-}
+/** W2b-11a：最后一个回合是不是还可能在跑。是的话，它里面没有结果的工具只是「结果还没到」（pending），不是中断。
+ *  判据（running，加上 running 落下、open() 还没把历史取回来的那一拍）连同理由在 lib/steps/live。
+ *  W2b-11d 把它从这里挪过去：右栏「改动」清单（WorkspacePanel）要用同一份判定，不能两处各写一套。 */
+const lastTurnLive = useLastTurnLive(chat);
 
 /** 工具载荷在库里是**JSON 字符串**（`minisd/agent/loop.ts` 落 `input: c.input`，
  *  provider 侧也是 `JSON.parse(v.input)`），不是对象。
@@ -86,8 +77,14 @@ function toolInput(v: unknown): { raw: string; title: string } {
 /** 回合切分 + 助手块内把连续的工具调用聚成一个 StepGroup（相邻文本不合并，保留段落节奏）。 */
 const turns = computed<Turn[]>(() => {
   const out: Turn[] = [];
-  for (const m of chat.messages) {
+  // W2b-11a：从这一条起是最后一个回合；它不在跑时取 Infinity，所有回合里没结果的步骤都判中断
+  const liveFrom = lastTurnLive.value ? lastTurnStart(chat.messages) : Infinity;
+  // 给 toolUse 配库里的 toolResult：W2b-11d 起与改动清单共用 lib/steps/status 的 toolResultsById（原是本文件的 resultOf）
+  const results = toolResultsById(chat.messages);
+  for (const [i, m] of chat.messages.entries()) {
     if (m.role === 'user') {
+      // 仅承载工具结果的合成 user 消息不产生新回合（后端用它回传 toolResult）。判据挪进了 lib/steps/status，
+      // 与上面 lastTurnStart 找「最后一个回合从哪条开始」共用一份，两处切回合的口径不会分叉
       if (isResultCarrier(m)) continue;
       out.push({ id: m.id, user: m, blocks: [] });
       continue;
@@ -103,13 +100,13 @@ const turns = computed<Turn[]>(() => {
       if (p?.type === 'text' && typeof p.value === 'string' && p.value) {
         t.blocks.push({ kind: 'text', mid: m.id, text: p.value });
       } else if (p?.type === 'toolUse' && isRec(p.value)) {
-        const id = typeof p.value.toolUseId === 'string' ? p.value.toolUseId : undefined;
-        const r = resultOf(id);
+        const r = typeof p.value.toolUseId === 'string' ? results.get(p.value.toolUseId) : undefined;
         const ti = toolInput(p.value.input);
         const step: Step = {
           name: String(p.value.name ?? ''),
           title: ti.title || String(p.value.name ?? ''),
-          ok: r ? r.ok : true,
+          // W2b-11a：以前是 `ok: r ? r.ok : true`——配不到结果的一律画成成功。回合不在跑还没有结果，就是被打断了
+          status: stepStatus(r, i >= liveFrom),
           output: r?.output ?? null,
           // 载荷一并带下去：展开区靠它渲 file_edit 差分与参数区（T6e-2 补搬）
           input: ti.raw || undefined,
@@ -124,6 +121,13 @@ const turns = computed<Turn[]>(() => {
 });
 
 const streamNodes = computed(() => (chat.streamingText ? parseMarkdown(chat.streamingText) : null));
+/** 实时回合的步骤：回合就是正在跑的那个，没到 toolEnd 的是 pending（画法同以前），到了的按 success 分——绝不判中断。
+ *  toolEnd 一定带 success（loop.ts），所以 success 还是 undefined 就是结果没到。 */
+const liveSteps = computed<Step[]>(() => chat.toolCards.map(c => ({
+  name: c.name, title: c.title || c.name,
+  status: stepStatus(c.success === undefined ? undefined : c, true),
+  output: c.output ?? null, input: c.input,
+})));
 
 // ---- Y5：消息锚点导航轨（L3 立、T 波换壳丢，从旧 ChatView 搬回）：右缘竖点，点击滚到对应回合；不做拖拽刷 ----
 const hasLive = computed(() => chat.running || !!chat.streamingText || !!chat.streamingThinking);
@@ -137,6 +141,18 @@ function jumpTurn(id: string): void {
   scroller.value?.querySelector(`[data-turn-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 const mdOf = (s: string) => parseMarkdown(s);
+
+/** W2b-2：权限卡按会话区分。这里只渲染当前会话自己的卡——以前渲染全部会话的，
+ *  B 的回合卡在权限上，卡却出现在 A 的对话流里，在 A 里点「允许」放行的是 B 的操作。 */
+const permsHere = computed(() => permsOf(chat.pendingPerms, chat.activeId));
+/** 其余在等批准的会话（最早在等的排第一）。它们的卡不在这里渲染，得有句话告诉用户：
+ *  NavRail 收起、或打开预览变成图标条时看不到行上的盾牌标，没人去批的话那张卡 90 秒后会被自动拒绝。 */
+const elsewhere = computed(() => waitingElsewhere(chat.pendingPerms, chat.activeId));
+/** 点提示切到最早在等的那个会话：它的卡离超时最近。 */
+function openWaiting(): void {
+  const id = elsewhere.value[0];
+  if (id) void chat.open(id);
+}
 
 // 新内容到达贴底（用户上翻时不抢——scrollTop 距底 >120 视为在看历史）
 const following = ref(true);
@@ -154,8 +170,9 @@ function stickBottom(): void {
     if (el) el.scrollTop = el.scrollHeight;
   })));
 }
+// 卡只数当前会话的（W2b-2）；顶部提示行出现、消失会改变滚动区的高度，同样要重新贴底
 watch(
-  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, chat.pendingPerms.length] as const,
+  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, permsHere.value.length, elsewhere.value.length > 0] as const,
   stickBottom,
 );
 // 分栏开合会改变列宽 → 内容重排、总高改变。不重新贴底的话，刚才还在视野里的
@@ -165,6 +182,15 @@ watch(() => props.narrow, stickBottom);
 
 <template>
   <div class="stage" :class="{ narrow: props.narrow }">
+    <!-- W2b-2：别的会话的回合正卡在权限卡上（卡只在它自己的会话里渲染）。钉在对话流顶部、放在滚动区外面——
+         放进滚动区的话，贴底跟随时它在视野上方，用户看不见 -->
+    <div v-if="elsewhere.length" class="col waitrow">
+      <button type="button" class="waitbar" @click="openWaiting">
+        <span class="waitic"><UiIcon name="shield" :size="14" /></span>
+        <span class="waitt">另有 {{ elsewhere.length }} 个会话在等你批准</span>
+        <span class="waitgo">去批准<UiIcon name="chevronRight" :size="13" /></span>
+      </button>
+    </div>
     <!-- keyup 与 mouseup 同接：键盘用户靠 Shift+方向键选中，只认 mouseup 等于对他们关门 -->
     <div ref="scroller" class="scroll" @scroll="onScroll" @mouseup="anno?.onMouseUp($event)" @keyup="anno?.onMouseUp($event)">
       <div class="col">
@@ -203,10 +229,7 @@ watch(() => props.narrow, stickBottom);
               <ThinkBlock live :text="chat.streamingThinking" />
             </div>
             <div v-if="chat.toolCards.length" class="ablock">
-              <StepGroup
-                live
-                :steps="chat.toolCards.map(c => ({ name: c.name, title: c.title || c.name, ok: c.success !== false, output: c.output ?? null, input: c.input }))"
-              />
+              <StepGroup live :steps="liveSteps" />
             </div>
             <div v-if="streamNodes" class="ablock"><MarkdownView class="t-chat" :nodes="streamNodes" /></div>
             <div v-else-if="chat.running" class="waiting t-aux">正在思考…</div>
@@ -217,8 +240,9 @@ watch(() => props.narrow, stickBottom);
         <EventNotes />
 
         <!-- V1：权限卡。**没有它，agent 一请求权限就无声卡死到超时**——
-             T 波换壳时这块被落在旧组件树里，是当时最严重的一处漏接。 -->
-        <div v-for="p in chat.pendingPerms" :key="p.requestId" class="ablock">
+             T 波换壳时这块被落在旧组件树里，是当时最严重的一处漏接。
+             W2b-2：只渲染当前会话自己的卡，别的会话在等由顶部提示行与 NavRail 的盾牌标交代 -->
+        <div v-for="p in permsHere" :key="p.requestId" class="ablock">
           <PermCard :perm="p" />
         </div>
 
@@ -290,6 +314,20 @@ watch(() => props.narrow, stickBottom);
 .err :deep(svg) { flex: 0 0 auto; }
 
 .dock { flex: 0 0 auto; padding: 0 0 var(--sp-6); background: var(--c-bg); }
+
+/* W2b-2 别的会话在等批准的提示行：与权限卡、任务面板的「等你批准」同一图标同一令牌（盾牌 + 警示色）。
+   正文用主文字色——橙字压在浅橙底上对比度不到 3:1（PermCard .note 同一取舍）；「去批准」是去处，走链接色 */
+.waitrow { flex: 0 0 auto; padding-top: var(--sp-3); }
+.waitbar {
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  padding: var(--sp-2) var(--sp-4); border-radius: var(--r-s); cursor: pointer; text-align: left;
+  background: var(--c-warn-soft); color: var(--c-ink);
+  font-family: inherit; font-size: var(--t-item-size); line-height: var(--t-item-lh); font-weight: var(--w-md);
+}
+.waitbar:hover { filter: brightness(.97); }
+.waitic { display: inline-flex; flex: 0 0 auto; color: var(--c-warn); }
+.waitt { flex: 1; min-width: 0; }
+.waitgo { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; color: var(--c-link); }
 
 /* Y5 锚点导航轨：右缘竖点（绝对定位吃 .stage 的 position:relative）。点多时轨内静默滚动；
    z-index 15 < 50 槽位；焦点环走 theme.css 全局，不在这里另写一份。 */

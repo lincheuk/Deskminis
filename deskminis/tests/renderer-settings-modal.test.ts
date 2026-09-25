@@ -4,6 +4,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { sfcBlocks } from './sfc-blocks';
+import { classifyShellCommand } from '../src/minisd/tools/permissions';
 // T6e-3：主题读写纯模块（lib/settings/theme）退场：SecLook 把 localStorage 读写内联了（已测纯判据换成未测内联代码，这笔账记在 commit 里）
 
 const root = path.resolve(__dirname, '..');
@@ -34,7 +36,8 @@ describe('MU2b Task 5 设置模态：lib/settings/theme 纯模块（3 例）', (
     // 720px 模态宽度随模态退场：设置页现在是左 tab 列 + 右侧定宽内容，宽度走 --w-stage 令牌
     // --r-sheet 随模态退场；权限说明文案搬进 ui/settings/SecPermission.vue（三档 + 兜底两句）
     const perm = fs.readFileSync(path.join(root, 'src/renderer/src/ui/settings/SecPermission.vue'), 'utf8');
-    expect(perm).toMatch(/不可逆的系统操作仍拦截/);     // 「危险命令始终拦截」的新措辞
+    // 「完全访问」不再许诺「不可逆的系统操作仍拦截」（W1b-2g）：危险规则只按命令写法认，剥注释后认新说法，细节见文件末尾一节
+    expect(sfcBlocks(perm, 'SecPermission.vue').script).toMatch(/拦不住所有不可逆操作/);
     expect(perm).toMatch(/90 秒[^']*拒绝/);              // 没人回应会怎样，必须说
     expect(perm).toMatch(/permTier/);
     expect(perm).toMatch(/chat\.setPermTier\(/);  // 认调用形态，不认注释里的提及
@@ -69,5 +72,40 @@ describe('MU2b Task 5 设置模态：lib/settings/theme 纯模块（3 例）', (
     expect(titleBar).toContain("emit('toggle-rail')");
     // 新建会话入口从标题栏搬到 NavRail 顶部
     expect(fs.readFileSync(path.join(root, 'src/renderer/src/ui/NavRail.vue'), 'utf8')).toContain('新建会话');
+  });
+});
+
+describe('W1b-2g「完全访问」副标题如实：危险规则只按命令写法认', () => {
+  // 旧副标题「不再询问任何操作；不可逆的系统操作仍拦截」言过其实：危险规则是 permissions.ts 的两张表
+  // （DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），按命令写法匹配，换个写法的不可逆操作照样会执行。
+  // 剥注释后再认（sfcBlocks 按语法树剥）：注释里提到旧文案或举例都不算数。
+  const perm = fs.readFileSync(path.join(root, 'src/renderer/src/ui/settings/SecPermission.vue'), 'utf8');
+  const script = sfcBlocks(perm, 'SecPermission.vue').script;
+  const fullSub = /tier:\s*'full'[^}]*?\bsub:\s*'([^']*)'/.exec(script)?.[1] ?? '';
+
+  it('不再许诺「不可逆的系统操作仍拦截」，写明只按写法拦、拦不住所有不可逆操作', () => {
+    expect(fullSub, '没从 TIERS 里认出 full 档的 sub').not.toBe('');
+    expect(fullSub).not.toMatch(/不可逆的系统操作仍拦截/);
+    expect(script).not.toMatch(/不可逆的系统操作仍拦截/);
+    expect(fullSub).toMatch(/不再询问/);
+    expect(fullSub).toMatch(/按命令写法/);
+    expect(fullSub).toMatch(/拦不住所有不可逆操作/);
+  });
+
+  it('模板里也没有旧说法（有人把许诺挪进模板同样不行）', () => {
+    expect(sfcBlocks(perm, 'SecPermission.vue').template).not.toMatch(/不可逆的系统操作仍拦截/);
+  });
+
+  it('「每次确认」档如实：只读的本地命令同样不询问（旧副标题只说工作区内文件放行，W1b-2g 审查）', () => {
+    const askSub = /tier:\s*'ask'[^}]*?\bsub:\s*'([^']*)'/.exec(script)?.[1] ?? '';
+    expect(askSub, '没从 TIERS 里认出 ask 档的 sub').not.toBe('');
+    expect(askSub).toMatch(/只读/);
+    expect(askSub).toMatch(/90 秒/);
+  });
+
+  it('副标题举的例子真在危险表里：括号「（如 …）」里的每一个都交给 classifyShellCommand，必须判 danger', () => {
+    const examples = (/（如\s*([^）]+)）/.exec(fullSub)?.[1] ?? '').split('、').map((s) => s.trim()).filter(Boolean);
+    expect(examples.length, `副标题里没有举例：${fullSub}`).toBeGreaterThan(0);
+    for (const ex of examples) expect(classifyShellCommand(ex), ex).toBe('danger');
   });
 });

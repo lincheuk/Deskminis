@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** T 波：标题栏。frameless 窗口 + titleBarOverlay——系统在**右上角**画 min/max/close，
- *  所以右侧必须留出 140px 空位，否则我们的控件会被系统按钮压住（旧 TitleBar 踩过）。
+ *  所以右侧必须留出 146px 空位（下面 .bar 的 padding-right），否则我们的控件会被系统按钮压住（旧 TitleBar 踩过）。
+ *  这个宽度是写死的，页面缩放后不跟着重算；改由主进程推安全区宽度排在 W9c（W2b-11a 订正：这里原写 140px，与样式不符）。
  *  整条可拖拽，交互元素逐个 no-drag。 */
 import { computed } from 'vue';
 import { useChat } from '../stores/chat';
@@ -47,6 +48,13 @@ const syncDot = computed(() => {
       </button>
     </div>
   </header>
+  <!-- W2b-3 断线横幅：标题栏下方独立一行。标题栏右侧 146px 被系统 min/max/close 盖着，塞不进那一行；
+       走正常流、不设层级，舞台随之下移一行，不压住任何内容。重启的是整个应用（主进程 app:relaunch）。 -->
+  <div v-if="chat.connection === 'lost'" class="lost" role="alert">
+    <UiIcon name="alert" :size="16" />
+    <span class="lmsg">与后台服务的连接已断开。进行中的任务可能已中止，新的操作不会执行。</span>
+    <button class="f-btn primary" type="button" @click="chat.relaunchApp()">重启应用</button>
+  </div>
 </template>
 
 <style scoped>
@@ -76,4 +84,15 @@ const syncDot = computed(() => {
 .ib:hover { background: var(--c-bg-2); color: var(--c-ink); }
 .ib[aria-pressed="true"] { color: var(--c-ink); }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+/* W2b-3 断线横幅：错误浅底 + 错误色字（两套主题对比度都过 4.5，theme-contrast 钉着）。
+   不在拖拽区里（-webkit-app-region 只挂在标题栏上），按钮点得到。 */
+.lost {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+  background: var(--c-err-soft);
+  color: var(--c-err);
+  border-bottom: 1px solid var(--c-line);
+}
+.lmsg { flex: 1; min-width: 0; font-size: var(--t-item-size); line-height: var(--t-item-lh); }
 </style>

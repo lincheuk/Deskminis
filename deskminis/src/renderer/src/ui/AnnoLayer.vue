@@ -12,6 +12,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
 import { matchQuote, resolveOffsets, absoluteOffset, type WalkNode } from '../lib/annotations/anchor';
+import { placeBar, placePop } from '../lib/annotations/place';
 import UiIcon from './UiIcon.vue';
 
 const props = defineProps<{ host: HTMLElement | null }>();
@@ -26,6 +27,9 @@ const bar = ref<{ x: number; y: number } | null>(null);
 const pop = ref<{ id: string; x: number; y: number; exact: string } | null>(null);
 const noteText = ref('');
 const noteEl = ref<HTMLTextAreaElement | null>(null);
+/** 注释层自己的根 .anno。浮条与气泡 position:absolute 挂在它里面，落点的原点得量它，不能量 host（滚动区）：
+ *  两者顶边不一定重合——W2b-2 在滚动区之上加了提示行，host 往下挪了 48px，.anno 仍铺满整个 .stage。 */
+const layer = ref<HTMLElement | null>(null);
 
 function hideBar(): void { bar.value = null; pending = null; }
 function closePop(): void { pop.value = null; }
@@ -73,13 +77,11 @@ function onMouseUp(ev: MouseEvent | KeyboardEvent): void {
       quoteText: sel.toString(),
     };
     const rect = r.getBoundingClientRect();
+    const own = layer.value?.getBoundingClientRect();
     const box = props.host?.getBoundingClientRect();
-    if (!box) { hideBar(); return; }
-    // 74 ≈ 浮条半宽：translate(-50%) 锚中点，夹紧到半宽才保证整条不捅出列
-    bar.value = {
-      x: Math.min(Math.max(rect.left + rect.width / 2 - box.left, 74), box.width - 74),
-      y: Math.max(rect.top - box.top - 8, 8),
-    };
+    if (!own || !box) { hideBar(); return; }
+    // 原点是注释层自己，滚动区只当夹紧的边界（半宽、间距的由来见 lib/annotations/place）
+    bar.value = placeBar(own, box, rect);
   });
 }
 
@@ -98,15 +100,15 @@ function doAnnotate(): void {
 }
 
 function openPop(en: Entry, cx: number, cy: number): void {
+  const own = layer.value?.getBoundingClientRect();
   const box = props.host?.getBoundingClientRect();
-  if (!box) return;
+  if (!own || !box) return;
   noteText.value = en.note;
   pop.value = {
     id: en.id,
     exact: en.exact.length > 80 ? en.exact.slice(0, 80) + '…' : en.exact,
-    // 130 ≈ 气泡半宽（260px 卡）：夹紧到半宽整卡才不出列
-    x: Math.min(Math.max(cx - box.left, 130), box.width - 130),
-    y: Math.min(cy - box.top + 10, box.height - 40),
+    // 与浮条同一取法：原点是注释层自己，滚动区只当边界
+    ...placePop(own, box, cx, cy),
   };
   void nextTick(() => noteEl.value?.focus());   // 焦点进笔记框：Esc 关卡的键盘闭环由此成立
 }
@@ -196,7 +198,7 @@ defineExpose({ onMouseUp });
 </script>
 
 <template>
-  <div class="anno">
+  <div ref="layer" class="anno">
     <!-- mousedown.prevent 是必须的——默认 mousedown 会先塌掉选区，动作就没了对象。
          正因为如此，键盘通路只能另挂 keydown：改成 @click 会与鼠标路径重复触发。 -->
     <div v-if="bar" class="abar" role="toolbar" aria-label="选区操作" :style="{ left: `${bar.x}px`, top: `${bar.y}px` }">

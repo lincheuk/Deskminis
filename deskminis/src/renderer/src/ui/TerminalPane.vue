@@ -1,5 +1,10 @@
 <script setup lang="ts">
-/** V4：终端。会话的长驻 shell 实况——底部抽屉，全宽（244px 的右栏放不下一个终端）。
+/** V4：终端。本会话的交互式 PowerShell——底部抽屉，全宽（244px 的右栏放不下一个终端）。
+ *
+ *  它和 agent 跑命令用的 shell 是两套实例（minisd 里终端归 TerminalManager、shell_execute 归 ShellManager，
+ *  terminal.ts 自己也写着「与工具 shell 独立实例」），只是都起在本会话的工作区目录：cd、环境变量互不相通。
+ *  W2b-11a 订正：这里和标题行、连接提示原先都写「与 agent 共用同一个长驻 shell」，用户照着在终端里 cd、设变量，
+ *  以为 agent 接着用得上。
  *
  *  无 PTY 架构：minisd 侧终端驱动逐字符回显，前端**不做本地回显**，
  *  xterm 显示的一切都来自 terminal.attach 的滚动缓冲 + terminal.output 推送。
@@ -60,7 +65,7 @@ async function attach(sessionId: string): Promise<void> {
     if (r?.scrollback) term.write(String(r.scrollback));
     // 空滚动缓冲 = 这个会话的 shell 还没吐过任何东西。给一行灰提示，
     // 否则用户面对的是一整块纯黑，分不清「还没开始」和「坏了」。
-    else term.writeln('\x1b[90m[终端已连接。输入命令回车执行；这个 shell 与 agent 共用]\x1b[0m');
+    else term.writeln('\x1b[90m[终端已连接。输入命令回车执行；这是独立的 PowerShell，不与 agent 的 shell 共享 cd 和环境变量]\x1b[0m');
     const queued = pending; pending = []; attaching = false;
     for (const d of queued) term.write(d);
   } catch (e) {
@@ -74,6 +79,25 @@ onMounted(() => {
   term = new Terminal({
     fontFamily: '"Cascadia Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace',
     fontSize: 12, cursorBlink: true, scrollback: 5000, theme: readTheme(),
+    // W2b-6b：终端输出里的 OSC 8 超链接交给系统浏览器。不配 linkHandler 时 xterm 自己处理：先弹英文确认框，
+    // 再 window.open() 开一个空白窗口、事后改它的地址——主进程的新窗口守卫（W2b-6）只看得到 about:blank，
+    // 按规矩拒绝、交不出去，点了什么也不发生。这里把地址直接交给 window.open：主进程照样不开新窗口，
+    // 把 http / https 交给系统浏览器（main/index.ts 的 openInSystem）。
+    // OSC 8 的显示文字可以和地址不一样（输出里写着「文档」，指向的却是别的网站），所以先用确认框把真实地址给用户看，取消就不打开。
+    // 框里给的、交给 window.open 的都是规范形 new URL(uri).href，不是 xterm 交来的原文：原文里夹一个 U+202E（从右到左覆盖）
+    // 或一个同形字母（西里尔字母 U+0430），框里显示的主机就和实际去的不一样，显示文字骗人的把戏换到地址这一行上照样成立。
+    // 规范形里双向控制符被百分号转义、非 ASCII 的主机名成了 punycode（xn--…），和主进程 openInSystem 交给系统浏览器的
+    // 是同一个串。主机另起一行：https://apple.com@evil.example/ 这类地址前半截像 apple.com，真正去的是 @ 后面的主机。
+    // 解析不了就不打开，不回落成原文（不开 allowNonHttpProtocols 时 xterm 只交解析得了的 http / https，这里是兜底）。
+    // 不开 allowNonHttpProtocols：xterm 只让 http / https 的链接可点，javascript:、file: 之类根本不成链接。
+    linkHandler: {
+      activate: (_e, uri) => {
+        let link: URL;
+        try { link = new URL(uri); } catch { return; }
+        if (!window.confirm(`用系统浏览器打开这个链接吗？\n\n网站：${link.host}\n实际地址：${link.href}`)) return;
+        window.open(link.href);
+      },
+    },
   });
   fit = new FitAddon();
   term.loadAddon(fit);
@@ -105,7 +129,7 @@ onBeforeUnmount(() => {
   <section class="term">
     <header class="thead">
       <UiIcon name="terminal" :size="15" />
-      <span class="t-aux">终端 · 与 agent 共用同一个长驻 shell（cd 与环境变量互通）</span>
+      <span class="t-aux">终端 · 独立的 PowerShell，起在本会话工作区；不与 agent 的 shell 共享 cd 和环境变量</span>
       <button class="ib" type="button" title="收起终端" @click="emit('close')"><UiIcon name="x" :size="15" /></button>
     </header>
     <div ref="host" class="host"></div>
