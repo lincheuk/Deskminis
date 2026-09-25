@@ -168,6 +168,113 @@ describe('killTree', () => {
   });
 });
 
+/**
+ * W1b-5d（设计稿 §4.1）：killTree 返回「回收落定」的 Promise，关停等它跑完再关库退出。
+ * 以前 killTree 起了 taskkill 就返回，关停紧接着关库、exit(0)：taskkill 是 minisd 的直接子进程，随 minisd 退出被作业一并结束，
+ * 还没跑完的话，npx 拉起的 node、终端里的 dev server 这些孙进程没人收（libuv 的作业只收直接子进程，见 win-exec.ts 头注释）。
+ * 落定时机：win32 且有 pid 时等 taskkill 发 'exit'（非 0 先兜底杀根）或 'error'（先兜底）；同步抛错兜底后落定；
+ * 根进程已退出、非 win32、没有 pid 时立即落定。从不拒绝——关停与删除会话都不该因为收树失败而中断。
+ */
+describe('killTree 返回回收落定的 Promise（W1b-5d）', () => {
+  /** 排空微任务与已到期的 I/O 回调：落没落定，看这之后的标志 */
+  const drain = (): Promise<void> => new Promise((r) => setImmediate(r));
+  /** 记下落定的时刻根进程挨过哪几下 kill（undefined = 还没落定） */
+  function watch(p: Promise<unknown>, kills: unknown[]): { at: () => unknown[] | undefined } {
+    let seen: unknown[] | undefined;
+    void p.then(() => { seen = [...kills]; });
+    return { at: () => seen };
+  }
+
+  it('win32：taskkill 发 exit 之前不落定；exit(0) 之后落定，不兜底；taskkill 不设 detached', async () => {
+    const { calls, procs, spawnImpl } = fakeSpawn();
+    const { child, kills } = fakeChild();
+    const p = killTree(child, 'win32', spawnImpl, { SystemRoot: 'D:\\Win' }, 'SIGKILL');
+    const w = watch(p, kills);
+    await drain();
+    expect(w.at(), 'taskkill 还没跑完就落定了：关停会在收树之前关库退出').toBeUndefined();
+    // 不设 detached 的理由写在 win-exec.ts 头注释：设了就另开进程组、活过 minisd，而这时关停已经等它跑完
+    expect(calls[0].opts.detached).toBeUndefined();
+    procs[0].emit('exit', 0, null);
+    await expect(p).resolves.toBeUndefined();
+    expect(w.at()).toEqual([]);
+  });
+
+  it('taskkill 非 0 退出或被信号终止：先兜底 kill 根进程（带调用方的信号），再落定', async () => {
+    const a = fakeSpawn();
+    const ca = fakeChild();
+    const pa = killTree(ca.child, 'win32', a.spawnImpl, {}, 'SIGKILL');
+    const wa = watch(pa, ca.kills);
+    await drain();
+    expect(wa.at()).toBeUndefined();
+    a.procs[0].emit('exit', 128, null);
+    await pa;
+    expect(wa.at(), '落定时兜底已经做完').toEqual(['SIGKILL']);
+
+    const b = fakeSpawn();
+    const cb = fakeChild();
+    const pb = killTree(cb.child, 'win32', b.spawnImpl, {});
+    const wb = watch(pb, cb.kills);
+    b.procs[0].emit('exit', null, 'SIGTERM');
+    await pb;
+    expect(wb.at()).toEqual([undefined]);
+  });
+
+  it("taskkill 发 'error'：兜底后落定、不拒绝；之后又来 exit 也只兜底一次", async () => {
+    const { procs, spawnImpl } = fakeSpawn();
+    const { child, kills } = fakeChild();
+    const p = killTree(child, 'win32', spawnImpl, {}, 'SIGKILL');
+    const w = watch(p, kills);
+    await drain();
+    expect(w.at()).toBeUndefined();
+    procs[0].emit('error', new Error('spawn ENOENT'));
+    await expect(p).resolves.toBeUndefined();
+    expect(w.at()).toEqual(['SIGKILL']);
+    procs[0].emit('exit', 1, null);
+    await drain();
+    expect(kills).toEqual(['SIGKILL']);
+  });
+
+  it('taskkill 同步抛错：兜底后落定、不拒绝', async () => {
+    const { spawnImpl } = fakeSpawn('throw');
+    const { child, kills } = fakeChild();
+    const p = killTree(child, 'win32', spawnImpl, {}, 'SIGKILL');
+    await expect(p).resolves.toBeUndefined();
+    expect(kills).toEqual(['SIGKILL']);
+  });
+
+  it('根进程自己的 kill 抛错（兜底失败）：照样落定、不拒绝', async () => {
+    const { procs, spawnImpl } = fakeSpawn();
+    const child = { pid: 7, kill: () => { throw new Error('ESRCH'); } } as unknown as ChildProcess;
+    const p = killTree(child, 'win32', spawnImpl, {});
+    procs[0].emit('exit', 1, null);
+    await expect(p).resolves.toBeUndefined();
+    await expect(killTree(child, 'linux', spawnImpl, {})).resolves.toBeUndefined();
+  });
+
+  it('非 win32、win32 但没有 pid、根进程已退出：不等任何子进程，立即落定', async () => {
+    const settledNow = async (p: Promise<unknown>): Promise<boolean> => {
+      let done = false;
+      void p.then(() => { done = true; });
+      await drain();
+      return done;
+    };
+    const lin = fakeSpawn();
+    const cl = fakeChild();
+    expect(await settledNow(killTree(cl.child, 'linux', lin.spawnImpl, {}, 'SIGKILL'))).toBe(true);
+    expect(cl.kills).toEqual(['SIGKILL']);
+
+    const nopid = fakeSpawn();
+    const cn = fakeChild(null);
+    expect(await settledNow(killTree(cn.child, 'win32', nopid.spawnImpl, {}))).toBe(true);
+    expect(nopid.calls).toHaveLength(0);
+
+    const gone = fakeSpawn();
+    const exited = { pid: 15521, exitCode: 0, signalCode: null, kill: () => true } as unknown as ChildProcess;
+    expect(await settledNow(killTree(exited, 'win32', gone.spawnImpl, {}))).toBe(true);
+    expect(gone.calls).toHaveLength(0);
+  });
+});
+
 describe('childEnv：子进程环境剥掉 DESKMINIS_*（§3 第 10 条）', () => {
   it('继承来的与显式传入的 DESKMINIS_* 都剥掉（前缀不分大小写），其余照传，显式值盖过继承值', () => {
     const base = {

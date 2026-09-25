@@ -3,6 +3,7 @@
  *   许可：MIT，Copyright (c) 2025 Mario Zechner（全文见仓库根 THIRD-PARTY-NOTICES.md）
  *   本文件已修改：SystemRoot 先校验是盘符开头的绝对路径，否则回落 C:\Windows，路径用 path.win32 拼；不设 detached；
  *   taskkill 出错或非 0 退出时再兜底杀根进程；根进程已退出时什么都不做（旧 pid 可能已被复用）；
+ *   返回在 taskkill 退出（或兜底之后）才落定、从不拒绝的 Promise，关停时等它；
  *   平台、spawn 与环境可注入；另加 system32、powershellPath 两个路径函数。 */
 
 /**
@@ -18,9 +19,23 @@
  * 代价是 interrupt 之后旧驱动还要活几百毫秒；超时路径已先以 124 收口，interrupt 路径靠 'close' 结算，
  * taskkill 失败时必有兜底，所以不会悬挂。
  *
- * 为什么不设 detached：minisd 退出时（index.ts close）异步的 taskkill 可能来不及跑。libuv 在 Windows 上把
- * 非 detached 的子进程放进「作业关闭即杀」的作业对象（推断，需真机确认），minisd 一退出整棵树由系统回收；
- * taskkill 设成 detached 反而会脱离这个作业。
+ * 为什么关停要等 taskkill 跑完（W1b-5d 订正；依据是 libuv 源码 src/win/process.c 的 uv__init_global_job_handle
+ * 与 uv_spawn，没有在 Windows 真机上验证过）：libuv 把非 detached 的子进程放进一个全局作业对象，作业带
+ * JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE，minisd 一退，作业句柄关闭，作业里的进程被系统一并结束。但作业同时带
+ * JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK（源码注释原话：only the processes that we explicitly add are affected,
+ * and *their* subprocesses are not），只收 minisd 亲手起的直接子进程——cmd.exe、powershell.exe，还有 taskkill 自己；
+ * 它们再起的孙进程（npx 拉起的 node、终端里的 dev server、shell 里的 ping -t）不在作业里，minisd 退了照样活着。
+ * 这里原先写的「minisd 一退出整棵树由系统回收」不成立。孙进程只有 taskkill /T 收得到，而 taskkill 自己在作业里：
+ * 不等它跑完就退出，它会被一并结束，孙进程留成孤儿。所以 killTree 返回 taskkill 退出（或兜底杀根）之后才落定的
+ * Promise，关停第 6 步等它（上限 REAP_WAIT_MS，见 index.ts 的 shutdown）。
+ *
+ * 为什么 taskkill 仍不设 detached：关停已经等它跑完，正常关停用不着它活过 minisd。设了的话，libuv 以
+ * DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP 起它、不放进作业：另开一个进程组，脱离 minisd 的生命周期；
+ * minisd 退了之后没人再握着根进程的句柄，根的 pid 可以被系统复用，迟到的 taskkill /pid 会落到无关的进程树上
+ * （下面 killTree 开头跳过已退出的根，防的是同一件事）。
+ *
+ * 已知边界：等待超过上限、引擎崩溃或被主进程强杀时，taskkill 来不及跑完，孙进程会留下。
+ * 根治要自建不带 breakaway 的作业对象，把子进程和它们再起的进程都收进去（排在 W6）。
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { win32 } from 'node:path';
@@ -70,6 +85,9 @@ export function powershellPath(env: NodeJS.ProcessEnv = process.env): string {
  * - 其余（非 win32，或 spawn 就失败了没有 pid）：直接 child.kill(signal)。
  * - 根进程已经自己退出（exitCode 或 signalCode 已有值）：什么都不做，任何平台都一样。
  * signal 缺省不传，child.kill() 用 Node 的默认信号；shell 与终端传 'SIGKILL'，与原来的行为一致。
+ * 返回回收落定的 Promise，从不拒绝（W1b-5d）：起了 taskkill 的，等它发 'exit'（非 0 先兜底）或 'error'（先兜底）才落定；
+ * 其余情形（taskkill 同步抛错已兜底、非 win32、没有 pid、根已退出）立即落定。taskkill 一直不退就一直不落定，
+ * 等多久由等它的一方定（关停第 6 步最多等 REAP_WAIT_MS）。interrupt、超时、删除会话、MCP 握手失败这些调用点不等它，行为照旧。
  */
 export function killTree(
   child: ChildProcess,
@@ -77,14 +95,14 @@ export function killTree(
   spawnImpl: typeof spawn = spawn,
   env: NodeJS.ProcessEnv = process.env,
   signal?: NodeJS.Signals,
-): void {
+): Promise<void> {
   // 根进程已经自己退出（Node 填好 exitCode / signalCode 再发 'exit'，同时关掉进程句柄）：直接返回。
   // 句柄一关，Windows 就可以把这个 pid 发给别的进程，taskkill /pid <旧 pid> /T /F 杀的会是一棵无关的树；
   // 原来 shell 与终端用的按句柄 proc.kill 对已退出的进程什么都不做，不会有这个问题。
   // 跳过不丢回收能力：根不在了，taskkill /T 本来也按这个 pid 找不到它留下的孙进程。
   // 'exit' 到达之前 Node 还握着句柄，Windows 不复用仍被句柄引用的 pid，那段时间起 taskkill 是安全的。
   // 用宽松的 != null：测试里的假子进程常不带这两个字段（undefined），按「还活着」处理。
-  if (child.exitCode != null || child.signalCode != null) return;
+  if (child.exitCode != null || child.signalCode != null) return Promise.resolve();
   let fellBack = false;
   const fallback = (): void => {
     if (fellBack) return; // 'error' 之后可能还有 'exit'，只兜一次
@@ -93,16 +111,19 @@ export function killTree(
   };
   if (platform !== 'win32' || typeof child.pid !== 'number') {
     fallback();
-    return;
+    return Promise.resolve();
   }
   let tk: ChildProcess;
   try {
     tk = spawnImpl(system32('taskkill.exe', env), ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
   } catch {
     fallback(); // taskkill 起不来不该炸宿主
-    return;
+    return Promise.resolve();
   }
-  // 常挂 'error' 监听：没有监听器的 'error' 会冒泡成未捕获异常，杀死整个 minisd
-  tk.on('error', fallback);
-  tk.on('exit', (code: number | null) => { if (code !== 0) fallback(); });
+  return new Promise<void>((resolve) => {
+    // 常挂 'error' 监听：没有监听器的 'error' 会冒泡成未捕获异常，杀死整个 minisd。
+    // 两个事件都可能来（'error' 之后还有 'exit'）：兜底只做一次，先兜底再落定，resolve 重复调用无害
+    tk.on('error', () => { fallback(); resolve(); });
+    tk.on('exit', (code: number | null) => { if (code !== 0) fallback(); resolve(); });
+  });
 }

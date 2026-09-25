@@ -56,6 +56,8 @@ export class McpHttpClient {
   private readonly fetchImpl: typeof fetch;
   private sessionId: string | null = null;
   private disposed = false;
+  /** DELETE 告别落定（成败都算）的 promise；没发告别时是已落定的（W1b-5d） */
+  private farewell: Promise<void> = Promise.resolve();
   private nextId = 0;
   /** dispose 的总闸：中止全部在途 fetch（DELETE 告别请求单独走，不挂此信号） */
   private disposeController = new AbortController();
@@ -105,20 +107,24 @@ export class McpHttpClient {
     return this.request('tools/call', { name, arguments: args ?? {} }, { ...this.callOpts(), signal: opts?.signal });
   }
 
-  /** 中止全部在途请求；有会话则尽力 DELETE 告别（失败静默）；幂等 */
-  dispose(): void {
-    if (this.disposed) return;
+  /** 中止全部在途请求；有会话则尽力 DELETE 告别（失败静默）；幂等。
+   *  返回告别落定（成败都算、从不拒绝）的 Promise，重复调用拿到同一个；没有会话、不发告别时立即落定。
+   *  关停第 6 步等它（W1b-5d）：不等的话 minisd 随即退出，告别可能还没发出去，服务器那边的会话只能等它自己过期；
+   *  forget、空闲驱逐、试连这些路径不等。 */
+  dispose(): Promise<void> {
+    if (this.disposed) return this.farewell;
     this.disposed = true;
     this.closed = true;
     this.disposeController.abort();
     if (this.sessionId !== null) {
       // 告别请求不挂 dispose 信号（否则发出瞬间即自灭），只给超时兜底
-      void this.fetchImpl(this.url, {
+      this.farewell = this.fetchImpl(this.url, {
         method: 'DELETE',
         headers: { 'mcp-session-id': this.sessionId },
         signal: AbortSignal.timeout(this.callTimeoutMs),
-      }).catch(() => {});
+      }).then(() => undefined, () => undefined);
     }
+    return this.farewell;
   }
 
   private callOpts(): RequestOpts {

@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, MINISD_SHUTDOWN_MESSAGE } from '../src/main/minisd-stop';
-import { CLOSE_GRACE_MS } from '../src/minisd/index';
+import { CLOSE_GRACE_MS, REAP_WAIT_MS } from '../src/minisd/index';
 
 function fakeChild(opts: { postThrows?: boolean } = {}) {
   const posted: unknown[] = [];
@@ -104,9 +104,13 @@ describe('MinisdExitWatch 的退出记录（唯一 exit 监听写入，W2b-7 复
 });
 
 describe('时限的相对关系', () => {
-  it('主进程兜底不超过 5 秒，且比 minisd 等 run 收尾的 graceMs 至少多 1 秒（留给关库与 WAL checkpoint）', () => {
+  // W1b-5d 有意重指：原断言只算 minisd 等 run 收尾的 graceMs（MINISD_STOP_TIMEOUT_MS - CLOSE_GRACE_MS >= 1000）。
+  // 关停第 6 步现在还要等子进程树回收（taskkill 跑完），上限 REAP_WAIT_MS，两段等待是先后相加的；
+  // 只算一段的话，把 REAP_WAIT_MS 调大到吃掉余量也照样绿，主进程会在 minisd 关库之前 kill 它。
+  it('主进程兜底不超过 5 秒，且比 minisd 关停里两段等待（run 收尾 graceMs + 子进程树回收 REAP_WAIT_MS）之和至少多 1 秒（留给关桥、rpc、关库与 WAL checkpoint）', () => {
     expect(MINISD_STOP_TIMEOUT_MS).toBeLessThanOrEqual(5000);
-    expect(MINISD_STOP_TIMEOUT_MS - CLOSE_GRACE_MS).toBeGreaterThanOrEqual(1000);
+    expect(REAP_WAIT_MS, '回收要等，上限不能是 0').toBeGreaterThan(0);
+    expect(MINISD_STOP_TIMEOUT_MS - (CLOSE_GRACE_MS + REAP_WAIT_MS)).toBeGreaterThanOrEqual(1000);
   });
 });
 

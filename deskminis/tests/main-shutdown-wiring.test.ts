@@ -16,6 +16,9 @@
  *  - minisd 的 standalone 分支接 parentPort 的 shutdown 消息，交给 closeThenExit（close 做完才退，行为测试在
  *    tests/shutdown-partial-reply.test.ts）；分支里别处不许 process.exit(。
  *  - minisd 的 shutdown：closing 置真之后紧跟 try，每一步各自兜住，关库放锁在 finally 里。
+ *    第 6 步（W1b-5d）：终端、shell、MCP 的 disposeAll 各作为一步交给 await shutdownReap(…)，各自兜住地发起、
+ *    一起等回收落定（上限 reapWaitMs），等完才关桥与 rpc；「等不等、等多久、一步抛错其余照做」的行为测试在
+ *    tests/shutdown-reap.test.ts，这里只认接线。
  * 纯逻辑（超时 kill、幂等、退出记录）的行为测试在 tests/minisd-stop.test.ts。
  * 源码先剥注释再匹配：注释里写着旧调用也不能喂饱断言（handoff §2.10）。
  */
@@ -181,7 +184,9 @@ describe('minisd：shutdown 的每一步各自兜住，关库放锁在 finally',
   });
 
   it('同步的步骤都包在 shutdownStep(…) 里：一步抛错只记一笔，后面的 abort、销毁子进程照做', () => {
-    for (const call of ['syncCoordinator.stop()', "denyPendingPerms('all', 'shutdown')", 'terminals.disposeAll()', 'shells.disposeAll()', 'mcpManager.disposeAll()']) {
+    // W1b-5d 有意重指：三个 disposeAll 原来也在这张表里（各自一句同步的 shutdownStep）。它们现在返回回收落定的 Promise，
+    // 改由下一条的 shutdownReap 各自兜住地发起、一起限时等待；这里只留仍是同步一步的两项
+    for (const call of ['syncCoordinator.stop()', "denyPendingPerms('all', 'shutdown')"]) {
       const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       expect(body.match(new RegExp(esc, 'g')) ?? [], call).toHaveLength(1);
       expect(body, call).toMatch(new RegExp(`\\bshutdownStep\\('[^']+',\\s*\\(\\)\\s*=>\\s*${esc}\\);`));
@@ -190,6 +195,35 @@ describe('minisd：shutdown 的每一步各自兜住，关库放锁在 finally',
       const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       expect(body.match(new RegExp(esc, 'g')) ?? [], call).toHaveLength(1);
       expect(body, call).toMatch(new RegExp(`\\bawait shutdownStepAsync\\('[^']+',\\s*\\(\\)\\s*=>\\s*${esc}\\);`));
+    }
+  });
+
+  it('第 6 步（W1b-5d）：三个 disposeAll 各是 await shutdownReap([…], reapWaitMs) 的一步；等完才关桥与 rpc', () => {
+    // 审查要防的回退：退回同步的三句 shutdownStep（起了 taskkill 不等就关库退出，孙进程成孤儿）、
+    // 只把其中一两个交给等待、或者等待挪到关桥 / 关 rpc 之后。等的行为（落定前不关库、上限、一步抛错其余照做）
+    // 由 tests/shutdown-reap.test.ts 按行为钉住
+    const head = /\bawait shutdownReap\(/;
+    const at = body.search(head);
+    expect(at, 'shutdown 里要 await shutdownReap(…)').toBeGreaterThan(-1);
+    expect(body.match(/\bshutdownReap\(/g) ?? [], '只调一次').toHaveLength(1);
+    // 取出这次调用的实参（按圆括号配对）
+    const open = body.indexOf('(', at);
+    let depth = 1; let i = open + 1;
+    for (; i < body.length && depth > 0; i++) {
+      if (body[i] === '(') depth++;
+      else if (body[i] === ')') depth--;
+    }
+    const args = body.slice(open + 1, i - 1);
+    for (const call of ['terminals.disposeAll()', 'shells.disposeAll()', 'mcpManager.disposeAll()']) {
+      const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expect(body.match(new RegExp(esc, 'g')) ?? [], `${call} 在 shutdown 里只出现一次`).toHaveLength(1);
+      expect(args, `${call} 是 shutdownReap 的一步 ['名字', () => …]`).toMatch(new RegExp(`\\[\\s*'[^']+',\\s*\\(\\)\\s*=>\\s*${esc}\\s*\\]`));
+    }
+    expect(args, '上限是 reapWaitMs（注入值，缺省 REAP_WAIT_MS）').toMatch(/\],?\s*\],\s*reapWaitMs\s*$/);
+    for (const call of ['bridge?.close()', 'rpc.close()']) {
+      const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expect(body.search(new RegExp(`await shutdownStepAsync\\('[^']+',\\s*\\(\\)\\s*=>\\s*${esc}\\)`)), `${call} 要排在等回收之后`)
+        .toBeGreaterThan(at);
     }
   });
 

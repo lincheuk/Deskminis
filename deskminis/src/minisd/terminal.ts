@@ -111,11 +111,13 @@ export class TerminalSession {
     this.emit(chunk);
   }
 
-  dispose(): void {
+  /** 返回回收落定的 Promise（见 killTree，从不拒绝）：关停第 6 步等它，删除会话不等（W1b-5d）。 */
+  dispose(): Promise<void> {
     this.disposed = true;
     // 杀整棵树（win32 走 taskkill /T，不同步先杀根）：用户在终端里起的 dev server、ping -t 要跟着走。killTree 自己吞错。
-    if (this.proc) killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv, 'SIGKILL');
+    const reaped = this.proc ? killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv, 'SIGKILL') : Promise.resolve();
     this.proc = undefined;
+    return reaped;
   }
 }
 
@@ -143,14 +145,22 @@ export class TerminalManager {
     this.get(sessionId).input(data);
   }
 
-  dispose(sessionId: string): void {
-    this.sessions.get(sessionId)?.dispose();
+  /** 返回回收落定的 Promise；删除会话不等它，行为照旧。 */
+  dispose(sessionId: string): Promise<void> {
+    const reaped = this.sessions.get(sessionId)?.dispose() ?? Promise.resolve();
     this.sessions.delete(sessionId);
+    return reaped;
   }
 
-  disposeAll(): void {
-    for (const s of this.sessions.values()) s.dispose();
+  /** 关停收口（W1b-5d）：销毁全部终端，返回全部回收落定的 Promise（从不拒绝），关停第 6 步等它。
+   *  一个会话的回收同步抛错只记一笔，其余会话照样回收：不然排在它后面的终端树都没人收。 */
+  disposeAll(): Promise<void> {
+    const reaped: Promise<void>[] = [];
+    for (const [sessionId, s] of this.sessions) {
+      try { reaped.push(s.dispose()); } catch (e) { console.warn(`销毁终端（会话 ${sessionId}）失败，继续其余会话:`, e); }
+    }
     this.sessions.clear();
+    return Promise.allSettled(reaped).then(() => undefined);
   }
 
   private get(sessionId: string): TerminalSession {

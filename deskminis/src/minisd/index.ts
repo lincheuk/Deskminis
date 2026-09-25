@@ -65,6 +65,7 @@ import { BridgeServer, bridgePipePath, makeBridgeEnv, resolveBridgeCliPath, reso
 import { detectBridgeTriggers } from './bridge/detect';
 import { makeBridgeDispatcher } from './bridge/handlers';
 import { TerminalManager } from './terminal';
+import type { ProcOpts } from './proc/win-exec';
 import { FilesService } from './files';
 
 export { SYSTEM_PROMPT } from './agent/system-prompt';
@@ -236,9 +237,16 @@ const RUN_STOP_TIMEOUT_MS = 10_000;
 
 /** 关停时等在跑的 run 收尾的上限（W1b-5 · lifecycle.md W1b-quit）。abort 之后 run 还要把半截回复、[已取消] 的 toolResult
  *  写进库，不等就关库，这些写入全撞上「database connection is not open」。
- *  必须比主进程的 MINISD_STOP_TIMEOUT_MS（5 秒，src/main/minisd-stop.ts）小至少 1 秒，留给销毁子进程、关库与 WAL checkpoint；
- *  两者的关系由 tests/minisd-stop.test.ts 钉住。不理会 abort 的调用（部分 MCP）会把等待拖满这个上限。 */
+ *  它与第 6 步等子进程树回收的 REAP_WAIT_MS 是先后两段等待（W1b-5d）：两者相加必须比主进程的 MINISD_STOP_TIMEOUT_MS
+ *  （5 秒，src/main/minisd-stop.ts）小至少 1 秒，留给关桥、关 rpc、关库与 WAL checkpoint——超过主进程的时限，minisd 会在
+ *  关库之前被 kill。三者的关系由 tests/minisd-stop.test.ts 钉住。不理会 abort 的调用（部分 MCP）会把等待拖满这个上限。 */
 export const CLOSE_GRACE_MS = 3_000;
+
+/** 关停第 6 步等子进程树回收的上限（W1b-5d · 设计稿 §4.1）。Windows 上终端、shell、MCP 的回收是起 taskkill /T 收整棵树，
+ *  taskkill 是 minisd 的直接子进程：不等它跑完就退出，它会随 libuv 的作业一并被结束，孙进程没人收（proc/win-exec.ts 头注释）。
+ *  卡住的 taskkill（系统繁忙、被安全软件拦住）不能把关停拖过主进程的强杀时限：到点照样往下关桥、rpc 与库，没收完的孙进程留下。
+ *  与 CLOSE_GRACE_MS 相加必须比 MINISD_STOP_TIMEOUT_MS 小至少 1 秒（见上，tests/minisd-stop.test.ts 钉住）。 */
+export const REAP_WAIT_MS = 1_000;
 
 /** 关停开始后拒绝新运行时的报错（chat.prompt、定时任务）。 */
 const CLOSING_MESSAGE = '后台正在关闭';
@@ -252,6 +260,34 @@ async function shutdownStepAsync(what: string, fn: () => Promise<unknown> | unde
   try { await fn(); } catch (e) { console.warn(`关停：${what}失败，继续后面的步骤:`, e); }
 }
 
+/** 关停第 6 步的一项：[名字, 发起回收]。发起时返回的 Promise 在回收落定时落定；不返回 Promise 的当场算落定。 */
+export type ReapStep = readonly [what: string, reap: () => Promise<unknown> | void];
+
+/** 关停第 6 步（W1b-5d）：销毁终端、shell、MCP，并等它们的子进程树回收落定。
+ *  每项当场发起、各自兜住（shutdownStep 的语义）：一项同步抛错或返回的 Promise 拒绝，只记一笔，其余照样发起、照样等。
+ *  全部落定返回 'done'；到 limitMs 还有没落定的，记一笔、返回 'timeout'，调用方照样往下关桥、rpc 与库。永不拒绝。
+ *  抽成导出函数，是为了与 closeThenExit 一样按行为测（tests/shutdown-reap.test.ts）。 */
+export async function shutdownReap(steps: readonly ReapStep[], limitMs: number): Promise<'done' | 'timeout'> {
+  const reaping = steps.map(([what, reap]) => {
+    const failed = (e: unknown): void => { console.warn(`关停：${what}失败，继续后面的步骤:`, e); };
+    try {
+      return Promise.resolve(reap()).then(() => undefined, failed);
+    } catch (e) {
+      failed(e);
+      return Promise.resolve();
+    }
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<'timeout'>(r => { timer = setTimeout(() => r('timeout'), limitMs); });
+  try {
+    const outcome = await Promise.race([Promise.all(reaping).then(() => 'done' as const), expired]);
+    if (outcome === 'timeout') console.warn(`关停：等子进程树回收超过 ${limitMs}ms，照样往下关（没收完的孙进程会留下）`);
+    return outcome;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** standalone 收到主进程的 shutdown 之后（W1b-5）：等启动完成 → 有序 close → 做完（成败都算）才 exit(0)。
  *  启动失败不管：reportStartupFailure 写完致命行后自己以 1 退出。
  *  抽成函数是为了按行为测「close 做完之前不退出」（tests/shutdown-partial-reply.test.ts）：
@@ -263,8 +299,14 @@ export function closeThenExit(starting: Promise<Pick<MinisdHandle, 'close'>>, ex
   );
 }
 
-/** runStopTimeoutMs：删除运行中会话时等收尾的上限，缺省 RUN_STOP_TIMEOUT_MS（测试注入短值验超时分支）。 */
-export type StartMinisdOpts = { dataDir?: string; host?: string; port?: number; permTimeoutMs?: number; runStopTimeoutMs?: number };
+/** runStopTimeoutMs：删除运行中会话时等收尾的上限，缺省 RUN_STOP_TIMEOUT_MS（测试注入短值验超时分支）。
+ *  reapWaitMs：关停时等子进程树回收的上限，缺省 REAP_WAIT_MS（测试注入短值验上限分支）。
+ *  proc：终端与 shell 子进程的平台、spawn 与环境，原样透传给 TerminalManager / ShellManager。生产不传；
+ *  测试在 Linux 上注入 platform 'win32' 与假 spawn，才走得到 taskkill 那条要等的分支（W1b-5d）。 */
+export type StartMinisdOpts = {
+  dataDir?: string; host?: string; port?: number; permTimeoutMs?: number; runStopTimeoutMs?: number;
+  reapWaitMs?: number; proc?: ProcOpts;
+};
 /** close：graceMs 是等在跑 run 收尾的上限，缺省 CLOSE_GRACE_MS。幂等，重复调用拿到同一个 promise。 */
 export type MinisdHandle = { port: number; listenPort: number; authToken: string; bridgePipe?: string; close(opts?: { graceMs?: number }): Promise<void> };
 
@@ -420,10 +462,10 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
 
   // 终端面板：交互式 powershell 独立实例（env 注入 MINIS_* 桥环境变量，#8 决策落地：用户可在终端手动调桥命令）
   const terminals = new TerminalManager(paths, (sessionId, data) => rpc.broadcast('terminal.output', { sessionId, data }),
-    sessionId => makeBridgeEnv(sessionId, bridgePipe, bridgeCli, bridgeNode));
+    sessionId => makeBridgeEnv(sessionId, bridgePipe, bridgeCli, bridgeNode), opts?.proc);
   const filesSvc = new FilesService(paths);
 
-  const shells = new ShellManager();
+  const shells = new ShellManager(opts?.proc);
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
   // U4 Office 文档：读走结构化文本、写从结构化 JSON 产出（权限门与 file_* 同一道）
@@ -496,6 +538,7 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
    *  别处无法等它——删除只能不等就删，晚到的写入全成孤儿行。 */
   const runs = new Map<string, Promise<void>>();
   const runStopTimeoutMs = opts?.runStopTimeoutMs ?? RUN_STOP_TIMEOUT_MS;
+  const reapWaitMs = opts?.reapWaitMs ?? REAP_WAIT_MS;
   /** 关停已开始（W1b-5）：close() 的第一步置真，此后 chat.prompt 与定时任务一律拒绝——
    *  否则 close 正在等旧 run 收尾时又起一个新 run，它不在等待名单里，会在关库之后照写不误。 */
   let closing = false;
@@ -1412,13 +1455,13 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
    *   2. 停同步与调度器；
    *   3. 按 'shutdown' 了结全部挂起的权限卡（含不属于在跑 run 的，例如终端里桥命令发起的）；
    *   4-5. 逐个 stopRun：abort 并等收尾，与 graceMs 赛跑（并发等，总时长不超过 graceMs）；
-   *   6. 销毁终端、shell、MCP，关桥与 rpc；
+   *   6. 销毁终端、shell、MCP，等它们的子进程树回收落定（上限 reapWaitMs，W1b-5d），再关桥与 rpc；
    *   7. 关库；
    *   8. 释放数据根锁——库关了才让别的实例进来（设计稿 §3 第 9 条）。
    *  第 3、4 步在同一段同步代码里：工具在权限闸之后先看取消，落库的是 [已取消]，不是「被用户拒绝」。
-   *  第 2–6 步每一步各自兜住（shutdownStep）：一步抛错只记一笔，后面的 abort、销毁子进程照做——审查实测，
-   *  以前第 3 步的审计写入一抛，run 没中止、MCP 与 PowerShell 子进程没销毁（Windows 上成孤儿），关库放锁也被跳过，
-   *  同一进程里这个根再也打不开。第 7、8 步在 finally 里，兜住之外的意外也挡不住它们。 */
+   *  第 2–6 步每一步各自兜住（shutdownStep / shutdownReap / shutdownStepAsync）：一步抛错只记一笔，后面的 abort、
+   *  销毁子进程照做——审查实测，以前第 3 步的审计写入一抛，run 没中止、MCP 与 PowerShell 子进程没销毁（Windows 上成孤儿），
+   *  关库放锁也被跳过，同一进程里这个根再也打不开。第 7、8 步在 finally 里，兜住之外的意外也挡不住它们。 */
   async function shutdown(graceMs: number): Promise<void> {
     closing = true;
     try {
@@ -1430,9 +1473,13 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       await Promise.all([...runs.keys()].map(sessionId => stopRun(sessionId, graceMs, 'shutdown').catch((e: unknown) => {
         console.warn(`关停：停会话 ${sessionId} 失败，继续后面的步骤:`, e);
       })));
-      shutdownStep('销毁终端', () => terminals.disposeAll());
-      shutdownStep('销毁 shell', () => shells.disposeAll());
-      shutdownStep('断开 MCP', () => mcpManager.disposeAll());
+      // 第 6 步（W1b-5d）：三者都当场发起，再一起等回收落定，最多等 reapWaitMs。以前起了 taskkill 不等就往下关库、
+      // standalone 随即 exit(0)：taskkill 随 minisd 的作业一起被结束，npx 拉起的 node、终端里的 dev server 没人收（proc/win-exec.ts）
+      await shutdownReap([
+        ['销毁终端', () => terminals.disposeAll()],
+        ['销毁 shell', () => shells.disposeAll()],
+        ['断开 MCP', () => mcpManager.disposeAll()],
+      ], reapWaitMs);
       await shutdownStepAsync('关桥', () => bridge?.close());
       await shutdownStepAsync('关 rpc', () => rpc.close());
     } finally {
