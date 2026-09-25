@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, onTestFinished } from 'vitest';
 import { buildSkillsBlock, tierSkills, type PromptSkill } from '../src/minisd/skills/prompt';
 import { join, resolve, isAbsolute, win32 } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { classifyShellCommand, PermissionGatewayImpl } from '../src/minisd/tools/permissions';
 import { dataGate } from '../src/minisd/tools/data-gate';
@@ -165,16 +165,21 @@ describe('W1b-2b：溢出提示给的查找方式在默认档下零卡', () => {
           }
         } else {
           expect.soft(FREE_SKILL_READERS.has(tool), `${tool} 不是读 skills 目录免审的文件工具`).toBe(true);
-          // 文件工具的基准是 skillsRoot，命中后读的是它下面的 SKILL.md：两者按 win32 语义都应免审
-          for (const p of [skillsRoot, win32.join(skillsRoot, 's00', 'SKILL.md')]) {
+          // 零卡由「工具 + 路径」两样决定：提示里实际给出的每个盘符路径都要按 win32 语义判免审（三审 M16w / M17：
+          // 只判写死的 skillsRoot 时，提示改叫 file_grep 去搜整个数据根、或 file_read 读 mcp-servers\servers.json，照样全绿，
+          // 默认档却每次弹卡）。命中后读的 SKILL.md 提示里不写全路径，另外判一条
+          const given = [...prose.matchAll(/[A-Za-z]:\\[^"\s，。；、（）()]*/g)].map(m => m[0]);
+          expect.soft(given.length, `${tool}: 提示里一个盘符路径都没抽到，下面的判定会落空`).toBeGreaterThan(0);
+          for (const p of [...given, win32.join(skillsRoot, 's00', 'SKILL.md')]) {
             expect.soft(dataGate(p, scope, 'read', { platform: 'win32' }), `${tool}: ${p}`).toEqual({ verdict: 'free' });
           }
         }
       }
       // 上面只管点了名的工具。点到技能目录却不点名工具的句子（如「也可以在命令行里执行 dir "<skillsRoot>"」）同样会把
-      // 模型引到 shell 上，而且逃过上面的判定：凡提到 skillsRoot 的行都得点名至少一个工具（点名的都已在上面判过免审）
-      for (const line of prose.split('\n').filter(l => l.includes(skillsRoot))) {
-        expect.soft(namedTools(line).length, `这一行点到技能目录却没说用哪个工具：${line}`).toBeGreaterThan(0);
+      // 模型引到 shell 上，而且逃过上面的判定：凡提到 skillsRoot 的分句都得点名至少一个工具（点名的都已在上面判过免审）。
+      // 按分句切而不是按行：同一行前半句点名了文件工具，后半句「也可在命令行执行 dir …」按行判就蒙混过去了（三审 M11）
+      for (const clause of prose.split(/[\n，。；]/).filter(c => c.includes(skillsRoot))) {
+        expect.soft(namedTools(clause).length, `这一句点到技能目录却没说用哪个工具：${clause}`).toBeGreaterThan(0);
       }
       // 两个数据根都判完再报：soft 断言让正式版与开发态的结果一起出现在失败输出里
       expect.soft(asked.map(r => `${r.kind}: ${r.detail}`), `照 ${skillsRoot} 的提示去找技能弹了卡`).toEqual([]);
@@ -192,6 +197,7 @@ describe('W1b-2b：溢出提示给的查找方式在默认档下零卡', () => {
       }
     }
     const root = mkdtempSync(join(tmpdir(), 'dm-skill-hint-'));
+    onTestFinished(() => rmSync(root, { recursive: true, force: true }));
     const paths = new HostAbsPaths(root);
     paths.ensureSessionDirs('S1');
     const skillsRoot = paths.globalDir('skills');
