@@ -150,11 +150,15 @@ describe('卸载读回（loop 级，真实 file_read）', () => {
 });
 
 describe('OffloadEngine.offload 桩的第三行按长度如实', () => {
-  it('⑤ 超过 READBACK_MAX：桩说明 file_read 只能取回前 50000 字符，不再说「取回完整内容」', () => {
+  it('⑤ 超过 READBACK_MAX：桩直接给分段读法（offset 从 0 起、每段 limit 不超过 50000），不再说「取回完整内容」', () => {
+    // 不再说「整读可取回前 50000 字符」：卸载文件落盘超过 1MB 时整读先报超限，白走一趟（W1b-2d 审查 nit）
     const paths = new MinisPaths(mkdtempSync(join(tmpdir(), 'dm-readback-')));
     const e = new OffloadEngine(paths);
     const { stub } = e.offload('SID', 'T9', 'Y'.repeat(60_000));
-    expect(stub).toContain('前 50000 字符');
+    expect(stub).toContain('/var/minis/offloads/T9.txt');
+    expect(stub).toMatch(/offset[^\n]*0/);
+    expect(stub).toContain(`limit 不超过 ${READBACK_MAX}`);
+    expect(stub).not.toContain('前 50000 字符');
     expect(stub).toContain('全文 60000 字符');
     expect(stub).not.toContain('取回完整内容');
     expect(stub.split('\n')).toHaveLength(3);

@@ -13,9 +13,13 @@ const MAX_READ = 1024 * 1024; // 1MB
  */
 export const MAX_READ_PAGED = 16 * 1024 * 1024;
 
-/** 分段读取每段最多返回的字符数（UTF-16 码元）。是读回上限 READBACK_MAX 的两倍：读工作区文件时可以一次多取，
- *  读回卸载文件时由 loop 的 clampReadBack 另行封顶。 */
+/** 分段读取每段最多返回的字符数（UTF-16 码元）。硬上限，防一次把十几 MB 塞进结果；
+ *  读回卸载文件时由 loop 的 clampReadBack 另行封顶到 READBACK_MAX。 */
 export const FILE_READ_LIMIT_MAX = 100_000;
+
+/** 读工作区文件时建议的每段长度。片段加末行注记超过卸载阈值（agent/offload.ts 的 20000）就会被 loop 卸载成桩，
+ *  模型得再读一次卸载文件，一段拆成好几趟（W1b-2d 审查）；留出注记的余量。读回本会话的卸载文件不受此限。 */
+export const FILE_READ_SUGGESTED_LIMIT = 19_000;
 
 /** 权限预览体积防线：preview 随 permission.request 广播给前端，超长文件的全文差分没人看得完
  *  还会撑大广播与权限卡内存，统一截到上限并尾标「…[截断]」——用户能看出被截，差分统计以截断后文本为准。 */
@@ -82,18 +86,24 @@ type PageArgs = { offset?: number; limit?: number };
 
 /** 校验 offset / limit。非法时返回一句中文说明（工具据此 success:false，不抛）。
  *  不接受数字字符串：schema 写的是 integer，放过 "3" 就等于替模型猜意思，猜错了读出来的是另一段。 */
+/** 回显非法值：截到 40 个字符，模型传来的超长字符串不整段抄进工具结果。 */
+function shown(v: unknown): string {
+  const t = JSON.stringify(v) ?? String(v);
+  return t.length > 40 ? `${t.slice(0, 40)}…（共 ${t.length} 字符）` : t;
+}
+
 function parsePageArgs(input: Record<string, unknown>): PageArgs | string {
   const out: PageArgs = {};
   const { offset, limit } = input;
   if (offset !== undefined && offset !== null) {
     if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
-      return `offset 必须是非负整数（从 0 起的字符偏移），收到的是 ${JSON.stringify(offset)}`;
+      return `offset 必须是非负整数（从 0 起的字符偏移），收到的是 ${shown(offset)}`;
     }
     out.offset = offset;
   }
   if (limit !== undefined && limit !== null) {
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > FILE_READ_LIMIT_MAX) {
-      return `limit 必须是 1 到 ${FILE_READ_LIMIT_MAX} 之间的整数（最多返回的字符数），收到的是 ${JSON.stringify(limit)}`;
+      return `limit 必须是 1 到 ${FILE_READ_LIMIT_MAX} 之间的整数（最多返回的字符数），收到的是 ${shown(limit)}`;
     }
     out.limit = limit;
   }
@@ -139,7 +149,7 @@ export const fileReadTool: ToolExecutor = {
     parameters: {
       path: { type: 'string', description: '文件路径' },
       offset: { type: 'integer', description: '可选。从第几个字符开始读（按 UTF-16 码元计，从 0 起，默认 0）' },
-      limit: { type: 'integer', description: `可选。最多返回多少个字符，1–${FILE_READ_LIMIT_MAX}；不填则读到末尾` },
+      limit: { type: 'integer', description: `可选。最多返回多少个字符，1–${FILE_READ_LIMIT_MAX}；不填则读到末尾。读普通文件建议每段不超过 ${FILE_READ_SUGGESTED_LIMIT}（更长的一段会被卸载到文件，要再读一次）。切点不会劈开 emoji 等代理对，所以实际返回可能少 1 个字符，limit=1 遇到这类字符时多 1 个` },
       tool_title: TOOL_TITLE,
     },
     required: ['path', 'tool_title'],
@@ -165,14 +175,16 @@ export const fileReadTool: ToolExecutor = {
       return { output: `文件超过 16MB，file_read 分段读取也不支持这么大的文件，请用 shell_execute 按行范围读取: ${abs}`, success: false };
     }
     if (!paged && size > MAX_READ) {
-      return { output: `文件超过 1MB，不能一次整读，请用 file_read 的 offset/limit 分段读取（offset 从 0 起，每段 limit 最多 ${FILE_READ_LIMIT_MAX} 字符，结果末尾会注明下一段的 offset）: ${abs}`, success: false };
+      return { output: `文件超过 1MB，不能一次整读，请用 file_read 的 offset/limit 分段读取（offset 从 0 起，每段 limit 建议不超过 ${FILE_READ_SUGGESTED_LIMIT}、最多 ${FILE_READ_LIMIT_MAX} 字符，超过 ${FILE_READ_SUGGESTED_LIMIT} 的一段会被卸载到文件、要再读一次；结果末尾会注明下一段的 offset）: ${abs}`, success: false };
     }
     const content = readFileSync(abs, 'utf8');
-    // 技能 use_count 采集点（M2c）：只有真正读成功才计数；钩子里抛错不应弄砸这次读取
-    try { ctx.onFileRead?.(abs); } catch { /* 计数失败不影响读取结果 */ }
+    // 技能 use_count 采集点（M2c）：只有真正读成功才计数；钩子里抛错不应弄砸这次读取。
+    // 分段读只在从头读起、读到了内容的那一段计一次：一个 SKILL.md 分 N 段读完不是用了 N 次（W1b-2d 审查）
+    const countRead = (): void => { try { ctx.onFileRead?.(abs); } catch { /* 计数失败不影响读取结果 */ } };
     // 不带参数：原样返回全文，与分段读取上线前逐字一致（没有末行注记）
-    if (!paged) return { output: content, success: true };
+    if (!paged) { countRead(); return { output: content, success: true }; }
     const range = sliceRange(content, page);
+    if (range.start === 0 && range.end > 0) countRead();
     // readRange 交给 loop：读回卸载文件时 clampReadBack 靠它分清片段与注记、按文件坐标给下一段 offset
     return { output: `${content.slice(range.start, range.end)}\n${rangeNote(range, page.offset)}`, success: true, readRange: range };
   },

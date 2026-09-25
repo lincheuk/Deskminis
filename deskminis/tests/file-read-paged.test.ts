@@ -13,12 +13,13 @@
  *   offset 越过末尾返回空片段加这一行、success:true；
  * - 不带参数时行为与输出逐字不变；超过 1MB 的提示改指 file_read 分段读取，超过 16MB 才提示 shell_execute。
  */
-import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, writeFileSync, truncateSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync, truncateSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ToolRegistry } from '../src/minisd/tools/registry';
-import { fileReadTool, FILE_READ_LIMIT_MAX, MAX_READ_PAGED } from '../src/minisd/tools/files';
+import { fileReadTool, FILE_READ_LIMIT_MAX, FILE_READ_SUGGESTED_LIMIT, MAX_READ_PAGED } from '../src/minisd/tools/files';
+import { OffloadEngine } from '../src/minisd/agent/offload';
 import { MinisPaths } from '../src/minisd/paths';
 import type { PermissionDecision, PermissionRequest, ToolContext } from '../src/minisd/tools/types';
 
@@ -42,6 +43,10 @@ beforeEach(() => {
   reg = new ToolRegistry();
   reg.register(fileReadTool);
 });
+/** 本文件建的临时目录（数据根与「数据根之外」）跑完即删，不在系统临时目录里越积越多 */
+const scratch: string[] = [];
+beforeEach(() => { scratch.push(root); });
+afterEach(() => { for (const d of scratch.splice(0)) rmSync(d, { recursive: true, force: true }); });
 
 const read = (args: Record<string, unknown>, c: ToolContext = ctx) =>
   reg.execute('file_read', JSON.stringify({ ...args, tool_title: '分段读' }), c);
@@ -90,10 +95,29 @@ describe('offset / limit 基本语义与末行注记', () => {
     expect(r.output).toBe('abcdefghij\n[第 0–10 字符，共 10 字符，已读到末尾]');
   });
 
-  it('分段读成功同样触发 onFileRead（技能 use_count 认「真正读成功」）', async () => {
-    const r = await read({ path: 'a.txt', offset: 1, limit: 1 });
-    expect(r.output).toBe('b\n[第 1–2 字符，共 10 字符，未读完，下一段 offset=2]');
+  it('onFileRead 按「读了一次这个文件」计：分段读只在从头读起的那一段计一次，后续段与越界的空片段不计', async () => {
+    // 技能 use_count 靠它；一个 SKILL.md 分 N 段读完，不该算用了 N 次（W1b-2d 审查 nit）
+    const first = await read({ path: 'a.txt', offset: 0, limit: 4 });
+    expect(first.output).toBe('abcd\n[第 0–4 字符，共 10 字符，未读完，下一段 offset=4]');
     expect(seen).toEqual([join(ws, 'a.txt')]);
+    const r = await read({ path: 'a.txt', offset: 4, limit: 1 });
+    expect(r.output).toBe('e\n[第 4–5 字符，共 10 字符，未读完，下一段 offset=5]');
+    await read({ path: 'a.txt', offset: 99 });
+    expect(seen).toEqual([join(ws, 'a.txt')]);
+    // 整读照旧每次都计
+    await read({ path: 'a.txt' });
+    expect(seen).toEqual([join(ws, 'a.txt'), join(ws, 'a.txt')]);
+  });
+
+  it('建议的每段长度连同末行注记不超过卸载阈值：照建议读工作区文件不会被卸载成桩', async () => {
+    // 片段加注记超过 20000 字符就会被 loop 卸载，模型得再读一次卸载文件（W1b-2d 审查 nit：提示写每段最多 100000，照着取反而绕远）
+    writeFileSync(join(ws, 'long.txt'), '汉'.repeat(3 * FILE_READ_SUGGESTED_LIMIT), 'utf8');
+    const e = new OffloadEngine(new MinisPaths(root));
+    for (const offset of [0, 1_234_567 % FILE_READ_SUGGESTED_LIMIT, 2 * FILE_READ_SUGGESTED_LIMIT - 7]) {
+      const r = await read({ path: 'long.txt', offset, limit: FILE_READ_SUGGESTED_LIMIT });
+      expect(r.success).toBe(true);
+      expect(e.shouldOffload(r.output), `offset=${offset} 长 ${r.output.length}`).toBe(false);
+    }
   });
 });
 
@@ -113,7 +137,9 @@ describe('非法值：success:false 与一句中文说明，不抛、不弹卡�
   for (const [label, args] of BAD) {
     it(label, async () => {
       // 路径放在数据根与工作区之外：参数先校验，非法时不该先弹一张权限卡再报参数错
-      const outside = join(mkdtempSync(join(tmpdir(), 'dm-paged-out-')), 'o.txt');
+      const outDir = mkdtempSync(join(tmpdir(), 'dm-paged-out-'));
+      scratch.push(outDir);
+      const outside = join(outDir, 'o.txt');
       writeFileSync(outside, 'abc');
       const r = await read({ path: outside, ...args });
       expect(r.success, label).toBe(false);
@@ -126,6 +152,13 @@ describe('非法值：success:false 与一句中文说明，不抛、不弹卡�
       expect(seen).toEqual([]);
     });
   }
+
+  it('非法值原样回显有长度上限：超长字符串不整段抄进工具结果', async () => {
+    const r = await read({ path: 'a.txt', offset: 'x'.repeat(5000) });
+    expect(r.success).toBe(false);
+    expect(r.output).toContain('offset');
+    expect(r.output.length).toBeLessThan(200);
+  });
 
   it('null 当作没给（与 registry 的必填检查同一口径）：输出与不带参数逐字相同', async () => {
     writeFileSync(join(ws, 'n.txt'), '原文\n', 'utf8');
@@ -181,6 +214,9 @@ describe('文件大小上限：不带参数 1MB，带参数 16MB', () => {
     expect(r.output).toContain('offset');
     expect(r.output).toContain('limit');
     expect(r.output).toContain(String(FILE_READ_LIMIT_MAX));
+    // 同时给出不会被卸载的建议段长，并说明更长的一段会被卸载
+    expect(r.output).toContain(String(FILE_READ_SUGGESTED_LIMIT));
+    expect(r.output).toContain('卸载');
     expect(r.output).not.toContain('shell_execute');
     expect(seen).toEqual([]);
   });
@@ -241,6 +277,9 @@ describe('工具定义', () => {
     expect(d.parameters.limit?.type).toBe('integer');
     expect(d.required).toEqual(['path', 'tool_title']);
     expect(d.parameters.limit?.description).toContain(String(FILE_READ_LIMIT_MAX));
+    expect(d.parameters.limit?.description).toContain(String(FILE_READ_SUGGESTED_LIMIT));
+    // 切点让开代理对，实际返回可能比 limit 少 1 个或（limit=1 时）多 1 个码元：写进描述，模型不会被吓到
+    expect(d.parameters.limit?.description).toMatch(/代理对|emoji/);
     expect(d.description).toContain('offset');
     expect(d.description).toContain('limit');
   });

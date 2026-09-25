@@ -91,10 +91,11 @@ export class OffloadEngine {
     // 落进提示词就是乱码；换行折叠成 ⏎ 保证摘录单行——否则桩的行结构被内容打乱，指针行难定位。
     const excerpt = Array.from(output).slice(0, 200).join('').replace(/\r?\n/g, '⏎') + '…';
     // 指针行按长度二分（W2a-5）：读回有 READBACK_MAX 上限，超过的文件一次 file_read 取不回全文，
-    // 桩再说「取回完整内容」就是空头支票；不超过的维持原文（offload.test.ts 的全等断言钉着）
+    // 桩再说「取回完整内容」就是空头支票；不超过的维持原文（offload.test.ts 的全等断言钉着）。
+    // 超过的直接给分段读法（W1b-2d 起 file_read 支持 offset/limit）：落盘超过 1MB 的卸载文件整读会先报超限，白走一趟
     const pointer = output.length <= READBACK_MAX
       ? `使用 file_read 工具读取 /var/minis/offloads/${toolUseId}.txt 取回完整内容`
-      : `使用 file_read 读取 /var/minis/offloads/${toolUseId}.txt 可取回前 ${READBACK_MAX} 字符（全文 ${output.length} 字符，其余需分段读取）`;
+      : `全文 ${output.length} 字符，一次读不完：用 file_read 分段读取 /var/minis/offloads/${toolUseId}.txt，offset 从 0 起，每段 limit 不超过 ${READBACK_MAX}，每段末尾会注明下一段的 offset`;
     const stub = `[CONTEXT OFFLOADED: ${relativePath} (${output.length} 字符)]\n开头: ${excerpt}\n${pointer}`;
     return { stub, relativePath };
   }
