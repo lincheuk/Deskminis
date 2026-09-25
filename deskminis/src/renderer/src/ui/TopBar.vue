@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** T 波：标题栏。frameless 窗口 + titleBarOverlay——系统在**右上角**画 min/max/close，
- *  所以右侧必须留出 140px 空位，否则我们的控件会被系统按钮压住（旧 TitleBar 踩过）。
+ *  所以右侧必须留出 146px 空位（下面 .bar 的 padding-right），否则我们的控件会被系统按钮压住（旧 TitleBar 踩过）。
+ *  这个宽度是写死的，页面缩放后不跟着重算；改由主进程推安全区宽度排在 W9c（W2b-11a 订正：这里原写 140px，与样式不符）。
  *  整条可拖拽，交互元素逐个 no-drag。 */
 import { computed } from 'vue';
 import { useChat } from '../stores/chat';

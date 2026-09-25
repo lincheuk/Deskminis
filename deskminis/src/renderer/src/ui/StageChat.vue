@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /** T 波：会话视图（设计稿 §3）。内容定宽居中 760，回合之间靠间距分隔而非分隔线。
  *  用户消息右对齐浅底块，助手输出**满宽文档式**（不进气泡），工具调用收进 StepGroup。 */
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, shallowRef, watch } from 'vue';
 import { useChat } from '../stores/chat';
 import { parseMarkdown } from '../lib/markdown/parse';
 import { fmtHHMM } from '../lib/time/hhmm';
 import { permsOf, waitingElsewhere } from '../lib/perm/scope';
+import { isResultCarrier, lastTurnStart, stepStatus, type StepStatus } from '../lib/steps/status';
 import MarkdownView from '../components/MarkdownView.vue';
 import Composer from './Composer.vue';
 import StepGroup from './StepGroup.vue';
@@ -26,7 +27,7 @@ function onQuote(text: string): void { composer.value?.quote(text); }
 type Msg = (typeof chat.messages)[number];
 /** 块上带 mid（这条块来自哪条消息）：注释锚点按消息 id 定位，没有它锚不住。 */
 interface Turn { id: string; user: Msg | null; blocks: { kind: 'text' | 'steps' | 'think'; mid?: string; text?: string; steps?: Step[] }[] }
-interface Step { name: string; title: string; ok: boolean; output?: string | null; input?: string }
+interface Step { name: string; title: string; status: StepStatus; output?: string | null; input?: string }
 
 const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
 function textOf(m: Msg): string {
@@ -50,22 +51,36 @@ function attsOf(m: Msg): { path: string; name: string }[] {
   return out;
 }
 
-/** 仅承载工具结果的合成 user 消息不产生新回合（后端用它回传 toolResult）。 */
-function isResultCarrier(m: Msg): boolean {
-  return Array.isArray(m.parts) && m.parts.length > 0
-    && m.parts.every((p: { type?: string }) => p?.type === 'toolResult');
-}
-function resultOf(id: string | undefined): { ok: boolean; output?: string } | undefined {
+/** 给这个 toolUse 配库里的 toolResult。success 原样交给 stepStatus 判（只有 === false 算失败）。 */
+function resultOf(id: string | undefined): { success: unknown; output?: string } | undefined {
   if (!id) return undefined;
   for (const m of chat.messages) {
     for (const p of (Array.isArray(m.parts) ? m.parts : [])) {
       if (p?.type === 'toolResult' && isRec(p.value) && p.value.toolUseId === id) {
-        return { ok: p.value.success !== false, output: typeof p.value.output === 'string' ? p.value.output : undefined };
+        return { success: p.value.success, output: typeof p.value.output === 'string' ? p.value.output : undefined };
       }
     }
   }
   return undefined;
 }
+
+/** W2b-11a：最后一个回合是不是还可能在跑。是的话，它里面没有结果的工具只是「结果还没到」（pending），不是中断。
+ *  running 为真时当然是。另有一小段：running 落下之后、open() 把历史重取回来之前（一次 RPC 往返），
+ *  手里的 messages 还是回合跑着时取的。里面若有这个回合跑到一半的步骤，它们的结果其实已经落库、只是还没取回来，
+ *  这时就判「已中断」的话，收尾会闪一下假的中断标。这样的 messages 不只中途接上（midRun）的回合才有：
+ *  本窗口发起的回合，用户中途点一下当前会话（NavRail 的会话行、搜索结果、定时页「打开最近一次会话」都无条件 chat.open），
+ *  同会话 open() 不动 running / midRun，也会把跑到一半的步骤取进来。所以不看 midRun，看 running 落下的那一拍历史换没换：
+ *  - 没换：turnEnd / error 之后 open() 的重取还在路上；换会话时 open() 也是先落 running、历史 await 回来才换
+ *    （那个会话确实还在跑）。记下这份 messages，它被换掉之前仍按还在跑处理。
+ *  - 换了：发送被拒时 store 在同一拍里用新数组撤掉乐观消息、再落 running；删会话回欢迎页同理。不按还在跑处理——
+ *    被拒之后不会重取历史，按还在跑处理的话，上一回合真悬空的工具就一直画成没事。
+ *  watch 用默认的 pre：同一拍里的几处改动合成一次回调，并在这一拍渲染之前定好 settling。
+ *  改成 sync 的话，「换数组、落 running」会拆成两次回调，第二次看到的历史像是没换过。 */
+const settling = shallowRef<unknown>(null);
+watch([() => chat.running, () => chat.messages], ([running, msgs], [wasRunning, oldMsgs]) => {
+  settling.value = wasRunning && !running && msgs === oldMsgs ? msgs : null;
+});
+const lastTurnLive = computed(() => chat.running || (settling.value !== null && settling.value === chat.messages));
 
 /** 工具载荷在库里是**JSON 字符串**（`minisd/agent/loop.ts` 落 `input: c.input`，
  *  provider 侧也是 `JSON.parse(v.input)`），不是对象。
@@ -87,8 +102,12 @@ function toolInput(v: unknown): { raw: string; title: string } {
 /** 回合切分 + 助手块内把连续的工具调用聚成一个 StepGroup（相邻文本不合并，保留段落节奏）。 */
 const turns = computed<Turn[]>(() => {
   const out: Turn[] = [];
-  for (const m of chat.messages) {
+  // W2b-11a：从这一条起是最后一个回合；它不在跑时取 Infinity，所有回合里没结果的步骤都判中断
+  const liveFrom = lastTurnLive.value ? lastTurnStart(chat.messages) : Infinity;
+  for (const [i, m] of chat.messages.entries()) {
     if (m.role === 'user') {
+      // 仅承载工具结果的合成 user 消息不产生新回合（后端用它回传 toolResult）。判据挪进了 lib/steps/status，
+      // 与上面 lastTurnStart 找「最后一个回合从哪条开始」共用一份，两处切回合的口径不会分叉
       if (isResultCarrier(m)) continue;
       out.push({ id: m.id, user: m, blocks: [] });
       continue;
@@ -110,7 +129,8 @@ const turns = computed<Turn[]>(() => {
         const step: Step = {
           name: String(p.value.name ?? ''),
           title: ti.title || String(p.value.name ?? ''),
-          ok: r ? r.ok : true,
+          // W2b-11a：以前是 `ok: r ? r.ok : true`——配不到结果的一律画成成功。回合不在跑还没有结果，就是被打断了
+          status: stepStatus(r, i >= liveFrom),
           output: r?.output ?? null,
           // 载荷一并带下去：展开区靠它渲 file_edit 差分与参数区（T6e-2 补搬）
           input: ti.raw || undefined,
@@ -125,6 +145,13 @@ const turns = computed<Turn[]>(() => {
 });
 
 const streamNodes = computed(() => (chat.streamingText ? parseMarkdown(chat.streamingText) : null));
+/** 实时回合的步骤：回合就是正在跑的那个，没到 toolEnd 的是 pending（画法同以前），到了的按 success 分——绝不判中断。
+ *  toolEnd 一定带 success（loop.ts），所以 success 还是 undefined 就是结果没到。 */
+const liveSteps = computed<Step[]>(() => chat.toolCards.map(c => ({
+  name: c.name, title: c.title || c.name,
+  status: stepStatus(c.success === undefined ? undefined : c, true),
+  output: c.output ?? null, input: c.input,
+})));
 
 // ---- Y5：消息锚点导航轨（L3 立、T 波换壳丢，从旧 ChatView 搬回）：右缘竖点，点击滚到对应回合；不做拖拽刷 ----
 const hasLive = computed(() => chat.running || !!chat.streamingText || !!chat.streamingThinking);
@@ -226,10 +253,7 @@ watch(() => props.narrow, stickBottom);
               <ThinkBlock live :text="chat.streamingThinking" />
             </div>
             <div v-if="chat.toolCards.length" class="ablock">
-              <StepGroup
-                live
-                :steps="chat.toolCards.map(c => ({ name: c.name, title: c.title || c.name, ok: c.success !== false, output: c.output ?? null, input: c.input }))"
-              />
+              <StepGroup live :steps="liveSteps" />
             </div>
             <div v-if="streamNodes" class="ablock"><MarkdownView class="t-chat" :nodes="streamNodes" /></div>
             <div v-else-if="chat.running" class="waiting t-aux">正在思考…</div>

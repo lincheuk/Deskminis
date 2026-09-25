@@ -174,7 +174,8 @@ async function createWindow(): Promise<BrowserWindow> {
   const win = new BrowserWindow({
     width: 1280, height: 800, minWidth: 900, minHeight: 600,
     // 无边框 + 自绘标题栏（设计 §4.0）：DOM 里不画窗口控制，
-    // titleBarOverlay 让系统在右上角绘制原生 min/max/close（透明底、符号色随明暗）。
+    // titleBarOverlay 让系统在右上角绘制原生 min/max/close（透明底；符号色当前固定 #808080，不随明暗主题变，
+    // 随主题同步排在 W9c。W2b-11a 订正：这里原写「符号色随明暗」，与下面 titleBarOverlay 的取值不符）。
     frame: false,
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#00000000', symbolColor: '#808080', height: 40 },
