@@ -1,14 +1,12 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { redactUrlCredentials } from '../agent/sanitize';
 
 // M6 R4 审计日志（决策点 2-3/2-4）：
 //   - 审计事件写入 audit_logs 表，跨会话查询面（AuditLogger.list）。
 //   - 保留与轮转：独立于会话生命周期（deleteSession 不碰 audit_logs），按条数上限 FIFO 淘汰（决策点 2-3）。
 //   - 脱敏边界：contrast 于 M4 的「入 prompt 出口消毒」（agent/sanitize.ts）——落盘方向只洗「密钥/凭据样式」，
 //     保留命令正文/文件路径/剪贴板内容（那是审计存在的核心价值）；密钥材料字段名直接剔除（白名单防御）。
-
-/** URL user:pass@ → 脱敏（复用 M4 URL_CRED 语义）。 */
-const URL_CRED = /([a-zA-Z][a-zA-Z0-9+\-.]*):\/\/[^/\s:]+:[^/\s@]+@/g;
 
 /** 常见密钥样式：Bearer 令牌 / sk-... / api_key 系列头。擦值保留键名。 */
 const BEARER = /(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/=-]+/g;
@@ -19,8 +17,9 @@ const APIKEY_VALUE = /(api[_-]?key['"]?\s*[:=]\s*)([A-Za-z0-9._~+/=-]+)/gi;
 const KEY_FIELD_NAMES = new Set(['authKey', 'privateKey', 'sessionSecret', 'paseto', 'token', 'mac', 'nonce']);
 
 function redactString(s: string): string {
-  return s
-    .replace(URL_CRED, '$1://***:***@')
+  // URL user:pass@ 与出 prompt 那一侧同一个线性实现（W2a-7b）：以前这里自带一份原正则，长单行上平方级，
+  // 一条很长的 shell 命令落盘、audit.list 读出各跑一遍，引擎主线程被卡上好几秒
+  return redactUrlCredentials(s)
     .replace(BEARER, '$1***')
     .replace(SK_PREFIX, 'sk-***')
     .replace(APIKEY_VALUE, '$1***');

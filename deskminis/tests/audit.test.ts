@@ -3,6 +3,7 @@ import { openDb } from '../src/minisd/store/db';
 import { AuditLogger, auditRedact } from '../src/minisd/store/audit';
 import { ChatStore } from '../src/minisd/store/chat-store';
 import type Database from 'better-sqlite3';
+import { URL_CRED_SPEC } from './sanitize-spec';
 
 // M6 决策点 2-3/2-4：审计落盘脱敏 + 条数 FIFO 轮转 + 密钥材料禁入。
 let db: Database.Database;
@@ -115,5 +116,55 @@ describe('删会话审计保留（决策点 2-3：审计独立于会话生命周
     expect(count('SELECT COUNT(*) AS c FROM sessions')).toBe(0);
     // 审计独立存活：删会话不连带删审计记录
     expect(audit.list({}).rows).toHaveLength(1);
+  });
+});
+describe('W2a-7b：审计落盘脱敏的 URL 凭据一步改走线性扫描，结果与原管线逐字相同', () => {
+  // 原来 store/audit.ts 自带一份 URL 凭据正则，长单行上平方级：权限卡的 detail（一条很长的 shell 命令）经它落盘，
+  // audit.list 读出时还要再跑一遍，引擎主线程被卡上好几秒（W2a-7 审查 nit）。
+  // 下面是 W2a-7b 之前 redactString 的原样管线：URL 凭据 → Bearer → sk- → api_key，后三步抄自 store/audit.ts
+  const BEARER = /(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/=-]+/g;
+  const SK_PREFIX = /(\bsk-[A-Za-z0-9_-]+)/g;
+  const APIKEY_VALUE = /(api[_-]?key['"]?\s*[:=]\s*)([A-Za-z0-9._~+/=-]+)/gi;
+  const spec = (s: string): string => s
+    .replace(URL_CRED_SPEC, '$1://***:***@')
+    .replace(BEARER, '$1***')
+    .replace(SK_PREFIX, 'sk-***')
+    .replace(APIKEY_VALUE, '$1***');
+
+  it('随机拼接的多行字符串：auditRedact 与原管线逐字相同', () => {
+    let st = 20260926;
+    const rnd = (): number => {
+      st = (st + 0x6d2b79f5) | 0;
+      let t = Math.imul(st ^ (st >>> 15), 1 | st);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const toks = [
+      'https', 'h', 'svn+ssh', 'a_b', '9', '-', '.', '://', ':', '/', '@', 'u', 'pw', ' ', '\n', '\r\n', '\t', '\u000b', '\u00a0', '\u3000', '测',
+      'https://u:pw@', 'h://u@x:p@', 'svn+ssh://a:b:c@', '9x://u:p@', '://u:p@', 'h://:p@', 'h://u:@', 'h://u/v:p@', 'a://b://c:d@',
+      'Authorization: Bearer ', 'abc.DEF-1', 'sk-', 'sk-abc_1', 'api_key=', 'API-KEY: ', "apikey'=", 'x9https://u:p@h',
+    ];
+    const bad: string[] = [];
+    let changed = 0;
+    for (let n = 0; n < 5000 && bad.length < 5; n++) {
+      let s = '';
+      const k = 1 + Math.floor(rnd() * 16);
+      for (let j = 0; j < k; j++) s += toks[Math.floor(rnd() * toks.length)];
+      const want = spec(s);
+      if (want !== s) changed++;
+      if (auditRedact(s) !== want) bad.push(JSON.stringify(s));
+    }
+    expect(bad).toEqual([]);
+    expect(changed).toBeGreaterThan(1000); // 大量命中了真要脱敏的情形，不是空转
+  });
+
+  it('20 万字符的长单行（很长的一条 shell 命令）脱敏在 300ms 内完成，凭据照样打码', () => {
+    const line = 'a'.repeat(100_000) + ' git clone https://user:secret@example.com/r.git ' + 'b1+.-'.repeat(20_000);
+    const t0 = performance.now();
+    const out = auditRedact({ kind: 'shell', detail: line }) as { detail: string };
+    const ms = performance.now() - t0;
+    expect(out.detail).toContain('https://***:***@example.com/r.git');
+    expect(out.detail).not.toContain('secret');
+    expect(ms, `耗时 ${ms.toFixed(0)}ms`).toBeLessThan(300);
   });
 });

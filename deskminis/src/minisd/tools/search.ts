@@ -12,7 +12,7 @@ const LIST_MAX = 500;
 const WALK_ENTRY_LIMIT = 50000;
 // file_glob 匹配结果上限：超出说明模式太宽，截断提示让模型自己收窄
 const GLOB_MATCH_LIMIT = 1000;
-// 以下均为 file_grep 的防线：复用 files.ts MAX_READ 的精神（1MB 以上交给 shell 分页），
+// 以下均为 file_grep 的防线：复用 files.ts MAX_READ 的精神（1MB 以上不整读，file_read 要分段读），
 // 二进制嗅探窗口、单行扫描上限（砍掉灾难回溯的输入面）、时间预算与输出体积上限
 const GREP_MAX_FILE = 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;

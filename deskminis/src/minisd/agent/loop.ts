@@ -663,10 +663,11 @@ export async function* runAgentLoop(store: ChatStore, opts: RunOptions): AsyncGe
       // 卸载：大工具结果落库前替换为桩（设计 §4.2「大工具结果卸载」）
       let outputToStore = outcome.output;
       // 读回本会话的卸载文件（W2a-5）：不再二次卸载——否则模型照桩去读只拿到下一个桩，内容永远取不回；
-      // 改为按 READBACK_MAX 封顶落库，不写新文件、不发 offloaded。只认读成功的：失败时 output 是错误信息，不是文件内容
+      // 改为按 READBACK_MAX 封顶落库，不写新文件、不发 offloaded。只认读成功的：失败时 output 是错误信息，不是文件内容。
+      // 分段读回（W1b-2d，带 offset/limit）同样认得出（readBackOf 只看 path），readRange 让封顶按文件坐标给下一段
       const readBack = outcome.success ? opts.offloadEngine?.readBackOf(opts.sessionId, c.name, c.input) : undefined;
       if (opts.offloadEngine && readBack) {
-        outputToStore = opts.offloadEngine.clampReadBack(outcome.output, readBack.absPath);
+        outputToStore = opts.offloadEngine.clampReadBack(outcome.output, outcome.readRange);
       } else if (opts.offloadEngine && opts.offloadEngine.shouldOffload(outcome.output)) {
         const { stub, relativePath } = opts.offloadEngine.offload(opts.sessionId, c.toolUseId, outcome.output);
         yield { kind: 'offloaded', toolUseId: c.toolUseId, relativePath };

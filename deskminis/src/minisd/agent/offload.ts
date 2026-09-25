@@ -1,6 +1,7 @@
 import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { join, relative, isAbsolute, sep } from 'node:path';
 import type { MinisPaths } from '../paths';
+import type { ReadRange } from '../tools/types';
 
 const THRESHOLD = 20_000;
 
@@ -11,9 +12,6 @@ const THRESHOLD = 20_000;
  * 「字符」与卸载阈值、桩里的字符数同为 UTF-16 码元口径。
  */
 export const READBACK_MAX = 50_000;
-
-/** 分段读回时每段的建议上限：与卸载阈值同值，超过的话 shell 的输出又会被卸载成桩。 */
-const READBACK_SEGMENT = THRESHOLD;
 
 /**
  * 大工具结果卸载（设计 §4.2「大工具结果卸载」段）。
@@ -50,17 +48,31 @@ export class OffloadEngine {
   }
 
   /**
-   * 读回内容落库前封顶（W2a-5）：不超过 READBACK_MAX 原样返回；超过则只留前面一段，并如实写明全长、
-   * 怎样读剩下的部分、文件在宿主机上的位置（shell 只认宿主路径，不认 /var/minis/）。
+   * 读回内容落库前封顶（W2a-5）：不超过 READBACK_MAX 原样返回；超过则只留前面一段，并如实写明全长与剩下的读法。
    * 切点按码元算（与 compact.ts 同理：长文本不整串 Array.from），落在代理对中间就少取一位——
    * 孤立代理项进了请求体，严格的 JSON 端直接 400。注明的是实际返回的字数，不写死 50000。
+   *
+   * 剩下的部分指回 file_read 分段读取（W1b-2d）：path 不变，offset 从实际返回的终点起，limit 不超过 READBACK_MAX。
+   * 以前叫模型用 shell_execute 分段读并附宿主位置；但卸载文件在数据根里，W1b-2 起 shell 只读命令点到数据根
+   * 就回落询问，照提示读每段都弹卡，而当前会话的 offloads 对文件工具免审。旧尾注里「每段不超过 20000，
+   * 否则会再次被卸载」也是假话：readBackOf 认出的读回（只看 path，带不带 offset/limit 都算）不再卸载。
+   *
+   * range 是 file_read 分段读取给的实际范围（ToolOutcome.readRange）。有它时 output 是「片段 + 换行 + 范围注记」：
+   * 只拿片段比上限——注记不算正文，limit 取满 READBACK_MAX 时不该因为多出一行注记被截；
+   * 超了就连注记一起换成截断尾注，全长与下一段 offset 按文件坐标写（起点 + 实际返回的字数），
+   * 留着原注记的话，它给的下一段 offset 会让模型跳过被截掉的那一截。
    */
-  clampReadBack(output: string, absPath: string): string {
-    if (output.length <= READBACK_MAX) return output;
-    let end = READBACK_MAX;
-    const c = output.charCodeAt(end - 1);
-    if (c >= 0xd800 && c <= 0xdbff) end -= 1;
-    return `${output.slice(0, end)}\n[已截断：该文件共 ${output.length} 字符，这里只返回前 ${end} 字符。其余部分请用 shell_execute 分段读取，每段不超过 ${READBACK_SEGMENT} 字符，否则会再次被卸载。文件位置：${absPath}]`;
+  clampReadBack(output: string, range?: ReadRange): string {
+    const bodyLen = range ? range.end - range.start : output.length;
+    if (bodyLen <= READBACK_MAX) return output;
+    let cut = READBACK_MAX;
+    const c = output.charCodeAt(cut - 1);
+    if (c >= 0xd800 && c <= 0xdbff) cut -= 1;
+    const start = range?.start ?? 0;
+    const total = range?.total ?? output.length;
+    const next = start + cut;
+    const got = range ? `这次请求的是第 ${range.start}–${range.end} 字符，读回上限 ${READBACK_MAX}，这里只返回第 ${start}–${next} 字符` : `这里只返回前 ${cut} 字符`;
+    return `${output.slice(0, cut)}\n[已截断：该文件共 ${total} 字符，${got}。其余部分请接着用 file_read 分段读取：path 不变，offset=${next}，limit 不超过 ${READBACK_MAX}；每段末尾会注明实际范围与下一段的 offset。]`;
   }
 
   offload(sessionId: string, toolUseId: string, output: string): { stub: string; relativePath: string } {
@@ -79,10 +91,11 @@ export class OffloadEngine {
     // 落进提示词就是乱码；换行折叠成 ⏎ 保证摘录单行——否则桩的行结构被内容打乱，指针行难定位。
     const excerpt = Array.from(output).slice(0, 200).join('').replace(/\r?\n/g, '⏎') + '…';
     // 指针行按长度二分（W2a-5）：读回有 READBACK_MAX 上限，超过的文件一次 file_read 取不回全文，
-    // 桩再说「取回完整内容」就是空头支票；不超过的维持原文（offload.test.ts 的全等断言钉着）
+    // 桩再说「取回完整内容」就是空头支票；不超过的维持原文（offload.test.ts 的全等断言钉着）。
+    // 超过的直接给分段读法（W1b-2d 起 file_read 支持 offset/limit）：落盘超过 1MB 的卸载文件整读会先报超限，白走一趟
     const pointer = output.length <= READBACK_MAX
       ? `使用 file_read 工具读取 /var/minis/offloads/${toolUseId}.txt 取回完整内容`
-      : `使用 file_read 读取 /var/minis/offloads/${toolUseId}.txt 可取回前 ${READBACK_MAX} 字符（全文 ${output.length} 字符，其余需分段读取）`;
+      : `全文 ${output.length} 字符，一次读不完：用 file_read 分段读取 /var/minis/offloads/${toolUseId}.txt，offset 从 0 起，每段 limit 不超过 ${READBACK_MAX}，每段末尾会注明下一段的 offset`;
     const stub = `[CONTEXT OFFLOADED: ${relativePath} (${output.length} 字符)]\n开头: ${excerpt}\n${pointer}`;
     return { stub, relativePath };
   }
