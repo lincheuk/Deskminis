@@ -47,6 +47,13 @@ const syncDot = computed(() => {
       </button>
     </div>
   </header>
+  <!-- W2b-3 断线横幅：标题栏下方独立一行。标题栏右侧 146px 被系统 min/max/close 盖着，塞不进那一行；
+       走正常流、不设层级，舞台随之下移一行，不压住任何内容。重启的是整个应用（主进程 app:relaunch）。 -->
+  <div v-if="chat.connection === 'lost'" class="lost" role="alert">
+    <UiIcon name="alert" :size="16" />
+    <span class="lmsg">与后台服务的连接已断开。进行中的任务可能已中止，新的操作不会执行。</span>
+    <button class="f-btn primary" type="button" @click="chat.relaunchApp()">重启应用</button>
+  </div>
 </template>
 
 <style scoped>
@@ -76,4 +83,15 @@ const syncDot = computed(() => {
 .ib:hover { background: var(--c-bg-2); color: var(--c-ink); }
 .ib[aria-pressed="true"] { color: var(--c-ink); }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+/* W2b-3 断线横幅：错误浅底 + 错误色字（两套主题对比度都过 4.5，theme-contrast 钉着）。
+   不在拖拽区里（-webkit-app-region 只挂在标题栏上），按钮点得到。 */
+.lost {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+  background: var(--c-err-soft);
+  color: var(--c-err);
+  border-bottom: 1px solid var(--c-line);
+}
+.lmsg { flex: 1; min-width: 0; font-size: var(--t-item-size); line-height: var(--t-item-lh); }
 </style>

@@ -8,6 +8,7 @@ import { describeUpdateError, isPortableBuild, manualCheckDialog, type UpdateSta
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES } from './child-output';
 import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, type StopOutcome } from './minisd-stop';
+import { relaunchOptions, INSTALL_QUIT_FALLBACK_MS } from './relaunch';
 
 // W1a-9 开发态数据隔离：数据根、userData、keyring 服务名、日志目录在这里一次算定。
 // fork minisd 与 attachments:save 都用这一份，不再各自调 dataRoot() 各算一遍——两处一漂移，附件就落进另一个根。
@@ -223,7 +224,9 @@ function setupUpdater(): void {
     // 点「重启并安装」（W1b-5）：先停 minisd 再装。quitAndInstall 同步 spawn 安装器、下一拍才 app.quit()，
     // 不先停的话安装器起来时 minisd 还开着库、还挂着 MCP 子进程（NSIS 会连带硬杀同名进程）。
     // 停完 quitGate.markStopped()，quitAndInstall 触发的 before-quit 直接放行。
-    // quitAndInstall 调用与收尾的右花括号留在同一行：auto-update 守卫的负向正则认「调用后紧跟换行」。
+    // 安装器没起来时（electron-updater 的 install() 返回 false 就不调 app.quit）引擎已经停了、窗口还开着，什么也做不了：
+    // 3 秒后还在就自己 app.quit()（W2b-3 · 设计稿 §4.1）；已经 markStopped，这次 before-quit 同样直接放行。
+    // quitAndInstall 调用、兜底与收尾的右花括号留在同一行：auto-update 守卫的负向正则认「调用后紧跟换行」。
     void dialog.showMessageBox(w, {
       type: 'info',
       title: '有新版本可用',
@@ -232,7 +235,7 @@ function setupUpdater(): void {
       buttons: ['稍后再说', '重启并安装'],
       defaultId: 0,          // 默认焦点**不在**破坏性/打断性选项上
       cancelId: 0,
-    }).then(async r => { if (r.response === 1) { quitting = true; await stopMinisdGracefully(MINISD_STOP_TIMEOUT_MS); quitGate.markStopped(); autoUpdater.quitAndInstall(); } });
+    }).then(async r => { if (r.response === 1) { quitting = true; await stopMinisdGracefully(MINISD_STOP_TIMEOUT_MS); quitGate.markStopped(); autoUpdater.quitAndInstall(); setTimeout(() => app.quit(), INSTALL_QUIT_FALLBACK_MS); } });
   });
   // 检查失败是常态（离线、公司网、GitHub 限流、发布仓库还没发过版）——
   // 静默记录即可，绝不弹窗打扰。更新是便利功能，不是必需路径（托盘手动检查的回执另走 checkUpdatesFromTray）。
@@ -286,6 +289,22 @@ ipcMain.handle('minisd:port', () => minisdPort);
 // 新通道：端口 + per-run token。preload 的 minisdInfo() invoke 的就是这个通道——
 // 少了它，渲染层调用命中一个未注册的通道、静默失败、每个 WS 连接被 401，应用连不上 minisd。
 ipcMain.handle('minisd:info', () => ({ port: minisdPort, token: minisdToken }));
+
+// W2b-3 断线横幅的「重启应用」（设计稿 §3 第 7 条、§2「生命周期」）：重启整个应用，不单独重启引擎——
+// 渲染端的 rpc 不重连、没有代次（W6），只换引擎的话界面状态与新引擎对不上。
+// 只认主窗口发来的请求：别的 webContents（被导航走的页面、将来别的窗口）不该有权让应用重启。
+// app.relaunch 只是登记「本进程退出后再起一份」，退出本身走 app.quit()：before-quit 里 quitGate 先请 minisd 有序关停
+// （它已经崩了就立即放行），关库放锁都在那条路上——这里不另停、不 kill、不 app.exit。新实例在旧进程退出后才起，
+// 单实例锁与数据根锁那时已经放掉（被硬杀留下的陈旧锁按 pid 接管）。
+// 已经在退出（托盘退出、「重启并安装」正在停引擎）就什么也不做：再登记一次，旧进程退出后会多起一份——
+// 安装器正替换文件时起的是旧版本；连点两下也会起两份（Electron 对每次 relaunch 各起一个新实例）。
+ipcMain.handle('app:relaunch', (e) => {
+  if (mainWindow === undefined || e.sender !== mainWindow.webContents) throw new Error('只接受主窗口的重启请求');
+  if (quitting) return;
+  quitting = true;
+  app.relaunch(relaunchOptions(process.env, process.argv));
+  app.quit();
+});
 
   // 工作区目录选择器（用户 2026-08-11 拍板「原生选择器 + 粘贴路径框两者都要」）。
   // dialog 本就已引入（showErrorBox），invoke 通道模式沿用 minisd:info，无新依赖。

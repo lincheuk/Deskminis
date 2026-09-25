@@ -9,7 +9,9 @@ const errText = (e: unknown): string => (e instanceof Error ? e.message : String
 let _syncDirtyTimer: ReturnType<typeof setTimeout> | undefined;
 
 interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number }; originDeviceId?: string; reasoningContent?: string }
-interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string }; note?: string }
+/** 待批的权限卡。sessionId（W2b-2）是卡所属的会话，取自引擎广播的 PermissionRequest.sessionId（必填，设计稿 §3 第 6 条）——
+ *  卡按会话分开渲染、超时留条只写给卡所属的会话，都靠它（判据在 lib/perm/scope）。 */
+interface PendingPerm { requestId: string; sessionId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string }; note?: string }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
@@ -119,6 +121,9 @@ export const useChat = defineStore('chat', {
      *  这时流式缓冲里只有接上之后的半截，StageChat 显示占位，不从句子中间开始长；
      *  回合结束（turnEnd / error）清掉，由 open() 重取完整历史。 */
     midRun: false as boolean,
+    /** W2b-3：与 minisd 的连接。'lost' = ws 断了（引擎崩溃、被杀、端口被关）——顶栏下方出横幅、发送键置灰。
+     *  只会从 ok 变成 lost，不会变回来：不重连（W6），出路是横幅上的「重启应用」。 */
+    connection: 'ok' as 'ok' | 'lost',
     // 后端没有暴露「读取默认 provider」的 RPC；渲染端本地镜像当前选择（模型胶囊显示 + 打勾）。
     // 初值置为首个 provider —— 后端 create() 也把首个建的 provider 设为默认。
     defaultProviderId: '' as string,
@@ -153,6 +158,9 @@ export const useChat = defineStore('chat', {
   }),
   actions: {
     async init() {
+      // W2b-3：断线订阅挂在 connect 之前——首次就连不上时（浏览器先 error 后 close），断线通知在 connect 的 await 期间就到，
+      // 晚挂一步就接不到，首启失败时横幅就不出现
+      rpc.onLost(() => this.markConnectionLost());
       await rpc.connect();
       // M3c Task 7：chat.event 兼容两种 payload——
       //   ① 既有 LoopEvent：{ sessionId, event: { kind, ... } } → onEvent(event)
@@ -181,7 +189,9 @@ export const useChat = defineStore('chat', {
       });
       // MU2a Task 10：params.meta 并入条目（超时秒数/风险分级/桥触发列表）；deadlineMs 在 push 时一次算定
       rpc.on('permission.request', ({ requestId, req, meta }: any) => this.pendingPerms.push({
-        requestId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle,
+        // W2b-2：记下卡属于哪个会话。以前不记，界面只能把所有会话的卡都渲染进当前对话流——
+        // B 的回合卡在权限上，卡却出现在 A 里，在 A 里点「允许」放行的其实是 B 的操作
+        requestId, sessionId: req.sessionId, detail: req.detail, kind: req.kind, toolTitle: req.toolTitle,
         timeoutMs: meta?.timeoutMs, riskClass: meta?.riskClass, bridgeTriggers: meta?.bridgeTriggers,
         // 审批前变更预览（file_write/file_edit 才有）：权限卡据此渲染差分，写文件不再盲批
         preview: req.preview,
@@ -191,11 +201,16 @@ export const useChat = defineStore('chat', {
         deadlineMs: typeof meta?.timeoutMs === 'number' ? Date.now() + meta.timeoutMs : undefined,
       }));
       // 询问超时（90s）或别的窗口已答复时 minisd 广播 resolved：不摘掉卡片就会永远挂在界面上。
-      // 决策 4b' 按 reason 分流：timeout → 摘卡 + 补「已超时拒绝」事件条（设计 §5.2-1）；answered/无 reason → 只摘卡。
+      // 决策 4b' 按 reason 分流：timeout → 摘卡，卡属于当前会话时再补「已超时拒绝」事件条（设计 §5.2-1；W2b-2 起按会话判）；
+      // answered/无 reason → 只摘卡。
       // renderer 不做 deadline 自判（恒晚于 minisd 一个广播延迟，自判永不触发——评审命门 1）。
       rpc.on('permission.resolved', ({ requestId, reason }: any) => {
+        // W2b-2：摘卡之前先认出它属于哪个会话——超时留条只写给卡所属的会话。eventNotes 是当前会话的单会话缓冲，
+        // 别的会话的卡超时了写进来，就串进了当前会话的对话流；手里没有这张卡（渲染端重载后才收到）就不猜、不写。
+        // 卡属于别的会话时这条留条没有去处（切过去时 open() 会清 eventNotes），留给 W6c 的交互登记
+        const hit = this.pendingPerms.find(x => x.requestId === requestId);
         this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);
-        if (reason === 'timeout') {
+        if (reason === 'timeout' && hit?.sessionId === this.activeId) {
           this.eventNotes = [...this.eventNotes.slice(-9), { kind: 'error', ts: Date.now(), detail: '权限请求已超时，自动拒绝', retryable: false }];
         }
       });
@@ -456,6 +471,9 @@ export const useChat = defineStore('chat', {
     },
     async newSession() { const s = await rpc.call('chat.sessions.create', {}); await this.refreshSessions(); await this.open(s.id); },
     async open(id: string) {
+      // W2b-3b：断线之后什么都不做。下面先改 activeId 再取消息，取消息被拒时标题已换成 B、对话流还是 A 的消息与半截正文；
+      // 横幅已经说「新的操作不会执行」，换会话也是新操作——当前视图原样留着，半截正文还能复制
+      if (this.connection === 'lost') return;
       // 工作区是每会话的，切会话必须重新取——否则 chip 会显示上一个会话的目录
       // 换会话才清错误横幅：turnEnd/error 之后的自刷新调用的也是 open，
       // 在那条路径上清掉的话，刚设置的 lastError 会被立刻抹掉（错误又变成看不见）。
@@ -499,6 +517,11 @@ export const useChat = defineStore('chat', {
       // （W1b-4 起，会话在连 MCP 期间被删或被停止会以「会话已取消」拒绝，要等连接超时才回来），
       // 那时用户可能已经在看别的会话了，见下面 catch
       const sid = this.activeId;
+      // W2b-3：断线之后什么都不动就退。发送键置灰管不到键盘——Enter 照样进到这里，事件条的「重试」（retryLast）也是；
+      // 必须在下面清缓冲之前：断线时特意留下的半截回复与事件条（markConnectionLost）是给用户复制、查看的，
+      // 往下走的话一次按键就全清空（rpc 的拒绝要到清空之后才回来），还会推一个发不出去的乐观气泡、把停止键点亮。
+      // 写 lastError 是交代，也是给输入卡的信号：它见 lastError 才把寄存的草稿交回框里（Composer send 之后那行 takeDraft）
+      if (this.connection === 'lost') { this.lastError = '与后台服务的连接已断开'; return; }
       this.streamingText = ''; this.streamingThinking = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';
       this.lastStopReason = ''; this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
       // 乐观消息用唯一 id：一次会话内连发多条时 'local' 会造成 :key 重复
@@ -588,6 +611,36 @@ export const useChat = defineStore('chat', {
     async respondPerm(requestId: string, decision: string) {
       this.pendingPerms = this.pendingPerms.filter(x => x.requestId !== requestId);
       await rpc.call('permission.respond', { requestId, decision });
+    },
+    /** W2b-3：连接断了。回合与权限卡都已无人接收：停止键、在跑的会话标记、一排点了没反应的权限按钮都撤掉。
+     *  已流出的正文与消息留着，半截回复留给用户复制；实时区的步骤卡撤掉——那一组标着「正在执行…」，引擎已经没了。
+     *  中途接上的回合（midRun）手里只有接上之后的半截，与 turnEnd / error 同一口径一起丢，占位也撤下（它说「仍在运行」）。
+     *  不写 lastError：顶栏横幅已经在说，会话页红条再说一遍就是同一句话说两遍。
+     *  设备同步在引擎里跑，引擎没了就谈不上「已连接其它设备」：同步点回到未连接，sync.dirty 留下的 2 秒回落定时器也撤掉——
+     *  不撤的话它到点把点翻成绿的「已连接其它设备」，正压在断线横幅上面（xvfb 实拍逮到）。 */
+    markConnectionLost() {
+      this.connection = 'lost';
+      this.running = false;
+      this.runningSessions = [];
+      this.pendingPerms = [];
+      this.retryNote = '';
+      this.streamingThinking = '';
+      this.toolCards = [];
+      if (this.midRun) { this.streamingText = ''; this.midRun = false; }
+      if (_syncDirtyTimer) { clearTimeout(_syncDirtyTimer); _syncDirtyTimer = undefined; }
+      this.syncState = 'offline';
+    },
+    /** W2b-3：断线横幅的「重启应用」。重启整个应用（设计稿 §2「生命周期」）：渲染端的 rpc 不重连、没有代次（W6），
+     *  只重启引擎的话界面状态与新引擎对不上。桥的访问形态与 pickWorkspaceFolder 相同；走不通就说清楚出路——
+     *  横幅的按钮不接 catch，这里不能往外抛。 */
+    async relaunchApp() {
+      const b = (window as any).deskminis;
+      if (typeof b?.relaunchApp !== 'function') {
+        this.lastError = '无法自动重启，请手动退出并重新打开 DeskMinis';
+        return;
+      }
+      try { await b.relaunchApp(); }
+      catch (e) { this.lastError = `无法自动重启（${errText(e)}），请手动退出并重新打开 DeskMinis`; }
     },
     /** W2b-1：按会话维护运行集合。chat.event 处理器在按 activeId 过滤之前调，非当前会话的事件同样记账。
      *  回合的终止事件只有 turnEnd 与 error（loop.ts；run IIFE 的 catch 也发 error），其余任何回合事件都说明它还在跑。

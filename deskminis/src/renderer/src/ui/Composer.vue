@@ -30,8 +30,10 @@ const atts = ref<{ path: string; dataUrl: string }[]>([]);
  *  点发送键此前照样进 send()：建出两个会话、第二发撞后端 inFlight 抛「该会话正在运行中」、running 被误归零
  *  （drive-x1 double 4/4）。Enter 与发送键都走 send()，一处闸两条路；发送键随它变灰就是「已经在发」的反馈。 */
 const sending = ref(false);
-// 只有附件没有文字也能发（「看看这张图」的常见开法）
-const canSend = computed(() => (text.value.trim().length > 0 || atts.value.length > 0) && !chat.running && !sending.value);
+// 只有附件没有文字也能发（「看看这张图」的常见开法）。
+// W2b-3：断线后发送键置灰——引擎已经收不到了（顶栏横幅在说）。按 Enter 仍会进 send()（入口早退行不看断线）：
+// chat.send 在动任何状态之前先判断线，原样退回来、只写一句「连接已断开」，send() 末尾见 lastError 就把字交回框里
+const canSend = computed(() => (text.value.trim().length > 0 || atts.value.length > 0) && chat.connection !== 'lost' && !chat.running && !sending.value);
 
 /** 欢迎页没有会话视图那条错误横幅：首条消息被同步拒绝（未配置模型、会话没建起来）只能在这张卡上说，
  *  不然就是「按了没反应」（drive-x1 noprov：文字清了、多出一个幽灵会话、零交代）。

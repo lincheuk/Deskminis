@@ -13,7 +13,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { rpcCallMock } = vi.hoisted(() => ({ rpcCallMock: vi.fn() }));
 
 vi.mock('../src/renderer/src/rpc', () => ({
-  rpc: { call: rpcCallMock, connect: async () => {}, on: vi.fn() },
+  // W2b-3：init() 在 connect 之前订阅断线（onLost）；本文件不测断线，给个空订阅
+  rpc: { call: rpcCallMock, connect: async () => {}, on: vi.fn(), onLost: vi.fn() },
 }));
 
 // eslint-disable-next-line import/first —— vi.mock 由 vitest 提升到顶部，此处 import 拿到的是桩

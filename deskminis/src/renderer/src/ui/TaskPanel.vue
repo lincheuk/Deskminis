@@ -8,10 +8,14 @@
  *  上下文水位按 chat.contextInfo（后端基于 buildEffectiveHistory 算，不是原始 history 估算）。 */
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
 import { useChat } from '../stores/chat';
+import { permsOf } from '../lib/perm/scope';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
 let timer: ReturnType<typeof setInterval> | null = null;
+/** W2b-2：只数当前会话的卡。卡按会话分开渲染以后，数全局的就是替别的会话报数——
+ *  「N 个请求等在对话里」，对话里却一张卡也没有。 */
+const permsHere = computed(() => permsOf(chat.pendingPerms, chat.activeId));
 
 function poll(): void { if (chat.activeId) void chat.fetchContextInfo(); }
 onMounted(() => { poll(); timer = setInterval(poll, 15_000); });
@@ -59,11 +63,11 @@ const showStop = computed(() => chat.lastStopReason !== '' && chat.lastStopReaso
       <p v-else class="hint t-aux">还没有数据（发一轮消息后才有）</p>
     </section>
 
-    <section v-if="chat.pendingPerms.length" class="blk">
+    <section v-if="permsHere.length" class="blk">
       <div class="bh t-aux">等你批准</div>
       <div class="card warn">
         <UiIcon name="shield" :size="15" />
-        <span class="t-aux">{{ chat.pendingPerms.length }} 个请求等在对话里——回合正卡在这</span>
+        <span class="t-aux">{{ permsHere.length }} 个请求等在对话里——回合正卡在这</span>
       </div>
     </section>
 
