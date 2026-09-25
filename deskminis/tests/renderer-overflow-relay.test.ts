@@ -706,7 +706,7 @@ describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费
   // 可以在体外定义同名的 trim()（B5），可以藏在 setter 里（o.v = …，E1）。所以在语法树上逐项钉死：
   // 体内调用的原文、实参的种类、赋值的目标、用到的名字、体内声明的名字；体内用到的体外名字在 setup 顶层各自只声明一次，
   // 且就是预期的那个（改名引入 nextTick 再自定义一个同名函数，调用原文不变，靠这条拦）。
-  it('Composer：只取指向当前会话的草稿，取完即清；不替用户发送', () => {
+  it('Composer：只取指向当前会话的草稿，取完即清；takeRelay 体内不替用户发送', () => {
     const { sf } = composerSetup();
     const fn = topFn(sf, 'takeRelay');
     expect(fn.modifiers ?? [], 'takeRelay 不许是 async / export').toHaveLength(0);

@@ -125,3 +125,56 @@ describe('sfcBlocks：按 SFC 解析器切块，再各剥本段的注释', () =>
     expect(sfcBlocks('<template><i /></template>\n')).toEqual({ script: '', template: '<i />', style: '' });
   });
 });
+
+describe('W2b-4c：脚本按语法树的注释区间剥、模板按 AST 的注释节点剥（第三次审查的三个变异）', () => {
+  // 正则剥法不认字符串，也放过冒号后面的 //：下面每例都把「对的」代码藏在一段真注释里、真代码是错的，
+  // 旧 sfcBlocks 剥完仍看得见注释里那份，胶囊与 send 的守卫因此被喂饱（第三次审查实测 234 例全绿）
+  const script = (...lines: string[]): string => sfcBlocks(['<script setup lang="ts">', ...lines, '</script>', '<template><i /></template>'].join('\n')).script;
+
+  it('冒号后面紧跟的 // 是真注释：类型注解位置', () => {
+    const s = script(
+      'const effectiveBinding = computed(():// previewBinding(applyStateOf(chat), chat.assistants));',
+      "  string => chat.sessions.find(s => s.id === chat.activeId)?.modelBinding ?? '');",
+    );
+    expect(s).not.toContain('previewBinding');
+    expect(s).toContain('modelBinding');
+  });
+
+  it('冒号后面紧跟的 // 是真注释：三元表达式的冒号', () => {
+    const s = script('const want = ok ? null :// assistantToApply(applyStateOf(chat))', '  null;');
+    expect(s).not.toContain('assistantToApply');
+    expect(s).toMatch(/const want = ok \? null :\s*null;/);
+  });
+
+  it("字符串里的 '/*' 不开块注释：它后面真注释里的旧代码不会被当成代码露出来", () => {
+    const s = script("const t = '/*'.slice(9); // */ const eff = computed(() => previewBinding(applyStateOf(chat), chat.assistants));");
+    expect(s).not.toContain('previewBinding');
+    expect(s).toContain("const t = '/*'.slice(9);");
+  });
+
+  it("字符串与正则里的 // 和 /* 原样保留（URL、glob 之类）", () => {
+    const s = script(
+      'const u = "https://example.com/a"; // 真注释 oldCall()',
+      "const g = '/* 不是注释 */';",
+      'const re = /\\/\\/+/g;',
+      'const tpl = `a//b/*c*/`;',
+    );
+    expect(s).toContain('const u = "https://example.com/a";');
+    expect(s).toContain("const g = '/* 不是注释 */';");
+    expect(s).toContain('const re = /\\/\\/+/g;');
+    expect(s).toContain('const tpl = `a//b/*c*/`;');
+    expect(s).not.toContain('oldCall');
+  });
+
+  it('模板里提前结束的注释 <!--> 只删它自己，后面的正文照 Vue 解析器留着', () => {
+    const b = sfcBlocks('<template><div><!-- 旧 {{ old }} --><!-->live<i>{{ a }}</i><!-- x --></div></template>\n');
+    expect(b.template).not.toContain('old');
+    expect(b.template).toContain('live<i>{{ a }}</i>');
+    expect(b.template).not.toContain('<!--');
+  });
+
+  it('脚本不是 ts/js（tsx 之类）或解析出错时直接抛', () => {
+    expect(() => sfcBlocks('<script setup lang="tsx">\nconst a = <i />;\n</script>\n<template><i /></template>\n')).toThrow(/tsx/);
+    expect(() => sfcBlocks('<script setup lang="ts">\nconst = ;\n</script>\n<template><i /></template>\n')).toThrow(/脚本解析出错/);
+  });
+});

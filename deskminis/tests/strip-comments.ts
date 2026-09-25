@@ -4,7 +4,9 @@
  *  正向匹配、位置搜索都照样命中，测试不红（handoff §2.10、§7.6；W1a-9 审查用 5 种「注释喂饱」变异实测过）。
  *
  *  这是按正则去注释，不认字符串，有两点要知道：
- *  - `://` 前面是冒号，不当行注释，URL 字符串原样保留；
+ *  - `://` 前面是冒号，不当行注释，URL 字符串原样保留；反过来，真注释紧跟在冒号后面（类型注解
+ *    `const t:// …`、三元的 `a ? b :// …`）也会被当成 URL 留下，注释里的旧代码能喂饱断言。
+ *    .vue 的脚本段已改用 tests/sfc-blocks.ts（按 babel 语法树的注释区间剥，W2b-4c），没有这两个漏洞；
  *  - 其余字符串或正则字面量里出现 // 或 /* 会被误删。目前扫的 src/main/index.ts、src/main/app-dirs.ts、
  *    src/minisd/index.ts、src/minisd/store/provider-store.ts 都没有这种写法（W1a-9 用 TypeScript 语法树去注释对照过，
  *    结果去掉空白后逐字相同）；W1b-2 起 src/renderer/src/stores/chat.ts 与 ui/PermCard.vue 的 <script> 段也用它，
