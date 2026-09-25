@@ -1,7 +1,13 @@
 import type { AgentToolDefinition } from '../../shared/types';
 import type { MinisPaths } from '../paths';
 
-export interface ToolOutcome { output: string; success: boolean }
+/** file_read 分段读取（W1b-2d）实际返回的范围：按 UTF-16 码元从 0 计，start 含、end 不含，total 为全文长度。 */
+export interface ReadRange { start: number; end: number; total: number }
+
+/** readRange 只有 file_read 的分段读取会带：output 是「片段 + 换行 + 范围注记」，loop 读回卸载文件时
+ *  （agent/offload.ts clampReadBack）要知道片段在哪结束、在文件里的坐标，才能封顶并给出正确的下一段 offset。
+ *  用结构化字段而不从 output 里解析注记：卸载文件的内容本身就可能是一次分段读的结果，末行长得和注记一模一样。 */
+export interface ToolOutcome { output: string; success: boolean; readRange?: ReadRange }
 
 /** windows-* 桥的能力类目：kind 即权限类目（与 file-write/file-read 同款 1:1 路由）。 */
 export type BridgePermissionKind =
