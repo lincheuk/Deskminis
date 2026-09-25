@@ -10,6 +10,7 @@ import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail 
 import { TailBuffer, STDERR_TAIL_BYTES, LineSplitter } from './child-output';
 import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, type StopOutcome } from './minisd-stop';
 import { relaunchOptions, INSTALL_QUIT_FALLBACK_MS } from './relaunch';
+import { PACKAGED_MENU_TEMPLATE } from './app-menu';
 import { appBaseUrl, externalUrlOf, isAppUrl, permissionAllowed } from './nav-guard';
 import { DailyLog } from '../minisd/diag/daily-log';
 import { crashLogPath, recordCrash } from '../minisd/diag/crash-log';
@@ -26,13 +27,11 @@ const dirs = resolveAppDirs({ isPackaged: app.isPackaged, env: process.env });
 // Windows 上未实测；打包态不走这一行，最坏只影响 dev 首次启动。
 if (dirs.userData) app.setPath('userData', dirs.userData);
 
-// W2b-6b 打包版不要应用菜单。没设菜单时 Electron 自动装一套默认菜单：无边框窗口里看不见它，快捷键却都生效——
+// W2b-6b / W2b-6c 打包版换掉 Electron 的默认菜单。没设菜单时 Electron 自动装一套默认菜单：无边框窗口里看不见它，快捷键却都生效——
 // Ctrl+R 在回合中途把界面整页重载（流式正文、待批的权限卡、输入框里没发出去的字都没了），Ctrl+Shift+I 打开开发者工具。
-// 本应用没有一处靠它：窗口按钮由系统画（titleBarOverlay），其余入口在界面与托盘菜单里；文本框的复制、粘贴、全选、撤销
-// 由 Chromium 自己处理，不经菜单（Windows 与 Linux 如此；macOS 要靠「编辑」菜单，本应用不出 macOS 包）。
-// 默认菜单带来的其余快捷键也随之没了：缩放（Ctrl 加 + / - / 0）、F11 全屏、Ctrl+M 最小化、Ctrl+W 收进托盘。
-// 放在模块顶层、ready 之前：Electron 在 ready 之前装默认菜单，先设了 null 它就不装。开发态保留默认菜单（要用重载与开发者工具）。
-if (app.isPackaged) Menu.setApplicationMenu(null);
+// 也不设 null：那样缩放（Ctrl 加 + / - / 0）与 F11 全屏一起没了，应用里没有别的缩放入口。只留编辑与视图两组，见 ./app-menu。
+// 放在模块顶层、ready 之前：Electron 在 ready 之前装默认菜单，先设了它就不装。开发态保留默认菜单（要用重载与开发者工具）。
+if (app.isPackaged) Menu.setApplicationMenu(Menu.buildFromTemplate(PACKAGED_MENU_TEMPLATE));
 
 let minisd: UtilityProcess | undefined;
 // minisd stderr 的末尾 4KB：启动失败时附进错误框（真正的原因在这里，不在主进程自己的堆栈里）。

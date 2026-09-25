@@ -112,7 +112,8 @@ describe('dev 形态：权限只放行开发服务器页面的 clipboard-sanitiz
 });
 
 // W2b-6b：打包版去掉应用菜单（tests/main-window-guard-wiring-packaged.test.ts），开发态不动——
-// Electron 的默认菜单留给开发：Ctrl+R 重载、Ctrl+Shift+I 开发者工具。去菜单写成不看 isPackaged 的话，这里红。
+// Electron 的默认菜单留给开发：Ctrl+R 重载、Ctrl+Shift+I 开发者工具。这里是 dev 服务器形态；未打包、走 loadFile 的形态
+// 在 tests/main-window-guard-wiring.test.ts 另钉一例——换菜单的条件改看「加载的是不是打包页面」时，只有那一例红（W2b-6b 三审）
 describe('dev 形态：应用菜单保持 Electron 的默认菜单', () => {
   it('Menu.setApplicationMenu 一次也没调', () => {
     expect(h.trayCreated, 'whenReady 走完了').toBe(true);

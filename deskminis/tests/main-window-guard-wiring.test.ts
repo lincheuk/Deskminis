@@ -337,3 +337,11 @@ describe('② 源码守卫', () => {
     expect(main.slice(at + 'shell.openExternal('.length + call.length + 1)).toMatch(/^\s*\.catch\(/);
   });
 });
+
+describe('未打包、走 loadFile：保留 Electron 的默认菜单（W2b-6b 三审）', () => {
+  it('Menu.setApplicationMenu 一次也没调——开发与实拍剧本用的就是这个形态，重载与开发者工具要留着', () => {
+    // 换菜单的条件只该看 isPackaged：改成看「加载的是不是打包页面」的话，dev 服务器形态照样不换、全绿，只有这一例红
+    expect(h.trayCreated, '启动走完了（托盘已建）').toBe(true);
+    expect(h.appMenus).toEqual([]);
+  });
+});

@@ -6,7 +6,7 @@
  *    当成本应用——放行导航、放行剪贴板写入。它只该给 npm run dev 用：打包后一律 loadFile(out/renderer/index.html)，守卫的基址也不认它。
  *  - 打包版以前不设应用菜单，Electron 自动装一套默认菜单：无边框窗口里看不见，快捷键却都生效——Ctrl+R 在回合中途把界面整页重载
  *    （流式正文、待批的权限卡、输入框里没发出去的字都没了），Ctrl+Shift+I 打开开发者工具（W2b-11a 第三轮审查 nit）。
- *    打包版在建窗口之前 Menu.setApplicationMenu(null)；开发态保留默认菜单（开发要用重载与开发者工具），在 dev 形态的文件里钉。
+ *    打包版在建窗口之前换上 app-menu 的最小菜单（W2b-6c，以前是 null）；开发态保留默认菜单（开发要用重载与开发者工具），在 dev 形态的文件里钉。
  *  - 以前接线测试里桩的 isPackaged 恒为假，把两道窗口守卫包进 if (!app.isPackaged) 也全绿（W2b-6 第三轮审查 P1）：
  *    这里在打包版上把新窗口、页内导航、权限三道守卫再走一遍。
  *
@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { bootMain, check, h, loadedPage, navigate, openWindow, openedDuring, request } from './main-window-guard-harness';
+import { PACKAGED_MENU_TEMPLATE } from '../src/main/app-menu';
 
 vi.mock('electron', async () => (await import('./main-window-guard-harness')).fakeElectron());
 vi.mock('electron-updater', async () => (await import('./main-window-guard-harness')).fakeElectronUpdater());
@@ -108,9 +109,11 @@ describe('打包版照样挂窗口守卫（以前桩的 isPackaged 恒为假，�
   });
 });
 
-describe('打包版去掉应用菜单', () => {
-  it('Menu.setApplicationMenu 恰好调一次、实参是 null，在建窗口之前（窗口一出来就没有 Ctrl+R 重载、Ctrl+Shift+I 开发者工具）', () => {
-    expect(h.appMenus, '打包版应当 Menu.setApplicationMenu(null)').toEqual([null]);
+describe('打包版换掉默认菜单', () => {
+  it('Menu.setApplicationMenu 恰好调一次、设的是 app-menu 的模板，在建窗口之前（没有 Ctrl+R 重载、Ctrl+Shift+I 开发者工具，缩放还在）', () => {
+    // W2b-6c：不再设 null——那样缩放与 F11 全屏也没了；模板里有什么、没什么由 tests/app-menu.test.ts 钉
+    expect(h.appMenus, '打包版应当恰好设一次应用菜单').toHaveLength(1);
+    expect((h.appMenus[0] as { template?: unknown } | null)?.template, '设的是 PACKAGED_MENU_TEMPLATE 建出来的菜单').toBe(PACKAGED_MENU_TEMPLATE);
     const iMenu = h.calls.indexOf('Menu.setApplicationMenu');
     const iWin = h.calls.indexOf('new BrowserWindow');
     expect(iWin, '走到了建窗口').toBeGreaterThanOrEqual(0);

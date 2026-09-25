@@ -105,7 +105,7 @@ export const h = {
   crashListeners: { uncaught: [] as AnyListener[], rejection: [] as AnyListener[] },
   /** 桩的 app.isPackaged（W2b-6b）：bootMain 在 import 主进程之前按 opts.isPackaged 设好，缺省为假（未打包） */
   isPackaged: false,
-  /** Menu.setApplicationMenu 每次收到的实参（W2b-6b：打包版应当恰好一次 null，开发态一次也不调） */
+  /** Menu.setApplicationMenu 每次收到的实参（W2b-6c：打包版恰好一次、是 app-menu 的模板建出来的菜单；未打包一次也不调） */
   appMenus: [] as unknown[],
   /** 主窗口的 webContents（权限请求处理器的第一个实参就是它；真 Electron 里发起请求的页面所在的那个） */
   webContents: undefined as { getURL(): string } | undefined,
@@ -189,7 +189,8 @@ export function fakeElectron(): Record<string, unknown> {
       showMessageBoxSync: () => { h.onBlockingDialog?.(); return 0; },
     },
     Menu: {
-      buildFromTemplate: () => ({}),
+      // 带回模板本身：打包版设的应用菜单（W2b-6c）要按模板认，不再是 null
+      buildFromTemplate: (template: unknown) => ({ template }),
       setApplicationMenu: (menu: unknown) => { h.calls.push('Menu.setApplicationMenu'); h.appMenus.push(menu); },
     },
     nativeImage: { createFromPath: () => ({ isEmpty: () => true }), createEmpty: () => ({}) },
