@@ -136,7 +136,7 @@
   - `strip-comments.ts`：正则版剥注释，主进程守卫仍在用；已知漏洞：冒号后紧跟的真注释会被当成 URL 留下（W2b-4c 写明）。
   - `minisd-crash-inject.cjs`：往引擎里注入未处理拒绝 / 未捕获异常（W2b-7）。
 - **新脚本**：`npm run verify:release`（发布四件与随包文件的零依赖校验，W2b-10）；`npm run smoke:release`（发版冒烟，`--mock` 在 Linux 自测，
-  链 S，〔待合流后填〕）。
+  链 S，合流 `0c52c59`）。
 - **xvfb 实拍**（UI 改动必做）：
   - 先 `npm run build`（app 跑的是 `out/`）。playwright-core 不入库，也不在 `deskminis/node_modules` 里：在草稿区放一份
     `docs/handoff/driver/package.json` 跑 `npm i`（只装这一个包）。剧本用 `createRequire(import.meta.url)('playwright-core')` 取它
@@ -255,7 +255,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W1b-2g | shell 免询问白名单只留只读本地命令：npm view/outdated、远程共享路径、env: 提供程序、远程主机参数回落询问；规则拦下与「完全访问」说法如实；删误入仓库的测试残留 | `c18e72f` | P | W2b-11b 三审 |
 | W2b-6b | 终端 OSC 8 链接经中文确认框（规范形地址与主机）交系统浏览器；打包版不认 `ELECTRON_RENDERER_URL`、去掉应用菜单 | `f646fe9` | Q | W2b-6 三审、W2b-11a 三审 |
 | W2b-11d | 右栏「改动」清单按工具结果判，失败与中断的写工具不再列；cron 注释按实际行为改正 | `9504d64` | R | W2b-11a 三审 |
-| W3-smoke | 发版冒烟脚本 `smoke:release`：两家真 key 多轮工具调用、MCP 带空格路径试连、shell 停止后查残留；`--mock` 在 Linux 自测 | 〔待合流后填〕 | S | 设计稿 §5.1 |
+| W3-smoke | 发版冒烟脚本 `smoke:release`：两家真 key 多轮工具调用、MCP 带空格路径试连、shell 停止后查残留；`--mock` 在 Linux 自测 | `2db1926` | S | 设计稿 §5.1 |
 
 **审查遗留补修（18 笔在 main，链 S 的另计）**
 
@@ -279,7 +279,8 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W2b-7b | 按天日志的测试钉在东八区 | `5fe86de` | F2 | W2b-7 三审 |
 | W1b-2h | 权限文案两处收口：规则拦下时给一条不经 shell 的出路，「每次确认」写上只读命令也放行 | `7d72234` | P | W1b-2g 审查 nit |
 | W2b-6c | 打包版换上只含编辑与缩放的最小菜单（不再设 null），未打包 loadFile 形态钉住保留默认菜单 | `b200ae0` | Q | W2b-6b 审查 |
-| W3-smokeb 及之后 | 冒烟脚本三审补修：被打断时收整棵子进程树、凭据库清理与选库有测试、输出脱敏的接线有测试 | 〔待合流后填〕 | S | W3-smoke 三审 |
+| W3-smokeb | 冒烟脚本三审补修（其后又三轮审查、两轮修正，六审通过）：被打断时不再开新用例、收引擎名下整棵子进程树；凭据库最先清、只认 `DeskMinis-smoke-<进程号>`；清理、选库、脱敏与信号路径写完输出都有测试（79 例，92 条变异全红） | `a85d876` | S | W3-smoke 三审 |
+| W3-smokec | 冒烟脚本起引擎以临时根为 cwd（Linux 上桥的管道套接字不再落进应用目录，全量一遍从留 15 个降到 1 个）；引擎没拿到 pid 时按没起来处理，不再空等 15 秒误报「停不下来」 | `8ac05dc` | main（主会话直接做，没走独立审查） | W3-smokeb 六审 nit |
 
 ### 4.6 合流提交
 
@@ -296,7 +297,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | `0fb622d` | P：W1b-2g、W1b-2h | 无冲突 | 241 / 3391 |
 | `641fb06` | Q：W2b-6b、W2b-6c | 无冲突 | 244 / 3421 |
 | `d00b991` | R：W2b-11d | 无冲突 | 245 / 3445 |
-| 〔待合流后填〕 | S：W3-smoke 及补修 | 〔待合流后填〕 | 〔待合流后填〕 |
+| `0c52c59` | S：W3-smoke、W3-smokeb | 自动合并无冲突（package.json 只加 scripts 一行，另两个新文件）；链 S 起点是 D2 合流 `14236f9` | 246 / 3524；build 0 |
 | 〔待合流后填〕 | 文档链：W2b-11b、W2b-11c | 〔待合流后填〕 | 〔待合流后填〕 |
 
 A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码 0）与全量，失败都是那 52 例、基线 diff 空。
@@ -387,7 +388,7 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 ### 脚本与仓库根
 
 - `scripts/verify-release.mjs`：发布四件与随包文件的八项校验，任一 FAIL 退 1（`verify-release`、`m5-packaging`）。
-- `scripts/smoke-release.mjs`：发版冒烟四用例（`smoke-release`），链 S，〔待合流后填〕。
+- `scripts/smoke-release.mjs`：发版冒烟四用例加清理（`smoke-release`），链 S，合流 `0c52c59`。
 - `scripts/e2e-acceptance.mjs`、`e2e-m2b-acceptance.mjs`：握手循环认 DATA_ROOT_LOCKED 致命行并给可照做的提示。
 - `electron-builder.yml`：publish 的 repo 改为 `deskminis-releases`；extraResources 加 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`。
 - `THIRD-PARTY-NOTICES.md`：改成「每个上游一节一张表」，文末附登记格式；pi-mono 表 4 行（edit-text、overflow、win-exec、crash-log），
