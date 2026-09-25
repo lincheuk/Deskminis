@@ -82,8 +82,10 @@ describe('主进程：before-quit 交给 QuitGate', () => {
 });
 
 describe('主进程：引擎的 exit 监听只有一个，由它写退出记录', () => {
-  // 各种挂监听的写法、各种引号都算（审查实测：只认 .on/.once 加单引号的话，once("exit") 与 addListener('exit') 都漏）
-  const EXIT_LISTENER = /\.(?:on|once|addListener|prependListener|prependOnceListener)\(\s*['"`]exit['"`]/;
+  // 各种挂监听的写法、各种引号都算（审查实测：只认 .on/.once 加单引号的话，once("exit") 与 addListener('exit') 都漏）；
+  // 方法名与括号之间的空白、可选调用 `?.(` 也算（三审 N2/N3：`minisd.once ('exit', …)`、`minisd.on?.('exit', …)` 曾数不到）
+  const HOOK = String.raw`\.(?:on|once|addListener|prependListener|prependOnceListener)\s*(?:\?\.)?\s*\(`;
+  const EXIT_LISTENER = new RegExp(HOOK + String.raw`\s*['"\`]exit['"\`]`);
   const mainDir = join(__dirname, '..', 'src/main');
   const sources = readdirSync(mainDir).filter(f => f.endsWith('.ts')).map(f => [f, read(`src/main/${f}`)] as const);
   /** src/main 每个文件里 re 命中几次就记几个文件名 */
@@ -96,7 +98,7 @@ describe('主进程：引擎的 exit 监听只有一个，由它写退出记录'
   it('src/main 里挂监听一律写字面量事件名（常量名、变量传进来的 exit 上面那条数不到）', () => {
     // 审查实测（二审 R15）：`const EV = 'exit' as const; minisd.once(EV, …)` 再挂一个，只认字面量的计数照样是 1。
     // (?![\s'"`]) 连空白一起排除：\s* 回退一格时下一个字符是空白，不能因此把 `.on( 'x'` 当成非字面量
-    const nonLiteral = /\.(?:on|once|addListener|prependListener|prependOnceListener)\(\s*(?![\s'"`])/;
+    const nonLiteral = new RegExp(HOOK + String.raw`\s*(?![\s'"\`])`);
     expect(hitFiles(nonLiteral)).toEqual([]);
   });
 
@@ -117,6 +119,10 @@ describe('主进程：引擎的 exit 监听只有一个，由它写退出记录'
     const listener = blockAfter(start, head);
     expect(listener.match(new RegExp(String.raw`\b${created?.[1]}\.markExited\(${code}\)`, 'g')) ?? [],
       '监听写入的是赋给 minisdExit 的同一个实例').toHaveLength(1);
+    // 而且是第一句、无条件写（三审 N1：包进 `if (minisdPort === 0)` 之后「恰好一次」照样成立，全绿；
+    // 可握手后的退出从此不进记录——停止器每次白等 5 秒再 kill，崩了 minisdAlive 还是真，W2b-7 也分不清退出与崩溃）
+    expect(listener, 'exit 监听体第一句就是无条件的 markExited(退出码);')
+      .toMatch(new RegExp(String.raw`^\s*${created?.[1]}\.markExited\(${code}\);`));
   });
 });
 
