@@ -1,4 +1,5 @@
 /** 主进程看管子进程输出用的小工具。不 import electron，便于单测。 */
+import { StringDecoder } from 'node:string_decoder';
 
 /** minisd stderr 保留的末尾字节数（设计稿 §3 第 8 条：约 4KB，只实现这一次，崩溃记录等后续步骤复用）。 */
 export const STDERR_TAIL_BYTES = 4096;
@@ -52,4 +53,38 @@ export class TailBuffer {
     while (i < all.length && i < 4 && (all[i] & 0xc0) === 0x80) i++;
     return all.subarray(i).toString('utf8');
   }
+}
+
+/** LineSplitter 攒着没换行的半行最多这么长（字符），超过就先切出来：子进程一直不换行地输出时，不能无限攒在内存里。 */
+export const LINE_SPLITTER_MAX_CHARS = 64 * 1024;
+
+/** 把分块到达的子进程输出切成整行（W2b-7：stderr 以前整块转发，按天日志要按行记、每行带时间）。
+ *  一块可能断在一行中间、甚至一个汉字中间：半行留到下一块，多字节字符由 StringDecoder 拼回，不出替换符。
+ *  去掉行尾的 \r；空行与纯空白行不要（按天日志里只是噪音）。 */
+export class LineSplitter {
+  private readonly decoder = new StringDecoder('utf8');
+  private rest = '';
+
+  /** 喂一块，返回这一块凑齐的整行。 */
+  push(chunk: Buffer | string): string[] {
+    this.rest += typeof chunk === 'string' ? chunk : this.decoder.write(chunk);
+    const lines = this.rest.split('\n');
+    this.rest = lines.pop() ?? '';
+    while (this.rest.length > LINE_SPLITTER_MAX_CHARS) {
+      lines.push(this.rest.slice(0, LINE_SPLITTER_MAX_CHARS));
+      this.rest = this.rest.slice(LINE_SPLITTER_MAX_CHARS);
+    }
+    return tidy(lines);
+  }
+
+  /** 收尾（子进程退出时）：把最后没换行的半行交出来。 */
+  flush(): string[] {
+    const last = this.rest + this.decoder.end();
+    this.rest = '';
+    return tidy([last]);
+  }
+}
+
+function tidy(lines: string[]): string[] {
+  return lines.map(l => l.replace(/\r$/, '')).filter(l => l.trim() !== '');
 }
