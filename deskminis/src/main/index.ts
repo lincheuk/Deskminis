@@ -1,13 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, utilityProcess, type UtilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell, Tray, utilityProcess, type UtilityProcess } from 'electron';
 import electronUpdater from 'electron-updater';
 import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { resolveAppDirs } from './app-dirs';
 import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
 import { describeUpdateError, isPortableBuild, manualCheckDialog, type UpdateState } from './update-status';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES } from './child-output';
 import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, type StopOutcome } from './minisd-stop';
+import { appBaseUrl, externalUrlOf, isAppUrl, permissionAllowed } from './nav-guard';
 
 // W1a-9 开发态数据隔离：数据根、userData、keyring 服务名、日志目录在这里一次算定。
 // fork minisd 与 attachments:save 都用这一份，不再各自调 dataRoot() 各算一遍——两处一漂移，附件就落进另一个根。
@@ -169,6 +171,22 @@ function createTrayMenu(win: BrowserWindow): import('electron').Menu {
   ]);
 }
 
+/** 本应用页面的地址（W2b-6），只在这里算：createWindow 按它加载，导航守卫与权限白名单按它认「本应用」。
+ *  加载的与认的出自同一处；要改认不认 ELECTRON_RENDERER_URL（比如打包后不认），改这里，两边一起变。 */
+function rendererBaseUrl(): string {
+  return appBaseUrl(process.env.ELECTRON_RENDERER_URL, join(__dirname, '../renderer/index.html'));
+}
+
+/** 交给系统默认程序打开（W2b-6）：只交 http / https / mailto 的规范形，其余什么也不做。
+ *  打不开时静默：没有默认邮件客户端的机器上 mailto: 会 reject，接住只写 stderr，不冒成未处理的 rejection。 */
+function openInSystem(url: string): void {
+  const target = externalUrlOf(url);
+  if (target === undefined) return;
+  shell.openExternal(target).catch((e: unknown) => {
+    process.stderr.write('[nav-guard] 系统打不开这个链接: ' + (e instanceof Error ? e.message : String(e)) + '\n');
+  });
+}
+
 async function createWindow(): Promise<BrowserWindow> {
   const win = new BrowserWindow({
     width: 1280, height: 800, minWidth: 900, minHeight: 600,
@@ -179,8 +197,26 @@ async function createWindow(): Promise<BrowserWindow> {
     titleBarOverlay: { color: '#00000000', symbolColor: '#808080', height: 40 },
     webPreferences: { preload: join(__dirname, '../preload/index.cjs') },
   });
-  if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
-  else await win.loadFile(join(__dirname, '../renderer/index.html'));
+  // W2b-6 导航守卫，抢在加载页面之前挂上（加载期间页面就可能新开窗口或跳走）。
+  // 新窗口一律拒绝：回复里的外链（target=_blank）与 window.open 以前会在应用里开出第二个 Electron 窗口加载外站；
+  // 网页与邮件改交系统默认程序。
+  const appBase = rendererBaseUrl();
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openInSystem(url);
+    return { action: 'deny' };
+  });
+  // 页内导航只放行本应用页面：location.href 改到外站、把文件拖到输入区以外（Chromium 按 file:// 导航），
+  // 以前都会把整个界面换掉、只能重启。拦下的若是网页或邮件，交给系统默认程序。
+  win.webContents.on('will-navigate', (e) => {
+    if (isAppUrl(e.url, appBase)) return;
+    e.preventDefault();
+    openInSystem(e.url);
+  });
+  // 加载的就是守卫认的那个页面：按同一个 appBase 加载。打包后它是 index.html 的 file URL，还原成路径照旧 loadFile；
+  // dev 是开发服务器的地址，照旧 loadURL。以前加载分支自己再判一遍 ELECTRON_RENDERER_URL，两边一改岔
+  // （比如只给加载分支加 isPackaged），本应用页面就被当成外站：整页重载被拦，剪贴板写入被拒，「复制」静默失效。
+  if (appBase.startsWith('file:')) await win.loadFile(fileURLToPath(appBase));
+  else await win.loadURL(appBase);
 
   // 关窗不退出：隐藏到托盘（× / Alt+F4 都走这里；托盘退出 / before-quit 才真放行）
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } });
@@ -318,6 +354,15 @@ app.whenReady().then(async () => {
   // 第二个实例：顶层已经 app.quit()，但 ready 仍可能触发。不早退的话它照样 fork minisd（被数据根锁拦下，多弹一个框）、
   // 建窗口、起更新检查。
   if (!gotSingleInstanceLock) return;
+  // W2b-6 权限白名单：只放行本应用页面的剪贴板写入（代码块「复制」、预览区「复制完整路径」），其余一律拒绝。
+  // 以前没设处理器，Electron 默认全放行：通知、摄像头麦克风、定位、剪贴板读取，页面要什么给什么。
+  // 请求与检查两个都设（多数 Web API 先查、查不过再请求）；抢在建窗口之前，页面一加载就可能来查。
+  const appBase = rendererBaseUrl();
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+    callback(permissionAllowed(permission, details.requestingUrl, appBase));
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) =>
+    permissionAllowed(permission, details.requestingUrl, appBase));
   // 启动检查：延迟 8s，让窗口和 minisd 先起来，不和启动抢资源。
   // 未打包 / 用户关掉开关时 checkUpdates 自己会短路，这里不重复判断。
   setupUpdater();
