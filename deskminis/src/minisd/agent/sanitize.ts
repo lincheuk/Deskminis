@@ -115,8 +115,10 @@ function credentialAt(s: string, q: number): [number, number] | undefined {
  * 为什么与正则相同：scheme 不含 ':'，所以一个起点只能配它那串 scheme 字符后面的 '://'；user 不含 ':'、pass 不含 '@'，
  * 各段止于第一个分隔符，不存在别的回退解；正则从左往右试起点，这里按 '://' 从左往右处理，次序一致。
  * 上一段以 '@' 收尾，'@' 不是 scheme 字符，下一段的 scheme 往左扫越不过它，所以两段不会重叠。
+ * 也给 store/audit.ts 的落盘脱敏用（W2a-7b）：那边对整段多行字符串跑，结果同样与原正则一致——
+ * scheme、user、pass 三段都不含换行（换行是空白），一段凭据跨不了行。
  */
-function redactUrlCredentials(line: string): string {
+export function redactUrlCredentials(line: string): string {
   let out = '';
   let last = 0; // 已输出到这里
   for (let q = line.indexOf('://'); q >= 0; q = line.indexOf('://', q + 1)) {
