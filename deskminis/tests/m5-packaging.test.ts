@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -37,5 +37,15 @@ describe('M5 electron-builder.yml 静态守卫', () => {
   it('version 提升到 0.3.0（历史锚 0.1.0→0.1.1→0.2.0→0.3.0；S/T/U/V 四波升 minor，改锚已在 commit 申报）', () => {
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as { version?: string };
     expect(pkg.version).toBe('0.3.0');
+  });
+});
+
+describe('发布校验入口（W2b-10）', () => {
+  // docs/RELEASE.md 让发布者在 npm run dist 之后、上传之前各跑一次 npm run verify:release；
+  // 这个脚本名一旦被改掉或删掉，清单上那一步就成了空话，所以钉住入口与脚本文件两头。
+  it('package.json 的 verify:release 用 node 跑 scripts/verify-release.mjs，且脚本文件存在', () => {
+    const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
+    expect(pkg.scripts?.['verify:release']).toMatch(/^node scripts\/verify-release\.mjs$/);
+    expect(existsSync(join(repoRoot, 'scripts', 'verify-release.mjs'))).toBe(true);
   });
 });

@@ -17,19 +17,38 @@ npm ci            # postinstall 自动 electron-rebuild better-sqlite3
 npm test          # Windows 上应全绿（Linux 上有 52 例平台性失败是正常的）
 npm run typecheck
 npm run dist      # 产物在 dist/：Setup.exe + Setup.exe.blockmap + portable.exe + latest.yml
+npm run verify:release   # 紧接着核对 dist/ 这四件与随包文件，全 PASS 才往下走（见第 2 节）
 ```
 
 - 若 `dist/` 被其它进程占用（EBUSY）：构建到临时目录，再用
-  `$env:DESKMINIS_M5_UNPACKED` / `$env:DESKMINIS_M5_SETUP` 指向产物跑验收（见下）。
+  `$env:DESKMINIS_M5_UNPACKED` / `$env:DESKMINIS_M5_SETUP` 指向产物跑验收，
+  发布校验用 `npm run verify:release -- --dist <临时目录的绝对路径>`（见下）。
 
 ## 2. 打包验收（自动断言）
 
 ```powershell
 npm run e2e:m5
+npm run verify:release
 ```
 
-覆盖：extraResources 桥件随包、原生模块 asar 解包、打包态垫片 stdout / 退出码、
+`e2e:m5` 覆盖：extraResources 桥件随包、原生模块 asar 解包、打包态垫片 stdout / 退出码、
 含空格安装路径。全 PASS 才继续。
+
+`verify:release`（`deskminis/scripts/verify-release.mjs`，零依赖）逐项核对 `dist/`，每项一行 PASS / FAIL / SKIP，
+FAIL 后面写着中文原因；有 FAIL 退出码 1，**有一项 FAIL 就不能上传**：
+
+1. `latest.yml` 在——electron-updater 靠它发现新版，漏了自动更新就永远查不到；
+2. 能按 electron-builder 的输出形状读懂它（认不出的结构直接 FAIL，不去猜）；
+3. 里面的 `version` 等于 `package.json` 的版本（不等说明 `dist/` 里是旧产物）；
+4. `files[0]` 是 `DeskMinis-<版本>-Setup.exe`，安装包的大小与 sha512 和 `latest.yml` 记的一致，
+   顶层 `path` / `sha512` 与 `files[0]` 一致——sha512 不符照样上传，所有用户下载完都会报 `ERR_CHECKSUM_MISMATCH`；
+5. `Setup.exe.blockmap` 在、是 gzip、块长之和等于安装包大小（不是旧安装包的块表）——缺了下一版没法差分下载；
+6. 便携版 `DeskMinis-<版本>-win-x64-portable.exe` 在且非空；
+7. `win-unpacked/resources/app-update.yml`（装到用户机器上的更新源）与 `electron-builder.yml` 的 `publish` 段一致，
+   且不是私有源码仓 `lincheuk/Deskminis`——这一项装上就改不了，是最后一道闸；
+8. 随包的 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md` 在 `win-unpacked/resources/` 下，且与仓库根的原件一致。
+
+四件必须出自同一次 `npm run dist`：**不要单独重新打包其中一件**（比如只重打安装包），`latest.yml` 与 blockmap 记的是那一次的安装包。
 
 ## 3. 手动冒烟（安装版）
 
@@ -56,6 +75,7 @@ npm run e2e:m5
       没有英文堆栈和响应头。
 - [ ] 安装目录 `resources\` 下有 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`（W1a-1 起随包；
       `extraResources` 的 `from: ../` 指向工程目录之外，缺了就退回在 `deskminis/` 下放拷贝并加一致性测试）。
+      `verify:release` 第 8 项查的是 `win-unpacked`，这一条确认装出来的也有。
 - [ ] 卸载：数据目录保留（`deleteAppDataOnUninstall: false`）。
 
 ## 4. 发布到公开发布仓库 `lincheuk/deskminis-releases`
@@ -73,14 +93,25 @@ npm run e2e:m5
    找最新正式版，草稿和预发布它看不见。（云端侧实测 tag 推送被 403 拒——凭据只放行分支推送，
    故 tag 统一走 Release 发布这条路。）
 3. Release notes 直接取根 `CHANGELOG.md` 对应版本段。
-4. 上传 **四个**资产（都在 `deskminis/dist/`）：
+4. 上传 **四个**资产到公开仓库 `lincheuk/deskminis-releases` 的这个 Release（都在 `deskminis/dist/`，
+   上传前 `npm run verify:release` 必须全 PASS，见第 2 节）：
    - `DeskMinis-<版本>-Setup.exe`
    - `DeskMinis-<版本>-Setup.exe.blockmap`——差分下载靠它；旧版本的 blockmap 要留在旧 Release 下，
      所以**旧 Release 不要删**，删了老用户就只能整包下载
    - `DeskMinis-<版本>-win-x64-portable.exe`
    - **`latest.yml`**——electron-updater 的版本清单，**漏传 = 自动更新永远查不到新版**；
      里面记着 Setup.exe 的文件名、sha512 与大小，资产不能改名、不能重新打包后只换其中一个
-5. 发布后在装好的新版里点「设置 → 关于 → 现在检查」，应显示「已是最新」（不是「更新失败」）；
+5. **上传后再验一遍**：把这个 Release 的四件下载回一个空的临时目录，对它跑校验——
+   本地 `dist/` 自洽，不等于传上去的也对（上传中断被截断、传成了上一版的文件、漏传 `latest.yml` 或 blockmap，都只在这一步看得见）：
+   ```powershell
+   $d = Join-Path $env:TEMP "deskminis-release-check"
+   Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory $d | Out-Null
+   gh release download v<版本> --repo lincheuk/deskminis-releases --dir $d   # 没装 gh 就在网页上把四件下载进 $d
+   npm run verify:release -- --dist $d
+   ```
+   第 7、8 项会 SKIP 并写明原因（下载回来的只有四件，没有 `win-unpacked`，属正常），其余必须全 PASS；
+   有 FAIL 就删掉出错的资产、从同一个 `dist/` 重传，再验一遍。
+6. 发布后在装好的新版里点「设置 → 关于 → 现在检查」，应显示「已是最新」（不是「更新失败」）；
    从 0.3.1 起，再用一台装着上一版的机器检查一次，应显示「有新版本 · <版本>」并开始下载。
    （0.3.0 是第一个走新源的版本，装着 0.1.1 的机器查不到它，见 §5。）
 
