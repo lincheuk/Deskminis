@@ -15,7 +15,7 @@ import { histStep } from '../lib/composer/history';
 import { atToken, atMatch, applyAt, collectFiles } from '../lib/composer/at-files';
 import { downsampleImageFile } from '../lib/attach/downsample';
 import { describeBinding } from '../lib/models/binding';
-import { assistantToApply, previewBinding } from '../lib/welcome/assistant';
+import { assistantToApply, applyStateOf, previewBinding } from '../lib/welcome/assistant';
 import UiIcon from './UiIcon.vue';
 
 const props = withDefaults(defineProps<{ variant?: 'hero' | 'chat' }>(), { variant: 'chat' });
@@ -42,19 +42,10 @@ const cardError = computed(() => (props.variant === 'hero' ? chat.lastError : ''
  *  Z5：模型胶囊显示这条消息**实际会用**的模型。此前只看默认模型：会话绑了别的模型或模型组，胶囊照旧显示默认——
  *  立项探针实测（界面撒谎，教训 §7-3）。
  *  W2b-4：空会话上选了助手时，发送前会先套用它（绑定随之重置），所以取舍收进纯模块 previewBinding，
- *  与 send() 里判断要不要套用的 assistantToApply 同一套状态——胶囊预告的就是发出去时生效的那个。 */
-const activeSession = computed(() => chat.sessions.find(s => s.id === chat.activeId));
-/** 判断要不要套用助手的状态。hasMessages 与 AppShell 的 inChat 同一判据：有消息才是会话页、看不到助手卡片。 */
-const applyState = () => ({
-  activeId: chat.activeId,
-  hasMessages: chat.messages.length > 0,
-  boundAssistantId: activeSession.value?.assistantId ?? '',
-  selected: chat.welcomeAssistantId,
-});
-const effectiveBinding = computed(() => previewBinding(
-  { ...applyState(), sessionBinding: activeSession.value?.modelBinding ?? '' },
-  chat.assistants,
-));
+ *  与 send() 里判断要不要套用的 assistantToApply 同一套状态——胶囊预告的就是发出去时生效的那个。
+ *  W2b-4b：这套状态由纯模块 applyStateOf 从 store 组装（逐字段有单测）；这里就地拼的话，取错一个字段
+ *  （会话绑的助手、会话的绑定）谎就回来了，而 .vue 既不过 typecheck、守卫也只认得调用形态。 */
+const effectiveBinding = computed(() => previewBinding(applyStateOf(chat), chat.assistants));
 const modelView = computed(() => describeBinding(effectiveBinding.value, chat.providers, chat.modelGroups, chat.defaultProviderId));
 const PERM_TEXT: Record<string, string> = { ask: '每次确认', session: '本会话沿用', full: '完全访问' };
 const permLabel = computed(() => PERM_TEXT[chat.permTier] ?? '每次确认');
@@ -247,7 +238,7 @@ async function send(): Promise<void> {
     } else {
       // W2b-4：已有会话但还是空的（欢迎页）——欢迎页承诺「直接输入即以该预设开始」，发送前让会话的助手与选择对齐：
       // 选了没绑的就套用，改选了就替换，取消了选择就解绑。放在寄存草稿之前：套用失败时文字还在框里，原样留给用户
-      const want = assistantToApply(applyState());
+      const want = assistantToApply(applyStateOf(chat));
       if (want !== null) {
         try { await chat.applyAssistantToSession(chat.activeId, want); }
         catch (e) {

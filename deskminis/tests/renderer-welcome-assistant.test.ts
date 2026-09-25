@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { stripComments } from './strip-comments';
+import { sfcBlocks } from './sfc-blocks';
 
 const { rpcCallMock } = vi.hoisted(() => ({ rpcCallMock: vi.fn() }));
 vi.mock('../src/renderer/src/rpc', () => ({
@@ -32,22 +32,27 @@ const loadWelcome = () => import('../src/renderer/src/lib/welcome/assistant');
 
 const SRC = join(__dirname, '../src/renderer/src/');
 const read = (p: string): string => readFileSync(join(SRC, p), 'utf8').replace(/\r\n/g, '\n');
-/** .vue 的脚本段剥注释（/* *\/ 与 // 行）：断言认调用形态，注释里写得再多也喂不饱（交接 §2 第 10 条）。 */
-const script = (p: string): string => {
-  const src = read(p);
-  return stripComments(src.slice(src.indexOf('<script'), src.indexOf('</script>')));
-};
-/** 从 head 起按花括号配对取函数体（源码已剥注释；这里的函数体内字符串的花括号都成对）。 */
+/** .vue 的脚本段剥注释（/* *\/ 与 // 行）：断言认调用形态，注释里写得再多也喂不饱（交接 §2 第 10 条）。
+ *  W2b-4b 第二次审查补：脚本段由 SFC 解析器切出，不再从原文第一个 `<script` 切到第一个 `</script>`——
+ *  文件顶部一条 <!-- --> 里写着 <script 和一份正确的 send()，切片就从注释开始，bodyOf 取到的是注释里那份，
+ *  「恰好出现 1 次」也由注释凑数，而剥 JS 注释管不到 HTML 注释（审查变异 toplevel-html-comment-feeds-*，实测全绿）。 */
+const script = (p: string): string => sfcBlocks(read(p), p).script;
+/** 从 open（一个 '{' 的下标）起按花括号配对，返回与它配对的 '}' 的下标（源码已剥注释；这里的函数体内字符串的花括号都成对）。 */
+function closeOf(src: string, open: number): number {
+  expect(src[open], `下标 ${open} 处不是 '{'`).toBe('{');
+  let depth = 0;
+  for (let k = open; k < src.length; k++) {
+    if (src[k] === '{') depth++;
+    else if (src[k] === '}') { depth--; if (depth === 0) return k; }
+  }
+  throw new Error(`下标 ${open} 起的花括号没有配平`);
+}
+/** 从 head 起按花括号配对取函数体。 */
 function bodyOf(src: string, head: string): string {
   const i = src.indexOf(head);
   expect(i, `找不到 ${head}`).toBeGreaterThan(-1);
   const open = src.indexOf('{', src.indexOf(')', i));
-  let depth = 0;
-  for (let k = open; k < src.length; k++) {
-    if (src[k] === '{') depth++;
-    else if (src[k] === '}') { depth--; if (depth === 0) return src.slice(open + 1, k); }
-  }
-  throw new Error(`${head} 的花括号没有配平`);
+  return src.slice(open + 1, closeOf(src, open));
 }
 
 const base = { activeId: 'E', hasMessages: false, boundAssistantId: '', selected: '' };
@@ -117,6 +122,123 @@ describe('纯模块 previewBinding：胶囊在发送前就显示发送后真正�
     expect(previewBinding({ ...base, boundAssistantId: 'X', selected: 'X', sessionBinding: 'group:G' }, ASSTS)).toBe('group:G');
     expect(previewBinding({ ...base, hasMessages: true, selected: 'Y', sessionBinding: 'provider:MANUAL' }, ASSTS)).toBe('provider:MANUAL');
     expect(previewBinding({ ...base, sessionBinding: '' }, ASSTS)).toBe('');
+  });
+});
+
+// W2b-4b：输入卡喂给 assistantToApply / previewBinding 的参数此前在 Composer 里就地拼，只有调用头有守卫——
+// 把 boundAssistantId 换成 welcomeAssistantId（永不套用，原来的谎回来）、把 sessionBinding 换成 ''（胶囊永远说默认，
+// Z5 的谎回来）都不红（W2b-4 第三轮审查变异 1、3）。组装挪进纯模块 applyStateOf，这里用仿 store 的夹具钉住每个字段。
+describe('纯模块 applyStateOf：从 store 的形状组装 assistantToApply / previewBinding 的入参', () => {
+  const ASSTS = [{ id: 'X', modelBinding: 'provider:PX' }, { id: 'Y', modelBinding: 'provider:PY' }, { id: 'Z' }];
+  /** 仿 store 的夹具：字段名与形状照 stores/chat.ts 的 state（activeId / messages / sessions / welcomeAssistantId）。
+   *  E 是当前会话，绑 X、模型绑定 group:G——故意与 X 自己的 provider:PX 不同（接力照抄来的、降级后改绑过的就是这样）；
+   *  D 排在列表第一条、每个字段都与 E 不同：取错会话（比如直接取第一条）的组装会被它揭穿。 */
+  type SessionLike = { id: string; title: string; assistantId?: string | null; modelBinding?: string | null };
+  const D: SessionLike = { id: 'D', title: '别的会话', assistantId: 'Z', modelBinding: 'provider:PD' };
+  const storeLike = (o: { activeId?: string; messages?: unknown[]; sessions?: SessionLike[]; welcomeAssistantId?: string } = {}) => ({
+    activeId: 'E',
+    messages: [] as unknown[],
+    sessions: [D, { id: 'E', title: '甲', assistantId: 'X', modelBinding: 'group:G' }] as SessionLike[],
+    welcomeAssistantId: 'X',
+    ...o,
+  });
+  /** 列表里有、但没绑助手的空会话 E——NavRail「新建会话」建出来的就是它，W2b-4 最常走的路。
+   *  后端 chat-store getSession 把 NULL 列映射成 undefined，经 JSON 传到渲染端就是缺字段——这是真实形状；
+   *  null 一并覆盖（store 里别处若写进 null、或后端改成原样返回 NULL 列，都不能被当成「绑了」）。
+   *  D 仍排第一、绑着 Z：取错会话的组装照样会被揭穿。 */
+  const UNBOUND_E: [string, SessionLike][] = [
+    ['缺字段', { id: 'E', title: '新会话' }],
+    ['字段为 null', { id: 'E', title: '新会话', assistantId: null, modelBinding: null }],
+  ];
+
+  it('空会话 E 绑 X、绑定 group:G，卡片改选 Y → 组装出 E 的真实状态；assistantToApply = \'Y\'，胶囊预告 Y 的绑定', async () => {
+    const { applyStateOf, assistantToApply, previewBinding } = await loadWelcome();
+    const st = storeLike({ welcomeAssistantId: 'Y' });
+    expect(applyStateOf(st)).toEqual({ activeId: 'E', hasMessages: false, boundAssistantId: 'X', selected: 'Y', sessionBinding: 'group:G' });
+    expect(assistantToApply(applyStateOf(st))).toBe('Y');
+    expect(previewBinding(applyStateOf(st), ASSTS)).toBe('provider:PY');
+  });
+
+  it('选择仍是 X（open 镜像来的）→ 不动；胶囊显示会话自己的 group:G，不是助手 X 的 provider:PX', async () => {
+    const { applyStateOf, assistantToApply, previewBinding } = await loadWelcome();
+    const st = storeLike();
+    expect(applyStateOf(st)).toEqual({ activeId: 'E', hasMessages: false, boundAssistantId: 'X', selected: 'X', sessionBinding: 'group:G' });
+    expect(assistantToApply(applyStateOf(st))).toBeNull();
+    expect(previewBinding(applyStateOf(st), ASSTS)).toBe('group:G');
+  });
+
+  it('会话已有消息 → hasMessages 为真、不动，哪怕选择与绑定不一致；胶囊显示会话自己的绑定', async () => {
+    const { applyStateOf, assistantToApply, previewBinding } = await loadWelcome();
+    const st = storeLike({ messages: [{ id: 'm1', role: 'user', text: '你好' }], welcomeAssistantId: 'Y' });
+    expect(applyStateOf(st)).toEqual({ activeId: 'E', hasMessages: true, boundAssistantId: 'X', selected: 'Y', sessionBinding: 'group:G' });
+    expect(assistantToApply(applyStateOf(st))).toBeNull();
+    expect(previewBinding(applyStateOf(st), ASSTS)).toBe('group:G');
+  });
+
+  it('空会话上取消选择（\'\'）→ 解绑，胶囊回默认', async () => {
+    const { applyStateOf, assistantToApply, previewBinding } = await loadWelcome();
+    const st = storeLike({ welcomeAssistantId: '' });
+    expect(applyStateOf(st)).toEqual({ activeId: 'E', hasMessages: false, boundAssistantId: 'X', selected: '', sessionBinding: 'group:G' });
+    expect(assistantToApply(applyStateOf(st))).toBe('');
+    expect(previewBinding(applyStateOf(st), ASSTS)).toBe('');
+  });
+
+  it('没有会话（activeId \'\'）→ 会话侧字段取空，交给建会话分支；胶囊看所选助手的绑定', async () => {
+    const { applyStateOf, assistantToApply, previewBinding } = await loadWelcome();
+    const st = storeLike({ activeId: '', welcomeAssistantId: 'Y' });
+    expect(applyStateOf(st)).toEqual({ activeId: '', hasMessages: false, boundAssistantId: '', selected: 'Y', sessionBinding: '' });
+    expect(assistantToApply(applyStateOf(st))).toBeNull();
+    expect(previewBinding(applyStateOf(st), ASSTS)).toBe('provider:PY');
+  });
+
+  it('activeId 指向列表里还没有的会话（刚建、列表还没重拉）→ 当作未绑：boundAssistantId 与 sessionBinding 都是 \'\'', async () => {
+    const { applyStateOf, assistantToApply } = await loadWelcome();
+    const st = storeLike({ activeId: 'NEW', welcomeAssistantId: 'Y' });
+    expect(applyStateOf(st)).toEqual({ activeId: 'NEW', hasMessages: false, boundAssistantId: '', selected: 'Y', sessionBinding: '' });
+    expect(assistantToApply(applyStateOf(st))).toBe('Y');
+  });
+
+  // W2b-4b 审查补：上面「未绑」只来自找不到会话。列表里找得到、但会话本身没绑的这条路此前没有一例——
+  // 把未绑会话当成「绑了卡片上选的那个」（bound 恒等于 selected：永不套用），或给它一个非空的会话绑定
+  // （胶囊不再预告所选助手的模型），都能全绿，W2b-4 的两个谎在最常走的路上一起回来
+  for (const [label, e] of UNBOUND_E) {
+    it(`列表里的空会话 E 没绑助手（${label}）、卡片选 X → 会话侧字段取空；套用 X，胶囊预告 X 的 provider:PX`, async () => {
+      const { applyStateOf, assistantToApply, previewBinding } = await loadWelcome();
+      const st = storeLike({ sessions: [D, e], welcomeAssistantId: 'X' });
+      expect(applyStateOf(st)).toEqual({ activeId: 'E', hasMessages: false, boundAssistantId: '', selected: 'X', sessionBinding: '' });
+      expect(assistantToApply(applyStateOf(st))).toBe('X');
+      expect(previewBinding(applyStateOf(st), ASSTS)).toBe('provider:PX');
+    });
+
+    it(`列表里的空会话 E 没绑助手（${label}）、没选 → 不动，胶囊显示默认（''）`, async () => {
+      const { applyStateOf, assistantToApply, previewBinding } = await loadWelcome();
+      const st = storeLike({ sessions: [D, e], welcomeAssistantId: '' });
+      expect(applyStateOf(st)).toEqual({ activeId: 'E', hasMessages: false, boundAssistantId: '', selected: '', sessionBinding: '' });
+      expect(assistantToApply(applyStateOf(st))).toBeNull();
+      expect(previewBinding(applyStateOf(st), ASSTS)).toBe('');
+    });
+  }
+
+  it('与 AppShell 的 inChat 同一判据：会话页（有会话且有消息）上组装出的状态永远不触发套用；欢迎页上的空会话照常套用', async () => {
+    const { applyStateOf, assistantToApply } = await loadWelcome();
+    // E 绑 X 的列表，与 E 未绑的两种写法各走一遍
+    const lists: [string, SessionLike[] | undefined][] = [['X', undefined], ...UNBOUND_E.map(([, e]): [string, SessionLike[]] => ['', [D, e]])];
+    for (const [bound, sessions] of lists) {
+      for (const activeId of ['', 'E']) {
+        for (const messages of [[], [{ id: 'm1' }]]) {
+          for (const welcomeAssistantId of ['', 'X', 'Y', 'Z']) {
+            const st = storeLike({ activeId, messages, welcomeAssistantId, ...(sessions ? { sessions } : {}) });
+            // 与 AppShell.vue 的 inChat 同式（AppShell 那一侧由下方「send」一例的源码守卫钉住）
+            const inChat = !!st.activeId && st.messages.length > 0;
+            expect(applyStateOf(st).hasMessages).toBe(st.messages.length > 0);
+            expect(applyStateOf(st).boundAssistantId).toBe(activeId ? bound : '');
+            if (inChat) expect(assistantToApply(applyStateOf(st))).toBeNull();
+            // 欢迎页上的空会话 E：选择与会话的绑定不一致就套用 / 解绑，一致就不动
+            if (!inChat && activeId) expect(assistantToApply(applyStateOf(st))).toBe(welcomeAssistantId !== bound ? welcomeAssistantId : null);
+          }
+        }
+      }
+    }
   });
 });
 
@@ -244,20 +366,78 @@ describe('store — applyAssistantToSession / ensureSession', () => {
   });
 });
 
+describe('applyStateOf 吃真 store：字段名与 stores/chat.ts 对得上', () => {
+  it('open(E) 后在卡片上改选 Y：取的是 E 的助手与绑定、卡片上的选择；会话有了消息 hasMessages 随之为真', async () => {
+    stubRpc([
+      { id: 'D', title: '别的会话', assistantId: 'Z', modelBinding: 'provider:PD' },
+      { id: 'E', title: '甲', assistantId: 'X', modelBinding: 'group:G' },
+    ]);
+    const { applyStateOf } = await loadWelcome();
+    const chat = useChat();
+    await chat.refreshSessions();
+    await chat.open('E');
+    chat.welcomeAssistantId = 'Y';
+    // 直接把 store 实例传进去——输入卡就是这么调的；typecheck 也经这一行把 store 的形状钉在参数类型上
+    expect(applyStateOf(chat)).toEqual({ activeId: 'E', hasMessages: false, boundAssistantId: 'X', selected: 'Y', sessionBinding: 'group:G' });
+    chat.messages = [{ id: 'm1', role: 'user', parts: [] }];
+    expect(applyStateOf(chat).hasMessages).toBe(true);
+  });
+
+  it('open 未绑的空会话（F 缺字段——后端的真实形状；G 字段为 null）后点 X：会话侧字段取空，要套用 X', async () => {
+    stubRpc([
+      { id: 'D', title: '别的会话', assistantId: 'Z', modelBinding: 'provider:PD' },
+      { id: 'F', title: '新会话' },
+      { id: 'G', title: '新会话', assistantId: null, modelBinding: null },
+    ]);
+    const { applyStateOf, assistantToApply } = await loadWelcome();
+    const chat = useChat();
+    await chat.refreshSessions();
+    for (const id of ['F', 'G']) {
+      await chat.open(id);
+      expect(chat.welcomeAssistantId).toBe('');
+      chat.welcomeAssistantId = 'X';
+      expect(applyStateOf(chat)).toEqual({ activeId: id, hasMessages: false, boundAssistantId: '', selected: 'X', sessionBinding: '' });
+      expect(assistantToApply(applyStateOf(chat))).toBe('X');
+    }
+  });
+});
+
 // ─────────── 源码守卫（.vue 不在 typecheck 覆盖内；脚本段先剥注释） ───────────
 describe('Composer / WorkspacePanel 接线', () => {
   const composer = script('ui/Composer.vue');
   const sendBody = bodyOf(composer, 'async function send()');
   const saveBody = bodyOf(composer, 'async function saveImages(');
 
+  it('三个纯函数都从 lib/welcome/assistant 原名导入，组件里没有同名的本地定义把它们顶掉', () => {
+    const imp = /import \{([^}]*)\} from '\.\.\/lib\/welcome\/assistant'/.exec(composer)?.[1] ?? '';
+    for (const n of ['assistantToApply', 'applyStateOf', 'previewBinding']) expect(imp).toMatch(new RegExp(`\\b${n}\\b`));
+    expect(imp).not.toMatch(/\bas\b/);
+    expect(composer).not.toMatch(/\b(?:function|const|let|var)\s+(?:assistantToApply|applyStateOf|previewBinding)\b/);
+    expect(composer).toMatch(/const chat = useChat\(\);/);
+  });
+
   it('send：已有会话时先按 assistantToApply 套用 / 解绑，失败写「套用助手失败：」并 return（文字留在框里）', () => {
-    expect(composer).toMatch(/import \{[^}]*\bassistantToApply\b[^}]*\} from '\.\.\/lib\/welcome\/assistant'/);
-    expect(sendBody).toMatch(/assistantToApply\(/);
-    expect(sendBody).toMatch(/await chat\.applyAssistantToSession\(chat\.activeId, /);
+    // W2b-4b：入参由纯模块 applyStateOf 从 store 组装（字段逐个由上方单测钉住），这里认调用形态——
+    // 就地改写入参（比如把 boundAssistantId 换成 welcomeAssistantId，永远不套用）必须红，所以连 want 的去向一起锚
+    expect(sendBody).toMatch(/const want = assistantToApply\(applyStateOf\(chat\)\);\s*if \(want !== null\) \{\s*try \{ await chat\.applyAssistantToSession\(chat\.activeId, want\); \}/);
+    expect(composer.match(/\bassistantToApply\(/g) ?? []).toHaveLength(1);
     expect(sendBody).toMatch(/catch \(e\) \{\s*chat\.lastError = `套用助手失败：\$\{[^}]+\}`;\s*return;/);
-    // 判据与 AppShell 的 inChat 一致：有消息才算会话页（状态由 applyState() 统一组装，胶囊的 previewBinding 用同一份）
-    expect(sendBody).toMatch(/assistantToApply\(applyState\(\)\)/);
-    expect(composer).toMatch(/hasMessages: chat\.messages\.length > 0/);
+    // W2b-4b 审查补：上面只钉了 want 这一段的写法，没钉它在哪个分支里——`} else {` 改成 `} else if (false) {`，
+    // 或把整段挪进「没有会话就建」的分支末尾（那里建会话前 activeId 是空的，新会话的绑定又已等于选择，永远不套用），
+    // 都照样全绿，NavRail「新建会话」→ 点甲 → 发送又不套用。所以按花括号配对把分叉的结构钉死：
+    // send 的 try 体一开头就是 `if (!chat.activeId) {`，它配对的 `}` 后面紧跟不带条件的 `else {`，
+    // 而这个 else 的整个分支体恰好就是 want 这一段（空白压成一格后逐字比对）
+    // W2b-4b 第二次审查补：从这条正则命中的那个 `{` 起配对。原来取的是第一个 `if (!chat.activeId) {`，try 前面放一段
+    // 形状相同的 if (false) { … } 死代码，钉住的就成了死代码的分叉（审查沙箱变异 deadcode-decoy-before-try，实测全绿）
+    const tryIf = /sending\.value = true;\s*try \{\s*if \(!chat\.activeId\) \{/.exec(sendBody);
+    expect(tryIf, 'send 的 try 体一开头必须是 if (!chat.activeId) {').not.toBeNull();
+    const ifClose = closeOf(sendBody, tryIf!.index + tryIf![0].length - 1);
+    const elseHead = /^\s*else \{/.exec(sendBody.slice(ifClose + 1));
+    expect(elseHead?.[0], '「没有会话就建」分支后面必须紧跟不带条件的 else').toBeDefined();
+    const elseOpen = ifClose + elseHead![0].length;
+    const elseBody = sendBody.slice(elseOpen + 1, closeOf(sendBody, elseOpen)).replace(/\s+/g, ' ').trim();
+    expect(elseBody).toMatch(/^const want = assistantToApply\(applyStateOf\(chat\)\); if \(want !== null\) \{ try \{ await chat\.applyAssistantToSession\(chat\.activeId, want\); \} catch \(e\) \{ chat\.lastError = `套用助手失败：\$\{[^}]+\}`; return; \} \}$/);
+    // 判据与 AppShell 的 inChat 一致：hasMessages 在 applyStateOf 里（单测「与 AppShell 的 inChat 同一判据」），AppShell 这一侧钉在这里
     expect(script('ui/AppShell.vue')).toMatch(/const inChat = computed\(\(\) => !!chat\.activeId && chat\.messages\.length > 0\)/);
   });
 
@@ -276,7 +456,10 @@ describe('Composer / WorkspacePanel 接线', () => {
   });
 
   it('胶囊的绑定走 previewBinding：发送前就显示发送后真正生效的模型', () => {
-    expect(composer).toMatch(/const effectiveBinding = computed\(\(\) => previewBinding\(/);
+    // W2b-4b：与 send 吃同一份 applyStateOf(chat)，第二个参数是 store 的助手列表——就地改写入参
+    // （比如 sessionBinding 换成 ''、助手列表换成 []，胶囊永远说「默认 · X」）必须红
+    expect(composer).toMatch(/const effectiveBinding = computed\(\(\) => previewBinding\(applyStateOf\(chat\), chat\.assistants\)\);/);
+    expect(composer.match(/\bpreviewBinding\(/g) ?? []).toHaveLength(1);
     expect(composer).toMatch(/describeBinding\(effectiveBinding\.value, chat\.providers, chat\.modelGroups, chat\.defaultProviderId\)/);
   });
 

@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { stripComments } from './strip-comments';
+import { sfcBlocks } from './sfc-blocks';
 
 const { rpcCallMock } = vi.hoisted(() => ({ rpcCallMock: vi.fn() }));
 vi.mock('../src/renderer/src/rpc', () => ({
@@ -176,19 +176,30 @@ describe('Z5 — 绑定入口认组', () => {
   it('输入卡模型胶囊显示实际生效的绑定：会话绑定 > 欢迎页选中助手的绑定 > 默认', () => {
     const c = read('Composer.vue');
     // 脚本段先剥注释再断言：读原文的话，代码退回旧三元式、上方留一行写着新调用的注释，正则照样命中
-    // （W2b-4 审查实测过这个变异；交接 §2 第 10 条）
-    const cs = stripComments(c.slice(c.indexOf('<script'), c.indexOf('</script>')));
+    // （W2b-4 审查实测过这个变异；交接 §2 第 10 条）。
+    // 脚本 / 模板 / 样式三段都由 SFC 解析器切出再各剥注释（W2b-4b 第二次审查补）：原来在原文上找块边界，
+    // 脚本里一行 // 注释写着 <template> 或 <style>、样式注释里写着 </template>、文件顶部 <!-- --> 里写着 <script，
+    // 边界就落进注释，注释里的旧胶囊、旧规则、旧调用跟着进了切片，本段剥不到，下面各条照样全绿（审查沙箱实测 4 个变异）
+    const { script: cs, template: ct, style: cy } = sfcBlocks(c, 'Composer.vue');
     expect(cs).toContain("from '../lib/models/binding'");
     // W2b-4 重指：原来逐字锚「有会话看会话绑定、否则看欢迎页所选助手」的三元式——空会话上选了助手时，
     // 发送前会先套用它，三元式却仍显示会话的旧绑定。三档取舍收进纯模块 previewBinding（语义由
-    // tests/renderer-welcome-assistant.test.ts 的单测接住），这里只认调用形态
-    expect(cs).toMatch(/const effectiveBinding = computed\(\(\) => previewBinding\(/);
+    // tests/renderer-welcome-assistant.test.ts 的单测接住），这里只认调用形态。
+    // W2b-4b：调用形态连入参一起认——原来的三元式钉住了「看会话的绑定、看所选助手的绑定」，只认调用头的话，
+    // 入参换成 { ...state, sessionBinding: '' } 与 [] 胶囊就永远说「默认 · X」，照样全绿（第三轮审查变异 3）。
+    // 入参由纯模块 applyStateOf 从 store 组装，逐字段的单测也在 renderer-welcome-assistant 里
+    expect(cs).toMatch(/const effectiveBinding = computed\(\(\) => previewBinding\(applyStateOf\(chat\), chat\.assistants\)\);/);
+    expect(cs).toMatch(/import \{[^}]*\bapplyStateOf\b[^}]*\} from '\.\.\/lib\/welcome\/assistant'/);
     expect(cs).toMatch(/describeBinding\(effectiveBinding\.value, chat\.providers, chat\.modelGroups, chat\.defaultProviderId\)/);
-    expect(c).toMatch(/:name="modelView\.kind === 'group' \? 'link' : 'robot'"/);
-    expect(c).toMatch(/:title="modelView\.title"/);
-    expect(c).toMatch(/\{\{ modelView\.label \}\}/);
+    // W2b-4b 审查补：模板与样式此前读的是原文 c——`<span>{{ permLabel }}<!-- {{ modelView.label }} --></span>`
+    // 让胶囊不再显示生效的模型，照样全绿。模板段剥 <!-- -->、样式段剥 /* */ 后再断言（ct、cy 见上）
+    expect(ct).toMatch(/:name="modelView\.kind === 'group' \? 'link' : 'robot'"/);
+    expect(ct).toMatch(/:title="modelView\.title"/);
+    expect(ct).toMatch(/\{\{ modelView\.label \}\}/);
     // 绑定对象已删：胶囊要变色，不能照常显示
-    expect(c).toMatch(/:class="\{ bad: modelView\.missing \}"/);
-    expect(c).toMatch(/\.cap\.bad\s*\{[^}]*var\(--c-warn\)/);
+    expect(ct).toMatch(/:class="\{ bad: modelView\.missing \}"/);
+    expect(cy).toMatch(/\.cap\.bad\s*\{[^}]*var\(--c-warn\)/);
+    // 上面几样须长在同一枚 .cap 胶囊上：散落到别处（比如 label 挪进一个 v-if="false" 的元素）也要红
+    expect(ct).toMatch(/<span class="cap" :class="\{ bad: modelView\.missing \}" :title="modelView\.title">\s*<UiIcon :name="modelView\.kind === 'group' \? 'link' : 'robot'" :size="13" \/>\s*<span>\{\{ modelView\.label \}\}<\/span>\s*<\/span>/);
   });
 });

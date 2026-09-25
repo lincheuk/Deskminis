@@ -20,6 +20,33 @@ export interface ApplyState {
   selected: string;
 }
 
+/** applyStateOf 从 store 读的那几样（字段名与 stores/chat.ts 的 state 一致，输入卡直接把 store 实例传进来）。
+ *  会话的 assistantId / modelBinding 也收 null：后端 getSession 把 NULL 列映射成 undefined、经 JSON 到这里是缺字段，
+ *  但这份数据跨进程来、store 的声明管不到运行时，null 也得当作未绑——绝不能被当成「绑了卡片上选的那个」。 */
+export interface ApplyStoreView {
+  activeId: string;
+  messages: readonly unknown[];
+  sessions: readonly { id: string; assistantId?: string | null; modelBinding?: string | null }[];
+  welcomeAssistantId: string;
+}
+
+/** W2b-4b：输入卡的 send() 与模型胶囊共用的入参，一处组装。
+ *  为什么挪进纯模块：此前在 Composer 里就地拼，.vue 不在 typecheck 覆盖内、源码守卫只认得调用头——
+ *  boundAssistantId 错取成 welcomeAssistantId（bound 恒等于 selected，永不套用，原来的谎回来）、
+ *  sessionBinding 错取成 ''（胶囊永远说默认，Z5 的谎回来）都能一路全绿。在这里可以用仿 store 的夹具逐字段单测。
+ *  - 当前会话按 activeId 在列表里找；找不到（没有会话，或刚建好、列表还没重拉）就当作未绑、没有会话绑定；
+ *  - hasMessages 与 AppShell.vue 的 inChat 同一判据（见文件头）。 */
+export function applyStateOf(chat: ApplyStoreView): ApplyState & { sessionBinding: string } {
+  const session = chat.sessions.find(s => s.id === chat.activeId);
+  return {
+    activeId: chat.activeId,
+    hasMessages: chat.messages.length > 0,
+    boundAssistantId: session?.assistantId ?? '',
+    selected: chat.welcomeAssistantId,
+    sessionBinding: session?.modelBinding ?? '',
+  };
+}
+
 /** null = 不动；'' = 解绑；其它 = 套用这个助手。 */
 export function assistantToApply(s: ApplyState): string | null {
   if (!s.activeId) return null;
