@@ -68,7 +68,9 @@ const READONLY_SECOND_TOKEN_RULES: Record<string, SecondTokenRule[]> = {
     { sub: 'config', third: '--get' }, // 不带 --get 的 git config 是写形态（可改仓库配置），回落 gated
   ],
   npm: [
-    { sub: 'ls' }, { sub: 'view' }, { sub: 'outdated' },
+    // view / outdated 不收（W1b-2g）：两者都要连 npm 源，view 还接受任意网址（npm view <url>）——
+    // 免询问白名单只收只读本地的命令；ls 读本地 node_modules、config get 读本地配置，留着
+    { sub: 'ls' },
     { sub: 'config', third: 'get' }, // npm config set 写配置，只放行 get 形态
   ],
   node: [{ flagsOnly: ['--version', '-v'] }], // -e/--eval 执行任意代码，绝不放行
@@ -96,6 +98,30 @@ const READONLY_FORBIDDEN_CHARS = [';', '&', '`', '(', ')', '<', '>', '{', '}', '
  *  刻意用精确匹配而非 --pre 前缀：git log --pretty=… 与 rg --pretty 都是高频只读用法，
  *  前缀匹配会把它们一并误伤回 gated——免批面该收窄，但不该收窄到常用只读命令头上。 */
 const EXEC_FLAG_RE = /^--(pre|pre-glob|hostname-bin)(=|$)/i;
+
+/** PowerShell 参数 token 的名字（小写）：-Name、-Name:值 都取 Name；长短横线 – — ― PowerShell 也认作参数前缀。不是参数返回 undefined。 */
+function paramName(token: string): string | undefined {
+  const m = /^[-\u2013-\u2015]([a-z]+)(?::|$)/i.exec(token);
+  return m ? m[1].toLowerCase() : undefined;
+}
+
+/** PowerShell 参数名可以写成任意无歧义前缀（-C、-Comp、-ComputerName 是同一个参数），按前缀认。 */
+const namesParam = (full: string, alias?: string) => (token: string): boolean => {
+  const n = paramName(token);
+  return n !== undefined && (full.startsWith(n) || n === alias);
+};
+
+/** 带上就伸到本机之外的参数（W1b-2g 补，与远程共享路径同类）：命令本身在只读白名单里，这些参数让它去问别的机器或开浏览器。
+ *  Windows PowerShell 5.1 的 Get-Process / Get-Service 带 -ComputerName（别名 -Cn）查的是另一台机器——这两个 cmdlet
+ *  以 c 起头的参数只有 ComputerName，前缀一律算它；systeminfo /S <主机> 查远程计算机；
+ *  Get-Help -Online 打开浏览器访问帮助网址（前缀 -o 有歧义时 PowerShell 报错不执行，一并算上只是多问一次）。 */
+const COMPUTER_NAME = namesParam('computername', 'cn');
+const ONLINE = namesParam('online');
+const REACH_OUT_PARAMS: Record<string, (token: string) => boolean> = {
+  'get-process': COMPUTER_NAME, gps: COMPUTER_NAME, ps: COMPUTER_NAME, 'get-service': COMPUTER_NAME,
+  systeminfo: (t) => /^[/-]s(?::|$)/i.test(t),
+  'get-help': ONLINE, help: ONLINE,
+};
 
 /** 引号必须配对，且引号内不得出现 $ 与反引号（防字符串内展开）。
  *  PS 单引号串本是字面量（$ 不展开），这里仍一并拒绝：少依赖一层语言语义，判定只看字符结构。 */
@@ -152,6 +178,9 @@ function isReadonlySingle(segment: string): boolean {
   // 结构过滤已拒绝一切 &，这里再剥一次调用符前缀是防御性兜底：两道闸少一道也不至于漏
   const head = tokens[0].replace(/^&/, '').toLowerCase();
   if (!READONLY_ALLOWLIST.has(head)) return false;
+  // 命令只读，参数却让它去问别的机器或开浏览器（W1b-2g）：不算只读本地，回落 gated
+  const reachOut = REACH_OUT_PARAMS[head];
+  if (reachOut !== undefined && tokens.slice(1).some(reachOut)) return false;
   const rules = READONLY_SECOND_TOKEN_RULES[head];
   if (rules === undefined) return true; // 白名单直收命令（dir/rg/…），参数不再限制
   const rest = tokens.slice(1).map(t => t.toLowerCase());
@@ -212,12 +241,45 @@ export function isReadonlyCommand(command: string): boolean {
  *  已知漏网（留给 W7b）：默认工作区在数据根里，..\..\.. 这类相对路径、$HOME\AppData\…\DeskMi* 这类通配都认不出。 */
 const DATA_ROOT_HINT_RE = /deskminis|\$env:|%appdata%|%localappdata%/i;
 
+/** 远程共享路径（W1b-2g，止血设计稿 §4.1）：UNC 与类 UNC 路径会连到别的机器（SMB / WebDAV），只读命令点到它就不是「只读本地」。
+ *  认「两个分隔符打头、后面跟着主机名」的路径记号：\\host\share、//host/share（混写的 \/、/\ 在 Windows 上同样是 UNC）、
+ *  \\?\UNC\host、\\.\ 设备路径、\\host@SSL\DavWWWRoot（WebDAV）；另收 NT 前缀 \??\（\??\UNC\host 经原生程序直通到远程共享）。
+ *  「打头」看记号前面紧挨着什么（REMOTE_PATH_START）：行首、空白、引号（含 PowerShell 也认的弯引号 ‘ ’ ‚ ‛ “ ” „）、=、逗号；
+ *  或者是 REMOTE_PATH_PREFIXES 里的几种参数写法。
+ *  不算：URL 的 scheme://（冒号前是 scheme 字母，rg "https://example.com" 是在本地文件里搜这串字）、盘符后的 C:\\（本地路径）、
+ *  路径中段的 a\\b；两个分隔符后面紧跟空白、引号或到头的也不算——那里没有主机名，rg "// TODO" 照旧免询问。
+ *  宁可多问：引号里以 \\ 起头的正则（rg "\\d+"）也会回落询问。 */
+const REMOTE_PATH_START = String.raw`(?:^|[\s"'=,\u2018-\u201e])`;
+const REMOTE_PATH_PREFIXES = [
+  String.raw`[-/\u2013-\u2015][^\s"'=,:\u2018-\u201e]*:`, // 参数值冒号绑定：-Path:\\host（PowerShell）、/G:\\host（findstr）
+  String.raw`-[a-z]+`,                                    // 短旗标紧贴值：-f\\host（rg -f 从这个文件读模式）
+  String.raw`\$[^\s"'=,\\/\u2018-\u201e]*`,               // 变量前缀：$x\\host（$x 没定义时展开为空，剩下 \\host）
+  String.raw`[^\s"'=,\u2018-\u201e]*::`,                  // 提供程序限定：FileSystem::\\host、Microsoft.PowerShell.Core\FileSystem::\\host
+];
+const REMOTE_PATH_HEAD = String.raw`(?:[\\/]{2}(?=[^\s"'\u2018-\u201e])|[\\/]\?\?[\\/])`;
+const REMOTE_PATH_RE = new RegExp(`${REMOTE_PATH_START}(?:${REMOTE_PATH_PREFIXES.join('|')})?${REMOTE_PATH_HEAD}`, 'i');
+
+/** 环境变量提供程序（W1b-2g）：不带 $ 的 env: 驱动器路径（Get-ChildItem env:、gci Env:\、Get-Content env:PATH）与提供程序限定的
+ *  Environment::PATH，会把环境变量（可能含各类 API key）整个读进工具结果，与 $env: 同理回落。
+ *  \b 让 myenv: 这类词中间的字样不算；rg "env:" 这样搜字面的也会回落询问，宁可多问一次。 */
+const ENV_PROVIDER_RE = /\benv:|\benvironment::/i;
+
+/** 只读判定命中之后仍要回落询问的字样：点到数据根（W1b-2），远程共享路径与 env: 提供程序（W1b-2g）。 */
+const ASK_EVEN_IF_READONLY = [DATA_ROOT_HINT_RE, REMOTE_PATH_RE, ENV_PROVIDER_RE];
+
+/** 原文与「去掉引号」的文本各判一次：PowerShell 把引号和紧挨着的字拼成一个参数（Desk''Minis → DeskMinis、e''nv: → env:、
+ *  \''\host → \\host），只看原文会被引号拆开的字样骗过；原文那一遍保留「引号后面紧跟 \\host 也算打头」。 */
+function asksEvenIfReadonly(c: string): boolean {
+  const joined = c.replace(/["'\u2018-\u201e]/g, '');
+  return ASK_EVEN_IF_READONLY.some(re => re.test(c) || re.test(joined));
+}
+
 export function classifyShellCommand(command: string): CommandClass {
   const c = command.trim();
   // 危险层两个表原样先行：readonly 判定绝不允许越过 danger（Remove-Item 开头必是 danger）
   if (DANGER_ANYWHERE.some(r => r.test(c))) return 'danger';
   if (DANGER_AT_COMMAND_POSITION.some(r => r.test(c))) return 'danger';
-  if (isReadonlyCommand(c)) return DATA_ROOT_HINT_RE.test(c) ? 'gated' : 'readonly';
+  if (isReadonlyCommand(c)) return asksEvenIfReadonly(c) ? 'gated' : 'readonly';
   return 'gated';
 }
 
@@ -276,7 +338,9 @@ export class PermissionGatewayImpl implements PermissionGateway {
   applyPreset(preset: PermissionPreset): void {
     if (preset === 'full') {
       this.levels = {
-        danger: 'notAllowed', // 不可逆/系统级操作不随「完全访问」放行——文案里「不可逆的系统操作仍拦截」是承诺，不是摆设
+        // 命中危险规则的命令不随「完全访问」放行，shell 回给模型的话也据此说「换任何档位都不放行」（W1b-2g）。
+        // 危险规则按命令写法认（DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），拦不住所有不可逆操作——设置页副标题照此如实写
+        danger: 'notAllowed',
         readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
         'web-fetch': 'bypass',
         'web-search': 'bypass',
