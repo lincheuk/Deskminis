@@ -153,6 +153,16 @@ describe('非法值：success:false 与一句中文说明，不抛、不弹卡�
     });
   }
 
+  it('回显截断不劈开代理对：超长的 emoji 串截断后没有孤立代理项（W2a-7 审查 nit）', async () => {
+    // 半个 emoji 进了工具结果，这条结果留在历史里，严格的 JSON 端之后每轮请求都 400
+    for (const args of [{ limit: '😀'.repeat(30) }, { offset: 'x' + '😀'.repeat(30) }]) {
+      const r = await read({ path: 'a.txt', ...args });
+      expect(r.success).toBe(false);
+      expect(r.output).toContain('…（共');
+      expect(r.output, JSON.stringify(args).slice(0, 20)).not.toMatch(LONE_SURROGATE);
+    }
+  });
+
   it('非法值原样回显有长度上限：超长字符串不整段抄进工具结果', async () => {
     const r = await read({ path: 'a.txt', offset: 'x'.repeat(5000) });
     expect(r.success).toBe(false);

@@ -89,7 +89,10 @@ type PageArgs = { offset?: number; limit?: number };
 /** 回显非法值：截到 40 个字符，模型传来的超长字符串不整段抄进工具结果。 */
 function shown(v: unknown): string {
   const t = JSON.stringify(v) ?? String(v);
-  return t.length > 40 ? `${t.slice(0, 40)}…（共 ${t.length} 字符）` : t;
+  if (t.length <= 40) return t;
+  // 截点让开代理对（同 sliceRange）：半个 emoji 进了工具结果，这条结果留在历史里，严格的 JSON 端之后每轮都 400
+  const cut = isHighSurrogate(t.charCodeAt(39)) ? 39 : 40;
+  return `${t.slice(0, cut)}…（共 ${t.length} 字符）`;
 }
 
 function parsePageArgs(input: Record<string, unknown>): PageArgs | string {
