@@ -241,8 +241,8 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W2b-9 | 更新源改公开仓库 `lincheuk/deskminis-releases`；失败给一句中文；便携版不检查；托盘「检查更新」有回执 | `629d5d5` | E |
 | W2b-10 | 发布校验脚本 `verify-release`：零依赖核对 latest.yml 的 sha512、安装包与 blockmap、便携版、更新源与随包许可 | `633e222` | E |
 | W2b-11a | 界面诚实：历史里没结果的工具标「已中断 · 结果未知」；终端、定时、设备页文案按代码改正；托盘两条死通道接上；三处注释订正 | `4e20153` | H |
-| W2b-11b | 对外文档逐行核对：README 按代码改写并附核对清单，CHANGELOG 补齐止血项与已知边界，RELEASE 接上冒烟与发版步骤，加 `readme-claims` 守卫 | 〔待合流后填〕 | 文档链 |
-| W2b-11c | 对外文档终稿（在全部代码合入后的状态上做） | 〔待合流后填〕 | 文档链 |
+| W2b-11b | 对外文档逐行核对：README 按代码改写并附核对清单，CHANGELOG 补齐止血项与已知边界，RELEASE 接上冒烟与发版步骤，加 `readme-claims` 守卫 | `c14aa14` | 文档链 |
+| W2b-11c | 对外文档终稿（在全部代码合入后的状态上做）：联网与只读命令按 W1b-2g 实情写、README「权限网关怎么判」分六条、补齐已知边界、NOTICES 补登 theme.css 取值与 OpenCode | `7d7e71f` | 文档链 |
 
 ### 4.5 施工中追加（设计稿 §4.1）与审查遗留补修
 
@@ -281,6 +281,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W2b-6c | 打包版换上只含编辑与缩放的最小菜单（不再设 null），未打包 loadFile 形态钉住保留默认菜单 | `b200ae0` | Q | W2b-6b 审查 |
 | W3-smokeb | 冒烟脚本三审补修（其后又三轮审查、两轮修正，六审通过）：被打断时不再开新用例、收引擎名下整棵子进程树；凭据库最先清、只认 `DeskMinis-smoke-<进程号>`；清理、选库、脱敏与信号路径写完输出都有测试（79 例，92 条变异全红） | `a85d876` | S | W3-smoke 三审 |
 | W3-smokec | 冒烟脚本起引擎以临时根为 cwd（Linux 上桥的管道套接字不再落进应用目录，全量一遍从留 15 个降到 1 个）；引擎没拿到 pid 时按没起来处理，不再空等 15 秒误报「停不下来」 | `8ac05dc` | main（主会话直接做，没走独立审查） | W3-smokeb 六审 nit |
+| W2a-8 | 按会话排除的工具执行侧也拒绝：关掉记忆的会话里，模型照着历史再叫 `memory_write` / `memory_get` 不再生效（以前只是不列给模型） | `482b1b0` | main（主会话直接做，没走独立审查） | W2b-11c 实现者申报 |
 
 ### 4.6 合流提交
 
@@ -298,7 +299,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | `641fb06` | Q：W2b-6b、W2b-6c | 无冲突 | 244 / 3421 |
 | `d00b991` | R：W2b-11d | 无冲突 | 245 / 3445 |
 | `0c52c59` | S：W3-smoke、W3-smokeb | 自动合并无冲突（package.json 只加 scripts 一行，另两个新文件）；链 S 起点是 D2 合流 `14236f9` | 246 / 3524；build 0 |
-| 〔待合流后填〕 | 文档链：W2b-11b、W2b-11c | 〔待合流后填〕 | 〔待合流后填〕 |
+| `82cd776` | 文档链：W2b-11b、W2b-11c（中间 `a9342ee` 把 main `d00b991` 并进文档链） | 自动合并无冲突（只动仓库根四份文档与 `readme-claims` 测试） | 247 / 3534 |
 
 A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码 0）与全量，失败都是那 52 例、基线 diff 空。
 
@@ -393,7 +394,7 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 - `electron-builder.yml`：publish 的 repo 改为 `deskminis-releases`；extraResources 加 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`。
 - `THIRD-PARTY-NOTICES.md`：改成「每个上游一节一张表」，文末附登记格式；pi-mono 表 4 行（edit-text、overflow、win-exec、crash-log），
   ZCode 表 1 行（data-root-lock）；「仅借思路」一节有 AionUi 与 deepseek-harness，**还没有 OpenCode**（§6 待办）。
-- `docs/RELEASE.md`：发版检查单；§0 九步总清单与 §2 冒烟一节随文档链进 main（〔待合流后填〕）。
+- `docs/RELEASE.md`：发版检查单；§0 九步总清单与 §2 冒烟一节随文档链进 main（`82cd776`）。
 
 ### 守卫地图补充（本轮新增，动相关代码必看）
 
@@ -408,7 +409,7 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 - `perm-session-scope`：模板 AST 判权限卡与提示行不挂在任何条件分支下；ui/ 下读 pendingPerms 必须经 scope 三函数。
 - `renderer-overflow-relay`：在语法树上钉「接力草稿只在 setup 顶层取一次、不用 watch、不替用户发送」。
 - `renderer-welcome-assistant`、`renderer-model-groups` Z5：输入卡入参与胶囊的调用形态。
-- `readme-claims`：README 里能机器核对的三条（不写死测试例数；提到 mDNS 就必须真有实现；下载链接与 `publish` 段是同一个仓库），文档链带进来，〔待合流后填〕。
+- `readme-claims`：README 里能机器核对的三条（不写死测试例数；提到 mDNS 就必须真有实现；下载链接与 `publish` 段是同一个仓库），文档链带进来，随文档链进 main（`82cd776`）。
 - 09-10 的守卫地图（mu6 双向绊线、全树扫描类、各源码守卫）照旧有效。
 
 ## 6. 排期与候选池（2026-09-25 对过账）
