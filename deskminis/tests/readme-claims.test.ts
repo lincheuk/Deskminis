@@ -23,9 +23,11 @@ const readText = (abs: string): string => readFileSync(abs, 'utf8').replace(/\r\
 
 // ---------- ① 测试例数 ----------
 
-/** 「数字 + 例 / 个测试 / 条用例 / tests」这类写法。数字允许千分位逗号（1,914）。
- *  只认紧跟在数字后面的计数词：「例如」「用例」前面没有数字，不会误伤。 */
-const TEST_COUNT_RE = /\d[\d,，]*\s*(?:例|[个条项]?(?:测试)?用例|[个条项]测试|tests?\b|test\s+cases?\b|specs?\b)/gi;
+/** 「数字 + 例 / 个测试 / 条用例 / tests / passed / failed」这类写法。数字允许千分位逗号（1,914）。
+ *  只认紧跟在数字后面的计数词：「例如」「用例」前面没有数字，不会误伤。
+ *  passed / failed 是 vitest 结果行（Tests  2896 passed | 52 failed）照抄进来的样子，passing / failing 是 mocha 的同类写法
+ *  （W2b-11c，W2b-11b 三审 nit）。单独的「条」「项」仍不认：「2000 条」「三项」这类正文太常见，认了就是误报。 */
+const TEST_COUNT_RE = /\d[\d,，]*\s*(?:例|[个条项]?(?:测试)?用例|[个条项]测试|tests?\b|test\s+cases?\b|specs?\b|passed\b|failed\b|passing\b|failing\b)/gi;
 
 /** 返回 README 里写死的测试例数（原文片段）；没有就是空数组。 */
 function testCountClaims(markdown: string): string[] {
@@ -139,11 +141,15 @@ function publishRepo(yml: string): string | undefined {
 // ---------- 解析器自检（夹具） ----------
 
 describe('README 声明守卫 · 解析器自检', () => {
-  it('例数：认「1832 例」「1,914 个测试」「2926 tests」，不认「例如」「用例」与不带计数词的数字', () => {
+  it('例数：认「1832 例」「1,914 个测试」「2926 tests」「2896 passed」「52 failed」，不认「例如」「用例」与不带计数词的数字', () => {
     expect(testCountClaims('npm test             # 1832 例')).toEqual(['1832 例']);
     expect(testCountClaims('全量 1,914 个测试，另有 170 文件')).toEqual(['1,914 个测试']);
     expect(testCountClaims('ran 2926 tests')).toEqual(['2926 tests']);
+    // vitest 的结果行照抄进 README 的写法（W2b-11b 三审 nit：原来认不出，8/8 照样全绿）；mocha 的 passing / failing 同类
+    expect(testCountClaims('Tests  2896 passed | 52 failed (2948)')).toEqual(['2896 passed', '52 failed']);
+    expect(testCountClaims('2,948 passing, 52 failing')).toEqual(['2,948 passing', '52 failing']);
     expect(testCountClaims('例如 Windows 专属用例会失败；90 秒自动拒绝；≥3 回合显示')).toEqual([]);
+    expect(testCountClaims('全部 passed 才发版；failed 的先修')).toEqual([]);
   });
 
   it('mDNS：认 mDNS / multicast DNS / 组播 DNS / Bonjour，不认「手填 host:port」', () => {

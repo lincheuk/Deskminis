@@ -16,11 +16,13 @@
 1. [ ] **首次**：在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`（只放发布资产），
        放进仓库根的 `README.md`、`LICENSE`、`THIRD-PARTY-NOTICES.md`、`CHANGELOG.md` 四个文件（第 4 节第 1 步）。
 2. [ ] Windows 真机上构建并自测（第 1 节）：`npm ci` → `npm test`（Linux 上跑不了的 52 例 Windows 专属用例在这里也要全绿）
-       → `npm run typecheck` → `npm run dist`。
+       → `npm run typecheck` → `npm run dist`。`npm run dist` 之前记下当时的源码仓 commit（`git rev-parse --short HEAD`），
+       Release 说明里写的就是它（第 4 节第 2 步）。
 3. [ ] 打包验收（第 2 节）：`npm run e2e:m5`、`npm run verify:release`，全 PASS。
 4. [ ] 发版冒烟（第 2 节「发版冒烟」）：设好 `ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY` 后跑 `npm run smoke:release`，
-       结果表里没有 FAIL。它替代以前手工做的四件事：Anthropic 官方端点跑 Fable 5.1 / Opus 5.5 多轮工具调用加一次
-       `memory_write`、DeepSeek V4 多轮工具调用、参数带 `C:\Program Files\…` 的 MCP 试连、shell 里起 `ping -t` 后点停止不留残留。
+       结果表里没有 FAIL（退出码 0；「清理」那一行也要是 PASS）。它替代以前手工做的四件事：Anthropic 官方端点跑 Fable 5.1 / Opus 5.5
+       多轮工具调用加一次 `memory_write`、DeepSeek V4 多轮工具调用、参数带 `C:\Program Files\…` 的 MCP 试连、
+       shell 里起 `ping -t` 后点停止不留残留。
 5. [ ] 手动冒烟（第 3 节）：装好安装版与便携版各点一遍。
 6. [ ] 把根 `CHANGELOG.md` 里 `## 0.3.0 — 待发布` 的「待发布」改成发布当天的日期，提交到源码仓。
 7. [ ] 在公开仓库建 Release `v0.3.0`（不能是 draft、不能勾 pre-release），上传 `Setup.exe`、`Setup.exe.blockmap`、
@@ -71,32 +73,47 @@ FAIL 后面写着中文原因；有 FAIL 退出码 1，**有一项 FAIL 就不�
 
 ### 发版冒烟 `npm run smoke:release`（真 key）
 
-`deskminis/scripts/smoke-release.mjs` 把「真 key 冒烟」做成一条命令：先构建（electron-vite build），再用 electron 以
-node 模式起引擎（`out/main/minisd.js`），经 WebSocket 走 JSON-RPC 跑下面四个用例。在 `deskminis/` 下的 PowerShell 里：
+`deskminis/scripts/smoke-release.mjs` 把「真 key 冒烟」做成一条命令：`npm run smoke:release` 先构建（`electron-vite build`），
+再用 electron 以 node 模式起引擎（`out/main/minisd.js`），经 WebSocket 走 JSON-RPC 跑下面四个用例；已经构建过、只想重跑时用
+`node scripts/smoke-release.mjs`（参数相同，只是不先构建）。在 `deskminis/` 下的 PowerShell 里：
 
 ```powershell
 $env:ANTHROPIC_API_KEY = "<你的 Anthropic key>"   # 用例 anthropic 要它；不设就标「跳过（缺 ANTHROPIC_API_KEY）」
 $env:DEEPSEEK_API_KEY  = "<你的 DeepSeek key>"    # 用例 deepseek 要它；不设就标「跳过（缺 DEEPSEEK_API_KEY）」
+# $env:DEEPSEEK_MODEL = "deepseek-v4-flash"      # 可选，缺省就是它；只收 deepseek-v4 族，别的按参数错误退出
 npm run smoke:release
 Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这样设的变量只在当前这个 PowerShell 窗口里有效
 ```
+
+参数都写在同一个 `--` 后面（npm 只吃掉第一个 `--`），例如 `npm run smoke:release -- --mock --only deepseek,mcp-spaces`：
+
+| 参数 | 作用 |
+|---|---|
+| `--mock` | `anthropic`、`deepseek` 两个用例改连脚本自己起的本地假端点（Anthropic 与 OpenAI 兼容各一个，按剧本回工具调用），不要 key、不花钱——用来确认脚本本身能跑（Linux 上也行），**不能代替真 key 那一遍** |
+| `--only <用例,…>` | 只跑列出的用例（逗号分隔，可选 `anthropic`、`deepseek`、`mcp-spaces`、`shell-stop`；也可写成 `--only=…`），没选的标「跳过（--only 未选）」 |
+| `--memory-vault` | 不碰系统凭据库：引擎用内存凭据库（`DESKMINIS_TEST=1`），key 只在引擎进程的内存里 |
+| `--help` | 打印用法 |
 
 用例（缺对应环境变量的标「跳过（缺 XXX）」，不算失败）：
 
 | 用例 | 要什么 | 测什么 |
 |---|---|---|
-| `anthropic` | `ANTHROPIC_API_KEY` | Anthropic 官方端点，Fable 5.1 与 Opus 5.5 各跑一个多轮会话：至少两次工具调用（工作区里 `file_write` 再 `file_read`）和一次 `memory_write`。断言回合正常结束、没有 error 事件、工具结果成功、记忆文件里有约定的标记——新一代 Claude 的思考块绑定（`drop_block`）在真端点上过得去 |
-| `deepseek` | `DEEPSEEK_API_KEY` | DeepSeek V4 多轮工具调用，第二轮起不报 400——历史里的 `reasoning_content` 回传对了 |
-| `mcp-spaces` | 不要 key | 脚本把一个最小的 stdio MCP 服务器写进带空格的目录（Windows 上 node 本身多半也在 `C:\Program Files\nodejs\`），登记后能连上并列出工具 |
-| `shell-stop` | 不要 key | 用本地假端点让模型调 `shell_execute` 跑长命令（Windows 上是 `ping -t 127.0.0.1`），然后取消这一回合；断言几秒内进程树里没有残留的 ping |
+| `anthropic` | `ANTHROPIC_API_KEY` | Anthropic 官方端点，`claude-fable-5-1` 与 `claude-opus-5-5` 各跑一个三轮会话：工作区里 `file_write` 再 `file_read`、`memory_write`、再追问一句。要求每轮正常结束、没有 error 事件、三次工具调用都成功、工作区文件与记忆文件里都有约定的标记——`memory_write` 之后系统提示变了，新一代 Claude 的思考块绑定（`drop_block`）在真端点上要过得去 |
+| `deepseek` | `DEEPSEEK_API_KEY`（`DEEPSEEK_MODEL` 可选） | DeepSeek V4（缺省 `deepseek-v4-flash`）同样三轮；第二次请求起历史里带着工具调用，`reasoning_content` 回传不对就会 400，判失败 |
+| `mcp-spaces` | 不要 key | 脚本把一个最小的 stdio MCP 服务器写进带空格的目录，参数里再带一个 `C:\Program Files\…` 形状的路径；用裸名 `node`（Windows 上经 cmd.exe 包裹）与 node 的绝对路径（Windows 上多半在 `C:\Program Files\nodejs\`）各登记一台并试连，都要列出工具 |
+| `shell-stop` | 不要 key | 用本地假端点让模型调 `shell_execute` 跑长命令（Windows 上是 `ping -t 127.0.0.1`），进程表里看到引擎名下的 ping 之后取消这一回合，断言 5 秒内这些 ping 都没了（非 Windows 上本机没有 powershell.exe 就跳过） |
 
-- **隔离**：数据根一律是新建的临时目录（`DESKMINIS_DATA_DIR`），凭据写在服务名 `DeskMinis-smoke-<pid>` 下
-  （`DESKMINIS_KEYRING_SERVICE`），结束时删掉脚本写进凭据库的条目和临时目录；不碰你真实的数据目录与凭据，
-  日志与输出里不出现 key。真 key 会产生几次付费调用。
-- **结果**：最后打一张通过 / 失败 / 跳过表，任一用例失败退出码非 0。**有失败就不发版**，先按表里写的原因处理。
-- **`--mock`**：`npm run smoke:release -- --mock` 让 `anthropic`、`deepseek` 两个用例改连脚本自己起的本地假端点
-  （Anthropic 与 OpenAI 兼容各一个，按剧本回工具调用），不要 key、不花钱——用来确认脚本本身能跑（Linux 上也行），
-  **不能代替真 key 那一遍**。
+- **隔离**：数据根与日志目录一律是新建的临时目录（`DESKMINIS_DATA_DIR` / `DESKMINIS_LOG_DIR`）。Windows 上凭据写进系统凭据库的
+  `DeskMinis-smoke-<进程号>` 服务名下（`DESKMINIS_KEYRING_SERVICE`），结束时删掉本次写进去的条目并核对；系统凭据库探不通时自动改用
+  内存凭据库，开头会说明原因；其它平台或带 `--memory-vault` 时一律用内存凭据库。不碰你真实的数据目录与凭据。
+  key 只经 RPC 交给引擎（不进命令行，也不进引擎的环境变量），打印的每一行都先把 key 换成 `[已隐藏]`，结束前再扫一遍临时目录，
+  有明文 key 判失败。真 key 会产生几次付费调用。
+- **结果**：最后打一张 PASS / FAIL / SKIP 表——四个用例外加一行「清理」（停引擎并结束它名下没跟着退的进程、清凭据库、扫明文 key、
+  删临时目录，哪一步没做成、或者引擎在冒烟途中自己退出了，这一行就是 FAIL），末尾一行汇总。**有 FAIL 就不发版**，先按表里写的原因处理。
+- **退出码**：`0` 没有 FAIL（跳过不算失败）；`1` 有 FAIL；`2` 参数错误、要跑 `deepseek` 而 `DEEPSEEK_MODEL` 不是 V4 族，
+  或找不到构建产物 / electron（直接跑 `node scripts/smoke-release.mjs` 之前没有构建过，或没有 `npm ci`）。
+  中途按 Ctrl+C、Ctrl+Break、关掉窗口或收到 SIGTERM：不再开始新的用例、不再给引擎发新请求，照样清理，只打「清理」那一行、
+  不打结果表，再以 128+信号号退出（Ctrl+C 为 130）——这一遍不算数，要重跑。
 
 ## 3. 手动冒烟（安装版）
 
@@ -106,13 +123,17 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - [ ] 首启：欢迎屏正常，设置 → 模型 配一个 provider（配完确认「当前默认」高亮的是你选的那个）。
 - [ ] **跑一回合带工具调用，权限卡出现且能批准 / 拒绝**——这一条是**必验项**：
       权限卡在 0.2.0 之后的界面重做里曾被整个漏掉，1890 例测试全绿也没拦住
-      （只读命令默认免询问，要用会改动系统的命令才触发）。
+      （只读的本地命令默认免询问，要用会改动系统或会联网的命令才触发，比如让 agent 跑 `npm view left-pad`）。
 - [ ] 欢迎屏点一个助手卡 → 输入发送 → 会话带 emoji 前缀且规则生效。
 - [ ] 定时任务：建一个「每 5 分钟」任务点「运行」→ ⏰ 会话出现、状态回流 ok。
 - [ ] Office：让 agent 生成一份 `.docx`，在右栏「改动」里点开 → 预览区渲染出内容
       且顶部有「内容预览 ≠ 版式还原」提示条。
 - [ ] 终端：标题栏终端钮拉出底部抽屉，敲一条命令有回显（它是在本会话工作区里另起的 PowerShell，
       与 agent 的 shell 不共享 cd 和环境变量）。
+- [ ] 外链：让回复里带一条网页链接，点它——交给系统默认浏览器打开，应用里不多出窗口，主窗口也不被换成那个网页。
+- [ ] 打包版快捷键：Ctrl+R 不重载界面、Ctrl+Shift+I 不开开发者工具；Ctrl 加 + / - / 0 能缩放，F11 能全屏
+      （云端只用改名的 electron 模拟过打包形态，这一条要在装好的安装版上确认）。
+- [ ] 用过一阵之后，`%LOCALAPPDATA%\DeskMinis\logs` 下有当天的 `minisd-<日期>.log`（按天日志），数据目录里没有 `logs`。
 - [ ] 扩展市场：导航「扩展市场」能搜出条目（搜不到时看提示是「没有找到」还是「连不上市场」）。
 - [ ] 任务面板：右栏「任务」tab 有上下文水位读数。
 - [ ] 深浅双主题切一遍（设置 → 外观：跟随系统 / 浅色 / 深色 三态）。
@@ -131,7 +152,8 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - [ ] 安装目录 `resources\` 下有 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`（W1a-1 起随包；
       `extraResources` 的 `from: ../` 指向工程目录之外，缺了就退回在 `deskminis/` 下放拷贝并加一致性测试）。
       `verify:release` 第 8 项查的是 `win-unpacked`，这一条确认装出来的也有。
-- [ ] 卸载：数据目录保留（`deleteAppDataOnUninstall: false`）。
+- [ ] 卸载：数据目录保留（`deleteAppDataOnUninstall: false`）；`%LOCALAPPDATA%\DeskMinis`（日志）与
+      `%LOCALAPPDATA%\deskminis-updater`（安装程序留的自身副本与自动更新下载的安装包）也还在——README「数据存在哪」的彻底清理写的就是这几处。
 
 ## 4. 发布到公开发布仓库 `lincheuk/deskminis-releases`
 
@@ -147,7 +169,9 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
      以后改 README 时保持这一点（要链到 `docs/` 就写成纯文本路径），拷贝才不用手改。
    - README 的 Releases 链接必须指向这个公开仓库——`deskminis/tests/readme-claims.test.ts` 核对它与 `publish` 段一致。
 2. 在**公开仓库**新建 Release：tag 填 `v<版本>`（如 `v0.3.0`），发布时 GitHub 自动创建该 tag；
-   Release 说明里写上对应的源码仓 commit（历史：0.1.1 → `6c48c8b`，发在源码仓的 Releases；0.2.0 未公开发布）。
+   Release 说明里写上打出这份 `dist/` 的源码仓 commit——第 0 节第 2 步 `npm run dist` 之前记下的那个；
+   第 6 步改 CHANGELOG 日期的那次提交只动文档、在它之后，不算（历史：0.1.1 → `6c48c8b`，发在私有源码仓的 Releases，
+   外人看不到；0.2.0 没有发布过）。
    **不能是 draft，也不能勾 pre-release**：electron-updater 走 `github.com/<owner>/<repo>/releases/latest`
    找最新正式版，草稿和预发布它看不见。（云端侧实测 tag 推送被 403 拒——凭据只放行分支推送，
    故 tag 统一走 Release 发布这条路。）
