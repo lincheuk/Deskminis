@@ -128,6 +128,7 @@
 - [W4c] ErrorClassifier 完整版：溢出、配额耗尽（终态）、限流（读 Retry-After，超过 60 秒直接降级）、前缀绑定不一致、真拒绝
 - [W4c] 纯函数 anthropicThinkingShape(modelId, level)，按官方模型表逐代建表；开思考时带 display:'summarized'；辅助请求显式压低 effort
 - [W4c] OpenAI compat 对象加 detectCompat(baseUrl)：thinkingFormat、reasoning 回放矩阵、默认开思考的模型在关闭档显式关闭、读取 delta.reasoning、流式 <think> 状态机、修正 model-catalog 把 ^deepseek-v 判为不支持思考；TokenUsage 补 cacheRead 与 cacheWrite
+- [界面减法，排在 W4b 之后] 删底部终端抽屉与标题栏终端钮的入口、标题栏 ☰ 钮；主题只留「设置 → 外观」，保存的主题启动即生效；删之前先用 W4b 的 SSR 渲染测试给「入口没丢」加守卫，避开 T 波换壳丢入口的老路（2026-09-25 拍板 O1）
 
 **借鉴**：DSH OPTIONAL_BUNDLES 的「名单写成代码常量 + 守卫」模式（MIT）；AionUi 内置 Office 助手的形态（Apache-2.0，技能正文自己写）；pi 的 registerFauxProvider、OpenAICompletionsCompat、detectCompat、thinkingLevelMap/clamp、provider-retry（MIT，须署名）；ZCode modelRules 的规则数据与同路径冲突检测（Apache-2.0，不引 CEL，改用声明式 patch 自写）；OpenMinis ThinkingWireGoldenSnapshot 纪律、ThinkPrefixStreamParser（GPLv3，只借思路）
 
@@ -151,6 +152,7 @@
 - [W5a] 溢出处置顺序：先强制压缩一次，再在同一槽位重试一次；仍然溢出、且有更大窗口的槽位时才降级；否则如实提示
 - [W5b] 水位以最近一次有效 usage（含缓存读写）为锚，只估算其后的增量；没有锚点时把 system 和工具 schema 计入；压缩后显示「下次回复后更新」
 - [W5b] file_read 支持 offset/limit 并给续读提示；卸载桩改为头尾各约 1K 加总行数；shell 结果预览取尾部；maxTokens 截断时带的工具调用一律不执行，并说明原因；中断占位文案附幂等建议
+- [W5b] 输入卡上的上下文占用环（AionUi 形态，从 W9c 提前，用本子波的真实水位）；同一提交删掉任务面板（与占用环重复的三张卡），右栏收成「文件 / 改动」两个 tab；删之前确认「等你批准」提示已在左栏与对话流（W2b-2 已做）（2026-09-25 拍板 O5）
 - [W5c] 前缀只追加：system 在会话内冻结，记忆日志、技能、助手规则的变化都改为带来源标记的追加消息（哈希不变就跳过），支持的端点可以用会话中途的 system 消息；工具全集在会话开始时声明，按名字稳定排序，会话级禁用 MCP 改为调用时拒绝；prune 和媒体占位的截止点落盘、单调推进；CONTINUE_HINT 和 EMPTY_RESPONSE_REMINDER 追加在工具结果之后并保留
 - [W5c] keep-tail 压缩之后，剥掉保留回合里的 thinking 块（官方端点另外带 drop_block）；AGENTS.md/CLAUDE.md 首次加载时弹信任卡，内容作为带来源标记的消息注入
 - [W5c] 一次追加迁移：messages 增加实际出答模型四列与 source_json，sessions 增加 pruned_through_message_id 与 media_cutoff_message_id；线格式里作为可选字段、合并用 COALESCE；对端没声明支持来源标记时，合成消息不推送，或降级为 EventNote 形态
@@ -178,7 +180,9 @@
 - [W6a] main 抽出 launcher 模块：握手之后继续监听 minisd 退出；崩溃预算为 5 分钟内按 1/2/4/8/16 秒退避，耗尽后显示可重试的错误页；启动失败分类器（纯函数、表驱动）加安全模式（跳过 MCP、同步、市场技能）；「导出诊断包」（脱敏，只落本地）；处理 render-process-gone 与 GPU 崩溃
 - [W6b] 重写 RpcClient：连接代次；500ms 到 10s 退避加抖动，连接稳定 5 秒才复位；每次重连前重新取 minisdInfo；重连后只重拉只读数据，绝不重发 chat.prompt；chat.prompt 带 clientMsgId 去重；RPC 错误带 data.code
 - [W6c] 抽出 SessionRuntime 与 InteractionRegistry；chat.watch(sessionId) 返回 {messages, live, seq}，事件带 epoch 和 seq；新增 permission.pending 与 chat.sessions.running 两个只读 RPC；按连接的 subscribedSessions 投递，pairing 态连接收不到业务广播；新增 chat.settled 事件
+- [W6c] 带 seq 的会话事件表（主基准 OpenCode V2 事件表，次基准 ZCode V4 快照），与 W7a 要用的收件箱表合成 0.5.0 唯一一次追加迁移（2026-09-25 拍板 O3）
 - [W6d] 执行面硬化：路径围栏改用 realpathSync.native；新增 childEnv() 擦除凭据类环境变量，MCP 需要的环境变量须显式声明，并在确认卡上写明；web_fetch 只解析一次 DNS，用 BlockList 校验后钉住地址，逐跳校验重定向；桥请求带每会话 token
+- [W6d] 删终端的引擎侧（minisd 的 terminal 接口）与 xterm 依赖；入口已在界面减法子波删掉（2026-09-25 拍板 O1）
 
 **借鉴**：ZCode V4 snapshot 的 seq 与 resync 语义、CrashBudget、ChannelClient pendingRejections、commandId 幂等（Apache-2.0，不引入 V4 全套）；pi lane.watch 两阶段订阅、按附着投递、断连不重放、/bug 诊断包的脱敏规则（MIT）；DSH ConnectionController 连接分代与状态胶囊、scrubbedParentEnv、realpath 围栏、web_fetch 钉住地址（MIT）；AionUi backendStartupFailure 分类器、rendererRecovery、gpuRecovery（Apache-2.0）
 
@@ -201,6 +205,7 @@
 - [W7a] 工具声明 readOnly/concurrencySafe，可并行的调用成段并行，其余作为屏障按原顺序执行，结果逐个落库；queue：SessionRuntime 为每个会话维护 FIFO，回合结束后自动开下一轮，QueueDock 可编辑、可撤回，点停止时回填 chat.draft；steer：在工具结果落库之后、下一次请求之前注入；附件、@路径、会话级 MCP 禁用等发送字段完整穿过入队与出队
 - [W7b] 等待态纯 reducer，NavRail 按「等待 > 运行 > 未读」显示徽标；Electron Notification 加 flashFrame，setAppUserModelId 与 appId 一致，定时任务的通知写明「90 秒后自动拒绝」；PermCard 停靠到输入区（Composer 用 v-show 保住草稿）；拒绝时可附一句反馈，写进 tool_result；会话级权限档与「完全访问」就地确认；切档和定时任务开跑时追加告知消息；ask_user 走 InteractionRegistry，无人值守时立即返回「无人应答」，输入法组字（keyCode 229）期间不提交
 - [W7c] todo_write（整表替换，最多一个进行中）加钉在输入框上方的 PlanBar；已完成的回合折叠为「已工作 N 分钟」，工时取落库时间戳；工具参数流到达时显示「准备中」行；运行中、已中断的步骤用各自的状态点；重复调用签名提醒，作为保留的来源消息；aria-live 播报
+- [W7c] 工具步骤组保持整组折叠，组头加「写了 N 个文件 / 跑了 N 条命令」摘要，不改成只折叠只读类工具（2026-09-25 拍板 O7）；工具输出进度流：shell 边跑边在步骤展开区推尾部视图，发布器按字节限流，最终结果仍只落库一次，照 pi `agent/src/harness/utils/adaptive-publisher.ts`（约 80 行）改写，登 NOTICES §3（拍板 F1）
 
 **借鉴**：DSH 持久 inbox 与 QueueDock、ask_user_question、tool-todo、审批接管输入区、update-attention、tool-calls 默认独占（MIT）；ZCode guide/queue 语义、ToolScheduler、interaction-registry、splitTurnHistory、classifyStep（Apache-2.0）；AionUi 等待态 reducer、ConversationPlanBar 尺寸、通知去重（Apache-2.0）；pi steer/followUp、restoreQueuedMessagesToEditor、AdaptivePublisher（MIT）
 
@@ -221,6 +226,7 @@
 **范围**：
 
 - [W8a] 从结构上修掉欢迎页选助手的撒谎：inChat 只看 activeId，空会话显示助手空态，新增「给会话绑定助手」的 RPC；助手可设工具和 MCP 开关，在建会话时快照；「用系统程序打开 / 在文件夹中显示」，绝对路径由 minisd 过工作区围栏后返回；办公呈现档，权限卡在任何模式下都逐字展示并由守卫钉住
+- [W8a] 右栏默认收起、有产出物时自动展开：先把工作区绑定入口挪出「文件」tab，再在本子波的设计稿里定（2026-09-25 拍板 O6：0.3.0 保持展开，只改了注释）
 - [W8b] 写前检查点：file_write、file_edit、office_write 执行前把原文落到 sessions/<id>/checkpoints/，索引走追加迁移；每个回合一张改动卡；一键回退前做 hash 校验，任一文件不安全就整批拒绝；shell 造成的改动如实标「无法回滚」；先读后写，按 mtime、size、sha1 判断过期；消息级操作：复制、retryFrom、truncateFrom（只允许截掉后缀）
 - [W8c] 删除墓碑与归档优先（先出设计稿，archived_at 进同步）；用 LIKE 做正文搜索；用量面板，单价未知时显示「—」，按实际出答模型归属；MCP 密钥改用 vault 引用，采用整值形式 vault:<key>，避开现有的 $$NAME 语法，list 结果脱敏，并恢复 env/headers 编辑器；技能改为 staging 原子安装
 
@@ -244,7 +250,7 @@
 
 - [W9a] 先测后改：用 FakeProvider 发 1 万个 delta 记录基线；textDelta 先进非响应式缓冲，每帧合并一次；增量解析只重解析末尾未闭合的块；历史 AST 按 id+长度缓存；超过 32K 的消息默认折叠；Markdown 补齐 h1–h6、任务列表、列对齐和工作区内的图片，加图片/SVG 全屏查看；零依赖的轻量语法高亮
 - [W9b] 快捷键注册表（过滤 IME 组字与按键重复），并把托盘「打开设置」「切换右栏」两条没人订阅的 IPC 接回来；可拖分栏（吸附收起、双击复位、键盘可调）；滚动跟随只由用户意图改变，离开底部时显示「回到最新」
-- [W9c] 模型选择器支持搜索和分组；思考档位胶囊，只列当前模型可用的档（依赖 W4c）；输入区显示上下文占用环（依赖 W5b 的真实水位）；已保存的主题在首帧生效；缩放后窗控与 146px 保留区在真机上校验
+- [W9c] 模型选择器支持搜索和分组；思考档位胶囊，只列当前模型可用的档（依赖 W4c）；已保存的主题在首帧生效；缩放后窗控与 146px 保留区在真机上校验（原列的上下文占用环已提前到 W5b，2026-09-25 拍板 O5）
 
 **借鉴**：DSH IncrementalMarkdownParser、Notifier 帧合批、use-scroll-follow（MIT）；ZCode 快捷键 bindings 与 coalesce（Apache-2.0）；AionUi useResizableSplit 的数值、DiagramZoomOverlay 常量（Apache-2.0）；OpenMinis 分档节流与自写高亮器（GPLv3，只借思路）
 
@@ -272,10 +278,10 @@ W3 有一个前置阻断：用户先定更新源。默认建议改用 electron-u
 之后的节奏（按每个子波 1–3 天粗估，单个 AI 会话推进）：
 - 0.3.0：W1a、W1b、W2a、W2b、W3，共 5 个子波，约 1–3 周，含用户在真机上的时间。
 - 0.3.1：W4a 办公内容包，1 个子波，纯内容。
-- 0.4.0：W4b、W4c、W5a、W5b、W5c，共 5 个子波，约 1–3 周，内容是 provider 正确性和长任务引擎。
+- 0.4.0：W4b、界面减法、W4c、W5a、W5b、W5c，共 6 个子波，约 1–3 周，内容是 provider 正确性、长任务引擎与界面减法（界面减法 2026-09-25 拍板 O1 加入）。
 - 0.5.0：W6a 到 W6d、W7a 到 W7c，共 7 个子波，约 1.5–4 周，内容是运行时韧性和人在回路。
 - 0.6.0：W8a 到 W8c、W9a 到 W9c，共 6 个子波，约 1.5–3.5 周，内容是 cowork 结构、可撤销和打磨。
-从发版到 0.6.0 共约 19 个子波。0.3.x 补丁线只接 W1 那类伤数据或安全问题的修复。
+从发版到 0.6.0 共约 20 个子波（含界面减法）。0.3.x 补丁线只接 W1 那类伤数据或安全问题的修复。
 
 执行约束：
 - 每个子波最多 2 个 M 级改动，必须独立全绿、能单独提交。
@@ -311,6 +317,25 @@ W3 有一个前置阻断：用户先定更新源。默认建议改用 electron-u
 - **在 0.3.0 前（W1 到 W3）加任何新功能或数据库迁移**：为了控制范围蔓延，前两次重做正是这样拖住了发布。逐消息模型归属、source_json 等新列统一放进 W5c 那一次追加迁移。W2a 的 DeepSeek 回放与 Claude 止血都是正确性修复，不算新功能，也不动表结构。
 - **为了让测试变绿而重新生成黄金快照；使用 --passWithNoTests；设阈值为 0 的覆盖率门；Windows job 失败只写 notice、不阻断**：这些是 AionUi 等项目的反面做法，等于没有设门，也违背「守卫是资产」的纪律。
 - **像 DSH 那样把计划模式做成软约束**：DeskMinis 的权限网关天然能硬拒写类工具。要做就做硬约束，工具目录不随模式增减，以保住前缀。
+
+## 2026-09-25 拍板：OpenCode V2 研读与四家对比的 9 项（全部按默认）
+
+来源：`docs/research/2026-09-25-opencode-v2-baseline.md` §4（O1–O7）与 `docs/research/2026-09-25-four-way-baseline.md` §4（F1–F2）。
+用户 2026-09-25 答复「全默認」。各项已写进上面对应子波的范围，这里集中留档。
+
+| # | 事项 | 定下来的做法 | 落在哪 |
+|---|---|---|---|
+| O1 | 底部终端抽屉 | 砍，分两步：先删入口（与 ☰ 钮一起），再删引擎侧与 xterm 依赖；0.3.0 一件不裁 | 界面减法子波（W4b 之后）、W6d |
+| O2 | 历史回合里没有结果的工具显示成「成功」 | 修，显示「已中断 · 结果未知」 | 已在 0.3.0（W2b-11a `4e20153`） |
+| O3 | 会话事件表放哪次迁移 | 与收件箱表合成 0.5.0 唯一一次追加迁移 | W6c |
+| O4 | 13 行基准分工表 | 采纳；0.3.0 之后先补一份逐条标明落地状态的 OpenCode V2 研读稿，再改写各波「借鉴」行；NOTICES 补登 OpenCode | 研读稿与借鉴行改写排在 0.3.0 发版之后、W4b 之前；NOTICES 已在 W2b-11c |
+| O5 | 上下文占用环提前 | 从 W9c 提前，同一提交删任务面板、右栏收成两个 tab | W5b |
+| O6 | 右栏默认展开还是收起 | 0.3.0 保持展开（注释已改）；收起留到设计稿再议 | W8a |
+| O7 | 工具步骤组的折叠方式 | 保持整组折叠，组头加摘要 | W7c |
+| F1 | 工具输出进度流 | 加，照 pi 约 80 行发布器改写，登 NOTICES §3 | W7c |
+| F2 | 21 行分工表 | 采纳（同 O4，范围扩到 21 行，第 7 行次基准改为 pi）；改写借鉴栏时订正四处「列了没借」（四家报告 §4 第 17 条） | 同 O4 |
+
+本节之后的「需要用户拍板的事」是 9/24 的 17 项：前 5 项已在止血设计稿 §2 落定（更新源用 github provider 指向公开的发布仓库，不是这里默认的 generic provider，见设计稿 §2），其余 12 项仍待拍板（见交接文档 §6「其它悬空」）。
 
 ## 需要用户拍板的事（含默认建议）
 
