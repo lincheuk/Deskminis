@@ -8,22 +8,21 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `d00b991`，**version 0.3.0**，minis.db user_version 仍是 **11**。245 测试文件 / 3445 例
-  （云端 3393 过 + 52 Windows-only 基线），typecheck 0。本波零迁移、零新依赖。两条链合入后 main 在〔待合流后填〕。
+- **代码**：main `35aab54`，**version 0.3.0**，minis.db user_version 仍是 **11**。249 测试文件 / 3594 例
+  （云端 3542 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
 - **本轮做完了止血波 W1a–W2b**（2026-09-24～25，设计稿 `docs/specs/2026-09-24-hemostasis-design.md`）。
-  从 09-10 的 `761b862` 起共 66 个提交：55 笔步骤（其中 18 笔是审查遗留的补修）加 11 次合流。
+  从 09-10 的 `761b862` 起共 82 个提交：66 笔步骤（其中 22 笔是审查遗留的补修，3 笔是对外文档）加 16 次合流。
   - **W1a 伤数据**：file_edit 不再被 `$` 改坏文件；MCP 配置读坏拒写、外部修改不被覆盖、编辑不再丢字段；技能 zip 有上限；
-    库比应用新就不打开，开发态数据与正式版分开。
+    库比应用新就不打开，开发态数据与正式版分开；MCP 保存不再丢认不出的条目与数字参数（W1a-7b）。
   - **W1b 越权与并发**：数据根读写收窄，shell 免询问只留只读本地命令；单实例锁与数据根锁；删除还在跑的会话先停；
-    优雅退出；进程树回收，cmd 与 PowerShell 改 System32 绝对路径。
+    优雅退出，关停等进程树回收做完（W1b-5d）；进程树回收，cmd 与 PowerShell 改 System32 绝对路径。
   - **W2a 引擎与 provider**：压缩改增量、有上界，空摘要拒收，失败看得见；超窗单独分类并给「新建会话接力」；
-    新一代 Claude 与 DeepSeek V4 的多轮 400 止血；卸载的大结果读得回来，file_read 能分段。
+    新一代 Claude 与 DeepSeek V4 的多轮 400 止血；卸载的大结果读得回来，file_read 能分段；关掉记忆的会话执行侧也拒记忆工具（W2a-8）。
   - **W2b 界面与发布工程**：运行态与权限卡按会话区分；断线横幅与重启；欢迎页选助手不再撒谎；导航守卫与最小菜单；
-    本地崩溃记录与按天日志；更新源改公开仓库、失败说中文；`verify:release`；中断的工具不再显示成功。
-- **发 0.3.0 还差什么**：
-  1. 主会话合入两条链：链 S（W3-smoke 发版冒烟脚本 `smoke:release` 及补修，`hemo/s`）〔待合流后填〕；
-     文档链（W2b-11b/11c：README、CHANGELOG、RELEASE 终稿与 `readme-claims` 守卫，`hemo/docs`）〔待合流后填〕。
-  2. 用户在 Windows 上发版（设计稿 §5；RELEASE.md §0 的九步清单随文档链进 main）：
+    本地崩溃记录与按天日志；更新源改公开仓库、失败说中文；`verify:release` 与 `smoke:release`；中断的工具不再显示成功；
+    README / CHANGELOG / RELEASE 按代码逐行核对（`readme-claims` 守卫）。
+- **发 0.3.0 还差什么**：云端的活已做完（全部链已合入 main，施工 worktree 已清理）。只剩
+  用户在 Windows 上发版（设计稿 §5；RELEASE.md §0 的九步清单）：
      建公开仓库 `lincheuk/deskminis-releases` → `npm ci`、`npm test`（52 例 Windows-only 也要过）、`npm run dist`
      → `e2e:m5`、`verify:release` → 设两把 key 跑 `smoke:release` → 安装版与便携版手动冒烟
      → CHANGELOG「待发布」改日期 → 建 Release `v0.3.0`（非 draft、非 pre-release）传四件
@@ -45,7 +44,7 @@
   - `main` = 功能落地线。代码直接推 main。
   - `claude/handover-documentation-pfr2l4` 与 `claude/deskminis-handoff-qq2kn3` = 云端会话的指定分支，**与 main 同点**：
     每推一次 main，`git branch -f claude/handover-documentation-pfr2l4 main`、`git branch -f claude/deskminis-handoff-qq2kn3 main`，三支一起推。
-    2026-09-25 查 origin：三支都在 `d00b991`。
+    2026-09-25 收尾时查 origin：三支都在 `35aab54`。
   - `claude/deskminis-handoff-dd9wrk` = **权威记账线**（PROJECT_NOTES 波结、docs/specs、docs/research、docs/handoff、driver）。
     本地是 worktree `/home/user/deskminis-docs` 的 `docs-work` 分支，upstream 指向它；推时写明目标
     `git push origin docs-work:claude/deskminis-handoff-dd9wrk`。树上的代码是旧快照——**看代码去 main，看账本来这里**。
@@ -105,7 +104,7 @@
    - 修正者：逐条修，`git commit --amend` 更新同一提交，正文追加「审查意见处置」。
    - **最多三轮审查、两轮修正**。第三轮还有 must_fix 的，另起 `<步骤号>b/c` 补修：要么再走一遍工作流（W1b-2b、W2b-4b、W2a-6b），
      要么主会话直接做、正文写明没有再走独立审查（W2a-1b、W2b-5b、W2b-9b 等）；也可以定为已知边界。
-     审查与实现者的遗留统一记进草稿区 `followup-notes.json`（按步骤键）与 `pending-boundaries.md`。
+     审查与实现者的遗留统一记进草稿区 `followup-notes.json`（按步骤键）与 `pending-boundaries.md`；草稿区随会话消失，要点已并进本文 §8。
 3. **不能先红的用变异自检证明**：回归钉、守卫加固、性能改写的等价性，都在 scratch 副本（`git archive` 或复制，node_modules 软链）上
    逐个打变异、跑相关测试、恢复后逐字节核对，列出「改前的测试全绿、改后的测试变红」的对照。等价变异要认出来并写明。
 4. **源码守卫的写法**：只防现实回退（B 组第 8 条）；`.vue` 剥注释走语法树（`tests/sfc-blocks.ts`）；「不许出现」类检查查原文、不剥注释
@@ -226,7 +225,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W2a-5 | 卸载读回不再二次卸载（按 5 万字封顶落库），修剪桩与卸载桩不再许空头支票 | `c87e004` | B |
 | W2a-6 | 溢出与压缩失败的界面：「新建会话接力」、绑定错误不再给重试、降级短句写明因上下文已满改用谁 | `c8d9e30` | D2 |
 
-### 4.4 W2b 界面与发布工程（13 笔，2 笔未合入）
+### 4.4 W2b 界面与发布工程（14 笔）
 
 | 步骤 | 做了什么 | main 上的提交 | 链 |
 |---|---|---|---|
@@ -243,6 +242,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W2b-11a | 界面诚实：历史里没结果的工具标「已中断 · 结果未知」；终端、定时、设备页文案按代码改正；托盘两条死通道接上；三处注释订正 | `4e20153` | H |
 | W2b-11b | 对外文档逐行核对：README 按代码改写并附核对清单，CHANGELOG 补齐止血项与已知边界，RELEASE 接上冒烟与发版步骤，加 `readme-claims` 守卫 | `c14aa14` | 文档链 |
 | W2b-11c | 对外文档终稿（在全部代码合入后的状态上做）：联网与只读命令按 W1b-2g 实情写、README「权限网关怎么判」分六条、补齐已知边界、NOTICES 补登 theme.css 取值与 OpenCode | `7d7e71f` | 文档链 |
+| W2b-11e | 对外文档跟上最后几步：CHANGELOG 补 W1a-7b、W1b-5d、W2a-8 与四条已知边界（引擎崩溃时再起的进程会留下、只读 git 读仓库配置、认不出的 MCP 条目不显示、MCP 配置里的数字按数值读），文档链二审 nits，RELEASE 冒烟一节按合入后的脚本核对 | `35aab54` | main（主会话直接做） |
 
 ### 4.5 施工中追加（设计稿 §4.1）与审查遗留补修
 
@@ -257,9 +257,9 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W2b-11d | 右栏「改动」清单按工具结果判，失败与中断的写工具不再列；cron 注释按实际行为改正 | `9504d64` | R | W2b-11a 三审 |
 | W3-smoke | 发版冒烟脚本 `smoke:release`：两家真 key 多轮工具调用、MCP 带空格路径试连、shell 停止后查残留；`--mock` 在 Linux 自测 | `2db1926` | S | 设计稿 §5.1 |
 | W1b-5d | 关停等终端、shell、MCP 的进程树回收做完（`REAP_WAIT_MS` 1 秒）再关库退出：`killTree` 返回回收落定、从不拒绝的 Promise；win-exec.ts 头注释按 libuv 作业对象订正（只收直接子进程，taskkill 自己也在作业里） | `81c2db0`（合流 `bd96382`） | K | 交接复核：W3-smoke 三审追到产品 |
-| W1a-7b | MCP 配置保存不再静默丢三样：认不出的条目与顶层其它键原样写回，参数与环境变量里的数字、布尔值转成字符串 | 〔待合流后填〕 | M | W1a-6 偏差 9 |
+| W1a-7b | MCP 配置保存不再静默丢三样：认不出的条目与顶层其它键原样写回，参数与环境变量里的数字、布尔值转成字符串（三轮审查用完，第三轮必修由 W1a-7c 补） | `1f16461`（合流 `aee89ae`） | M | W1a-6 偏差 9 |
 
-**审查遗留补修（18 笔在 main，链 S 的另计）**
+**审查遗留补修（22 笔）**
 
 | 步骤 | 做了什么 | main 上的提交 | 链 | 来由 |
 |---|---|---|---|---|
@@ -285,6 +285,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W3-smokec | 冒烟脚本起引擎以临时根为 cwd（Linux 上桥的管道套接字不再落进应用目录，全量一遍从留 15 个降到 1 个）；引擎没拿到 pid 时按没起来处理，不再空等 15 秒误报「停不下来」 | `8ac05dc` | main（主会话直接做，没走独立审查） | W3-smokeb 六审 nit |
 | W2a-8 | 按会话排除的工具执行侧也拒绝：关掉记忆的会话里，模型照着历史再叫 `memory_write` / `memory_get` 不再生效（以前只是不列给模型） | `482b1b0` | main（主会话直接做，没走独立审查） | W2b-11c 实现者申报 |
 | W1b-5e | W1b-5d 审查 nits 收口：守卫补「等回收排在等 run 收尾之后」、`killTree` 挂不上监听也不拒绝、注释写全、`crash-log-fork` 不再在应用目录留管道套接字（连同 W3-smokec，全量测试不再留） | `7ffc7d5` | main（主会话直接做，没走独立审查） | W1b-5d 审查 |
+| W1a-7c | W1a-7b 三审必修（只补测试）：单个裸条目认不出时整份按 `default` 写回、`mcpServers` 写成数组时按条目写回，各一例，审查变异 R1、Y5 证明变红 | `6b6688e` | main（主会话直接做，没走独立审查） | W1a-7b 三审 |
 
 ### 4.6 合流提交
 
@@ -304,6 +305,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | `0c52c59` | S：W3-smoke、W3-smokeb | 自动合并无冲突（package.json 只加 scripts 一行，另两个新文件）；链 S 起点是 D2 合流 `14236f9` | 246 / 3524；build 0 |
 | `82cd776` | 文档链：W2b-11b、W2b-11c（中间 `a9342ee` 把 main `d00b991` 并进文档链） | 自动合并无冲突（只动仓库根四份文档与 `readme-claims` 测试） | 247 / 3534 |
 | `bd96382` | K：W1b-5d | NOTICES 自动合并（链 K 改 pi-mono 表里 win-exec.ts 一行，文档链改 §2、§5 两节） | 248 / 3560；build 0 |
+| `aee89ae` | M：W1a-7b | 自动合并无冲突（链 M 只动 mcp/config.ts 与三个测试，链 K 动的是 manager / stdio / http） | 249 / 3592 |
 
 A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码 0）与全量，失败都是那 52 例、基线 diff 空。
 
@@ -316,11 +318,10 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 
 ### 4.8 当前状态
 
-- main `d00b991`：245 测试文件 / 3445 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
-- 与 09-10 的 `761b862` 比：66 个提交，214 个文件，+27092 / −764 行；测试文件 170 → 245（新增 75 个，另有 6 个测试帮手）。
+- main `35aab54`：249 测试文件 / 3594 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
+- 与 09-10 的 `761b862` 比：82 个提交，223 个文件，+32844 / −865 行；测试文件 170 → 249（新增 79 个，另有 6 个测试帮手）。
 - 版本 0.3.0；user_version 11；dependencies / devDependencies 零改动（scripts 加了 `verify:release`；链 S 加 `smoke:release`）；
   `package.json` 与锁根的 license 改为 Apache-2.0。
-- 两条链合入后：main 在〔待合流后填〕，数字〔待合流后填〕。
 
 ## 5. 关键文件地图（本轮新增或职责变了的）
 
@@ -411,6 +412,8 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
   `main-shutdown-wiring`、`crash-log-wiring`、`single-instance`：
   主进程接线的行为测试加结构钉（例如 exit 监听只一个、第一句无条件写退出记录；两道窗口守卫在加载之前）。
 - `perm-session-scope`：模板 AST 判权限卡与提示行不挂在任何条件分支下；ui/ 下读 pendingPerms 必须经 scope 三函数。
+- `shutdown-reap`：关停第 6 步等进程树回收的行为测试（taskkill 跑完之前不关库、不放锁；上限；一步抛错其余照做），W1b-5d。
+- `mcp-config-lossless`：MCP 配置读进来、写回去不丢东西（认不出的条目、顶层其它键、数字与布尔值、各条写路径、写盘失败与连续两次写），W1a-7b / W1a-7c。
 - `renderer-overflow-relay`：在语法树上钉「接力草稿只在 setup 顶层取一次、不用 watch、不替用户发送」。
 - `renderer-welcome-assistant`、`renderer-model-groups` Z5：输入卡入参与胶囊的调用形态。
 - `readme-claims`：README 里能机器核对的三条（不写死测试例数；提到 mDNS 就必须真有实现；下载链接与 `publish` 段是同一个仓库），文档链带进来，随文档链进 main（`82cd776`）。
@@ -421,14 +424,14 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 ### 一档：发 0.3.0
 
 **主会话先做（云端）**：
-1. 合入链 S 与文档链〔待合流后填〕；合流后 typecheck、全量基线比对，有界面改动的重拍 xvfb。
-2. 合流后小修（草稿区 `pending-boundaries.md`）：NOTICES §2 补一句「theme.css 的色值、字号、圆角同样取自 AionUi」
-   （T1 `d06c74b`、T7 `999bb5c`）；NOTICES §5 补登 OpenCode（MIT）：标题栏窗控形制借思路、W2b-11a 的「历史中断工具」语义借 failInterruptedTools 思路。
+1. ~~合入链 S 与文档链~~ 已做：链 S `0c52c59`、文档链 `82cd776`、链 K `bd96382`、链 M `aee89ae`，另有主会话直接做的 W3-smokec、W2a-8、W1b-5e、W1a-7c、W2b-11e。
+2. ~~NOTICES 补登~~ 已做（W2b-11c `7d7e71f`）：§2 补「theme.css 的色值、字号、圆角同样取自 AionUi」（T1 `d06c74b`、T7 `999bb5c`），
+   §5 补登 OpenCode（MIT）：标题栏窗控形制借思路、W2b-11a 的「历史中断工具」语义借 failInterruptedTools 思路。
 3. ~~本轮剧本入册~~ 已做：17 个剧本与步骤工作流在 `docs/handoff/driver/hemostasis/`（docs `272e84c` 与交接提交），
    两份 driver README 补了 userData 在 `<DATA_DIR>/electron`、同一数据根同时只能开一个应用、打包形态单实例锁不随数据根分开。
 4. ~~lifecycle.md 前提订正~~ 已做：事实清单「渲染端没有 window.open」句后加了 2026-09-25 订正（docs `272e84c`）。
 
-**用户在 Windows 上做**（设计稿 §5；RELEASE.md §0 九步清单随文档链进 main）：
+**用户在 Windows 上做**（设计稿 §5；RELEASE.md §0 九步清单）：
 1. 在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`，放 README、LICENSE、THIRD-PARTY-NOTICES、CHANGELOG 四个文件。
 2. 真机构建自测：`npm ci` → `npm test`（52 例 Windows-only 也必须过）→ `npm run typecheck` → `npm run dist`。
 3. 打包验收：`npm run e2e:m5`（**必须重跑**，R 波之后的结论全部过期）、`npm run verify:release`，全 PASS。
@@ -463,7 +466,7 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 
 | # | 事项 | 默认建议 | 现状 |
 |---|---|---|---|
-| O1 | 底部终端抽屉砍不砍 | 砍，分两步：W4b 之后的界面减法子波先删入口，W6d 再删引擎侧与 xterm 依赖；0.3.0 的 CHANGELOG 不把终端写成亮点 | 0.3.0 一件不裁（刚在 W1b-1 加了进程树回收）；文档链的 CHANGELOG 草稿已把终端那句改成如实描述 |
+| O1 | 底部终端抽屉砍不砍 | 砍，分两步：W4b 之后的界面减法子波先删入口，W6d 再删引擎侧与 xterm 依赖；0.3.0 的 CHANGELOG 不把终端写成亮点 | 0.3.0 一件不裁（刚在 W1b-1 加了进程树回收）；CHANGELOG 已把终端那句改成如实描述 |
 | O2 | 历史回合里没有结果的工具显示成「成功」，0.3.0 修不修 | 修 | 已按默认做了（W2b-11a `4e20153`），用户可否决 |
 | O3 | 会话事件表放哪次迁移 | W6c，与 W7a 的收件箱表合成 0.5.0 唯一一次追加迁移 | 未动 |
 | O4 | 是否采纳 13 行基准分工表，并据此改写路线各波的「借鉴」行 | 采纳；0.3.0 之后先补一份逐条标明落地状态的 OpenCode V2 研读稿，再改路线；NOTICES「仅借思路」补登 OpenCode | NOTICES 补登排在一档的合流后小修 |
@@ -539,14 +542,12 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 - 技能索引里 path 元素的值按 XML 转义，用户名含 `&` 时模型照抄进 file_read 会失败（旧问题）。
 - URL 凭据脱敏：多行文本先脱敏、后剥 `\v`、`\f`，凭据本身夹着这类字符时口令不打码（现实里碰不到）。
 
-### B. 待写进 CHANGELOG / README 的（草稿区 `pending-boundaries.md`，W2b-11c 收）
+### B. 已写进 CHANGELOG「已知边界」的（W2b-11c 收，W2b-11e 补四条）
 
-- 「不替用户发送」只在 `takeRelay` 体内有源码守卫，输入卡其它位置的自动发送没有守卫（测试范围，用户看不见）。
-- 刻意混淆的写法不在源码守卫范围（设计稿 §1 第 8 条）。
+- （测试范围，不进 CHANGELOG）「不替用户发送」只在 `takeRelay` 体内有源码守卫，输入卡其它位置的自动发送没有守卫；刻意混淆的写法不在源码守卫范围（设计稿 §1 第 8 条）。
 - **危险命令只按写法认**：Format-Volume、Clear-Disk、`[IO.File]::Delete` 这类没列进表的写法判 gated，经 `cmd /c` 转一手也认不出——
   前两档照常弹卡，「完全访问」下直接执行（设置页已如实写）。
-- **数据目录的闸只管文件工具**（`file_*`、`office_*`）：shell 与 MCP 不走它，完全访问下不问；只读 shell 用 `..\..\..` 或 `DeskMi*` 通配点到数据目录时认不出
-  （文档链的 CHANGELOG 草稿已写）。
+- **数据目录的闸只管文件工具**（`file_*`、`office_*`）：shell 与 MCP 不走它，完全访问下不问；只读 shell 用 `..\..\..` 或 `DeskMi*` 通配点到数据目录时认不出。
 - 只读命令的间接读取看不见：`-OutVariable` / `-PipelineVariable` 写变量、`findstr /F:` 清单文件，能在下一条只读命令里读到远程或 `env:` 路径而不询问。
 - 部分克隆（promisor）仓库里，只读的 git 命令会按需连远端取对象。
 - 「每次确认」与「本会话沿用」两档网关行为相同，差别只在权限卡上预选的按钮。
@@ -554,6 +555,8 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 - MCP 服务器的 env / headers 以明文存在 `mcp-servers\servers.json`（可写 `$$变量名` 引用环境变量，界面未提供）。
 - 左栏收起时，在欢迎页或设置页看不到别的会话在等批准（会话页有提示行，左栏展开时行上有盾牌标，W2b-2 遗留）。
 - 卸载后 `%LOCALAPPDATA%\deskminis-updater`（安装程序副本与更新下载缓存）不会被删。
+- （W2b-11e）引擎崩溃或被强杀时，终端、shell 与 MCP 再起的进程会留下；只读的 git 命令会读取仓库自己的配置，「每次确认」档下不能保证不牵动别的程序；
+  `servers.json` 里认不出的条目原样留在文件里、设置页不列也不提示；MCP 配置里的数字按数值读（超过 2^53 的整数、`3.10` 保存后变样，环境变量 `false` 按字符串传）。
 
 ### C. 各步审查与申报里留下、影响真实使用的（未处理）
 
@@ -562,7 +565,9 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
   W1b-5d 起关停等回收做完（最多 1 秒），win-exec.ts 头注释已订正。根治要自建不带 breakaway 的作业对象（W6）。
   另两处 W1b-5d 审查 nit 没改代码：在途 shell 命令被中断、删除会话、MCP 空闲驱逐等路径起的回收，第 6 步不等（多半由等 run 收尾间接兜住，
   run 超过 graceMs 或 shell 工具自己先超时时兜不住）；关停时还在握手的 MCP client 不在 disposeAll 的名单里（W1b-5 之前就是这样）。
-- **MCP 保存时静默丢三样**：解码失败的条目、servers.json 顶层的其它键、数字参数（侦察里的 W1a-mcplossy 没做）。出处：W1a-6 `a757177` 偏差 9。
+- ~~MCP 保存时静默丢三样~~：W1a-7b 已修。留下的：设置页没有「有 N 条无法识别，已原样保留」的提示；manager 的 configRefusal 对认不出的条目说「已不在配置中」；
+  `market.installed` 只看 `list()`，手改成认不出形状的市场条目会被当孤儿删掉登记行；变体②（裸名字键控）里顶层的非服务器键（`$schema`、`globalShortcut`）
+  第一次保存会被挪进 `mcpServers`；整数形键名排在最前、`1e400` 这类溢出字面量写回成 null（JS 本身的限制）。出处：W1a-7b `1f16461` 偏差 3、6、7 与三审 nits。
 - MCP 改名同样不迁移 `market_installs.local_ref`，改名后市场对它的更新追踪丢失。出处：W1a-6 偏差 11（设计稿 §6 只写了禁用名单）。
 - servers.json 刚被外部写坏、还没人重读时，调用照旧按内存里上次读到的配置判启停。出处：W1a-6 偏差 13。
 - 同会话 `open()` 在回合中途会清空流式正文与步骤卡却不置 midRun：回合跑着时点一下当前会话，正文从半句开始长。出处：W2b-11a `4e20153` 已知边界。
