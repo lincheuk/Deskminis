@@ -7,6 +7,7 @@ import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachment
 import { describeUpdateError, isPortableBuild, manualCheckDialog, type UpdateState } from './update-status';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES } from './child-output';
+import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, type StopOutcome } from './minisd-stop';
 
 // W1a-9 开发态数据隔离：数据根、userData、keyring 服务名、日志目录在这里一次算定。
 // fork minisd 与 attachments:save 都用这一份，不再各自调 dataRoot() 各算一遍——两处一漂移，附件就落进另一个根。
@@ -29,6 +30,41 @@ let minisdPort = 0;
 let minisdToken = '';
 let tray: Tray | undefined;
 let quitting = false;
+// W1b-5：本次 fork 的退出记录与停止器（exit 监听只有 startMinisdProcess 里那一个，由它写入）
+let minisdExit: MinisdExitWatch | undefined;
+// 退出闸：before-quit 挡不挡、停完再退、第二次放行（判定在 minisd-stop.ts，行为测试在 tests/minisd-stop.test.ts）。
+// minisd 已经停过（优雅停完 / 更新前停完 / 启动失败时硬杀过）就 markStopped，之后的 before-quit 直接放行
+const quitGate = new QuitGate();
+// 主窗口放在模块级（W1b-3）：second-instance 要把它叫回来，而它以前只是 whenReady 回调里的局部变量。
+let mainWindow: BrowserWindow | undefined;
+// second-instance 早于主窗口建好（还在等 minisd 握手）时记一笔，建好后立即唤出，别把用户这次双击吞掉。
+let revealWhenCreated = false;
+
+// W1b-3 单实例锁：托盘里藏着一个 DeskMinis 时再双击图标，以前会整套再起一遍（第二个 minisd 与第一个同写一个库）；
+// 现在第二个进程拿不到锁就退出，由第一个把藏起来的窗口叫回来。
+// 放在模块顶层、setPath('userData') 之后：Electron 的锁按 userData 算，dev 与各个临时数据根（W1a-9）各有各的锁，
+// driver 能和开着的 dev 应用并存。它挡不住两份 userData 指向同一个数据根——那由 minisd 的数据根锁兜住。
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // 退出流程中窗口正在关，再 show 会把它翻出来又关掉
+    if (quitting) return;
+    if (mainWindow === undefined) { revealWhenCreated = true; return; }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    // 关窗是隐藏到托盘（close 里 hide），只 focus 叫不回来，必须先 show
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
+/** 请 minisd 有序关停（W1b-5）：postMessage shutdown，等它自己退，超时 kill（逻辑在 minisd-stop.ts）。
+ *  没 fork 过就立即返回。退出（托盘 / before-quit）与「重启并安装」都走这里，重复调用拿到同一个 promise。 */
+function stopMinisdGracefully(timeoutMs: number): Promise<StopOutcome> {
+  if (minisd === undefined || minisdExit === undefined) return Promise.resolve('already-exited');
+  return minisdExit.stop(minisd, timeoutMs);
+}
 
 /** 子进程未在此时限内上报端口就判定启动失败——否则挂死的子进程会让主进程永远停在白屏前。 */
 const MINISD_START_TIMEOUT_MS = 30_000;
@@ -62,6 +98,10 @@ function startMinisdProcess(): Promise<number> {
       },
       stdio: 'pipe',
     });
+    // 停止器（stopMinisdGracefully）与 minisdAlive 读 minisdExit，下面唯一的 exit 监听写 exitWatch——必须是同一份：
+    // 少了这行停止器以为没 fork 过、不发 shutdown 直接放行，退出退回硬杀；另建一份则永远等不到退出、每次等满 5 秒才 kill。
+    const exitWatch = new MinisdExitWatch();
+    minisdExit = exitWatch;
 
     let settled = false;
     const settle = (fn: () => void): void => { if (settled) return; settled = true; clearTimeout(timer); fn(); };
@@ -105,7 +145,12 @@ function startMinisdProcess(): Promise<number> {
     });
     // exit 之后 Electron 不再交付管道里剩下的数据，所以这里等也没用；minisd 那边写完先等一小段再退
     // （src/minisd/fatal.ts 的 STARTUP_FAILURE_EXIT_DELAY_MS），致命行与 stderr 末尾都在 exit 之前到。
-    minisd.on('exit', code => { if (minisdPort === 0) settle(() => reject(new Error(`minisd 退出 code=${code}`))); });
+    // 引擎进程的 exit 监听全文件只有这一个（设计稿 §3 第 11 条）：它写退出记录，优雅停止等的就是这条记录。
+    // 握手前退出是启动失败；握手后、exitWatch.stopRequested 为假的退出是崩溃——W2b-7 在这里记 minisd_exit，不另挂监听。
+    minisd.on('exit', code => {
+      exitWatch.markExited(code);
+      if (minisdPort === 0) settle(() => reject(new Error(`minisd 退出 code=${code}`)));
+    });
   });
 }
 
@@ -175,6 +220,10 @@ function setupUpdater(): void {
     const w = BrowserWindow.getAllWindows()[0];
     if (!w) return;
     // 只提示，装不装由用户点。dialog 是模态但不强制——取消即继续用当前版本。
+    // 点「重启并安装」（W1b-5）：先停 minisd 再装。quitAndInstall 同步 spawn 安装器、下一拍才 app.quit()，
+    // 不先停的话安装器起来时 minisd 还开着库、还挂着 MCP 子进程（NSIS 会连带硬杀同名进程）。
+    // 停完 quitGate.markStopped()，quitAndInstall 触发的 before-quit 直接放行。
+    // quitAndInstall 调用与收尾的右花括号留在同一行：auto-update 守卫的负向正则认「调用后紧跟换行」。
     void dialog.showMessageBox(w, {
       type: 'info',
       title: '有新版本可用',
@@ -183,7 +232,7 @@ function setupUpdater(): void {
       buttons: ['稍后再说', '重启并安装'],
       defaultId: 0,          // 默认焦点**不在**破坏性/打断性选项上
       cancelId: 0,
-    }).then(r => { if (r.response === 1) { quitting = true; autoUpdater.quitAndInstall(); } });
+    }).then(async r => { if (r.response === 1) { quitting = true; await stopMinisdGracefully(MINISD_STOP_TIMEOUT_MS); quitGate.markStopped(); autoUpdater.quitAndInstall(); } });
   });
   // 检查失败是常态（离线、公司网、GitHub 限流、发布仓库还没发过版）——
   // 静默记录即可，绝不弹窗打扰。更新是便利功能，不是必需路径（托盘手动检查的回执另走 checkUpdatesFromTray）。
@@ -266,6 +315,9 @@ ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) =>
 });
 
 app.whenReady().then(async () => {
+  // 第二个实例：顶层已经 app.quit()，但 ready 仍可能触发。不早退的话它照样 fork minisd（被数据根锁拦下，多弹一个框）、
+  // 建窗口、起更新检查。
+  if (!gotSingleInstanceLock) return;
   // 启动检查：延迟 8s，让窗口和 minisd 先起来，不和启动抢资源。
   // 未打包 / 用户关掉开关时 checkUpdates 自己会短路，这里不重复判断。
   setupUpdater();
@@ -275,12 +327,14 @@ app.whenReady().then(async () => {
   // 应用「启动了但什么都不显示」，用户和开发者都拿不到任何线索。
   try {
     await startMinisdProcess();
-    const mainWindow = await createWindow();
+    const win = await createWindow();
+    mainWindow = win;
+    if (revealWhenCreated) { revealWhenCreated = false; win.show(); win.focus(); }
     tray = new Tray(loadTrayIcon());
     tray.setToolTip('DeskMinis');
-    tray.setContextMenu(createTrayMenu(mainWindow));
-    tray.on('click', () => { if (mainWindow.isVisible()) mainWindow.hide(); else { mainWindow.show(); mainWindow.focus(); } });
-    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); else mainWindow.show(); });
+    tray.setContextMenu(createTrayMenu(win));
+    tray.on('click', () => { if (win.isVisible()) win.hide(); else { win.show(); win.focus(); } });
+    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); else win.show(); });
   } catch (e) {
     if (e instanceof MinisdFatalError) {
       // minisd 报了用户能自己处理的原因（库来自更新版本 / 数据目录被另一个实例占着）：
@@ -295,11 +349,30 @@ app.whenReady().then(async () => {
       // 以前框里只有主进程自己的「minisd 退出 code=1」堆栈；真正的原因在 minisd 的 stderr 里，附上末尾。
       dialog.showErrorBox('DeskMinis 启动失败', withStderrTail(message, minisdStderrTail.text()));
     }
+    // 握手前的启动失败仍直接 kill，不走优雅停：minisd 可能根本没装配起来、不会应答 shutdown，等满 5 秒没有意义
     minisd?.kill();
+    quitGate.markStopped();
     app.quit();
   }
 });
-app.on('before-quit', () => { quitting = true; minisd?.kill(); });
+// W1b-5 优雅退出：第一次 before-quit 挡住，先把窗口与托盘收掉（用户马上看到已退出），
+// 再请 minisd 有序关停（了结权限卡、等 run 收尾、关库、放锁），停完再 app.quit()，那一次直接放行。
+// 以前这里直接 kill：Windows 上是 TerminateProcess，半截回复与 toolResult 来不及落库，MCP / PowerShell 子进程成孤儿。
+// minisd 已经先退了（崩溃）或从没起来就不等。Windows 注销 / 关机不触发 before-quit，那条路仍是硬杀，靠 WAL 保底。
+// 挡不挡、等不等、停完放不放行都在 QuitGate 里；这里只接钩子，不自己挡、不自己停、不自己退。
+app.on('before-quit', (e) => {
+  quitting = true;
+  quitGate.onBeforeQuit(e, {
+    minisdAlive: minisd !== undefined && !minisdExit?.exited,
+    hideUi: () => {
+      for (const w of BrowserWindow.getAllWindows()) w.hide();
+      tray?.destroy();
+      tray = undefined;
+    },
+    stop: () => stopMinisdGracefully(MINISD_STOP_TIMEOUT_MS),
+    quit: () => app.quit(),
+  });
+});
 app.on('window-all-closed', () => {
   // 托盘常驻：关窗默认隐藏不销毁，退出只走托盘菜单 / before-quit
 });

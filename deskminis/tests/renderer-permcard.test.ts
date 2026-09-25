@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { permTitle, permTriggerLabel } from '../src/renderer/src/lib/perm/copy';
 import { remainSeconds, countdownTone } from '../src/renderer/src/lib/perm/countdown';
+import { stripComments } from './strip-comments';
 
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
 const permCard = R('../src/renderer/src/ui/PermCard.vue');
@@ -157,5 +158,44 @@ describe('变更预览（审批前差分）守卫', () => {
   it('chat.ts：PendingPerm 透传 preview（req.preview → push 字段）', () => {
     expect(chatTs).toContain('preview?: { oldText: string; newText: string }');
     expect(chatTs).toContain('preview: req.preview');
+  });
+});
+
+// W1b-2（止血设计稿 §3 第 6 条 PermissionRequest.note）：数据根内的操作带一句说明，
+// 权限卡在路径区之后整句显示。.vue 不在 typecheck 覆盖内，守卫先剥注释再认调用形态，
+// 否则注释里留一句 `note: req.note` 就能把断言喂饱（交接 §2 第 10 条）。
+// 脚本侧用共用的 stripComments：它连行尾的 // 注释也剥（只剥整行的话，`preview: req.preview, // note: req.note`
+// 这种行尾注释照样喂饱三条断言，W1b-2 审查实测过），同时保留 `://`。
+describe('W1b-2 权限卡 note 行', () => {
+  const chatCode = stripComments(chatTs);
+  const tpl = permCard.slice(permCard.indexOf('<template>'), permCard.lastIndexOf('</template>')).replace(/<!--[\s\S]*?-->/g, '');
+  const css = permCard.slice(permCard.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '');
+  const script = stripComments(permCard.slice(permCard.indexOf('<script'), permCard.indexOf('</script>')));
+
+  it('chat.ts：PendingPerm 声明 note?: string，permission.request 处理器把 req.note 拷进卡片', () => {
+    // PendingPerm 是单行声明，里面还嵌着 preview 的 { … }：按行取，不按第一个 } 截
+    const iface = /^interface PendingPerm \{.*$/m.exec(chatCode)?.[0] ?? '';
+    expect(iface).toMatch(/\bnote\?:\s*string/);
+    // 只认 permission.request 处理器本身的 push 对象（到下一个 rpc.on 为止）
+    const handler = (chatCode.split("rpc.on('permission.request'")[1] ?? '').split('rpc.on(')[0];
+    expect(handler).toMatch(/\bnote:\s*req\.note\b/);
+  });
+
+  it('PermCard：props 声明 note?: string；模板在 .args 之后渲染 v-if="perm.note" 的 .note 行并插值 perm.note', () => {
+    expect(script).toMatch(/\bnote\?:\s*string/);
+    const argsIdx = tpl.indexOf('class="args"');
+    const m = /<div v-if="perm\.note" class="note"[^>]*>[\s\S]*?<\/div>/.exec(tpl);
+    expect(argsIdx).toBeGreaterThan(-1);
+    expect(m, '缺 .note 行').not.toBeNull();
+    expect(m!.index).toBeGreaterThan(argsIdx);
+    expect(m![0]).toMatch(/\{\{\s*perm\.note\s*\}\}/);
+  });
+
+  it('note 行整句换行、不截断，底色走警示色', () => {
+    const rules = [...css.matchAll(/\.note[\w-]*\s*\{([^}]*)\}/g)].map(x => x[1]).join('\n');
+    expect(rules).not.toBe('');
+    expect(rules).not.toMatch(/text-overflow|white-space:\s*nowrap|-webkit-line-clamp/);
+    expect(rules).toMatch(/overflow-wrap:\s*anywhere|word-break:\s*break-all/);
+    expect(rules).toMatch(/var\(--c-warn/);
   });
 });

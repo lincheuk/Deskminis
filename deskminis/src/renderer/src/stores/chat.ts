@@ -7,7 +7,7 @@ let localSeq = 0;
 let _syncDirtyTimer: ReturnType<typeof setTimeout> | undefined;
 
 interface UiMessage { id: string; role: string; parts: any[]; createdAt?: number; tokenUsage?: { inputTokens: number; outputTokens: number }; originDeviceId?: string; reasoningContent?: string }
-interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string } }
+interface PendingPerm { requestId: string; detail: string; kind: string; toolTitle: string; timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number; preview?: { oldText: string; newText: string }; note?: string }
 interface UiProvider { id: string; name: string; hasApiKey: boolean; modelId?: string; kind?: string }
 type PermTier = 'ask' | 'session' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
@@ -159,6 +159,9 @@ export const useChat = defineStore('chat', {
         timeoutMs: meta?.timeoutMs, riskClass: meta?.riskClass, bridgeTriggers: meta?.bridgeTriggers,
         // 审批前变更预览（file_write/file_edit 才有）：权限卡据此渲染差分，写文件不再盲批
         preview: req.preview,
+        // W1b-2：数据根内走卡的文件操作带一句说明（改应用配置 / 其它会话 / 读会话数据库…）。
+        // 这里逐字段拷贝，不写这一行 note 就在渲染端丢了
+        note: req.note,
         deadlineMs: typeof meta?.timeoutMs === 'number' ? Date.now() + meta.timeoutMs : undefined,
       }));
       // 询问超时（90s）或别的窗口已答复时 minisd 广播 resolved：不摘掉卡片就会永远挂在界面上。
@@ -274,7 +277,15 @@ export const useChat = defineStore('chat', {
       if (this.activeId === id) {
         const next = this.sessions[0];
         if (next) await this.open(next.id);
-        else { this.activeId = ''; this.messages = []; }
+        else {
+          // 落到欢迎页：被删会话的临时态一并清掉，字段与 open() 换会话时清的同一组。W1b-4 起删除运行中的会话
+          // 会先中止它，loop 报的「已取消」早于删除完成到达、写进了 lastError；不清的话欢迎页输入卡
+          // 顶着一条已删会话的错误（xvfb 实拍逮到）。落到别的会话时 open() 已经清过，不用再管
+          this.activeId = ''; this.messages = [];
+          this.lastError = ''; this.retryNote = ''; this.running = false; this.lastStopReason = '';
+          this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
+          this.contextInfo = null; this.streamingText = ''; this.streamingThinking = ''; this.toolCards = [];
+        }
       }
     },
     /** 重命名会话。后端会拒空标题与超 50 字，错误原样抛给调用方——
@@ -426,6 +437,10 @@ export const useChat = defineStore('chat', {
       await rpc.call('chat.annotations.remove', { id });
     },
     async send(text: string, attachments?: string[]) {
+      // 记下发给谁（到 chat.prompt 之前没有 await，sid 就是 prompt 发往的会话）：prompt 可能要等很久才被拒
+      // （W1b-4 起，会话在连 MCP 期间被删或被停止会以「会话已取消」拒绝，要等连接超时才回来），
+      // 那时用户可能已经在看别的会话了，见下面 catch
+      const sid = this.activeId;
       this.streamingText = ''; this.streamingThinking = ''; this.toolCards = []; this.lastError = ''; this.retryNote = '';
       this.lastStopReason = ''; this.eventNotes = []; this.fallbackState = null; this.compactedState = null; this.offloadedState = null;
       // 乐观消息用唯一 id：一次会话内连发多条时 'local' 会造成 :key 重复
@@ -454,9 +469,14 @@ export const useChat = defineStore('chat', {
       try {
         await rpc.call('chat.prompt', { sessionId: this.activeId, text, attachments: atts });
       } catch (e) {
-        this.lastError = e instanceof Error ? e.message : String(e);
-        this.messages = this.messages.filter(m => m.id !== optimisticId);
-        this.running = false;
+        // 只在还停在发它的那个会话上时才写：先切到 B 再删 A，A 的「会话已取消」若照写，会顶在 B 的输入卡上，
+        // B 正在跑的话还会被误标成没在跑（停止钮消失、能再发）。换了会话就丢掉这个错误：A 删了就没了，
+        // 停止是用户自己点的；乐观消息在 open() 换会话时已随 messages 换掉，不用再撤
+        if (this.activeId === sid) {
+          this.lastError = e instanceof Error ? e.message : String(e);
+          this.messages = this.messages.filter(m => m.id !== optimisticId);
+          this.running = false;
+        }
       }
     },
     async cancel() {

@@ -24,6 +24,7 @@ const props = defineProps<{
     requestId: string; detail: string; kind: string; toolTitle: string;
     timeoutMs?: number; riskClass?: string; bridgeTriggers?: string[]; deadlineMs?: number;
     preview?: { oldText: string; newText: string };
+    note?: string;
   };
 }>();
 const chat = useChat();
@@ -62,6 +63,13 @@ const counts = computed(() => countAddDel(lines.value));
     <div class="args">
       <div class="k t-aux">{{ keyLabel }}</div>
       <div class="v">{{ perm.detail }}</div>
+    </div>
+
+    <!-- W1b-2：数据根里的操作说明这次动的是什么（应用配置 / 其它会话 / 会话数据库…）。
+         紧跟路径区；整句换行不截断——说明被省略号吃掉一半，就看不出该不该批 -->
+    <div v-if="perm.note" class="note">
+      <span class="note-ic"><UiIcon name="alert" :size="14" /></span>
+      <span class="note-t">{{ perm.note }}</span>
     </div>
 
     <UiDiff v-if="perm.preview" :lines="lines" :add-count="counts.add" :del-count="counts.del" />
@@ -112,6 +120,20 @@ const counts = computed(() => countAddDel(lines.value));
 .v {
   font-family: var(--f-mono); font-size: var(--t-code-size); line-height: 1.55;
   color: var(--c-ink); word-break: break-all; white-space: pre-wrap;
+}
+
+/* 数据根说明：警示底 + 警示色图标；正文用主文字色——橙字压在浅橙底上对比度不到 3:1，整句读不清。
+   不用省略号、不禁换行：窄列（分栏态 372px）下也要整句读完 */
+.note {
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4); border-radius: var(--r-s);
+  background: var(--c-warn-soft);
+}
+.note-ic { display: inline-flex; flex: 0 0 auto; color: var(--c-warn); padding-top: 3px; }
+.note-t {
+  flex: 1; min-width: 0;
+  font-size: var(--t-item-size); line-height: var(--t-item-lh); font-weight: var(--w-md);
+  color: var(--c-ink); white-space: normal; overflow-wrap: anywhere;
 }
 
 .trig {

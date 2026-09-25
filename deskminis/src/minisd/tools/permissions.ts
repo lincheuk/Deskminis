@@ -205,12 +205,19 @@ export function isReadonlyCommand(command: string): boolean {
   return true;
 }
 
+/** 只读命令点到数据根的迹象（W1b-2，止血设计稿 §2「shell 只读白名单读数据根」）。
+ *  文件工具已把「读 minis.db / servers.json / 连接凭据」收成走卡，只读白名单却能一句
+ *  Get-Content $env:APPDATA\DeskMinis\minis.db 静默读走——命中这些字样的只读命令回落为 gated，弹卡问一次。
+ *  不采纳侦察原推荐的「含未加引号的 $ 就回落」：PowerShell 的 $_、$PWD 这类变量太常见，会让大量只读命令弹卡。
+ *  已知漏网（留给 W7b）：默认工作区在数据根里，..\..\.. 这类相对路径、$HOME\AppData\…\DeskMi* 这类通配都认不出。 */
+const DATA_ROOT_HINT_RE = /deskminis|\$env:|%appdata%|%localappdata%/i;
+
 export function classifyShellCommand(command: string): CommandClass {
   const c = command.trim();
   // 危险层两个表原样先行：readonly 判定绝不允许越过 danger（Remove-Item 开头必是 danger）
   if (DANGER_ANYWHERE.some(r => r.test(c))) return 'danger';
   if (DANGER_AT_COMMAND_POSITION.some(r => r.test(c))) return 'danger';
-  if (isReadonlyCommand(c)) return 'readonly';
+  if (isReadonlyCommand(c)) return DATA_ROOT_HINT_RE.test(c) ? 'gated' : 'readonly';
   return 'gated';
 }
 

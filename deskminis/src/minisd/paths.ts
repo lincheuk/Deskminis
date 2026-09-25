@@ -1,10 +1,20 @@
 import { join, resolve, isAbsolute } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
-const SESSION_BUCKETS = ['workspace', 'attachments', 'offloads', 'browser'] as const;
-const GLOBAL_DIRS = ['memory', 'skills', 'shared', 'mcp-servers'] as const;
+/** 导出给 tools/data-gate.ts 复用：数据根收窄按桶名与全局目录名判定，两边各写一份常量迟早漂移。 */
+export const SESSION_BUCKETS = ['workspace', 'attachments', 'offloads', 'browser'] as const;
+export const GLOBAL_DIRS = ['memory', 'skills', 'shared', 'mcp-servers'] as const;
 export type SessionBucket = (typeof SESSION_BUCKETS)[number];
 export type GlobalDir = (typeof GLOBAL_DIRS)[number];
+
+/** 数据根锁（止血设计稿 §3 第 9 条）：`<dataRoot>/minisd.lock`，接管闸 `minisd.lock.recovery`。
+ *  名字定在这里，W1b-3 的锁实现与 dataGate 的硬拒表引用同一对常量——
+ *  各写一份的话，锁改了名而硬拒表没跟上，agent 就能用 file_write 删改锁。
+ *  叫 NAME 不叫 FILE：dataGate 对这个名字下的整棵子树都硬拒，不管它是文件还是目录。W1b-3 的实现里两者都是文件
+ *  （src/minisd/store/data-root-lock.ts）；接管与释放时短暂出现的 `<名>.stale-*` / `<名>.release-*` 隔离文件名字随机、
+ *  转瞬即删，不在硬拒表里，落进 dataGate 的「其余」走卡。 */
+export const DATA_ROOT_LOCK_NAME = 'minisd.lock';
+export const DATA_ROOT_LOCK_RECOVERY_NAME = 'minisd.lock.recovery';
 
 /** 正式版与未打包的开发态（W1a-9 起默认隔离，设计稿 §2「开发态数据隔离」）。 */
 export type AppVariant = 'prod' | 'dev';

@@ -102,6 +102,7 @@ SOFTWARE.
 
 | 本仓位置 | 上游位置 @ 提交 | 借了什么 | 怎么改的 |
 |---|---|---|---|
+| `deskminis/src/minisd/store/data-root-lock.ts` | `packages/zcode-server-cli/src/runtime/lock.ts` @ 29628c9 | 数据根锁 `DataRootLock`：`open(…, 'wx', 0o600)` 独占创建锁文件并写入 pid、acquiredAt、ownerToken；持有者 pid 存活（`kill(pid, 0)` 成功或报 EPERM，或就是本进程）才算被占；陈旧锁经 `.recovery` 接管闸接管，先改名隔离、核对内容相同才删，不同就改回去；释放只删 ownerToken 相同的锁；争用时每 5ms 重试、最多 100 次 | 改为同步 API（minisd 在打开数据库之前拿锁，拿不到要当场抛出）；锁名取 `paths.ts` 的常量；被占时抛带 code / pid / dataRoot 的 `DataRootLockedError`，经 minisd 致命行弹「DeskMinis 已在运行」；一直拿不到接管闸时按闸主人的 pid 报被占；写完即关文件句柄，不常开；读到空文件或坏内容时在接管闸内等 50ms 再读一次，内容没变才接管（防止删掉别人刚建、还没写进内容的锁）；释放从不抛错、可重复调用；探活与小睡可注入（W1b-3） |
 
 - 项目：<https://github.com/zai-org/ZCode>
 - 许可：Apache-2.0，Copyright 2026 Z.AI Co., Ltd；许可全文与本仓 [LICENSE](LICENSE) 相同。

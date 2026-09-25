@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
-import type { PermPreview, ToolExecutor } from './types';
+import { dirname } from 'node:path';
+import type { PermissionRequest, PermPreview, ToolExecutor } from './types';
 import { describeEditFailure, editUtf8Bytes } from './edit-text';
+import { dataGate, type DataGateScope } from './data-gate';
 
 const MAX_READ = 1024 * 1024; // 1MB
 
@@ -15,37 +16,52 @@ function previewClamp(text: string): string {
 
 const TOOL_TITLE = { type: 'string' as const, description: '这次调用的 5-10 字中文摘要，用于 UI 卡片' };
 
-/** 归一化后的包含判断：避免 <root>\..\.. 形式的字符串前缀欺骗。 */
-function isInsideRoot(absPath: string, root: string): boolean {
-  const rel = relative(resolve(root), resolve(absPath));
-  return rel === '' || (!rel.startsWith('..') && !/^[A-Za-z]:/.test(rel));
+type GuardCtx = Parameters<ToolExecutor['execute']>[1];
+
+/** dataGate 的判定范围：数据根、会话、该会话的实际工作目录（认每会话覆盖值）。 */
+function gateScope(ctx: GuardCtx): DataGateScope {
+  return { root: ctx.paths.root, sessionId: ctx.sessionId, workspace: ctx.paths.workspaceOf(ctx.sessionId) };
 }
 
-/** 数据根之外的绝对宿主路径写入需过权限网关。
- *  buildPreview 惰性构造：工作区内的写入（绝大多数）根本不过网关，提前读原文件构造差分纯属白读；
+/** 写入的权限门（U4 起 office 工具复用同一道门——不给新工具开后门）。
+ *  W1b-2 起先过 dataGate（tools/data-gate.ts）：核心数据与凭据直接拒绝、不进网关（'full' 档也照拒）；
+ *  当前会话各桶、shared 与绑定工作区免审；应用配置、其它会话与其余应用数据走卡，并把一句说明放进 note。
+ *  buildPreview 惰性构造：免审的写入（绝大多数）根本不过网关，提前读原文件构造差分纯属白读；
  *  只在确认要弹权限卡时才求值。 */
-/** U4 起 office 工具复用同一道写权限门——不给新工具开后门。 */
-export async function guardWrite(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string, buildPreview?: () => PermPreview): Promise<string | undefined> {
-  if (!isInsideRoot(absPath, ctx.paths.root) && !isInsideRoot(absPath, ctx.paths.workspaceOf(ctx.sessionId))) {
-    const d = await ctx.permissions.check({ kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle, preview: buildPreview?.() });
-    if (d === 'deny') return `写入被用户拒绝: ${absPath}（可在设置-权限中调整）`;
-  }
+export async function guardWrite(absPath: string, ctx: GuardCtx, toolTitle: string, buildPreview?: () => PermPreview): Promise<string | undefined> {
+  const gate = dataGate(absPath, gateScope(ctx), 'write');
+  if (gate.verdict === 'deny') return gate.reason;
+  if (gate.verdict === 'free') return undefined;
+  const req: PermissionRequest = { kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle, preview: buildPreview?.() };
+  // note 只在有说明时才带：数据根外的普通走卡请求与以前逐字段一致，广播与审计里不多出一个空的 note 键
+  if (gate.note !== undefined) req.note = gate.note;
+  const d = await ctx.permissions.check(req);
+  // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台先按 deny 了结卡片、紧接着 abort，那不是用户拒绝的；
+  // 写成「被用户拒绝」的话，重开会话时界面与模型都以为是用户点了拒绝。MCP 调用一直是这个顺序
+  if (ctx.signal?.aborted) return '[已取消]';
+  if (d === 'deny') return `写入被用户拒绝: ${absPath}（可在设置-权限中调整）`;
   return undefined;
 }
 
 /**
- * 数据根之外的读取同样需过权限网关：静默 shell 只读层已取消后，
- * 无门的 file_read 会成为唯一的静默外泄通道（~/.ssh/id_rsa、浏览器 cookie 库、minis.db 本身）。
- * 数据根之内是 agent 自己的工作区，保持免打扰。
- * 用户显式绑定为工作区的真实项目目录（workspaceOf）也算免询问：绑定动作本身就是授权语义，
+ * 读取的权限门：静默 shell 只读层已取消后，无门的 file_read 会成为静默外泄通道（~/.ssh/id_rsa、浏览器 cookie 库）。
+ * W1b-2 起数据根内也用白名单：当前会话各桶、shared、skills、memory 免审，
+ * minis.db、其它会话、MCP 配置、凭据与其余应用数据走卡带 note——旧注释点名 minis.db 是外泄通道，代码却对整个数据根免审。
+ * 用户显式绑定为工作区的真实项目目录（workspaceOf）仍免询问：绑定动作本身就是授权语义，
  * 否则会话绑定项目后每个新文件路径都会触发一次权限确认，确认沦为噪音。
- * 未绑定会话时 workspaceOf 回落沙箱桶（在数据根内），上面的数据根判断已覆盖，行为不变。
+ * 未绑定会话时 workspaceOf 回落当前会话的沙箱桶，由数据根规则判为免审，行为不变。
  */
-export async function guardRead(absPath: string, ctx: Parameters<ToolExecutor['execute']>[1], toolTitle: string): Promise<string | undefined> {
-  if (!isInsideRoot(absPath, ctx.paths.root) && !isInsideRoot(absPath, ctx.paths.workspaceOf(ctx.sessionId))) {
-    const d = await ctx.permissions.check({ kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle });
-    if (d === 'deny') return `读取被用户拒绝: ${absPath}（可在设置-权限中调整）`;
-  }
+export async function guardRead(absPath: string, ctx: GuardCtx, toolTitle: string): Promise<string | undefined> {
+  const gate = dataGate(absPath, gateScope(ctx), 'read');
+  // 读取没有硬拒类（dataGate 只对写入给 deny），这里照样接住，判定表以后加了也不会漏成放行
+  if (gate.verdict === 'deny') return gate.reason;
+  if (gate.verdict === 'free') return undefined;
+  const req: PermissionRequest = { kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle };
+  if (gate.note !== undefined) req.note = gate.note;
+  const d = await ctx.permissions.check(req);
+  // 先看取消、再看拒绝：理由同 guardWrite
+  if (ctx.signal?.aborted) return '[已取消]';
+  if (d === 'deny') return `读取被用户拒绝: ${absPath}（可在设置-权限中调整）`;
   return undefined;
 }
 

@@ -1,7 +1,9 @@
 /** minisd 致命行通道的主进程一侧（设计稿 §3 第 8 条）：认行、带着信息结束启动等待、生成对话框参数。
  *  不 import electron（只有类型），便于在 ELECTRON_RUN_AS_NODE 下直接单测。 */
 import type { MessageBoxSyncOptions } from 'electron';
+import { join } from 'node:path';
 import { toMinisdFatal, type MinisdFatal } from '../minisd/fatal';
+import { DATA_ROOT_LOCK_NAME } from '../minisd/paths';
 
 export type { MinisdFatal } from '../minisd/fatal';
 
@@ -36,10 +38,14 @@ export function fatalDialogOptions(fatal: MinisdFatal): MessageBoxSyncOptions {
           + `数据目录：${fatal.dataRoot}`,
       };
     case 'DATA_ROOT_LOCKED':
+      // detail 写明锁文件路径（W1b-3）：Windows 会复用进程号，陈旧锁里的 pid 恰好被别的程序占着时会误判「已在运行」
+      // （设计稿 §2 接受这个风险）。那时用户在任务管理器里找不到这个进程号的 DeskMinis，照着路径找得到那把锁。
+      // 锁名取 paths.ts 的常量，与 minisd 的锁实现、dataGate 的硬拒表同一份。
       return {
         ...base,
         title: 'DeskMinis 已在运行',
         message: `另一个 DeskMinis（进程 ${fatal.pid}）正在使用数据目录 ${fatal.dataRoot}。请先从托盘退出它，再重新打开。`,
+        detail: `占用它的进程号记在锁文件里：${join(fatal.dataRoot, DATA_ROOT_LOCK_NAME)}`,
       };
   }
 }

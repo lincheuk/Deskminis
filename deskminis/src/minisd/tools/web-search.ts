@@ -86,9 +86,10 @@ export function makeWebSearchTool(
 
       // 查询串本身就是数据外泄通道（论证同 web-fetch 的 URL 查询串），默认档 askOnce 过卡
       const decision = await ctx.permissions.check({ kind: 'web-search', detail: query, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) });
-      if (decision === 'deny') return { output: '搜索被用户拒绝（可在设置-权限中调整）', success: false };
-      // 权限等待可长达 90 秒，已 abort 的 signal 不补发事件，闸后必须重查
+      // 权限等待可长达 90 秒，已 abort 的 signal 不补发事件，闸后必须重查。
+      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台按 deny 了结卡片并 abort，那不是用户拒绝的
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
+      if (decision === 'deny') return { output: '搜索被用户拒绝（可在设置-权限中调整）', success: false };
 
       const count = clampCount(input.count);
       let url: string;

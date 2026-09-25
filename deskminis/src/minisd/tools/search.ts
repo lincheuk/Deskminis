@@ -2,6 +2,7 @@ import { readdirSync, lstatSync, readFileSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolContext, ToolExecutor, ToolOutcome } from './types';
 import { guardRead } from './files';
+import { dataRootSkipper } from './data-gate';
 
 const TOOL_TITLE = { type: 'string' as const, description: '这次调用的 5-10 字用户语言摘要' };
 
@@ -57,6 +58,9 @@ export function globToRegExp(pattern: string): RegExp {
 export interface WalkDirOptions {
   entryLimit?: number;
   signal?: AbortSignal;
+  /** 返回 true 的目录（相对 base 的正斜杠路径）整棵不进、也不列入结果。
+   *  W1b-2：基准是数据根的祖先时由 resolveBaseDir 给出，用来跳过数据根（见 data-gate.ts 的 dataRootSkipper）。 */
+  skipDir?: (rel: string) => boolean;
 }
 export interface WalkDirResult {
   /** 相对 base 的正斜杠文件路径，按名排序 */
@@ -65,6 +69,8 @@ export interface WalkDirResult {
   dirs: string[];
   /** 是否因访问条目达硬上限提前停止（结果可能不全，调用方需注明） */
   hitLimit: boolean;
+  /** 被 skipDir 跳过的目录（相对 base 的正斜杠路径），调用方据此写尾注 */
+  skipped: string[];
 }
 
 /** 递归遍历 base（文件与目录都收集，供 file_glob 匹配——`src/*` 这类模式天然要列出子目录）。
@@ -75,6 +81,7 @@ export function walkDir(base: string, opts: WalkDirOptions = {}): WalkDirResult 
   const entryLimit = opts.entryLimit ?? WALK_ENTRY_LIMIT;
   const files: string[] = [];
   const dirs: string[] = [];
+  const skipped: string[] = [];
   let visited = 0;
   let hitLimit = false;
   let aborted = false;
@@ -94,6 +101,7 @@ export function walkDir(base: string, opts: WalkDirOptions = {}): WalkDirResult 
       try { st = lstatSync(join(abs, name)); } catch { continue; } // 遍历竞态中消失的条目跳过
       if (st.isSymbolicLink()) continue; // 见函数头安全注释：链接一律不进结果、不进入
       if (st.isDirectory()) {
+        if (opts.skipDir?.(childRel)) { skipped.push(childRel); continue; }
         dirs.push(childRel);
         queue.push({ abs: join(abs, name), rel: childRel });
       } else if (st.isFile()) {
@@ -104,13 +112,21 @@ export function walkDir(base: string, opts: WalkDirOptions = {}): WalkDirResult 
   }
   files.sort();
   dirs.sort();
-  return { files, dirs, hitLimit };
+  return { files, dirs, hitLimit, skipped };
+}
+
+/** 跳过数据根时的尾注：告诉模型结果里少了一块、少的是什么，免得它以为那里真的没有匹配。 */
+function skippedNote(skipped: string[]): string[] {
+  return skipped.length === 0 ? [] : [`[已跳过 DeskMinis 数据目录：${skipped.join('、')}]`];
 }
 
 /** file_list/file_glob/file_grep 的公共闸：解析基准 → 权限判定（仅基准一次）→ 取消复查 → 确认是目录。
  *  只对基准判一次权限：遍历由 walkDir 保证不越出基准（lstat + 链接不进入），
- *  逐文件再卡既拖慢搜索也无安全增益。 */
-async function resolveBaseDir(guestPath: string, ctx: ToolContext, toolTitle: string): Promise<{ abs: string } | { fail: ToolOutcome }> {
+ *  逐文件再卡既拖慢搜索也无安全增益。
+ *  W1b-2：基准判定本身走 guardRead（数据根规则优先）；数据根落在基准之内时（工作区绑到用户主目录这类），
+ *  再给出 skipDir 让递归遍历跳过数据根——否则一次免审的搜索会顺带读到 servers.json 与其它会话的文件。
+ *  file_list 只列一层、不读内容，数据根最多以一个目录名出现，不需要跳。 */
+async function resolveBaseDir(guestPath: string, ctx: ToolContext, toolTitle: string): Promise<{ abs: string; skipDir?: (rel: string) => boolean } | { fail: ToolOutcome }> {
   const abs = ctx.paths.resolveGuestPath(ctx.sessionId, guestPath);
   const denied = await guardRead(abs, ctx, toolTitle);
   if (denied) return { fail: { output: denied, success: false } };
@@ -120,7 +136,7 @@ async function resolveBaseDir(guestPath: string, ctx: ToolContext, toolTitle: st
   let st: Stats;
   try { st = lstatSync(abs); } catch { return { fail: { output: `路径不存在: ${abs}`, success: false } }; }
   if (!st.isDirectory()) return { fail: { output: `不是目录: ${abs}`, success: false } };
-  return { abs };
+  return { abs, skipDir: dataRootSkipper(abs, ctx.paths.root) };
 }
 
 export const fileListTool: ToolExecutor = {
@@ -177,14 +193,14 @@ export const fileGlobTool: ToolExecutor = {
     catch (e) { return { output: e instanceof Error ? e.message : String(e), success: false }; }
     const base = await resolveBaseDir(String(input.path ?? '.'), ctx, String(input.tool_title));
     if ('fail' in base) return base.fail;
-    const { files, dirs, hitLimit } = walkDir(base.abs, { signal: ctx.signal });
+    const { files, dirs, hitLimit, skipped } = walkDir(base.abs, { signal: ctx.signal, skipDir: base.skipDir });
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const matched = [...files, ...dirs].filter(p => re.test(p)).sort();
     const lines = matched.slice(0, GLOB_MATCH_LIMIT);
     if (matched.length > GLOB_MATCH_LIMIT) lines.push(`[已截断: 共 ${matched.length} 条匹配]`);
     if (hitLimit) lines.push(`[已截断: 遍历条目达上限 ${WALK_ENTRY_LIMIT}，结果可能不全]`);
-    if (lines.length === 0) return { output: '没有匹配的路径', success: true };
-    return { output: lines.join('\n'), success: true };
+    if (lines.length === 0) lines.push('没有匹配的路径');
+    return { output: [...lines, ...skippedNote(skipped)].join('\n'), success: true };
   },
 };
 
@@ -214,7 +230,7 @@ export const fileGrepTool: ToolExecutor = {
     }
     const base = await resolveBaseDir(String(input.path ?? '.'), ctx, String(input.tool_title));
     if ('fail' in base) return base.fail;
-    const { files, hitLimit } = walkDir(base.abs, { signal: ctx.signal });
+    const { files, hitLimit, skipped } = walkDir(base.abs, { signal: ctx.signal, skipDir: base.skipDir });
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
 
     // 不调用 ctx.onFileRead：三件套不返回完整文件内容（清单/路径/匹配行），
@@ -263,6 +279,7 @@ export const fileGrepTool: ToolExecutor = {
     if (timedOut) notes.push(`[已达 ${GREP_TIME_BUDGET_MS / 1000} 秒时间预算，返回部分结果]`);
     if (cappedOutput) notes.push('[输出超过 100KB 被截断]');
     if (hitLimit) notes.push(`[已截断: 遍历条目达上限 ${WALK_ENTRY_LIMIT}，结果可能不全]`);
+    notes.push(...skippedNote(skipped));
     const body = rows.length === 0 ? ['未找到匹配内容'] : rows;
     return { output: [...body, ...notes].join('\n'), success: true };
   },
