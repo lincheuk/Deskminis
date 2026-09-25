@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { stripComments } from './strip-comments';
 import { sfcBlocks } from './sfc-blocks';
+import { parse } from 'vue/compiler-sfc';
 
 // ── 桩掉 renderer 的 rpc：call 走可控实现，on 把处理器收进 handlers，测试里直接派发广播 ──
 const { rpcCallMock, handlers } = vi.hoisted(() => ({
@@ -137,6 +138,9 @@ describe('W2b-2 store：卡片记下所属会话，超时留条只写给卡所�
   it('换会话不动待批的卡：A 的卡挂着时切到 B 再切回 A，卡一直在、仍记着 A，回到 A 取得到、批得了', async () => {
     const { permsOf, waitingElsewhere } = await loadScope();
     const chat = await boot('A');
+    // 真实形态：卡挂着的会话正卡在权限上，回合在跑——先让 A 的回合跑起来再来卡（W2b-2 三审：
+    // 没跑的 A 切回来 midRun 为假，挡不挡卡都一样，这一例就测不到「midRun 时卡照样渲染」这条承重不变量）
+    dispatch('chat.event', { sessionId: 'A', event: { kind: 'textDelta', text: '先查一下' } });
     request('R1', 'A');
     await chat.open('B');
     // 在 B：卡还在、仍记着 A——B 顶部的「另有 1 个会话在等你批准」与 A 行的盾牌标都从它来
@@ -146,8 +150,12 @@ describe('W2b-2 store：卡片记下所属会话，超时留条只写给卡所�
     // 切回 A，走点提示的同一条路：打开 waitingElsewhere 的第一个
     await chat.open(waitingElsewhere(chat.pendingPerms, chat.activeId)[0]);
     expect(chat.activeId).toBe('A');
+    // 中途接上的回合：running 与 midRun 都为真，实时块只显示「仍在运行…」占位——卡不能跟着被挡住，
+    // 模板一侧由下面「权限卡与提示行不挂在任何条件分支下」一例钉住
+    expect(chat.running).toBe(true);
+    expect(chat.midRun).toBe(true);
     expect(chat.pendingPerms.map(p => `${p.requestId}@${p.sessionId}`)).toEqual(['R1@A']);
-    // 当前会话取得到它，卡才渲染得出来。换走时卡若被清掉，切回来无卡可批，A 的回合静默挂满 90 秒后被自动拒绝
+    // 当前会话取得到它（模板照 permsHere 渲染）。换走时卡若被清掉，切回来无卡可批，A 的回合静默挂满 90 秒后被自动拒绝
     expect(permsOf(chat.pendingPerms, chat.activeId).map(p => p.requestId)).toEqual(['R1']);
     // 批得了：卡上的「允许」按 requestId 回给引擎，卡随即摘掉
     rpcCallMock.mockClear();
@@ -303,6 +311,36 @@ describe('W2b-2 界面：卡只在自己的会话里渲染，别处给提示与�
     for (const arg of opened) {
       expect(arg === 'elsewhere.value[0]' || firsts.includes(arg), `chat.open 的实参不是最早在等的会话：${arg}`).toBe(true);
     }
+  });
+
+  it('StageChat：权限卡与提示行不挂在任何条件分支下——只要会话视图在，midRun 占位时卡也照样渲染（按模板 AST 判）', () => {
+    // W2b-2 三审：批别的会话的卡只剩一条路——切过去。那个会话正卡在权限上、回合在跑，open() 置 midRun，
+    // 实时块只剩「仍在运行…」占位。卡块要是挪进实时回合的 v-else，或加 v-show="!chat.midRun"，
+    // 13 个相关测试文件全绿，真应用里点「去批准」过去却看不到卡，回合挂满 90 秒被自动拒绝（审查实拍 X1b）。
+    // 按模板 AST 判：注释不是元素，喂不饱；v-for 在 permsHere 上的元素与提示行，自身和祖先链上都不许有
+    // v-if / v-else-if / v-else / v-show（提示行自己的 v-if="elsewhere.length" 除外）
+    const src = fs.readFileSync(path.join(__dirname, '../src/renderer/src/ui/StageChat.vue'), 'utf8');
+    const { descriptor } = parse(src, { filename: 'StageChat.vue' });
+    type El = { type: number; tag?: string; props?: Array<{ type: number; name: string; exp?: { content?: string } }>; children?: El[] };
+    const COND = new Set(['if', 'else-if', 'else', 'show']);
+    const found: Array<{ what: string; bad: string[] }> = [];
+    const walk = (node: El, chain: El[]): void => {
+      if (node.type !== 1) return;
+      const dirs = (node.props ?? []).filter(d => d.type === 7);
+      const vfor = dirs.find(d => d.name === 'for');
+      const vif = dirs.find(d => d.name === 'if');
+      const isCard = !!vfor && /\bin\s+permsHere\b/.test(vfor.exp?.content ?? '');
+      const isHint = !!vif && (vif.exp?.content ?? '').trim() === 'elsewhere.length';
+      if (isCard || isHint) {
+        const own = dirs.filter(d => COND.has(d.name) && !(isHint && d === vif)).map(d => `自身 v-${d.name}="${d.exp?.content ?? ''}"`);
+        const anc = chain.flatMap(a => (a.props ?? []).filter(d => d.type === 7 && COND.has(d.name)).map(d => `<${a.tag}> v-${d.name}="${d.exp?.content ?? ''}"`));
+        found.push({ what: isCard ? '权限卡 v-for' : '提示行', bad: [...own, ...anc] });
+      }
+      for (const c of node.children ?? []) walk(c, [...chain, node]);
+    };
+    walk({ type: 1, tag: 'template', props: [], children: (descriptor.template?.ast?.children ?? []) as unknown as El[] }, []);
+    expect(found.map(f => f.what).sort(), '模板里恰好一处权限卡 v-for、一处提示行').toEqual(['提示行', '权限卡 v-for']);
+    for (const f of found) expect(f.bad, `${f.what} 挂在条件分支下`).toEqual([]);
   });
 
   it('NavRail：会话行在等批准时，行按钮里、标题之后带盾牌标（警示色，与权限卡、任务面板同一图标同一令牌）', () => {
