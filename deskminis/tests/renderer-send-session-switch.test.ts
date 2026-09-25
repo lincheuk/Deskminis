@@ -38,6 +38,7 @@ import * as historyModule from '../src/renderer/src/lib/composer/history';
 import * as atFilesModule from '../src/renderer/src/lib/composer/at-files';
 import * as downsampleModule from '../src/renderer/src/lib/attach/downsample';
 import * as bindingModule from '../src/renderer/src/lib/models/binding';
+import * as welcomeAssistantModule from '../src/renderer/src/lib/welcome/assistant';
 import { stripComments } from './strip-comments';
 
 const { useChat } = chatModule;
@@ -181,6 +182,7 @@ const COMPOSER_DEPS: Record<string, unknown> = {
   '../lib/composer/at-files': atFilesModule,
   '../lib/attach/downsample': downsampleModule,
   '../lib/models/binding': bindingModule,
+  '../lib/welcome/assistant': welcomeAssistantModule, // W2b-4 起 send() 按欢迎页选择套用助手
   './UiIcon.vue': { default: {} }, // 只跑 setup、不渲染，子组件用空壳
 };
 

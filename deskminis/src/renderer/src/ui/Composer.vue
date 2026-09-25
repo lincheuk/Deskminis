@@ -15,6 +15,7 @@ import { histStep } from '../lib/composer/history';
 import { atToken, atMatch, applyAt, collectFiles } from '../lib/composer/at-files';
 import { downsampleImageFile } from '../lib/attach/downsample';
 import { describeBinding } from '../lib/models/binding';
+import { assistantToApply, applyStateOf, previewBinding } from '../lib/welcome/assistant';
 import UiIcon from './UiIcon.vue';
 
 const props = withDefaults(defineProps<{ variant?: 'hero' | 'chat' }>(), { variant: 'chat' });
@@ -38,11 +39,13 @@ const canSend = computed(() => (text.value.trim().length > 0 || atts.value.lengt
 const cardError = computed(() => (props.variant === 'hero' ? chat.lastError : ''));
 
 /** 底行胶囊：当前模型与权限档。原图这两枚常驻——用户随时看得见「谁在跑、能做多狠」。
- *  Z5：模型胶囊显示这条消息**实际会用**的模型——会话绑定 > 欢迎页选中助手的绑定（发送时按它建会话）> 默认。
- *  此前只看默认模型：会话绑了别的模型或模型组，胶囊照旧显示默认——立项探针实测（界面撒谎，教训 §7-3）。 */
-const effectiveBinding = computed(() => (chat.activeId
-  ? (chat.sessions.find(s => s.id === chat.activeId)?.modelBinding ?? '')
-  : (chat.assistants.find(a => a.id === chat.welcomeAssistantId)?.modelBinding ?? '')));
+ *  Z5：模型胶囊显示这条消息**实际会用**的模型。此前只看默认模型：会话绑了别的模型或模型组，胶囊照旧显示默认——
+ *  立项探针实测（界面撒谎，教训 §7-3）。
+ *  W2b-4：空会话上选了助手时，发送前会先套用它（绑定随之重置），所以取舍收进纯模块 previewBinding，
+ *  与 send() 里判断要不要套用的 assistantToApply 同一套状态——胶囊预告的就是发出去时生效的那个。
+ *  W2b-4b：这套状态由纯模块 applyStateOf 从 store 组装（逐字段有单测）；这里就地拼的话，取错一个字段
+ *  （会话绑的助手、会话的绑定）谎就回来了，而 .vue 既不过 typecheck、守卫也只认得调用形态。 */
+const effectiveBinding = computed(() => previewBinding(applyStateOf(chat), chat.assistants));
 const modelView = computed(() => describeBinding(effectiveBinding.value, chat.providers, chat.modelGroups, chat.defaultProviderId));
 const PERM_TEXT: Record<string, string> = { ask: '每次确认', session: '本会话沿用', full: '完全访问' };
 const permLabel = computed(() => PERM_TEXT[chat.permTier] ?? '每次确认');
@@ -180,7 +183,8 @@ async function saveImages(files: File[]): Promise<void> {
   attErr.value = '';
   if (!chat.activeId) {
     // 附件挂在会话目录下：先确保有会话。建不出来就明说（此前是 unhandled rejection）
-    try { await chat.newSession(); }
+    // W2b-4：按欢迎页的选择建——直接建无助手会话的话，已选的助手在这里被静默作废
+    try { await chat.ensureSession(); }
     catch (e) { attErr.value = `新建会话失败：${e instanceof Error ? e.message : String(e)}`; return; }
   }
   const id = chat.activeId;
@@ -231,6 +235,17 @@ async function send(): Promise<void> {
         chat.lastError = `新建会话失败：${e instanceof Error ? e.message : String(e)}`;
         return;
       }
+    } else {
+      // W2b-4：已有会话但还是空的（欢迎页）——欢迎页承诺「直接输入即以该预设开始」，发送前让会话的助手与选择对齐：
+      // 选了没绑的就套用，改选了就替换，取消了选择就解绑。放在寄存草稿之前：套用失败时文字还在框里，原样留给用户
+      const want = assistantToApply(applyStateOf(chat));
+      if (want !== null) {
+        try { await chat.applyAssistantToSession(chat.activeId, want); }
+        catch (e) {
+          chat.lastError = `套用助手失败：${e instanceof Error ? e.message : String(e)}`;
+          return;
+        }
+      }
     }
     // 草稿只交回发它的那个会话：见 chat.send 之后那行
     const sid = chat.activeId;
@@ -264,10 +279,24 @@ function takeDraft(): void {
 }
 // 上一个实例被拒回的草稿：欢迎页换成会话页再换回来时，新建的这个实例靠这行拿回（见 store draft 注释）
 takeDraft();
+// W2a-6「新建会话接力」的草稿：新会话是空的，欢迎页的输入卡随之新挂载，在这里取（见 store relayDraft 注释）
+takeRelay();
 
 /** V9 引用：追加不覆盖——用户已敲的草稿排在引用块前面。 */
 function quote(block: string): void {
   text.value = text.value.trim() ? `${text.value.replace(/\s+$/, '')}\n\n${block}` : block;
+  void nextTick(() => field.value?.focus());
+}
+
+/** W2a-6 取接力草稿：只取指向当前会话的，取完即清；框里已有字时接力文本在前、原有的字在后，不吞任何一方。
+ *  只在 setup 时调、不用 watch：open() 换会话的 await 期间旧会话页的输入卡还挂着，watch 会让它先把草稿抢走，
+ *  随后它被欢迎页替换卸载，草稿就丢了。只预填不发送——接力文本要由用户过目、可改，再自己按 Enter。 */
+function takeRelay(): void {
+  const r = chat.relayDraft;
+  if (!r || r.sessionId !== chat.activeId) return;
+  chat.relayDraft = null;
+  const cur = text.value.trim() ? text.value : '';
+  text.value = cur ? `${r.text.replace(/\s+$/, '')}\n\n${cur}` : r.text;
   void nextTick(() => field.value?.focus());
 }
 

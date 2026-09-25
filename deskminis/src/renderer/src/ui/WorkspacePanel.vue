@@ -28,17 +28,16 @@ const wsLabel = computed(() => {
   return chat.workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || '工作区';
 });
 
-/** 工作区是**每会话**的：没有活动会话时 setWorkspace 会带着空 sessionId 发出去，
- *  后端 UPDATE 匹配不到任何行——**静默什么也不发生**（旧实现实测撞到过）。
- *  故先建会话再设；按钮文案写明「新建会话并…」，不做无声的副作用。 */
-async function ensureSession(): Promise<void> {
-  if (!chat.activeId) await chat.newSession();
-}
+/* 工作区是**每会话**的：没有活动会话时 setWorkspace 会带着空 sessionId 发出去，
+ * 后端 UPDATE 匹配不到任何行——**静默什么也不发生**（旧实现实测撞到过）。
+ * 故先建会话再设；按钮文案写明「新建会话并…」，不做无声的副作用。
+ * W2b-4：建会话改走 store 的 ensureSession，按欢迎页的选择建。原先这里的本地版直接建无助手会话，
+ * 「先选助手、再选目录」这条路上已选的助手就被静默作废了。 */
 async function applyWs(): Promise<void> {
   const v = wsPath.value.trim();
   if (!v) return;
   wsErr.value = ''; wsBusy.value = true;
-  try { await ensureSession(); await chat.setWorkspace(v); wsPath.value = ''; wsOpen.value = false; }
+  try { await chat.ensureSession(); await chat.setWorkspace(v); wsPath.value = ''; wsOpen.value = false; }
   catch (e) { wsErr.value = e instanceof Error ? e.message : String(e); }
   finally { wsBusy.value = false; }
 }
@@ -47,7 +46,7 @@ async function pickWs(): Promise<void> {
   try {
     const picked = await chat.pickWorkspaceFolder();
     if (picked === null) return;   // 用户取消——**返回的是 null 不是空串**，空串会被当成「清空」
-    await ensureSession();
+    await chat.ensureSession();
     await chat.setWorkspace(picked);
     wsOpen.value = false;
   } catch (e) { wsErr.value = e instanceof Error ? e.message : String(e); }

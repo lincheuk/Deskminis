@@ -572,6 +572,41 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       applyAssistantPreset({ chat, skills: skillStore }, s.id, a);
       return chat.getSession(s.id)!;
     },
+    // W2b-4 空会话套用 / 解绑助手（止血设计稿 §2「渲染端」；renderer.md W2b-welcome）。
+    // 欢迎页在**已存在的空会话**上（NavRail「新建会话」最常走到这里）承诺「直接输入即以该预设开始」，
+    // 可助手此前只能随 create 一起带上，这条路发送时从没套过。
+    // 语义：把空会话重置成 create({assistantId}) 会得到的样子；assistantId 传 '' 即解绑，得到 create({}) 的样子。
+    // 助手 id、模型绑定、技能覆盖三件一起重置，覆盖先全清再按快照写——新助手不勾技能时快照为空，不清的话旧助手的快照整份留下。
+    // 三件放一个事务里，不留「助手换了、绑定还是旧的」的半截状态。
+    // 空会话上手动设过的模型绑定会被助手的绑定（或清空）盖掉：输入卡胶囊在发送前已按同一语义预告（lib/welcome/assistant 的 previewBinding）。
+    'chat.sessions.applyAssistant': (p: { sessionId: string; assistantId: string }) => {
+      const sessionId = assertSessionId(p.sessionId);
+      if (typeof p.assistantId !== 'string') throw new Error('assistantId 必须是字符串（传空串表示解绑）');
+      const s = chat.getSession(sessionId);
+      if (!s) throw new Error(`会话不存在: ${sessionId}`);
+      // 运行中：这一回合已按旧预设取了 provider 与系统提示，换了也不作用于它，界面却会说换好了
+      if (inFlight.has(sessionId)) throw new Error('该会话正在运行中，不能更换助手');
+      // 有消息：历史是按旧预设跑出来的，半途换预设等于改写过去——要换就新建会话
+      if (chat.listMessages(sessionId).length > 0) throw new Error('会话已有消息，不能更换助手，请新建会话后再选');
+      const assistantId = p.assistantId.trim();
+      const a = assistantId ? assistantStore.get(assistantId) : undefined;
+      if (assistantId && !a) throw new Error(`助手不存在: ${assistantId}`);
+      // 标题只改「默认名」：create({}) 给的「新会话」，或 create / 上一次套用按旧助手起的名。
+      // 只认「新会话」的话，create({assistantId:X}) 建出的空会话改选 Y 后标题还叫 X——列表上的名字与实际助手对不上；
+      // 用户自己起的名一概不动
+      const prev = s.assistantId ? assistantStore.get(s.assistantId) : undefined;
+      const autoTitled = s.title === DEFAULT_SESSION_TITLE || (prev !== undefined && s.title === prev.name);
+      db.transaction(() => {
+        chat.setAssistant(sessionId, undefined);
+        chat.setModelBinding(sessionId, undefined);
+        for (const sk of skillStore.list()) skillStore.setSessionOverride(sessionId, sk.id, null);
+        if (a) applyAssistantPreset({ chat, skills: skillStore }, sessionId, a);
+        if (autoTitled) chat.updateSessionTitle(sessionId, a ? a.name : DEFAULT_SESSION_TITLE);
+      })();
+      // 会话元数据变了：前端靠这条重拉列表（NavRail 的助手 emoji、胶囊的绑定），多窗口同理
+      rpc.broadcast('chat.sessions.changed', {});
+      return chat.getSession(sessionId)!;
+    },
     // J1 助手 CRUD：读免批（skills.list 同档）；写操作广播 assistants.changed 供前端刷新
     'assistants.list': () => assistantStore.list(),
     'assistants.create': (p: { name: string; avatar?: string; rules?: string; modelBinding?: string; skillIds?: string[]; prompts?: string[] }) => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** V2：事件提示条。降级 / 压缩 / 卸载 / 修剪 / 重试 / 出错 / 同步 / 压缩失败八类一套语法：
- *  `[图标] 短句 · 详情[›] [重试]`。
+ *  `[图标] 短句 · 详情[›] [重试 | 新建会话接力]`。
  *
  *  为什么必须有：出错时没有重试入口，用户只能重新打一遍问题；
  *  降级到备选模型时不告知，用户拿着次一档模型的输出以为是主模型给的。
@@ -24,7 +24,10 @@ const TONES: Record<string, string> = {
   pruned: 'info', retry: 'warn', error: 'err', synced: 'ok',
   compactFailed: 'warn',
 };
-function shortOf(n: { kind: string; detail?: string }): string {
+/** W2a-6：store 按事件的 code / cause 定好的短句优先（设计稿 §3 第 5 条）——带分类码的错误不能再对原始报文
+ *  跑状态码正则（绑定错误的响应体里一个独立的 5xx 就会被说成「服务暂时不可用」）；没有才按 kind 现算。 */
+function shortOf(n: { kind: string; detail?: string; short?: string }): string {
+  if (n.short) return n.short;
   if (n.kind === 'synced') return '已与其他设备同步';
   return eventCopy(n.kind, n.detail).short || n.detail || '';
 }
@@ -40,6 +43,8 @@ function shortOf(n: { kind: string; detail?: string }): string {
         <span class="dtext">{{ n.detail }}</span>
       </details>
       <button v-if="n.retryable" class="rt" type="button" @click="chat.retryLast()">重试</button>
+      <!-- W2a-6：上下文已满时原地重试必然再满，给的出路是新建会话接力（只预填接力草稿，不替用户发送） -->
+      <button v-if="n.relay" class="rt relay" type="button" @click="chat.relayToNewSession()">新建会话接力</button>
     </div>
   </div>
 </template>
@@ -68,4 +73,6 @@ function shortOf(n: { kind: string; detail?: string }): string {
   background: var(--c-err); color: var(--c-err-ink);
 }
 .rt:hover { filter: brightness(1.08); }
+/* 接力钮用品牌色：它是「往前走」的出路，不是红色重试钮那种「再来一次」，两者不能长得一样 */
+.rt.relay { background: var(--c-brand); color: var(--c-brand-ink); }
 </style>

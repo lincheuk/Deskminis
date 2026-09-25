@@ -195,17 +195,22 @@ watch(() => props.narrow, stickBottom);
 
         <!-- 实时回合 -->
         <section v-if="hasLive" class="turn" data-turn-id="live">
-          <div v-if="chat.streamingThinking" class="ablock">
-            <ThinkBlock live :text="chat.streamingThinking" />
-          </div>
-          <div v-if="chat.toolCards.length" class="ablock">
-            <StepGroup
-              live
-              :steps="chat.toolCards.map(c => ({ name: c.name, title: c.title || c.name, ok: c.success !== false, output: c.output ?? null, input: c.input }))"
-            />
-          </div>
-          <div v-if="streamNodes" class="ablock"><MarkdownView class="t-chat" :nodes="streamNodes" /></div>
-          <div v-else-if="chat.running" class="waiting t-aux">正在思考…</div>
+          <!-- W2b-1：切回仍在跑的会话（或重载后才收到它的事件）时，手里的缓冲只有接上之后的半截——
+               照常渲染的话流式区从句子中间开始长、步骤卡缺前半。改为占位，回合结束后 open() 重取完整历史。 -->
+          <div v-if="chat.midRun" class="waiting t-aux" role="status">仍在运行（切换前的输出在本回合结束后显示）</div>
+          <template v-else>
+            <div v-if="chat.streamingThinking" class="ablock">
+              <ThinkBlock live :text="chat.streamingThinking" />
+            </div>
+            <div v-if="chat.toolCards.length" class="ablock">
+              <StepGroup
+                live
+                :steps="chat.toolCards.map(c => ({ name: c.name, title: c.title || c.name, ok: c.success !== false, output: c.output ?? null, input: c.input }))"
+              />
+            </div>
+            <div v-if="streamNodes" class="ablock"><MarkdownView class="t-chat" :nodes="streamNodes" /></div>
+            <div v-else-if="chat.running" class="waiting t-aux">正在思考…</div>
+          </template>
         </section>
 
         <!-- V2：事件条（降级/压缩/卸载/修剪/重试/出错/同步）——出错这条带重试入口 -->
@@ -280,6 +285,9 @@ watch(() => props.narrow, stickBottom);
   padding: var(--sp-4) var(--sp-5); border-radius: var(--r-m);
   background: var(--c-err-soft); color: var(--c-err);
 }
+/* 图标不许被挤扁：绑定错误这类长报错折成好几行时，flex 默认的 shrink 会把图标压成一个点（W2a-6 实拍所见），
+   与 EventNotes 的 .note 同一写法 */
+.err :deep(svg) { flex: 0 0 auto; }
 
 .dock { flex: 0 0 auto; padding: 0 0 var(--sp-6); background: var(--c-bg); }
 
