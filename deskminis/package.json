@@ -17,6 +17,7 @@
     "e2e:m3b": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/e2e-m3b-acceptance.mjs",
     "e2e:m5": "node scripts/e2e-m5-packaging.mjs",
     "verify:release": "node scripts/verify-release.mjs",
+    "smoke:release": "electron-vite build && node scripts/smoke-release.mjs",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "gen:tray-icon": "node scripts/gen-tray-icon.mjs",
