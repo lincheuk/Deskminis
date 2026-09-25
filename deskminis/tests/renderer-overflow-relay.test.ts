@@ -19,10 +19,20 @@
  *     会话已建出而切过去失败时，再点只切过去、不再新建；并发连点只建一个会话；
  *   - 源码守卫：EventNotes 的接力钮接线、Composer 只在 setup 里按 sessionId === activeId 消费（不用 watch、不自动发送；
  *     按引用次数钉，不认某一种 watch 写法）；渲染端组件里只有 Composer 碰 relayDraft / relaySource。
+ *   - W2a-6b 补强（起于 W2a-6 第三轮审查 R1–R4，本步又经两轮审查）：输入卡与 store 这两侧改用 TypeScript 语法树判，
+ *     不再数括号、认缩进或按行剥注释——
+ *     · Composer 的 <script setup>：takeRelay 恰好两处，一处是顶层声明，一处是父节点就是整个脚本的 `takeRelay();` 语句；
+ *       takeRelay 体内的调用、实参、赋值目标、用到的名字都按白名单钉，体内用到的体外名字在 setup 顶层各声明一次、
+ *       就是预期的那个；relayDraft 在脚本里只有体内取、清两处；<script setup> 之外的原文（模板、样式、别的块）不许提草稿。
+ *     · store：relayDraft、relaySource 各自只许落在 state 声明与指定的几个 action 里。
+ *     · 跨文件：src/renderer 整个目录与它经 @shared 引用的 src/shared 下所有代码文件里，只有上面两份提到草稿；
+ *       渲染端从这两个目录之外只许类型引用（值引用出去的话，取草稿的帮手就能放在扫描范围外）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
+import * as ts from 'typescript';
+import { parse as parseSfc } from 'vue/compiler-sfc';
 import { stripComments } from './strip-comments';
 
 // ── 桩掉 renderer 的 rpc：call 走可控实现并记账，on 把处理器收进 handlers，测试里直接派发广播 ──
@@ -59,21 +69,225 @@ function sfc(p: string): { script: string; tpl: string; css: string } {
   return { script, tpl, css };
 }
 
-/** 从 head 之后参数表收尾的 `) {` / `): T {` 起按花括号配对取出函数体
- *  （参数类型里的 `{ … }` 不算函数体；源码已剥注释；这里的函数体内没有含花括号的字符串）。 */
+/** 字面量（字符串、模板串的静态段、正则）的内容换成等长空格，定界符与换行留着，下标与原文一一对应。
+ *  bodyFrom 在这份上配花括号，字面量里的花括号不算数：函数体里一个 '}' 能把体提前截断，一个 '{' 能把体拖进后面的方法。
+ *  哪些是字面量交给 TypeScript 自己的解析器认（devDependencies 里本来就有）：正则字面量与除号、模板串 ${} 里再套模板串，
+ *  靠正则猜认不准。 */
+function blankLiterals(src: string): string {
+  // <script setup lang="ts"> 这行不是 TS，等长换成空格再解析
+  const code = src.replace(/^<script\b[^>]*>/, m => ' '.repeat(m.length));
+  const sf = ts.createSourceFile('guard.ts', code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const out = code.split('');
+  const visit = (n: ts.Node): void => {
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isRegularExpressionLiteral(n)
+      || ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) {
+      // 首尾各留一个字符：引号、反引号、正则开头的 /；模板串的静态段留下 ${ 的 { 与收尾的 }——它们在 ${…} 两端成对
+      for (let k = n.getStart(sf) + 1; k < n.end - 1; k++) if (out[k] !== '\n') out[k] = ' ';
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out.join('');
+}
+
+/** 从 head 之后参数表收尾的 `) {` / `): T {` 起按花括号配对取出函数体（返回原文，不是抹掉字面量的那份）
+ *  （参数类型里的 `{ … }` 不算函数体；源码已剥注释；配对在 blankLiterals 之后做，字符串里的花括号不算）。 */
 function bodyFrom(src: string, head: string): string {
   const i = src.indexOf(head);
   expect(i, `找不到 ${head}`).toBeGreaterThan(-1);
+  const code = blankLiterals(src);
   const m = /\)\s*(?::\s*[^{;]+)?\{/g;
   m.lastIndex = i;
-  const hit = head.endsWith('{') ? null : m.exec(src);
+  const hit = head.endsWith('{') ? null : m.exec(code);
   const open = head.endsWith('{') ? i + head.length - 1 : hit!.index + hit![0].length - 1;
   let depth = 0;
-  for (let k = open; k < src.length; k++) {
-    if (src[k] === '{') depth++;
-    else if (src[k] === '}') { depth--; if (depth === 0) return src.slice(open + 1, k); }
+  for (let k = open; k < code.length; k++) {
+    if (code[k] === '{') depth++;
+    else if (code[k] === '}') { depth--; if (depth === 0) return src.slice(open + 1, k); }
   }
   throw new Error(`${head} 的花括号没有配平`);
+}
+
+// ── 语法树工具（W2a-6b）：输入卡取草稿、store 里草稿落在哪、跨文件扫描这几条守卫在语法树上判，不数括号、不认缩进、不按行剥注释 ──
+// 为什么不再数括号：表达式体箭头函数 `() => takeRelay()` 没有括号包住调用，挪进 watch 回调照样数成 0 层
+// （W2a-6b 第二轮审查 A1–A3）。为什么不按行剥注释：stripComments 按行认 //，字符串里的 'a//' 会把同行后面的真代码
+// 一起剥掉（同轮 E2）。语法树本来就不看注释，也分得清代码与字面量。
+const ROOT = join(__dirname, '..');
+const readRoot = (p: string): string => readFileSync(join(ROOT, p), 'utf8').replace(/\r\n/g, '\n');
+const tsOf = (name: string, code: string): ts.SourceFile => ts.createSourceFile(name, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+
+/** 先序走遍 n 与它的全部子节点。ts.forEachChild 不进 JSDoc：注释里写到的名字不算。 */
+function walk(n: ts.Node, f: (n: ts.Node) => void): void {
+  f(n);
+  ts.forEachChild(n, c => walk(c, f));
+}
+
+/** root 底下提到 name 的节点：标识符按 \bname\b 认（转义写法 relay\u0044raft 解析后 .text 相同，一样认得出；
+ *  与改动前在文本上按 \b 数的口径一致，$takeRelay 这种只多一个 $ 的名字也算），以及内容里含 name 的字面量——
+ *  字符串、模板串各段、正则。下标写法 chat['relayDraft'] 靠后者认出来；字面量里只是写到这个名字、并没用它，
+ *  也照样算，宁严勿漏。运行时拼出来的名字（'relay' + 'Draft'）认不出。 */
+function mentions(root: ts.Node, name: string): ts.Node[] {
+  const word = new RegExp(`\\b${name}\\b`);
+  const out: ts.Node[] = [];
+  walk(root, n => {
+    const lit = ts.isStringLiteralLike(n) || ts.isRegularExpressionLiteral(n) || ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n);
+    if (ts.isIdentifier(n) ? word.test(n.text) : lit && (n as ts.LiteralLikeNode).text.includes(name)) out.push(n);
+  });
+  return out;
+}
+
+/** 报错信息用：节点所在的行号与那一行原文。 */
+function at(n: ts.Node): string {
+  const sf = n.getSourceFile();
+  const { line } = sf.getLineAndCharacterOfPosition(n.getStart(sf));
+  return `L${line + 1} ${sf.text.split('\n')[line].trim()}`;
+}
+
+/** n 所在的那条语句（往上找到父节点是语句块、case 分支或整个文件的那一层）。 */
+function stmtOf(n: ts.Node): ts.Node {
+  let p = n;
+  while (p.parent && !ts.isBlock(p.parent) && !ts.isSourceFile(p.parent) && !ts.isCaseOrDefaultClause(p.parent)) p = p.parent;
+  return p;
+}
+
+/** .vue 用 Vue 自己的 SFC 解析器切块（注释挪不动块边界，见 sfc-blocks.ts 的说明）。 */
+function sfcOf(p: string, raw: string): ReturnType<typeof parseSfc>['descriptor'] {
+  const { descriptor, errors } = parseSfc(raw, { filename: p });
+  if (errors.length) throw new Error(`${p} 解析出错：${errors.map(e => e.message).join('；')}`);
+  return descriptor;
+}
+
+/** Composer.vue 的 <script setup>：原文交给 TypeScript 解析（不先剥注释，理由见上）；
+ *  outside 是这个块之外的整份原文（模板、样式、别的脚本块），不剥注释——那里只做「不许出现」的检查，剥注释只会藏东西。 */
+function composerSetup(): { sf: ts.SourceFile; tpl: string; outside: string } {
+  const raw = read('ui/Composer.vue');
+  const d = sfcOf('ui/Composer.vue', raw);
+  const b = d.scriptSetup;
+  if (!b) throw new Error('Composer.vue 没有 <script setup>');
+  return {
+    sf: tsOf('Composer.setup.ts', b.content),
+    tpl: d.template?.content ?? '',
+    outside: raw.slice(0, b.loc.start.offset) + raw.slice(b.loc.end.offset),
+  };
+}
+
+/** 顶层函数声明 name（取不到就抛：守卫要看的东西都不在了）。 */
+function topFn(sf: ts.SourceFile, name: string): ts.FunctionDeclaration & { body: ts.Block } {
+  const fn = sf.statements.filter((s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === name);
+  if (fn.length !== 1 || !fn[0].body) throw new Error(`顶层函数 ${name} 应恰好声明一次（带函数体），实际 ${fn.length} 处`);
+  return fn[0] as ts.FunctionDeclaration & { body: ts.Block };
+}
+
+/** 脚本顶层对 name 的全部声明，各写成一行便于逐字比对：import 记「{ 原文 } from 模块」，变量记「const 原文」，
+ *  函数、类、枚举记种类与名字。改名引入（import { nextTick as tick }）的本地名是 tick，不算 nextTick 的声明。 */
+function topDecls(sf: ts.SourceFile, name: string): string[] {
+  const out: string[] = [];
+  for (const s of sf.statements) {
+    if (ts.isImportDeclaration(s)) {
+      const c = s.importClause;
+      const from = (s.moduleSpecifier as ts.StringLiteral).text;
+      if (c?.name?.text === name) out.push(`default from ${from}`);
+      const nb = c?.namedBindings;
+      if (nb && ts.isNamespaceImport(nb) && nb.name.text === name) out.push(`* from ${from}`);
+      if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) if (e.name.text === name) out.push(`{ ${e.getText(sf)} } from ${from}`);
+    } else if (ts.isVariableStatement(s)) {
+      const kw = s.declarationList.flags & ts.NodeFlags.Const ? 'const' : s.declarationList.flags & ts.NodeFlags.Let ? 'let' : 'var';
+      for (const d of s.declarationList.declarations) {
+        walk(d.name, n => {
+          if (ts.isIdentifier(n) && n.text === name && (n.parent === d || (ts.isBindingElement(n.parent) && n.parent.name === n))) out.push(`${kw} ${d.getText(sf)}`);
+        });
+      }
+    } else if ((ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s) || ts.isEnumDeclaration(s)) && s.name?.text === name) {
+      out.push(`${ts.SyntaxKind[s.kind]} ${name}`);
+    }
+  }
+  return out;
+}
+
+/** root 底下声明出来的全部名字（变量、参数、解构、函数、类，含 catch 变量）。 */
+function declsIn(root: ts.Node): string[] {
+  const out: string[] = [];
+  walk(root, n => {
+    const named = ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isBindingElement(n) || ts.isFunctionDeclaration(n)
+      || ts.isFunctionExpression(n) || ts.isClassDeclaration(n) || ts.isClassExpression(n);
+    if (!named || !n.name) return;
+    walk(n.name, m => { if (ts.isIdentifier(m) && (m.parent === n || (ts.isBindingElement(m.parent) && m.parent.name === m))) out.push(m.text); });
+  });
+  return out;
+}
+
+/** stores/chat.ts 里名字各落在哪：state 里声明它的那个属性记 'state'；actions 对象的直接成员（方法、属性、存取器）
+ *  记成员名；别处记 '?'（getters、文件顶层的帮手、state 里别的属性的初值……）。只认 actions 的直接成员：
+ *  某个 action 里再套一个对象、上面挂一个叫 onEvent 的方法，算在外层那个 action 头上，冒充不了真的 onEvent。 */
+function storeSites(sf: ts.SourceFile, name: string): { site: string; node: ts.Node }[] {
+  const defs: ts.CallExpression[] = [];
+  walk(sf, n => { if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'defineStore') defs.push(n); });
+  if (defs.length !== 1) throw new Error(`stores/chat.ts 里 defineStore 应恰好一处，实际 ${defs.length}`);
+  const opts = defs[0].arguments[1];
+  if (!opts || !ts.isObjectLiteralExpression(opts)) throw new Error('defineStore 的第二个参数不是对象字面量');
+  const member = (k: string): ts.ObjectLiteralElementLike | undefined => opts.properties.find(p => p.name?.getText(sf) === k);
+  const st = member('state');
+  const ac = member('actions');
+  const stateFn = st && ts.isPropertyAssignment(st) ? st.initializer : undefined;
+  const stateBody = stateFn && ts.isArrowFunction(stateFn) && ts.isParenthesizedExpression(stateFn.body) ? stateFn.body.expression : undefined;
+  const actions = ac && ts.isPropertyAssignment(ac) ? ac.initializer : undefined;
+  if (!stateBody || !ts.isObjectLiteralExpression(stateBody)) throw new Error('state 不是 () => ({ … }) 的形态');
+  if (!actions || !ts.isObjectLiteralExpression(actions)) throw new Error('actions 不是对象字面量');
+  return mentions(sf, name).map(node => {
+    if (ts.isPropertyAssignment(node.parent) && node.parent.name === node && node.parent.parent === stateBody) return { site: 'state', node };
+    for (let p: ts.Node | undefined = node.parent; p; p = p.parent) {
+      if (p.parent === actions) return { site: (p as ts.ObjectLiteralElementLike).name?.getText(sf) ?? '?', node };
+    }
+    return { site: '?', node };
+  });
+}
+
+/** 一个代码文件里交给 TypeScript 解析的脚本，以及外置脚本的 src：.vue 按 SFC 块切，.html 按 <script> 标签切，其余整份。 */
+function scriptsOf(f: string, raw: string): { sfs: ts.SourceFile[]; srcs: string[] } {
+  if (f.endsWith('.vue')) {
+    const d = sfcOf(f, raw);
+    const blocks = [d.script, d.scriptSetup].filter((b): b is NonNullable<typeof b> => !!b);
+    return { sfs: blocks.map(b => tsOf(f, b.content)), srcs: blocks.flatMap(b => (b.src ? [b.src] : [])) };
+  }
+  if (f.endsWith('.html')) {
+    const tags = [...raw.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    return {
+      sfs: tags.map(m => tsOf(f, m[2])),
+      srcs: tags.flatMap(m => { const s = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(m[1]); return s ? [s[1]] : []; }),
+    };
+  }
+  return { sfs: [tsOf(f, raw)], srcs: [] };
+}
+
+/** 脚本里的模块引用：静态 import / export … from / import x = require()、动态 import()、import.meta.glob()。
+ *  import type / export type 编译后不留下任何代码，记 typeOnly。动态 import 与 glob 的路径不是字面量时记「<非字面量>」。 */
+function importsOf(sf: ts.SourceFile): { spec: string; typeOnly: boolean }[] {
+  const out: { spec: string; typeOnly: boolean }[] = [];
+  walk(sf, n => {
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) out.push({ spec: n.moduleSpecifier.text, typeOnly: !!n.importClause?.isTypeOnly });
+    else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) out.push({ spec: n.moduleSpecifier.text, typeOnly: n.isTypeOnly });
+    else if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference) && ts.isStringLiteral(n.moduleReference.expression)) {
+      out.push({ spec: n.moduleReference.expression.text, typeOnly: n.isTypeOnly });
+    } else if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText(sf) === 'import.meta.glob')) {
+      const a0 = n.arguments[0];
+      const args = a0 && ts.isArrayLiteralExpression(a0) ? [...a0.elements] : a0 ? [a0] : [];
+      for (const a of args) out.push({ spec: ts.isStringLiteralLike(a) ? a.text : '<非字面量>', typeOnly: false });
+    }
+  });
+  return out;
+}
+
+/** 渲染端的一个模块引用会不会落到 dirs 之外。包名（vue、pinia……）不归这里管；@shared 按 electron.vite.config.ts 的别名；
+ *  / 开头按渲染端的 Vite 根（src/renderer）；/@fs/ 之类 Vite 特殊前缀与非字面量路径看不出落在哪，一律当落在外面。 */
+function landsOutside(f: string, spec: string, dirs: string[]): boolean {
+  const path = spec.split('?')[0];
+  let abs: string;
+  if (path === '<非字面量>' || path.startsWith('/@')) return true;
+  if (path === '@shared' || path.startsWith('@shared/')) abs = join(ROOT, 'src/shared', path.slice('@shared'.length));
+  else if (path.startsWith('.')) abs = join(dirname(join(ROOT, f)), path);
+  else if (path.startsWith('/')) abs = join(ROOT, 'src/renderer', path);
+  else return false;
+  return !dirs.some(d => { const r = relative(join(ROOT, d), abs); return !r.startsWith('..') && !isAbsolute(r); });
 }
 
 // ─────────── 桩：两个会话 A / B，A 带助手、组绑定与自定义工作区；桩的后端语义对齐 minisd/index.ts（见 Stub 各项注释） ───────────
@@ -439,7 +653,7 @@ describe('store.relayToNewSession：新建会话接力', () => {
   });
 });
 
-// ═══════════════════════════ 源码守卫（剥注释后认调用形态） ═══════════════════════════
+// ═══════════════════════════ 源码守卫（剥注释后认调用形态；接力草稿几例在语法树上判） ═══════════════════════════
 describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费', () => {
   const notes = sfc('ui/EventNotes.vue');
   const composer = sfc('ui/Composer.vue');
@@ -470,40 +684,135 @@ describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费
     const iDef = composer.script.indexOf('\nfunction takeRelay(): void {');
     expect(iQuote).toBeGreaterThan(-1);
     expect(iDef).toBeGreaterThan(iQuote);
-    // 顶层调用：行首、不缩进（缩进的调用在某个函数体里，不是 setup 时跑）
+    // 排版沿用改动前的要求（`takeRelay();` 独占一行），留着它，本步对改动前只加不减。它只管排版：表达式体箭头函数 `=>` 后换行，
+    // takeRelay(); 照样独占一行（W2a-6b 第二轮审查 A3），模板串里也能写出这么一行。是不是 setup 顶层的调用，由下面的语法树判
     expect(composer.script).toMatch(/^takeRelay\(\);$/m);
+    // 语法树：提到 takeRelay 的恰好两处——<script setup> 顶层的函数声明，和一条父节点就是整个脚本的表达式语句 `takeRelay();`。
+    // 只有这样的语句是 setup 时跑一次、之后不再跑。挪进 watch 回调（缩不缩进、回调体有没有花括号都一样，R2、A1–A3）、
+    // 交给别处当回调、只写进字符串（F1），声明与调用的形态或次数就对不上
+    const { sf } = composerSetup();
+    const refs = mentions(sf, 'takeRelay');
+    const decl = refs.filter(n => ts.isFunctionDeclaration(n.parent) && n.parent.name === n && n.parent.parent === sf);
+    const call = refs.filter(n => ts.isCallExpression(n.parent) && n.parent.expression === n && n.parent.arguments.length === 0
+      && ts.isExpressionStatement(n.parent.parent) && n.parent.parent.parent === sf);
+    expect(decl.map(at), 'takeRelay 应在 <script setup> 顶层声明一次').toHaveLength(1);
+    expect(call.map(at), 'takeRelay(); 应是 <script setup> 的顶层语句（父节点就是整个脚本），恰好一处').toHaveLength(1);
+    expect(refs.map(at), 'takeRelay 只许出现在顶层声明与顶层调用这两处').toHaveLength(2);
   });
 
+  // 不替用户发送（设计稿 §2「渲染端」、renderer.md「只预填、不发送，由用户确认后按 Enter」）。
+  // 光拦 send 这个名字拦不住转手：别名可以定义在体外（Q3），可以交给白名单里的高阶调用当参数（nextTick(go)、
+  // replace(/$/, go)，B1、B2），可以用非 ASCII 名字（B3），可以挂成属性回调（window.onfocus = go，B4），
+  // 可以在体外定义同名的 trim()（B5），可以藏在 setter 里（o.v = …，E1）。所以在语法树上逐项钉死：
+  // 体内调用的原文、实参的种类、赋值的目标、用到的名字、体内声明的名字；体内用到的体外名字在 setup 顶层各自只声明一次，
+  // 且就是预期的那个（改名引入 nextTick 再自定义一个同名函数，调用原文不变，靠这条拦）。
   it('Composer：只取指向当前会话的草稿，取完即清；不替用户发送', () => {
-    const body = bodyFrom(composer.script, 'function takeRelay(): void {');
-    expect(body).toMatch(/const r = chat\.relayDraft;\s*if \(!r \|\| r\.sessionId !== chat\.activeId\) return;\s*chat\.relayDraft = null;/);
-    expect(body).toMatch(/text\.value = /);
-    expect(body).not.toMatch(/\bsend\(/);
+    const { sf } = composerSetup();
+    const fn = topFn(sf, 'takeRelay');
+    expect(fn.modifiers ?? [], 'takeRelay 不许是 async / export').toHaveLength(0);
+    expect(fn.asteriskToken, 'takeRelay 不许是生成器').toBeUndefined();
+    expect(fn.parameters).toHaveLength(0);
+    expect(fn.type?.getText(sf)).toBe('void');
+    // 开头三句逐句比原文（语法树切出来的语句，字符串或注释里写一遍这段话喂不饱它）
+    const stmts = fn.body.statements.map(s => s.getText(sf));
+    expect(stmts.slice(0, 3)).toEqual(['const r = chat.relayDraft;', 'if (!r || r.sessionId !== chat.activeId) return;', 'chat.relayDraft = null;']);
+    expect(stmts.filter(s => s.startsWith('text.value = ')), '预填：体内最外层要有一句 text.value = …').toHaveLength(1);
+
+    const calls: string[] = [];
+    const bad: string[] = [];
+    const ids = new Set<string>();
+    walk(fn.body, n => {
+      if (ts.isIdentifier(n)) ids.add(n.text);
+      if (ts.isCallExpression(n)) {
+        calls.push(n.expression.getText(sf));
+        // 实参只许是就地写的箭头函数与字面量：传一个名字进去（nextTick(go)），被调的一方就替你调了它
+        for (const a of n.arguments) if (!ts.isArrowFunction(a) && !ts.isStringLiteral(a) && !ts.isRegularExpressionLiteral(a)) bad.push(`实参 ${a.getText(sf)}`);
+      }
+      // 不写括号也会调到别处代码的写法：new、标签模板、await（thenable）、delete（Proxy）、自增自减（getter / setter）
+      if (ts.isNewExpression(n) || ts.isTaggedTemplateExpression(n) || ts.isAwaitExpression(n) || ts.isYieldExpression(n) || ts.isDeleteExpression(n)) bad.push(n.getText(sf));
+      if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n))
+        && (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)) bad.push(n.getText(sf));
+      // 赋值只许写这两处：别的目标可能是 setter（E1），也可能把回调挂到事件属性上（B4）
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        && !['text.value', 'chat.relayDraft'].includes(n.left.getText(sf))) bad.push(`赋值 ${n.left.getText(sf)}`);
+    });
+    // 先拦最直白的：体内提到 send（调用、起别名、写进字面量都算）
+    expect(mentions(fn.body, 'send').map(at), 'takeRelay 体内提到了 send').toEqual([]);
+    // 调用按原文比（排序后逐项相等）：只认名字的话，体外定义的同名 trim() 冒充 .trim()（B5）
+    expect(calls.sort(), 'takeRelay 体内的调用应恰好是预填要用的这四个').toEqual(['field.value?.focus', 'nextTick', 'r.text.replace', 'text.value.trim']);
+    expect(bad, 'takeRelay 体内有白名单之外的写法').toEqual([]);
+    // 用到的名字（含属性名）逐个列出：读一个体外对象的 getter（void o.v）、把对象塞进模板串触发 toString，都要先提到一个新名字
+    expect([...ids].sort(), 'takeRelay 体内用到了预填以外的名字')
+      .toEqual(['activeId', 'chat', 'cur', 'field', 'focus', 'nextTick', 'r', 'relayDraft', 'replace', 'sessionId', 'text', 'trim', 'value']);
+    // 体内只声明 r 与 cur：体内另声明一个 text / chat / field，就把下面钉住的体外名字遮住了
+    expect(declsIn(fn.body).sort(), 'takeRelay 体内声明的名字').toEqual(['cur', 'r']);
+    // 体内用到的体外名字，以及造出它们的 ref / useChat，在 setup 顶层各自只声明一次，就是这一句
+    const outer: Record<string, string[]> = {
+      chat: ['const chat = useChat()'],
+      text: ["const text = ref('')"],
+      field: ['const field = ref<HTMLTextAreaElement | null>(null)'],
+      nextTick: ['{ nextTick } from vue'],
+      ref: ['{ ref } from vue'],
+      useChat: ['{ useChat } from ../stores/chat'],
+    };
+    for (const [name, want] of Object.entries(outer)) expect(topDecls(sf, name), `setup 顶层对 ${name} 的声明`).toEqual(want);
   });
 
-  // 为什么数引用、不认某一种 watch 写法：open(N) 先把 activeId 设成 N 再 await 取消息，这段时间旧会话页的输入卡还挂着；
+  // 为什么钉引用、不认某一种 watch 写法：open(N) 先把 activeId 设成 N 再 await 取消息，这段时间旧会话页的输入卡还挂着；
   // watch(() => chat.activeId, takeRelay)、watchEffect(() => takeRelay())、watch 回调里就地读 relayDraft……
   // 都会让旧卡在 pre-flush 里把指向 N 的草稿取走，随后它被欢迎页替换卸载，草稿就丢了。写法数不完，
-  // 所以钉引用次数：takeRelay 只许定义一次、setup 顶层调一次；relayDraft 只许出现在 takeRelay 函数体里。
+  // 所以钉住哪里能提到它：takeRelay 只有顶层声明与顶层调用（上上一例）；relayDraft 只在 takeRelay 体内取、清两处，
+  // 且不包在体内的回调里——takeRelay 在 setup 时跑，体内挂的回调同样活到组件卸载（第三轮审查 R1、R7）。
   it('Composer：不用 watch 消费草稿（旧会话的输入卡在 open() 的 await 期间还挂着，watch 会抢走再随组件卸载丢掉）', () => {
-    // 两处 = `function takeRelay(): void {` 与行首的 `takeRelay();`（上上一例钉住这两处的形态）；
-    // watch / watchEffect / $subscribe / 生命周期钩子 / 事件回调再引用它都会多出一处
-    expect(composer.script.match(/\btakeRelay\b/g) ?? []).toHaveLength(2);
-    const inBody = bodyFrom(composer.script, 'function takeRelay(): void {').match(/\brelayDraft\b/g) ?? [];
-    expect(inBody.length).toBeGreaterThan(0);
-    expect(composer.script.match(/\brelayDraft\b/g) ?? [], 'relayDraft 出现在 takeRelay 函数体之外').toHaveLength(inBody.length);
+    const { sf, tpl, outside } = composerSetup();
+    // 模板也是执行点：模板表达式与事件绑定跑在组件的渲染副作用里，activeId / relayDraft 一变就重跑，与 watch 同险
+    // （W2a-6b 审查 Q1、Q2）；样式里的 v-bind() 同样是渲染副作用（Q7），第二个 <script> 块不在 <script setup> 里（Q8）。
+    // 这里只做「不许出现」的检查，所以查原文、不剥注释：剥注释只会藏东西，模板里 accept="image/*" 的 /* 就曾被当成注释
+    // 开头，一路吞到样式里（Q9）
+    expect(tpl, '模板里提到了接力草稿').not.toMatch(/\b(?:takeRelay|relayDraft|relaySource)\b/);
+    expect(outside, '<script setup> 之外（模板、样式 v-bind()、别的块）提到了接力草稿').not.toMatch(/\b(?:takeRelay|relayDraft|relaySource)\b/);
+    const fn = topFn(sf, 'takeRelay');
+    const hooks: string[] = [];
+    walk(fn.body, n => {
+      if (ts.isCallExpression(n) && /(?:^|\.)(?:watch\w*|\$subscribe|\$onAction|on[A-Z]\w*|addEventListener|set(?:Timeout|Interval))$/.test(n.expression.getText(sf))) hooks.push(n.expression.getText(sf));
+    });
+    expect(hooks, 'takeRelay 体内注册了 watch / 钩子 / 订阅').toEqual([]);
+    const drafts = mentions(sf, 'relayDraft');
+    // 两处 = 上一例钉住的 `const r = chat.relayDraft;` 与 `chat.relayDraft = null;`
+    expect(drafts.map(at), '<script setup> 里 relayDraft 应只有 takeRelay 体内取、清两处').toHaveLength(2);
+    for (const n of drafts) {
+      expect(n.getStart(sf) > fn.body.getStart(sf) && n.end < fn.body.end, `${at(n)}：relayDraft 在 takeRelay 体外`).toBe(true);
+      let wrapped = '';
+      for (let p = n.parent; p !== fn.body; p = p.parent) if (ts.isFunctionLike(p) || ts.isClassLike(p)) wrapped = p.getText(sf).slice(0, 60);
+      expect(wrapped, `${at(n)}：relayDraft 包在 takeRelay 体内的回调里`).toBe('');
+    }
     // relaySource 是出事旧会话的草稿停放处，只归 store 与接力钮管，输入卡不碰
-    expect(composer.script).not.toMatch(/\brelaySource\b/);
+    expect(mentions(sf, 'relaySource').map(at)).toEqual([]);
   });
 
-  it('渲染端组件里只有 Composer 碰 relayDraft / relaySource：会话页、欢迎页、外壳用 watch 消费同样会在 open() 期间抢走草稿', () => {
-    const vues = (readdirSync(SRC, { recursive: true }) as string[])
-      .map(f => f.replace(/\\/g, '/'))
-      .filter(f => f.endsWith('.vue'));
-    expect(vues.length).toBeGreaterThan(10);
-    // 整个文件剥注释后再找（不按 sfc() 只取第一个 <script> 块：一个 .vue 可以有两个脚本块）
-    const touching = vues.filter(f => /\brelay(?:Draft|Source)\b/.test(stripComments(read(f).replace(/<!--[\s\S]*?-->/g, ''))));
-    expect(touching).toEqual(['ui/Composer.vue']);
+  // 扫描范围是渲染端能打包进来的代码：src/renderer 整个目录（含 index.html）与经 @shared 别名引用的 src/shared，
+  // 扩展名认 Vite 能解析的 .vue / .html / .[cm][jt]s(x)。取草稿挪进 .ts 帮手（R5）、放进 src/shared（C1）、写成 .mts（C2），
+  // Composer 与 store 里都不多一处，上面几例看不见，要靠这里。原文查、不剥注释（理由同上一例，Q9）；脚本另经语法树查一遍，
+  // 认得出转义写法 relay\u0044raft。从这两个目录之外只许类型引用：值引用出去的话（渲染端已有 import type 引 minisd），
+  // 帮手放在 src/minisd、src/main 里就出了扫描范围。
+  it('渲染端可打包的代码里只有 Composer 与 stores/chat.ts 提到 relayDraft / relaySource；从 src/renderer、src/shared 之外只许类型引用', () => {
+    const DIRS = ['src/renderer', 'src/shared'];
+    const files = DIRS.flatMap(d => (readdirSync(join(ROOT, d), { recursive: true }) as string[]).map(f => `${d}/${f.replace(/\\/g, '/')}`))
+      .filter(f => /\.(?:vue|html|[cm]?[jt]sx?)$/.test(f));
+    expect(files.filter(f => f.endsWith('.vue')).length).toBeGreaterThan(10);
+    expect(files.filter(f => f.endsWith('.ts')).length).toBeGreaterThan(10);
+    expect(files).toEqual(expect.arrayContaining(['src/renderer/index.html', 'src/shared/parts.ts', 'src/renderer/src/main.ts']));
+    const touching: string[] = [];
+    const escapes: string[] = [];
+    for (const f of files) {
+      const raw = readRoot(f);
+      const { sfs, srcs } = scriptsOf(f, raw);
+      if (/\brelay(?:Draft|Source)\b/.test(raw) || sfs.some(s => mentions(s, 'relayDraft').length + mentions(s, 'relaySource').length > 0)) touching.push(f);
+      const refs = [...sfs.flatMap(importsOf), ...srcs.map(spec => ({ spec, typeOnly: false }))];
+      for (const { spec, typeOnly } of refs) if (!typeOnly && landsOutside(f, spec, DIRS)) escapes.push(`${f} → ${spec}`);
+    }
+    expect(touching.sort()).toEqual(['src/renderer/src/stores/chat.ts', 'src/renderer/src/ui/Composer.vue']);
+    expect(escapes, '渲染端值引用了 src/renderer、src/shared 之外的模块：挪进 src/shared，或把那个目录加进上面的扫描').toEqual([]);
   });
 
   it('StageChat：错误横幅的图标不随长报错收缩（绑定错误折成多行时曾被压成一个点）', () => {
@@ -523,5 +832,36 @@ describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费
     expect(iDraft).toBeGreaterThan(-1);
     expect(iOpen).toBeGreaterThan(iDraft);
     expect(body).toMatch(/rpc\.call\('chat\.sessions\.setModelBinding', \{ sessionId: /);
+  });
+
+  // W2a-6b：store 这一侧也得钉。给 store 加个取草稿的 action（popRelay），Composer 在 watch 里调它——Composer 里
+  // 既不多一处 relayDraft 也不多一处 takeRelay，上面几例全看不见（第三轮审查 R3）。所以按语法树看 relayDraft 在 store 里
+  // 落在哪：只许在 state 声明与 relayToNewSession 里（只写不读），没有 getter / action 能把它取走。引擎事件的同名字段
+  // 只在 onEvent 的一句里读，它进的是 relaySource（上面 store.onEvent 的行为测试钉着），这一句按原文钉住。
+  // 不按变量名放行（把接收者叫成 e 就能混过去，W2a-6b 审查 Q4），也不在剥过注释的文本上数（字符串里的 'a//' 会把
+  // 同行后面的读写一起剥掉，D3）。
+  it('store：relayDraft 只出现在 state 声明与 relayToNewSession 里（外加 onEvent 读引擎事件字段的一句），没有别的 getter / action 能取走它', () => {
+    const sf = tsOf('chat.ts', read('stores/chat.ts'));
+    const sites = storeSites(sf, 'relayDraft');
+    expect(sites.filter(s => s.site === 'state'), 'state 声明应恰好一处').toHaveLength(1);
+    expect([...new Set(sites.map(s => s.site))].sort(), 'relayDraft 出现在 state 声明、onEvent、relayToNewSession 之外')
+      .toEqual(['onEvent', 'relayToNewSession', 'state']);
+    const EVENT_LINE = "const draft = typeof e.relayDraft === 'string' ? e.relayDraft : '';";
+    expect(sites.filter(s => s.site === 'onEvent').map(s => stmtOf(s.node).getText(sf)), 'onEvent 里只许读引擎事件字段的那一句')
+      .toEqual([EVENT_LINE, EVENT_LINE]);
+  });
+
+  // W2a-6b 第二轮审查 D1：relaySource 同理。给 store 加个取 relaySource 的 action，Composer 在 watch 里调它，
+  // 用户切回出事的旧会话时接力文本就被填进那个已满的会话；relaySource 被清空后 relayToNewSession 直接 return，
+  // 接力钮也失效了——正是 state 里 relaySource 注释要防的事。所以它在 store 里只许落在 state 声明、onEvent（引擎报
+  // contextFull 时写入，按原文钉成只写这一句）与 relayToNewSession（接力钮取用）里。
+  it('store：relaySource 只出现在 state 声明、onEvent（只写）与 relayToNewSession 里', () => {
+    const sf = tsOf('chat.ts', read('stores/chat.ts'));
+    const sites = storeSites(sf, 'relaySource');
+    expect(sites.filter(s => s.site === 'state'), 'state 声明应恰好一处').toHaveLength(1);
+    expect([...new Set(sites.map(s => s.site))].sort(), 'relaySource 出现在 state 声明、onEvent、relayToNewSession 之外')
+      .toEqual(['onEvent', 'relayToNewSession', 'state']);
+    expect(sites.filter(s => s.site === 'onEvent').map(s => stmtOf(s.node).getText(sf)), 'onEvent 里只许写入这一句')
+      .toEqual(['this.relaySource = draft ? { sessionId: this.activeId, text: draft } : null;']);
   });
 });
