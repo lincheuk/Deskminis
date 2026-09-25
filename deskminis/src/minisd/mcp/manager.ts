@@ -21,7 +21,8 @@ export interface McpClientLike {
   connect(): Promise<void>;
   listTools(): Promise<McpToolInfo[]>;
   callTool(name: string, args?: Record<string, unknown>, opts?: { signal?: AbortSignal }): Promise<unknown>;
-  dispose(): void;
+  /** 断开并回收（stdio 收进程树、http 发告别）。返回 Promise 的，关停时 disposeAll 等它落定（W1b-5d）；别处不等 */
+  dispose(): void | Promise<void>;
   onNotification: ((n: McpNotification) => void) | undefined;
   closed: boolean;
 }
@@ -230,15 +231,19 @@ export class McpManager {
     rt.stale = false;
   }
 
-  /** minisd 退出收口：全部 dispose + 摘工具。幂等。 */
-  disposeAll(): void {
+  /** minisd 退出收口：全部 dispose + 摘工具。幂等。
+   *  W1b-5d：返回全部 client 回收落定的 Promise（从不拒绝），关停第 6 步等它；每台都当场发起 dispose。
+   *  一台同步抛错只记一笔，其余照样断开，这一台的状态也照样复位。 */
+  disposeAll(): Promise<void> {
+    const reaped: Array<void | Promise<void>> = [];
     for (const [name, rt] of [...this.runtime]) {
-      rt.client?.dispose();
+      try { reaped.push(rt.client?.dispose()); } catch (e) { console.warn(`断开 MCP「${name}」失败，继续其余:`, e); }
       rt.client = null;
       this.unregisterServer(name);
       rt.status = 'idle';
       rt.stale = false;
     }
+    return Promise.allSettled(reaped).then(() => undefined);
   }
 
   private runtimeOf(name: string): ServerRuntime {

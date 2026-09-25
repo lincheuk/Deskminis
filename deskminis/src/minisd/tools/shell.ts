@@ -175,17 +175,23 @@ export class PersistentShell {
    *  下次 ensure() 重建；同时标记 wasReset，让下一条命令开头向模型说明状态已复位。
    *  与 dispose() 的语义差异正是关键：dispose 是会话不再需要 shell，interrupt 是状态丢了但会话还活着。 */
   interrupt(): void {
-    this.killProc();
+    void this.killProc(); // 不等收树：在途命令靠 'close' 或超时收口，下条命令重建驱动，与以前一样
     this.proc = undefined; // 让下次 ensure() 重建，而不是复用已死的进程
     this.wasReset = true;
   }
 
-  dispose(): void { this.disposed = true; this.killProc(); this.proc = undefined; }
+  /** 返回回收落定的 Promise（见 killTree，从不拒绝）：关停第 6 步等它，删除会话不等（W1b-5d）。 */
+  dispose(): Promise<void> {
+    this.disposed = true;
+    const reaped = this.killProc();
+    this.proc = undefined;
+    return reaped;
+  }
 
   /** 杀整棵进程树（win32 走 taskkill /T，不同步先杀根，见 proc/win-exec.ts）：
    *  命令里起的孙进程（ping -t、dev server 之类）要跟着驱动一起走，只杀驱动会留孤儿。 */
-  private killProc(): void {
-    if (this.proc) killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv, 'SIGKILL');
+  private killProc(): Promise<void> {
+    return this.proc ? killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv, 'SIGKILL') : Promise.resolve();
   }
 }
 
@@ -211,13 +217,24 @@ export class ShellManager {
   }
 
   /** 会话级释放（供删除会话调用，W1b-4 接线）：回收该会话驱动的整棵进程树并从表里摘掉。
-   *  与 interrupt 的区别同 PersistentShell：这里是会话不再需要 shell。未知会话静默。 */
-  dispose(sessionId: string): void {
-    this.shells.get(sessionId)?.dispose();
+   *  与 interrupt 的区别同 PersistentShell：这里是会话不再需要 shell。未知会话静默。
+   *  返回回收落定的 Promise；删除会话不等它，行为照旧。 */
+  dispose(sessionId: string): Promise<void> {
+    const reaped = this.shells.get(sessionId)?.dispose() ?? Promise.resolve();
     this.shells.delete(sessionId);
+    return reaped;
   }
 
-  disposeAll(): void { for (const s of this.shells.values()) s.dispose(); this.shells.clear(); }
+  /** 关停收口（W1b-5d）：释放全部会话的驱动，返回全部回收落定的 Promise（从不拒绝），关停第 6 步等它。
+   *  一个会话的回收同步抛错只记一笔，其余会话照样回收：不然排在它后面的进程树都没人收。 */
+  disposeAll(): Promise<void> {
+    const reaped: Promise<void>[] = [];
+    for (const [sessionId, s] of this.shells) {
+      try { reaped.push(s.dispose()); } catch (e) { console.warn(`释放 shell（会话 ${sessionId}）失败，继续其余会话:`, e); }
+    }
+    this.shells.clear();
+    return Promise.allSettled(reaped).then(() => undefined);
+  }
 }
 
 /** envFor：按 ToolContext 产出会话级环境变量（M2e 注入 MINIS_CHAT_SESSION_ID/桥三件套）。

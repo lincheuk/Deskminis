@@ -131,6 +131,8 @@ export class McpStdioClient {
   private readonly sysEnv: NodeJS.ProcessEnv;
   private proc: ChildProcess | null = null;
   private disposed = false;
+  /** dispose 发起的回收落定的 promise（W1b-5d）：重复 dispose 拿到同一个 */
+  private reaped: Promise<void> = Promise.resolve();
   private nextId = 0;
   private pending = new Map<number, PendingEntry>();
   /** stdout 半行缓冲：消息可能跨 chunk 断开，也可能一个 chunk 挤多条 */
@@ -236,11 +238,14 @@ export class McpStdioClient {
   }
 
   /** 杀进程树（在途请求由 exit 事件统一拒绝）。真实 npx/uvx 会再拉 node 孙进程，
-   *  只 kill 直子会留孤儿——win32 下 taskkill /T 整树杀（D5）。幂等。 */
-  dispose(): void {
-    if (this.disposed) return;
+   *  只 kill 直子会留孤儿——win32 下 taskkill /T 整树杀（D5）。幂等。
+   *  返回回收落定的 Promise（见 killTree，从不拒绝），重复调用拿到同一个：关停第 6 步等它，
+   *  forget、空闲驱逐、试连这些路径不等（W1b-5d）。 */
+  dispose(): Promise<void> {
+    if (this.disposed) return this.reaped;
     this.disposed = true;
-    if (this.proc) killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv);
+    if (this.proc) this.reaped = killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv);
+    return this.reaped;
   }
 
   private callRequestOpts(): RequestOpts {
