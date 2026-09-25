@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { sfcBlocks } from './sfc-blocks';
 
 const UI = join(__dirname, '../src/renderer/src/ui/');
 const read = (p: string): string => readFileSync(join(UI, p), 'utf8').replace(/\r\n/g, '\n');
@@ -51,8 +52,11 @@ describe('V5 — 任务面板', () => {
 describe('V5b — 改动清单单一数据源', () => {
   it('改动 tab 走 collectArtifacts 纯模块，不自己再扫一遍 messages', () => {
     // 同一份数据两处各写一遍必然两处不一致；且手写那版拿不到实时 toolCards
-    const ws = read('WorkspacePanel.vue');
-    expect(ws).toContain('collectArtifacts(chat.messages, chat.toolCards)');
+    // W2b-11d 有意重指：原断言认两参数的调用原文 `collectArtifacts(chat.messages, chat.toolCards)`，且不剥注释。
+    // 改动清单改为按工具结果判，多了第三个参数「最后一个回合是不是还在跑」（与 StageChat 共用 lib/steps/live 的判定），
+    // 这里改在剥过注释的脚本上认三参数的调用形态；第三个参数传得对不对，由 renderer-workspace-changes.test.ts 真跑 setup 钉着
+    const ws = sfcBlocks(read('WorkspacePanel.vue'), 'WorkspacePanel.vue').script;
+    expect(ws).toMatch(/\bcollectArtifacts\(\s*chat\.messages,\s*chat\.toolCards,\s*[^,)\s][^,)]*\)/);
     expect(ws).not.toContain("p?.type !== 'toolUse'");
   });
 });
