@@ -27,6 +27,11 @@
      → `e2e:m5`、`verify:release` → 设两把 key 跑 `smoke:release` → 安装版与便携版手动冒烟
      → CHANGELOG「待发布」改日期 → 建 Release `v0.3.0`（非 draft、非 pre-release）传四件
      → 下载回来再跑 `verify:release` → 新版里「现在检查」显示「已是最新」。
+- **2026-09-26 追加（DeepSeek Harness 桌面端对照，未改代码，等用户拍板）**：`docs/research/2026-09-26-dsh-desktop.md`。
+  - 建议打包前先合一个小补丁（§1 U1–U4）：更新文案如实；更新失败写进按天日志；「重启并安装」对话框说清会打开安装向导；AUMID 一行。
+    理由：0.3.0 → 0.3.1 的第一次自动更新由 0.3.0 装机的代码执行。
+  - RELEASE.md 补发版前核对（§2 A–I）：覆盖运行中的 0.1.1、e2e:m5 会卸掉本机已装版本、更新交接演练、只杀主进程、任务栏固定等。
+  - Electron 38 → 当时受支持的大版本，排 0.3.x，属依赖版本变更，要用户同意（§6-3）。
 - **发布现状**（2026-09-25 查 GitHub）：源码仓 Releases 只有 v0.1.1；`lincheuk/deskminis-releases` 搜不到，按还没建处理。
 - **之后**：W4a 办公内容包（0.3.1）→ W4b–W5 provider 正确性与上下文管线（0.4.0）→ W6–W7 运行时韧性与人在回路（0.5.0）
   → W8–W9 cowork 结构与打磨（0.6.0）。OpenCode V2 研读与四家对比的 9 项，用户 2026-09-25 答复「全默認」，已写进路线详案（§6）。
@@ -430,6 +435,8 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 3. ~~本轮剧本入册~~ 已做：17 个剧本与步骤工作流在 `docs/handoff/driver/hemostasis/`（docs `272e84c` 与交接提交），
    两份 driver README 补了 userData 在 `<DATA_DIR>/electron`、同一数据根同时只能开一个应用、打包形态单实例锁不随数据根分开。
 4. ~~lifecycle.md 前提订正~~ 已做：事实清单「渲染端没有 window.open」句后加了 2026-09-25 订正（docs `272e84c`）。
+5. **（2026-09-26 追加，待用户拍板）DSH 桌面端对照报告 §6**：打包前合一个小补丁（U1–U4，含测试约半天），
+   RELEASE.md 同步补 §2 的发版前核对 A–I。用户如已在打包，可以不合、0.3.1 再修，代价见报告 §6-1。
 
 **用户在 Windows 上做**（设计稿 §5；RELEASE.md §0 九步清单）：
 1. 在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`，放 README、LICENSE、THIRD-PARTY-NOTICES、CHANGELOG 四个文件。
