@@ -40,6 +40,8 @@ NODE_PATH=<装了 playwright-core 的目录>/node_modules xvfb-run -a node <剧�
 | W1b-5-quit.mjs | 运行中带权限卡退出：5 秒内全部进程退出、MCP 不留孤儿、数据根锁释放、库里补上「已取消」的结果 |
 | W2b-4b-r5-welcome.mjs | 欢迎页选助手：真 provider 配剧本内置的假 OpenAI 端点，四条路由核请求体里的预设与模型 |
 | W2b-11d-changes.mjs | 右栏「改动」清单按工具结果判：成功、失败、中断各一个写工具，只列成功的那个 |
+| W3-upd-live.mjs | （2026-09-26）真 electron-updater 走一遍更新交接：模拟打包加 `APPIMAGE` 占位让 Linux 上的 AppImageUpdater 工作，`resources/app-update.yml` 指向剧本自写的 generic 源；下载完成框的实参与真 `downloadedDialog` 逐字段比，稍后再说、关于页、现在检查再弹、关掉不装、更新源 404 时日志逐行带 `[update]` |
+| W3-updb-live.mjs | （2026-09-26）同上，针对 W3-updb：再查时关于页与托盘回执说「已下载」、安装包 404 时自动与手动各失败一次都不记崩溃（末尾用一次故意不接的拒绝验证检测手段）、electron-updater 自己的记录进按天日志 |
 | W2b-6b-x11.py、W1a-8-x11.py | 用 XTest 发真实按键、点击与截整屏（playwright 的合成事件触发不了菜单快捷键与原生对话框） |
 
 ## 步骤工作流

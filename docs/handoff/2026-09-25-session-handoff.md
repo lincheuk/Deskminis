@@ -8,8 +8,9 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `35aab54`，**version 0.3.0**，minis.db user_version 仍是 **11**。249 测试文件 / 3594 例
-  （云端 3542 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
+- **代码**：main `b893f6e`，**version 0.3.0**，minis.db user_version 仍是 **11**。253 测试文件 / 3633 例
+  （云端 3581 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
+  （本文 §4、§5 的波史与文件地图写于 `35aab54`；之后 2026-09-26 又加了 W3-upd、W3-aumid、W3-updb 三步，见下一条与 §4.5。）
 - **本轮做完了止血波 W1a–W2b**（2026-09-24～25，设计稿 `docs/specs/2026-09-24-hemostasis-design.md`）。
   从 09-10 的 `761b862` 起共 82 个提交：66 笔步骤（其中 22 笔是审查遗留的补修，3 笔是对外文档）加 16 次合流。
   - **W1a 伤数据**：file_edit 不再被 `$` 改坏文件；MCP 配置读坏拒写、外部修改不被覆盖、编辑不再丢字段；技能 zip 有上限；
@@ -27,11 +28,14 @@
      → `e2e:m5`、`verify:release` → 设两把 key 跑 `smoke:release` → 安装版与便携版手动冒烟
      → CHANGELOG「待发布」改日期 → 建 Release `v0.3.0`（非 draft、非 pre-release）传四件
      → 下载回来再跑 `verify:release` → 新版里「现在检查」显示「已是最新」。
-- **2026-09-26 追加（DeepSeek Harness 桌面端对照，未改代码，等用户拍板）**：`docs/research/2026-09-26-dsh-desktop.md`。
-  - 建议打包前先合一个小补丁（§1 U1–U4）：更新文案如实；更新失败写进按天日志；「重启并安装」对话框说清会打开安装向导；AUMID 一行。
-    理由：0.3.0 → 0.3.1 的第一次自动更新由 0.3.0 装机的代码执行。
-  - RELEASE.md 补发版前核对（§2 A–I）：覆盖运行中的 0.1.1、e2e:m5 会卸掉本机已装版本、更新交接演练、只杀主进程、任务栏固定等。
-  - Electron 38 → 当时受支持的大版本，排 0.3.x，属依赖版本变更，要用户同意（§6-3）。
+- **2026-09-26 追加（DeepSeek Harness 桌面端对照）**：`docs/research/2026-09-26-dsh-desktop.md`。
+  - 报告 §1 的打包前四处，用户答「按照你的意思，先把打包前四处代码修看看」，已做并推送（主会话直接做，W3-upd 走了独立审查与 Linux 实拍）：
+    - W3-upd `eb70690`：下载完成框说清会打开安装向导、关掉不会自动装；关于页与托盘回执不再说「重启后生效」；更新过程写进按天日志；
+    - W3-aumid `ee53bda`：打包后的 Windows 版在出现任何窗口之前设 AppUserModelID 为 appId；
+    - W3-updb `b893f6e`：实拍发现再查时回执说「正在后台下载」、追出下载失败会记成主进程崩溃，一并修；并入审查建议修
+      （electron-updater 自己的记录进日志、出错原文带错误码并截掉 feed XML、「联网时」再查），RELEASE §3 补「任务栏固定」「更新交接演练」两条真机核对。
+  - 报告 §2 其余的发版前核对（覆盖运行中的 0.1.1、e2e:m5 会卸掉本机已装版本、只杀主进程、清空 dist、版本纪律、2FA 等）还没写进 RELEASE.md，待用户点头。
+  - Electron 38 → 当时受支持的大版本，排 0.3.x，属依赖版本变更，要用户同意（报告 §6-3），未答。
 - **发布现状**（2026-09-25 查 GitHub）：源码仓 Releases 只有 v0.1.1；`lincheuk/deskminis-releases` 搜不到，按还没建处理。
 - **之后**：W4a 办公内容包（0.3.1）→ W4b–W5 provider 正确性与上下文管线（0.4.0）→ W6–W7 运行时韧性与人在回路（0.5.0）
   → W8–W9 cowork 结构与打磨（0.6.0）。OpenCode V2 研读与四家对比的 9 项，用户 2026-09-25 答复「全默認」，已写进路线详案（§6）。
@@ -291,6 +295,9 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W2a-8 | 按会话排除的工具执行侧也拒绝：关掉记忆的会话里，模型照着历史再叫 `memory_write` / `memory_get` 不再生效（以前只是不列给模型） | `482b1b0` | main（主会话直接做，没走独立审查） | W2b-11c 实现者申报 |
 | W1b-5e | W1b-5d 审查 nits 收口：守卫补「等回收排在等 run 收尾之后」、`killTree` 挂不上监听也不拒绝、注释写全、`crash-log-fork` 不再在应用目录留管道套接字（连同 W3-smokec，全量测试不再留） | `7ffc7d5` | main（主会话直接做，没走独立审查） | W1b-5d 审查 |
 | W1a-7c | W1a-7b 三审必修（只补测试）：单个裸条目认不出时整份按 `default` 写回、`mcpServers` 写成数组时按条目写回，各一例，审查变异 R1、Y5 证明变红 | `6b6688e` | main（主会话直接做，没走独立审查） | W1a-7b 三审 |
+| W3-upd（09-26） | 更新交接说实话：下载完成框抽成纯函数 `downloadedDialog`，说清会打开安装向导、关掉不会自动装；关于页与托盘回执不再说「重启后生效」；更新过程写进按天日志（每行 `[update]`） | `eb70690` | main（主会话直接做；独立审查无必修，Linux + xvfb 真 electron-updater 实拍七个场景成立） | DSH 对照报告 §1 U1–U3 |
+| W3-aumid（09-26） | 打包后的 Windows 版在出现任何窗口之前 `setAppUserModelId('com.deskminis.app')`，与 NSIS 写进快捷方式的 AUMID 一致；判定在 `src/main/app-identity.ts` | `ee53bda` | main（主会话直接做） | DSH 对照报告 §1 U4 |
+| W3-updb（09-26） | checkUpdates 接住自动下载的 promise：再查时回执与关于页说「已下载」，下载失败不再成为主进程未处理拒绝（旧问题，会被记成主进程崩溃）；electron-updater 自己的记录进日志；出错原文带错误码、截掉 feed XML；「联网时」再查；RELEASE §3 补两条真机核对 | `b893f6e` | main（主会话直接做；Linux + xvfb 真 electron-updater 实拍复核 68 项通过，剧本 `driver/hemostasis/W3-updb-live.mjs`） | W3-upd 实拍与独立审查 |
 
 ### 4.6 合流提交
 
@@ -323,8 +330,9 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 
 ### 4.8 当前状态
 
-- main `35aab54`：249 测试文件 / 3594 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
-- 与 09-10 的 `761b862` 比：82 个提交，223 个文件，+32844 / −865 行；测试文件 170 → 249（新增 79 个，另有 6 个测试帮手）。
+- main `b893f6e`：253 测试文件 / 3633 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
+  （止血波收官时是 `35aab54`：249 / 3594；之后 09-26 的 W3-upd、W3-aumid、W3-updb 三步加了 4 个测试文件、39 例。）
+- 与 09-10 的 `761b862` 比：85 个提交，228 个文件，+33611 / −879 行；测试文件 170 → 253。
 - 版本 0.3.0；user_version 11；dependencies / devDependencies 零改动（scripts 加了 `verify:release`；链 S 加 `smoke:release`）；
   `package.json` 与锁根的 license 改为 Apache-2.0。
 
@@ -435,8 +443,8 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 3. ~~本轮剧本入册~~ 已做：17 个剧本与步骤工作流在 `docs/handoff/driver/hemostasis/`（docs `272e84c` 与交接提交），
    两份 driver README 补了 userData 在 `<DATA_DIR>/electron`、同一数据根同时只能开一个应用、打包形态单实例锁不随数据根分开。
 4. ~~lifecycle.md 前提订正~~ 已做：事实清单「渲染端没有 window.open」句后加了 2026-09-25 订正（docs `272e84c`）。
-5. **（2026-09-26 追加，待用户拍板）DSH 桌面端对照报告 §6**：打包前合一个小补丁（U1–U4，含测试约半天），
-   RELEASE.md 同步补 §2 的发版前核对 A–I。用户如已在打包，可以不合、0.3.1 再修，代价见报告 §6-1。
+5. ~~DSH 桌面端对照报告 §6-1 打包前的小补丁~~ 已做：W3-upd `eb70690`、W3-aumid `ee53bda`、W3-updb `b893f6e`（见 §4.5）。
+   报告 §2 的发版前核对里，只有「任务栏固定」「更新交接演练」两条随 W3-updb 写进了 RELEASE §3，其余待用户点头。
 
 **用户在 Windows 上做**（设计稿 §5；RELEASE.md §0 九步清单）：
 1. 在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`，放 README、LICENSE、THIRD-PARTY-NOTICES、CHANGELOG 四个文件。
@@ -444,7 +452,7 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 3. 打包验收：`npm run e2e:m5`（**必须重跑**，R 波之后的结论全部过期）、`npm run verify:release`，全 PASS。
 4. 发版冒烟：设 `ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY` 后 `npm run smoke:release`，没有 FAIL
    （Fable 5.1 / Opus 5.5 多轮工具调用加 memory_write、DeepSeek V4 多轮工具调用、`C:\Program Files\…` 的 MCP 试连、`ping -t` 停止后无残留）。
-5. 手动冒烟（RELEASE.md §3）：安装版与便携版各一遍。顺带补看只有真机才看得到的（§8 D）。
+5. 手动冒烟（RELEASE.md §3）：安装版与便携版各一遍，含 2026-09-26 新加的「任务栏固定」与「更新交接演练」。顺带补看只有真机才看得到的（§8 D）。
 6. 根 `CHANGELOG.md` 的「0.3.0 — 待发布」改成发布当天的日期，提交到源码仓。
 7. 在公开仓库建 Release `v0.3.0`（不能是 draft、不能勾 pre-release），传 `Setup.exe`、`Setup.exe.blockmap`、`portable.exe`、`latest.yml` 四件。
 8. 把四件下载回空目录，`npm run verify:release -- --dist <目录>`（第 7、8 项 SKIP 属正常）。
@@ -612,6 +620,9 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
   没法在 Linux 模拟，要等真机的 `npm test`（W2b-6 留给主会话）。
 - NSIS 的真实下载、校验不符；打包版菜单下输入框的 Ctrl+C / Ctrl+V（W2b-9 偏差 6、W2b-6b 偏差 6）。
 - 路线 W3 列的真机手测：杀进程树、双击启动两次只剩一个实例、DB_NEWER 提示；另记录同名 exe 劫持与 junction 逃逸能否复现（修复在 W6d）。
+- 更新交接（W3-upd / W3-updb，RELEASE §3「更新交接演练」）：不带参数的 `quitAndInstall()` 走的非静默安装向导实际长什么样；
+  主窗口藏在托盘时，挂在它上面的下载完成框看不看得见；Windows 上 NsisUpdater 再查时是否同样几毫秒内发 update-downloaded。
+- 任务栏（W3-aumid，RELEASE §3「任务栏固定」）：固定项与运行中的窗口是否同一个按钮；Electron 不设 AUMID 时的缺省行为（报告里凭记忆推断，未核实）。
 
 ### E. 仍有效的旧账
 
