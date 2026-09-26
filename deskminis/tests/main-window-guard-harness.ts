@@ -125,6 +125,9 @@ export const h = {
   windows: [] as unknown[],
   /** 打开时 BrowserWindow.getAllWindows() 交出 h.windows；缺省关，一直按「没有窗口」交——别的用例按这个走，开了会改变它们的走向 */
   listWindows: false,
+  /** app.setAppUserModelId 每次收到的实参（W3-aumid：只有打包后的 Windows 版才设。桩上必须有这个方法——
+   *  在 Windows 上跑 npm test 时，打包形态的接线测试会真的走到它，桩上没有就在 import 主进程时 TypeError） */
+  appUserModelIds: [] as string[],
 };
 
 export function fakeElectron(): Record<string, unknown> {
@@ -196,6 +199,7 @@ export function fakeElectron(): Record<string, unknown> {
       // 取值时现读：主进程模块顶层与 whenReady 里各读一次，bootMain 在 import 之前按 opts.isPackaged 设好
       get isPackaged(): boolean { return h.isPackaged; },
       setPath: () => {}, requestSingleInstanceLock: () => true, relaunch: () => {}, exit: () => {},
+      setAppUserModelId: (id: string) => { h.appUserModelIds.push(id); },
     },
     ipcMain: { handle: () => {} },
     BrowserWindow: FakeBrowserWindow,

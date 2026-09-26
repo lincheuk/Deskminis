@@ -11,6 +11,7 @@ import { TailBuffer, STDERR_TAIL_BYTES, LineSplitter } from './child-output';
 import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, type StopOutcome } from './minisd-stop';
 import { relaunchOptions, INSTALL_QUIT_FALLBACK_MS } from './relaunch';
 import { PACKAGED_MENU_TEMPLATE } from './app-menu';
+import { applyAppUserModelId } from './app-identity';
 import { appBaseUrl, externalUrlOf, isAppUrl, permissionAllowed } from './nav-guard';
 import { DailyLog } from '../minisd/diag/daily-log';
 import { crashLogPath, recordCrash } from '../minisd/diag/crash-log';
@@ -32,6 +33,11 @@ if (dirs.userData) app.setPath('userData', dirs.userData);
 // 也不设 null：那样缩放（Ctrl 加 + / - / 0）与 F11 全屏一起没了，应用里没有别的缩放入口。只留编辑与视图两组，见 ./app-menu。
 // 放在模块顶层、ready 之前：Electron 在 ready 之前装默认菜单，先设了它就不装。开发态保留默认菜单（要用重载与开发者工具）。
 if (app.isPackaged) Menu.setApplicationMenu(Menu.buildFromTemplate(PACKAGED_MENU_TEMPLATE));
+
+// W3-aumid 打包后的 Windows 版把进程的 AppUserModelID 设成 appId（com.deskminis.app）：NSIS 写进开始菜单与桌面快捷方式的就是它。
+// 以前没设，Electron 自己生成一个，任务栏的固定项与运行中的窗口可能分成两个按钮（推断，RELEASE 发版前核对里真机确认）。
+// 放在模块顶层、单实例锁与一切窗口和托盘之前：Windows 要求进程出现任何界面之前设好。开发态与别的平台不设，判定见 ./app-identity。
+applyAppUserModelId(app, process.platform);
 
 let minisd: UtilityProcess | undefined;
 // minisd stderr 的末尾 4KB：启动失败时附进错误框（真正的原因在这里，不在主进程自己的堆栈里）。

@@ -120,3 +120,11 @@ describe('打包版换掉默认菜单', () => {
     expect(iMenu, '去菜单要在建窗口之前').toBeLessThan(iWin);
   });
 });
+
+describe('W3-aumid：打包版的 AppUserModelID', () => {
+  // 只有 Windows 上才设（app.setAppUserModelId 是 Windows 专有的方法）；在 Windows 上跑 npm test 时这一例钉住「真的设了、设的是 appId」，
+  // Linux 上钉住「不在没有这个方法的平台上调它」。判定本身三种情形都在 tests/app-identity.test.ts
+  it('win32 上在 import 期恰好设一次 com.deskminis.app，别的平台一次也不设', () => {
+    expect(h.appUserModelIds).toEqual(process.platform === 'win32' ? ['com.deskminis.app'] : []);
+  });
+});

@@ -121,3 +121,10 @@ describe('dev 形态：应用菜单保持 Electron 的默认菜单', () => {
     expect(h.calls).not.toContain('Menu.setApplicationMenu');
   });
 });
+
+describe('W3-aumid：开发态不设 AppUserModelID', () => {
+  // 开发态用的是 node_modules 里的 electron，设成正式版的身份会跟装好的正式版挤进同一个任务栏按钮（Windows 上跑 npm test 时这一例才有分量）
+  it('未打包：一次也不设', () => {
+    expect(h.appUserModelIds).toEqual([]);
+  });
+});
