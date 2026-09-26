@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolveAppDirs } from './app-dirs';
 import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
-import { describeUpdateError, downloadedDialog, isPortableBuild, manualCheckDialog, type UpdateState } from './update-status';
+import { describeUpdateError, downloadedDialog, isPortableBuild, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog, type UpdateState } from './update-status';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES, LineSplitter } from './child-output';
 import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, type StopOutcome } from './minisd-stop';
@@ -297,15 +297,29 @@ function logUpdate(text: string): void {
   minisdLog.append(text.split(/\r?\n/).filter(l => l.trim() !== '').map(l => `[update] ${l}`).join('\n'));
 }
 
+/** electron-updater 的日志内容转成文字（它交来的多半是字符串；万一是转不成文字的对象，也不抛回 electron-updater） */
+function updaterLogText(m: unknown): string {
+  try { return String(m); } catch { return '（转不成文字）'; }
+}
+
 function setupUpdater(): void {
   // 下载完**不自动装**：Agent 应用可能正跑着长任务，自动重启会把用户的活干掉一半。
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
+  // W3-updb：electron-updater 自己的记录也写进按天日志（它缺省只写 console，打包后没人看得见）。交接那一段最要紧的几行只有它记：
+  // 安装参数、启动安装程序的路径与实参、启动失败的输出、缓存命中还是重下。三级都接：error 级除了回显 'error' 事件
+  // （与下面处理器写的原文重复一份，可以接受），还有启动安装程序失败时的输出与差分下载退回整包，这些只走它。
+  autoUpdater.logger = {
+    info: (m?: unknown) => logUpdate(`electron-updater: ${updaterLogText(m)}`),
+    warn: (m?: unknown) => logUpdate(`electron-updater 警告：${updaterLogText(m)}`),
+    error: (m?: unknown) => logUpdate(`electron-updater 报错：${updaterLogText(m)}`),
+  };
 
   autoUpdater.on('checking-for-update', () => { updateState = { status: 'checking' }; });
   autoUpdater.on('update-available', (i) => {
     updateState = { status: 'available', version: i?.version };
-    logUpdate(`发现新版本 ${i?.version ?? '（版本号未知）'}，开始后台下载`);
+    // 不一律说「开始下载」（W3-updb）：已经下载过的只核对缓存，不重下
+    logUpdate(`发现新版本 ${i?.version ?? '（版本号未知）'}：后台下载安装包（已经下载过的只核对一遍）`);
   });
   autoUpdater.on('update-not-available', (i) => {
     updateState = { status: 'latest' };
@@ -330,10 +344,11 @@ function setupUpdater(): void {
   // 检查失败是常态（离线、公司网、GitHub 限流、发布仓库还没发过版）——
   // 静默记录即可，绝不弹窗打扰。更新是便利功能，不是必需路径（托盘手动检查的回执另走 checkUpdatesFromTray）。
   // 状态里只放一句中文（W2b-9）：原文带 HttpError 的响应头和内层堆栈，以前原样漏到设置→关于的状态行上。
-  // 原文留给排查：写 stderr（开发时看得见），也逐行写进按天日志（W3-upd，打包后只有它还在）。
+  // 原文留给排查：写 stderr（开发时看得见），也逐行写进按天日志（W3-upd，打包后只有它还在）；
+  // 带错误码、截掉整段 feed XML、怪对象不抛，见 updateErrorForLog（W3-updb）。
   // 检查失败时 electron-updater 既发这个事件、又让 checkForUpdates reject，原文只在这里写一次。
   autoUpdater.on('error', (e) => {
-    const raw = String(e?.stack ?? e);
+    const raw = updateErrorForLog(e);
     process.stderr.write('[update] ' + raw + '\n');
     logUpdate(raw);
     updateState = { status: 'error', error: describeUpdateError(e) };
@@ -358,7 +373,20 @@ async function checkUpdates(manual: boolean): Promise<UpdateState> {
     updateState = { status: 'disabled' };
     return updateState;
   }
-  try { await autoUpdater.checkForUpdates(); } catch (e) { updateState = { status: 'error', error: describeUpdateError(e) }; }
+  try {
+    const r = await autoUpdater.checkForUpdates();
+    // W3-updb：自动下载另走 downloadPromise，不论自动还是手动检查都接住它。下载失败时 electron-updater 先发 'error'
+    // （上面的处理器已经记日志、置状态），再让它 reject；没人接就成了主进程的未处理拒绝，W2b-7 的钩子会把它当主进程崩溃
+    // 记进 crashes.json——那里只留最近 5 条，会把真崩溃挤掉。
+    const settled = r?.downloadPromise?.then(() => undefined, () => undefined);
+    // 手动检查再等它最多 MANUAL_CHECK_SETTLE_MS：已经下载过的只核对缓存，核对完才发 update-downloaded，
+    // 等到了，回执与关于页说「已下载」，与同时弹出的安装提示一致；真在下载的，等满就照常回「正在后台下载」。
+    if (manual && settled) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([settled, new Promise<void>(resolve => { timer = setTimeout(resolve, MANUAL_CHECK_SETTLE_MS); })]);
+      clearTimeout(timer);
+    }
+  } catch (e) { updateState = { status: 'error', error: describeUpdateError(e) }; }
   return updateState;
 }
 

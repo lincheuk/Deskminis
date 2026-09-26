@@ -139,21 +139,49 @@ export function isPortableBuild(env: Record<string, string | undefined>): boolea
   return typeof v === 'string' && v !== '';
 }
 
+/** 更新出错时写进 stderr 与按天日志的原文（W3-updb）。与 describeUpdateError 的一句中文分开：这是留给排查的。
+ *  - 错误码接在后面：describeUpdateError 按 code 分类，而 code 不在 e.stack 里，日志里看不到它就对不上界面那句话；
+ *  - GitHubProvider 把 feed 解析阶段的错误包成 INVALID_RELEASE_FEED，消息后面拼着整段 releases.atom（几百行），截掉；
+ *  - 转不成文字的怪对象（无原型的对象，String() 会抛）不抛：这里在 autoUpdater 的 'error' 监听里，抛了会顺着 emit 回到 electron-updater。 */
+export function updateErrorForLog(e: unknown): string {
+  let text: string;
+  try {
+    const stack = (e as { stack?: unknown } | null | undefined)?.stack;
+    text = String(typeof stack === 'string' && stack !== '' ? stack : e);
+  } catch {
+    text = '（错误对象转不成文字）';
+  }
+  const at = text.indexOf(FEED_XML_MARK);
+  if (at >= 0) text = `${text.slice(0, at)}\n（后面是整段 releases.atom，略）`;
+  let code: unknown;
+  try { code = (e as { code?: unknown } | null | undefined)?.code; } catch { code = undefined; }
+  return typeof code === 'string' && code !== '' && !text.includes(code) ? `${text}\n错误码：${code}` : text;
+}
+
+/** 手动检查（托盘「检查更新…」、关于页「现在检查」）在 checkForUpdates() 落定之后，再等自动下载落定的上限（W3-updb）。
+ *  electron-updater 发完 update-available 就让 checkForUpdates() 落定，下载另走 downloadPromise。已经下载过的安装包只核对缓存：
+ *  同一进程里几毫秒（W3-upd 实拍晚 7–16ms），跨启动要把整个安装包重算一遍 sha512，一两秒——核对完才发 update-downloaded。
+ *  不等的话回执与关于页取到的是 available，说「正在后台下载」，同时弹出的安装提示却说「已下载完成」。
+ *  真要从头下载的等满这么久就照常回「正在后台下载」，不把回执拖到下载完。 */
+export const MANUAL_CHECK_SETTLE_MS = 1_500;
+
 /** 下载完成的对话框（W3-upd；主进程 update-downloaded 处理器以主窗口为父弹它）。只提示，装不装由用户点。
  *  以前说「现在重启即可用上新版本；也可以继续用当前版本，下次启动时再装」，两句都不实：
- *  - autoInstallOnAppQuit = false，退出与重启都不会装；下次启动（开着自动检查）也只是再下载核对一遍、再问一次；
+ *  - autoInstallOnAppQuit = false，退出与重启都不会装；下次启动（开着自动检查）只是重新拉一次版本信息、把已下载的安装包核对一遍，再问一次；
  *  - 「重启并安装」调的是不带参数的 quitAndInstall()：electron-updater 6.8.9 不传 /S，NSIS 走完整的安装向导——
  *    安装选项页（为谁安装）不会因为是更新就跳过，完成页要用户点「完成」才打开新版
  *    （据 app-builder-lib 26.15.3 的 multiUserUi.nsh、assistedInstaller.nsh 读码，未上真机；RELEASE 的更新交接演练核对）。
  *  所以说清会打开安装程序、怎么点，以及关掉以后从哪里再装：托盘「检查更新…」再查一次，已下载的安装包核对通过就重新弹出这个框。
+ *  再查一次要先从发布页拉到版本信息，才会去核对已下载的安装包，所以写「联网时」（W3-updb，审查指出离线时安装包在盘上也装不了）。
+ *  「完成」不加引号：安装程序的语言跟随 Windows 显示语言，英文系统上那个按钮是 Finish。
  *  默认焦点与取消都落在「稍后再说」：不在打断性的选项上（Agent 可能正跑着长任务）。 */
 export function downloadedDialog(version: string | undefined): MessageBoxOptions {
   return {
     type: 'info',
     title: '有新版本可用',
     message: version ? `DeskMinis ${version} 已下载完成` : 'DeskMinis 新版本已下载完成',
-    detail: '点「重启并安装」会关闭 DeskMinis、打开安装程序：保持默认选项往下点，最后一页点「完成」就会打开新版。\n'
-      + '也可以先继续用当前版本。关掉 DeskMinis 不会自动安装，之后从托盘「检查更新…」可以再装。',
+    detail: '点「重启并安装」会关闭 DeskMinis、打开安装程序：保持默认选项往下点，最后一页点完成就会打开新版。\n'
+      + '也可以先继续用当前版本。关掉 DeskMinis 不会自动安装，之后联网时从托盘「检查更新…」可以再装。',
     buttons: ['稍后再说', '重启并安装'],
     defaultId: 0,
     cancelId: 0,

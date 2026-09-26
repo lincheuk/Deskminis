@@ -6,7 +6,7 @@
  *
  *  用 tests/main-window-guard-harness.ts 的 electron 桩把 src/main/index.ts 真跑一遍（whenReady 在 worker 里真跑，
  *  数据根是 mkdtemp 临时目录，日志落 <数据根>/logs）。electron-updater 桩记下主进程挂上来的处理器，这里逐个触发：
- *  - update-available、update-not-available：各记一行（发现新版并开始下载；已是最新、发布页上的最新版本号）；
+ *  - update-available、update-not-available：各记一行（发现新版、交给后台下载，下载过的只核对；已是最新、发布页上的最新版本号）；
  *  - error：原文逐行写进日志、每行都带 [update]（堆栈的后几行不带前缀就混进别的行里认不出来），照旧也写 stderr；
  *  - update-downloaded：记一行；以主窗口为父弹 downloadedDialog(版本)，选「稍后再说」什么也不装；
  *  - 点「重启并安装」：先记一行，再请引擎关停，引擎退出之后才 quitAndInstall（顺序本身由 main-shutdown-wiring 的源码守卫钉着，
@@ -55,7 +55,7 @@ function updater(event: string): (...args: unknown[]) => void {
 const UPDATE_LINE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2} \[update\] /;
 
 describe('更新过程写进按天日志', () => {
-  it('update-available：记一行「发现新版本 0.3.1」，说明开始后台下载', () => {
+  it('update-available：记一行「发现新版本 0.3.1」，说明接着后台下载（已经下载过的只核对一遍）', () => {
     const { lines } = during(() => updater('update-available')({ version: '0.3.1' }));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(UPDATE_LINE);
@@ -69,20 +69,25 @@ describe('更新过程写进按天日志', () => {
     expect(lines[0]).toMatch(UPDATE_LINE);
     expect(lines[0]).toContain('已是最新');
     expect(lines[0]).toContain('0.3.0');
+    // 当前版本也在（桩的 app.getVersion() 是 0.0.0-test）：两个都在，才看得出是「已是最新」还是「这一版还没轮到本机」
+    expect(lines[0]).toContain('当前 0.0.0-test');
   });
 
-  it('error：原文逐行写进日志、每行都带 [update]；照旧也写 stderr', () => {
-    const e = new Error('net::ERR_CONNECTION_RESET');
-    e.stack = 'Error: net::ERR_CONNECTION_RESET\n    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:1)\n    at emit (node:events:519:28)';
+  it('error：原文逐行写进日志、每行都带 [update]，空行不写；错误码接在后面；照旧也写 stderr', () => {
+    const e = Object.assign(new Error('net::ERR_CONNECTION_RESET'), { code: 'ERR_NET_TEST' });
+    // 中间夹一个空行（HttpError 的消息里就有）：不能写出一行光秃秃的「[update]」
+    e.stack = 'Error: net::ERR_CONNECTION_RESET\n\n    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:1)\n    at emit (node:events:519:28)';
     const { lines, stderr } = during(() => updater('error')(e));
-    expect(lines).toHaveLength(3);
+    expect(lines).toHaveLength(4);
     for (const l of lines) expect(l).toMatch(UPDATE_LINE);
+    for (const l of lines) expect(l.replace(UPDATE_LINE, '').trim(), l).not.toBe('');
     expect(lines[0]).toContain('net::ERR_CONNECTION_RESET');
     expect(lines[2]).toContain('at emit (node:events:519:28)');
+    expect(lines[3]).toContain('错误码：ERR_NET_TEST');
     expect(stderr).toContain('[update] Error: net::ERR_CONNECTION_RESET');
   });
 
-  it('error 的实参不是 Error（electron-updater 也会交字符串）：照样整句写进去', () => {
+  it('error 的实参不是 Error 也照样整句写进去（防御：不假定 electron-updater 永远交 Error）', () => {
     const { lines } = during(() => updater('error')('ERR_UPDATER_INVALID_UPDATE_INFO: 版本信息缺字段'));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(UPDATE_LINE);
@@ -90,7 +95,34 @@ describe('更新过程写进按天日志', () => {
   });
 });
 
+describe('electron-updater 自己的记录（W3-updb）', () => {
+  it('主进程把 autoUpdater.logger 接到按天日志：info / warn / error 三级都写，每行带 [update] 与来源', () => {
+    const logger = h.autoUpdater?.logger as { info(m: unknown): void; warn(m: unknown): void; error(m: unknown): void } | undefined;
+    expect(logger, '主进程没有设 autoUpdater.logger（它缺省写 console，打包后没人看得见）').toBeDefined();
+    const { lines } = during(() => {
+      logger!.info('Install: isSilent: false, isForceRunAfter: true');
+      logger!.warn('disableWebInstaller is set to false');
+      logger!.error('Cannot download differentially, fallback to full download: Error: x\n    at y (z.js:1:1)');
+    });
+    expect(lines).toHaveLength(4);
+    for (const l of lines) expect(l).toMatch(UPDATE_LINE);
+    expect(lines[0]).toContain('electron-updater: Install: isSilent: false, isForceRunAfter: true');
+    expect(lines[1]).toContain('electron-updater 警告：disableWebInstaller is set to false');
+    expect(lines[2]).toContain('electron-updater 报错：Cannot download differentially');
+    expect(lines[3]).toContain('at y (z.js:1:1)');
+  });
+});
+
 describe('下载完成：弹框如实，点了「重启并安装」才装', () => {
+  it('没有窗口可挂（极端情形）：照样记「已下载完成」，不弹框', () => {
+    h.listWindows = false;
+    const boxes = h.messageBoxes.length;
+    const { lines } = during(() => updater('update-downloaded')({ version: '0.3.1' }));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('0.3.1 已下载完成');
+    expect(h.messageBoxes.length).toBe(boxes);
+  });
+
   it('update-downloaded：记一行；以主窗口为父弹 downloadedDialog(版本)；选「稍后再说」什么也不装', async () => {
     h.listWindows = true;
     h.messageBoxResponse = 0;
@@ -101,10 +133,12 @@ describe('下载完成：弹框如实，点了「重启并安装」才装', () =
     expect(lines[0]).toContain('0.3.1 已下载完成');
     expect(h.windows.length, '主进程没有建主窗口').toBeGreaterThan(0);
     expect(h.messageBoxes.slice(boxes)).toEqual([[h.windows[0], downloadedDialog('0.3.1')]]);
-    // 对话框的 .then 在微任务里跑：让它跑完，再看有没有装、有没有请引擎关停
+    // 对话框的 .then 在微任务里跑：让它跑完，再看有没有装、有没有请引擎关停，日志里也不能记成「点了重启并安装」
+    const before = dailyLog().length;
     await new Promise(r => setTimeout(r, 20));
     expect(h.quitAndInstalls).toBe(0);
     expect(h.child.posted).toEqual([]);
+    expect(dailyLog().slice(before)).not.toContain('「重启并安装」');
   });
 
   it('点「重启并安装」：先记日志，再请引擎关停；引擎退出之前不装，退出之后才 quitAndInstall', async () => {

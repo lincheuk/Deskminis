@@ -147,6 +147,21 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - [ ] 便携版的「设置 → 关于 → 现在检查」显示「便携版不自动更新，请到发布页下载新版」，且不下载任何东西
       （靠便携启动器设的 `PORTABLE_EXECUTABLE_DIR` 认出便携版，这一条只能在真机上确认）。
 - [ ] 托盘「检查更新…」弹出结果回执（已是最新 / 发现新版正在下载 / 失败原因），关掉即可，不挡主窗口。
+- [ ] **任务栏固定**（W3-aumid，云端没法验）：从开始菜单启动 → 右键任务栏按钮「固定到任务栏」→ 从托盘「退出」→ 点固定项启动。
+      任务栏上只能有一个 DeskMinis 按钮（固定项就是运行中的那个），不能是一个固定项加一个运行中的按钮。
+- [ ] **更新交接演练**（W3-upd，发版前做一次：0.3.0 → 0.3.1 这第一次自动更新由 0.3.0 装机的代码执行，发出去就改不了）：
+      1. 装好这一版，把安装目录 `resources\app-update.yml` 改成 `provider: generic` 与 `url: http://127.0.0.1:8000/`
+         （`updaterCacheDirName` 那行留着）。
+      2. 在 `deskminis/` 下另打一个**绝不上传**的高一版：
+         `npx electron-vite build && npx electron-builder --publish never -c.extraMetadata.version=0.3.1-rehearsal.1 -c.detectUpdateChannel=false -c.directories.output=dist-rehearsal`
+         （关掉 `detectUpdateChannel` 才会产出 `latest.yml`），在 `dist-rehearsal` 里起个静态服务：`python -m http.server 8000`。
+      3. 重启 DeskMinis，等「有新版本可用」的框：说明写着会打开安装程序。**主窗口藏在托盘里时这个框看不看得见**，记下来。
+      4. 点「稍后再说」，再从托盘点「检查更新…」：安装提示重新弹出，回执说「已下载完成」；关于页「现在检查」同样。
+      5. 点「重启并安装」：DeskMinis 关闭、安装程序打开；保持默认选项往下点，最后一页点完成——打开的是演练版
+         （关于页版本号 0.3.1-rehearsal.1），会话与设置都在。向导实际的样子与对话框说的对不上，发版前改文案。
+      6. 看当天的按天日志：有 `[update]` 的发现新版、下载完成、点了「重启并安装」，以及 `electron-updater:` 开头的
+         `Install: isSilent: false …` 与启动安装程序那几行。
+      7. 卸载演练版，重新装回正式的这一版（数据保留，`app-update.yml` 随安装恢复）；`dist-rehearsal` 删掉，别传上去。
 - [ ] 断网后点「现在检查」：状态行是「更新失败 · 连不上更新服务器（离线或网络受限）」这样一句中文，
       没有英文堆栈和响应头。
 - [ ] 安装目录 `resources\` 下有 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`（W1a-1 起随包；
@@ -208,8 +223,9 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - **0.1.1 的用户收不到自动更新**：0.1.1 写死的是私有源码仓，检查永远 404，需要手动下载安装一次 0.3.0，之后才走新源。
 - 公开仓库建好、还没发第一个正式 Release 时，检查会显示「发布页上还没有可用的版本」——这是预期，不是坏了。
   已经发过版却也显示这句，先看最新那个 Release 是不是误勾了 pre-release、是不是还停在 draft、`latest.yml` 有没有传上去。
-- 失败原因由主进程译成一句中文（`src/main/update-status.ts` 的 `describeUpdateError`）；原始错误（含响应头与堆栈）
-  只写进主进程的 stderr。
+- 失败原因由主进程译成一句中文（`src/main/update-status.ts` 的 `describeUpdateError`）；原始错误（含响应头、堆栈与错误码）
+  写进主进程的 stderr 与按天日志 `%LOCALAPPDATA%\DeskMinis\logs\minisd-<日期>.log`，每行带 `[update]`。
+  更新的过程（发现新版、已是最新、下载完成、点了「重启并安装」）与 electron-updater 自己的记录（安装参数、启动安装程序）也在这里。
 - 便携版不参与自动更新：主进程认出便携版（环境变量 `PORTABLE_EXECUTABLE_DIR`）就不检查、不下载，
   状态显示「便携版不自动更新，请到发布页下载新版」。
 - 下载完成后只提示，不自动安装（`autoInstallOnAppQuit = false`），由用户选择何时重启。

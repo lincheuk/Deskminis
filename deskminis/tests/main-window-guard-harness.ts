@@ -24,6 +24,9 @@
  *  W3-upd 的接线测试 tests/update-handoff-wiring.test.ts 也用它：electron-updater 桩把 autoUpdater.on 的处理器记进 h.updaterOn、
  *  quitAndInstall 的调用次数记进 h.quitAndInstalls；dialog.showMessageBox 的实参记进 h.messageBoxes，回的按钮下标取 h.messageBoxResponse；
  *  建过的窗口记进 h.windows，h.listWindows 打开时 BrowserWindow.getAllWindows() 才交出它们（缺省关，别的用例的走向不变）。
+ *  W3-updb 的 tests/update-recheck-wiring.test.ts 再加三样：ipcMain.handle 的处理器记进 h.ipcHandlers（按通道名直接调），
+ *  Menu.buildFromTemplate 收到的模板记进 h.menuTemplates（托盘菜单也在里面，取它的 click 走托盘那条路），
+ *  autoUpdater.checkForUpdates 改调 h.checkForUpdates（缺省回 null，与以前一样；测试换成自己的实现，模拟 electron-updater 发事件、交回 downloadPromise）。
  *
  *  用法：vi.mock 会被提到文件最前面，工厂里不能引用文件里的变量，所以在工厂里 import 本模块——
  *    vi.mock('electron', async () => (await import('./main-window-guard-harness')).fakeElectron());
@@ -128,6 +131,14 @@ export const h = {
   /** app.setAppUserModelId 每次收到的实参（W3-aumid：只有打包后的 Windows 版才设。桩上必须有这个方法——
    *  在 Windows 上跑 npm test 时，打包形态的接线测试会真的走到它，桩上没有就在 import 主进程时 TypeError） */
   appUserModelIds: [] as string[],
+  /** ipcMain.handle 注册的处理器，按通道名（W3-updb：直接调 update:check） */
+  ipcHandlers: new Map<string, AnyListener>(),
+  /** Menu.buildFromTemplate 每次收到的模板（W3-updb：托盘菜单也在里面） */
+  menuTemplates: [] as unknown[],
+  /** autoUpdater.checkForUpdates 的实现（W3-updb）：缺省回 null，与以前的桩一样 */
+  checkForUpdates: ((): Promise<unknown> => Promise.resolve(null)) as () => Promise<unknown>,
+  /** 桩的 autoUpdater 对象本身（W3-updb：主进程设进去的 logger 在它上面） */
+  autoUpdater: undefined as Record<string, unknown> | undefined,
 };
 
 export function fakeElectron(): Record<string, unknown> {
@@ -201,7 +212,7 @@ export function fakeElectron(): Record<string, unknown> {
       setPath: () => {}, requestSingleInstanceLock: () => true, relaunch: () => {}, exit: () => {},
       setAppUserModelId: (id: string) => { h.appUserModelIds.push(id); },
     },
-    ipcMain: { handle: () => {} },
+    ipcMain: { handle: (channel: string, fn: AnyListener) => { h.ipcHandlers.set(channel, fn); } },
     BrowserWindow: FakeBrowserWindow,
     dialog: {
       showErrorBox: (title: string, content: string) => { h.onBlockingDialog?.(); h.errorBoxes.push([title, content]); },
@@ -210,7 +221,7 @@ export function fakeElectron(): Record<string, unknown> {
     },
     Menu: {
       // 带回模板本身：打包版设的应用菜单（W2b-6c）要按模板认，不再是 null
-      buildFromTemplate: (template: unknown) => ({ template }),
+      buildFromTemplate: (template: unknown) => { h.menuTemplates.push(template); return { template }; },
       setApplicationMenu: (menu: unknown) => { h.calls.push('Menu.setApplicationMenu'); h.appMenus.push(menu); },
     },
     nativeImage: { createFromPath: () => ({ isEmpty: () => true }), createEmpty: () => ({}) },
@@ -243,16 +254,14 @@ export function fakeElectron(): Record<string, unknown> {
 }
 
 export function fakeElectronUpdater(): Record<string, unknown> {
-  return {
-    default: {
-      autoUpdater: {
-        on: (event: string, fn: AnyListener) => { h.updaterOn.set(event, [...(h.updaterOn.get(event) ?? []), fn]); },
-        checkForUpdates: () => Promise.resolve(null),
-        quitAndInstall: () => { h.quitAndInstalls++; },
-        autoDownload: true, autoInstallOnAppQuit: false,
-      },
-    },
+  const autoUpdater: Record<string, unknown> = {
+    on: (event: string, fn: AnyListener) => { h.updaterOn.set(event, [...(h.updaterOn.get(event) ?? []), fn]); },
+    checkForUpdates: () => h.checkForUpdates(),
+    quitAndInstall: () => { h.quitAndInstalls++; },
+    autoDownload: true, autoInstallOnAppQuit: false,
   };
+  h.autoUpdater = autoUpdater;
+  return { default: { autoUpdater } };
 }
 
 /** 把 src/main/index.ts 从 import 跑到 whenReady 建好托盘。rendererUrl 是这次的 ELECTRON_RENDERER_URL，

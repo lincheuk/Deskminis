@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { downloadedDialog, manualCheckDialog } from '../src/main/update-status';
+import { downloadedDialog, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog } from '../src/main/update-status';
 import { sfcBlocks } from './sfc-blocks';
 import { stripComments } from './strip-comments';
 
@@ -30,19 +30,22 @@ describe('① downloadedDialog · 下载完成的对话框', () => {
     expect(dlg().message).toContain('0.3.1');
   });
 
-  it('说清点「重启并安装」会关闭 DeskMinis、打开安装程序：保持默认选项，最后一页点「完成」就打开新版', () => {
+  it('说清点「重启并安装」会关闭 DeskMinis、打开安装程序：保持默认选项，最后一页点完成就打开新版', () => {
     const d = dlg();
     expect(d.detail).toContain('「重启并安装」');
     expect(d.detail).toContain('关闭 DeskMinis');
     expect(d.detail).toContain('安装程序');
     expect(d.detail).toContain('默认选项');
-    expect(d.detail).toContain('「完成」');
+    // 「完成」不加引号（W3-updb）：安装程序的语言跟随 Windows 显示语言，英文系统上那个按钮是 Finish
+    expect(d.detail).toContain('点完成');
   });
 
-  it('说清关掉不会自动安装，以及之后从哪里再装（托盘「检查更新…」）', () => {
+  it('说清关掉不会自动安装，以及之后从哪里再装（联网时从托盘「检查更新…」）', () => {
     const d = dlg();
     expect(d.detail).toContain('不会自动安装');
     expect(d.detail).toContain('「检查更新…」');
+    // 再查要先从发布页拉到版本信息，才会去核对已下载的安装包：离线时装不了（W3-updb）
+    expect(d.detail).toContain('联网时');
   });
 
   it('不再许诺「重启即可」「下次启动时再装」「重启后生效」', () => {
@@ -90,6 +93,7 @@ describe('② 关于页 · downloaded 状态的文案', () => {
     expect(downloaded).not.toMatch(FALSE_PROMISE);
     expect(downloaded).toContain('还没安装');
     expect(downloaded).toContain('「现在检查」');
+    expect(downloaded).toContain('联网时');
   });
 });
 
@@ -109,3 +113,74 @@ describe('③ 主进程 · update-downloaded 处理器用 downloadedDialog', () 
     expect(main).not.toMatch(FALSE_PROMISE);
   });
 });
+
+// ── W3-updb（设计稿 §4.1）：checkUpdates 接住自动下载的 downloadPromise。行为在 tests/update-recheck-wiring.test.ts ──
+describe('④ MANUAL_CHECK_SETTLE_MS · 手动检查等下载落定的上限', () => {
+  it('在 1–2 秒之间：缓存核对（同一进程里几毫秒，跨启动要重算 sha512）等得到，真在下载的又不把回执拖太久', () => {
+    expect(MANUAL_CHECK_SETTLE_MS).toBeGreaterThanOrEqual(1_000);
+    expect(MANUAL_CHECK_SETTLE_MS).toBeLessThanOrEqual(2_000);
+  });
+});
+
+describe('⑤ 主进程 · checkUpdates 不论自动还是手动都接住 downloadPromise', () => {
+  const main = stripComments(read('src/main/index.ts'));
+  const at = main.search(/async function checkUpdates\(/);
+  /** 函数体：签名之后第一个「{ 换行」起按花括号配平（返回类型里没有花括号，但照 auto-update.test.ts 的认法写，稳一点） */
+  const body = ((): string => {
+    if (at < 0) return '';
+    const open = at + main.slice(at).search(/\{[ \t]*\n/);
+    let depth = 0;
+    for (let i = open; i < main.length; i++) {
+      if (main[i] === '{') depth++;
+      else if (main[i] === '}' && --depth === 0) return main.slice(open, i + 1);
+    }
+    return '';
+  })();
+
+  it('checkForUpdates() 的结果上挂处理：downloadPromise?.then(成功, 失败)，排在「只有手动才等」那一句之前、不在它里面', () => {
+    expect(body, '找不到 async function checkUpdates(').not.toBe('');
+    const iAttach = body.search(/\.downloadPromise\?\.then\(/);
+    const iManual = body.search(/if \(manual && /);
+    expect(iAttach, '没有给 downloadPromise 挂处理').toBeGreaterThan(-1);
+    expect(iManual, '手动检查要等它落定（if (manual && …)）').toBeGreaterThan(iAttach);
+    // 挂处理的那一句自己不在任何 if 里：它所在的行以 const 起头
+    const line = body.slice(body.lastIndexOf('\n', iAttach) + 1, body.indexOf('\n', iAttach));
+    expect(line).toMatch(/^\s*const \w+ = /);
+  });
+});
+
+describe('⑥ updateErrorForLog · 写进 stderr 与按天日志的出错原文', () => {
+  it('Error：原样用 stack（含首行消息与调用栈）', () => {
+    const e = new Error('net::ERR_CONNECTION_RESET');
+    e.stack = 'Error: net::ERR_CONNECTION_RESET\n    at emit (node:events:519:28)';
+    expect(updateErrorForLog(e)).toBe(e.stack);
+  });
+
+  it('带错误码的接在后面（describeUpdateError 按 code 分类，而 code 不在 stack 里）；stack 里已经有了就不重复', () => {
+    const e = Object.assign(new Error('Cannot find channel "latest.yml" update info'), { code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' });
+    e.stack = 'Error: Cannot find channel "latest.yml" update info\n    at x (y.js:1:1)';
+    expect(updateErrorForLog(e)).toBe(`${e.stack}\n错误码：ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`);
+    const f = Object.assign(new Error('x'), { code: 'ERR_UPDATER_X' });
+    f.stack = 'Error: ERR_UPDATER_X 已写在消息里\n    at x (y.js:1:1)';
+    expect(updateErrorForLog(f)).toBe(f.stack);
+  });
+
+  it('INVALID_RELEASE_FEED 拼在后面的整段 releases.atom 截掉，留一句说明', () => {
+    const e = Object.assign(new Error('x'), { code: 'ERR_UPDATER_INVALID_RELEASE_FEED' });
+    e.stack = 'Error: Cannot parse releases feed: Error: boom,\nXML:\n<?xml version="1.0"?>\n<feed>\n' + '<entry/>\n'.repeat(300) + '</feed>';
+    const out = updateErrorForLog(e);
+    expect(out).toContain('Cannot parse releases feed: Error: boom,');
+    expect(out).not.toContain('<entry/>');
+    expect(out).toContain('releases.atom');
+    expect(out).toContain('错误码：ERR_UPDATER_INVALID_RELEASE_FEED');
+    expect(out.split('\n').length).toBeLessThan(10);
+  });
+
+  it('不是 Error 的：字符串原样；转不成文字的怪对象不抛', () => {
+    expect(updateErrorForLog('ERR_X: 出错了')).toBe('ERR_X: 出错了');
+    expect(() => updateErrorForLog(Object.create(null))).not.toThrow();
+    expect(updateErrorForLog(Object.create(null))).toContain('转不成文字');
+    expect(updateErrorForLog(undefined)).toBe('undefined');
+  });
+});
+
