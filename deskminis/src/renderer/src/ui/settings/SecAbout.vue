@@ -20,7 +20,9 @@ const STATUS_TEXT: Record<string, string> = {
   available: '有新版本',
   latest: '已是最新',
   downloading: '下载中…',
-  downloaded: '新版已下载，重启后生效',
+  // 不说「重启后生效」（W3-upd）：主进程设了 autoInstallOnAppQuit = false，退出与重启都不会装，只有下载完成框里点「重启并安装」才装。
+  // 那个框关掉了，旁边的「现在检查」再查一次：已下载的安装包核对通过，就重新弹出来
+  downloaded: '新版已下载，还没安装：点「现在检查」会重新弹出安装提示',
   // 不写「检查失败」：下载阶段的失败（如安装包校验不符）也落在 error，后面接的原因会说清是哪一步
   error: '更新失败',
   dev: '开发模式：不检查更新',

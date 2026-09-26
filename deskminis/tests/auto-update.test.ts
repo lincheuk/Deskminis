@@ -9,8 +9,8 @@
  *     不拦的话每次 npm run dev 都吐一条错误噪音，久了就没人看错误日志了。
  *  ② **可关，且开关归主进程管**：做检查的是主进程，配置若只存在渲染端的 localStorage，
  *     主进程启动时读不到——开关会形同虚设。
- *  ③ **默认不静默安装**：下载完只提示，重启时才装。Agent 应用可能正跑着长任务，
- *     自动重启会把用户的活干掉一半。 */
+ *  ③ **默认不静默安装**：下载完只提示，点「重启并安装」才装（退出与重启都不会装，W3-upd 起界面也这么说）。
+ *     Agent 应用可能正跑着长任务，自动重启会把用户的活干掉一半。 */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,7 +50,7 @@ describe('自动更新 · 装配（3 例）', () => {
 });
 
 describe('自动更新 · 不打断正在跑的任务（2 例）', () => {
-  it('关掉自动安装：下载完只提示，重启时才装', () => {
+  it('关掉自动安装：下载完只提示，点「重启并安装」才装', () => {
     // Agent 应用可能正跑着长任务，自动重启会把用户的活干掉一半。
     expect(main).toMatch(/autoUpdater\.autoInstallOnAppQuit\s*=|autoInstallOnAppQuit:/);
     expect(main).not.toMatch(/quitAndInstall\(\)\s*;?\s*\n(?![\s\S]{0,200}?(响应|用户|click|confirm))/);
@@ -129,7 +129,7 @@ describe('W2b-9 · 更新源是公开发布仓库', () => {
   });
 });
 
-describe('W2b-9 · 错误态给人话，原文只进 stderr', () => {
+describe('W2b-9 · 错误态给人话，原文不进界面（写 stderr；W3-upd 起也写按天日志，见 update-handoff-wiring）', () => {
   it("autoUpdater.on('error') 的回调经 describeUpdateError( 转成中文，不再把 String(e.message) 塞进状态", () => {
     const cb = balanced(mainCode, mainCode.search(/autoUpdater\.on\(\s*'error'/), '(', ')');
     expect(cb, "找不到 autoUpdater.on('error' 调用").not.toBe('');

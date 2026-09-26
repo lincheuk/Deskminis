@@ -139,6 +139,27 @@ export function isPortableBuild(env: Record<string, string | undefined>): boolea
   return typeof v === 'string' && v !== '';
 }
 
+/** 下载完成的对话框（W3-upd；主进程 update-downloaded 处理器以主窗口为父弹它）。只提示，装不装由用户点。
+ *  以前说「现在重启即可用上新版本；也可以继续用当前版本，下次启动时再装」，两句都不实：
+ *  - autoInstallOnAppQuit = false，退出与重启都不会装；下次启动（开着自动检查）也只是再下载核对一遍、再问一次；
+ *  - 「重启并安装」调的是不带参数的 quitAndInstall()：electron-updater 6.8.9 不传 /S，NSIS 走完整的安装向导——
+ *    安装选项页（为谁安装）不会因为是更新就跳过，完成页要用户点「完成」才打开新版
+ *    （据 app-builder-lib 26.15.3 的 multiUserUi.nsh、assistedInstaller.nsh 读码，未上真机；RELEASE 的更新交接演练核对）。
+ *  所以说清会打开安装程序、怎么点，以及关掉以后从哪里再装：托盘「检查更新…」再查一次，已下载的安装包核对通过就重新弹出这个框。
+ *  默认焦点与取消都落在「稍后再说」：不在打断性的选项上（Agent 可能正跑着长任务）。 */
+export function downloadedDialog(version: string | undefined): MessageBoxOptions {
+  return {
+    type: 'info',
+    title: '有新版本可用',
+    message: version ? `DeskMinis ${version} 已下载完成` : 'DeskMinis 新版本已下载完成',
+    detail: '点「重启并安装」会关闭 DeskMinis、打开安装程序：保持默认选项往下点，最后一页点「完成」就会打开新版。\n'
+      + '也可以先继续用当前版本。关掉 DeskMinis 不会自动安装，之后从托盘「检查更新…」可以再装。',
+    buttons: ['稍后再说', '重启并安装'],
+    defaultId: 0,
+    cancelId: 0,
+  };
+}
+
 /** 托盘「检查更新…」的回执。只有一个「知道了」：这是告诉用户结果，不是要用户做决定——
  *  真要做决定的（下载完是否重启安装）由 update-downloaded 那个对话框负责。 */
 export function manualCheckDialog(s: UpdateState, currentVersion: string): MessageBoxOptions {
@@ -152,7 +173,9 @@ export function manualCheckDialog(s: UpdateState, currentVersion: string): Messa
       return { ...base, type: 'info', message: `发现新版本${v}，正在后台下载`,
         detail: '下载完成后会再提示你选择何时重启安装，期间可以照常使用。' };
     case 'downloaded':
-      return { ...base, type: 'info', message: `新版本${v} 已下载完成`, detail: '重启应用后生效。' };
+      // 不说「重启应用后生效」（W3-upd）：autoInstallOnAppQuit = false，退出与重启都不会装，只有下载完成框里点「重启并安装」才装
+      return { ...base, type: 'info', message: `新版本${v} 已下载完成`,
+        detail: '在「有新版本可用」的提示里点「重启并安装」才会安装，关掉 DeskMinis 不会自动安装。提示关掉了的话，再点一次「检查更新…」会重新弹出。' };
     case 'portable':
       return { ...base, type: 'info', message: '便携版不自动更新',
         detail: `请到发布页下载新版：${RELEASES_PAGE_URL}` };

@@ -21,6 +21,10 @@
  *  为此桩子进程把主进程挂上来的监听记进 h.child，app.on 的处理器记进 h.appOn，showErrorBox 记进 h.errorBoxes，
  *  fork 收到的 opts 记进 h.forks；h.onBlockingDialog 让测试在弹框那一刻看盘上有什么。
  *
+ *  W3-upd 的接线测试 tests/update-handoff-wiring.test.ts 也用它：electron-updater 桩把 autoUpdater.on 的处理器记进 h.updaterOn、
+ *  quitAndInstall 的调用次数记进 h.quitAndInstalls；dialog.showMessageBox 的实参记进 h.messageBoxes，回的按钮下标取 h.messageBoxResponse；
+ *  建过的窗口记进 h.windows，h.listWindows 打开时 BrowserWindow.getAllWindows() 才交出它们（缺省关，别的用例的走向不变）。
+ *
  *  用法：vi.mock 会被提到文件最前面，工厂里不能引用文件里的变量，所以在工厂里 import 本模块——
  *    vi.mock('electron', async () => (await import('./main-window-guard-harness')).fakeElectron());
  *    vi.mock('electron-updater', async () => (await import('./main-window-guard-harness')).fakeElectronUpdater());
@@ -109,6 +113,18 @@ export const h = {
   appMenus: [] as unknown[],
   /** 主窗口的 webContents（权限请求处理器的第一个实参就是它；真 Electron 里发起请求的页面所在的那个） */
   webContents: undefined as { getURL(): string } | undefined,
+  /** autoUpdater.on 注册的处理器，按事件名（W3-upd：逐个触发，看按天日志与对话框） */
+  updaterOn: new Map<string, AnyListener[]>(),
+  /** autoUpdater.quitAndInstall() 的调用次数（W3-upd：「重启并安装」要等引擎停完才调） */
+  quitAndInstalls: 0,
+  /** dialog.showMessageBox 每次收到的实参，原样按位置记（W3-upd：下载完成框挂在哪个窗口上、选项是什么） */
+  messageBoxes: [] as unknown[][],
+  /** dialog.showMessageBox 回的按钮下标（缺省 0：第一个按钮） */
+  messageBoxResponse: 0,
+  /** 建过的 BrowserWindow（构造时记下） */
+  windows: [] as unknown[],
+  /** 打开时 BrowserWindow.getAllWindows() 交出 h.windows；缺省关，一直按「没有窗口」交——别的用例按这个走，开了会改变它们的走向 */
+  listWindows: false,
 };
 
 export function fakeElectron(): Record<string, unknown> {
@@ -126,7 +142,7 @@ export function fakeElectron(): Record<string, unknown> {
   }
   class FakeBrowserWindow {
     webContents = new FakeWebContents();
-    constructor() { h.calls.push('new BrowserWindow'); }
+    constructor() { h.calls.push('new BrowserWindow'); h.windows.push(this); }
     loadURL(url: string): Promise<void> {
       h.calls.push('loadURL');
       h.loads.push({ via: 'loadURL', arg: url, url: new URL(url).href });
@@ -150,7 +166,7 @@ export function fakeElectron(): Record<string, unknown> {
     restore(): void {}
     isVisible(): boolean { return true; }
     isMinimized(): boolean { return false; }
-    static getAllWindows(): unknown[] { return []; }
+    static getAllWindows(): unknown[] { return h.listWindows ? [...h.windows] : []; }
     static getFocusedWindow(): null { return null; }
   }
   // minisd 子进程：一挂 stdout 监听就交出握手行，startMinisdProcess 立即 resolve。
@@ -185,7 +201,7 @@ export function fakeElectron(): Record<string, unknown> {
     BrowserWindow: FakeBrowserWindow,
     dialog: {
       showErrorBox: (title: string, content: string) => { h.onBlockingDialog?.(); h.errorBoxes.push([title, content]); },
-      showMessageBox: () => Promise.resolve({ response: 0 }),
+      showMessageBox: (...args: unknown[]) => { h.messageBoxes.push(args); return Promise.resolve({ response: h.messageBoxResponse }); },
       showMessageBoxSync: () => { h.onBlockingDialog?.(); return 0; },
     },
     Menu: {
@@ -224,8 +240,14 @@ export function fakeElectron(): Record<string, unknown> {
 
 export function fakeElectronUpdater(): Record<string, unknown> {
   return {
-    default: { autoUpdater: { on: () => {}, checkForUpdates: () => Promise.resolve(null), quitAndInstall: () => {},
-      autoDownload: true, autoInstallOnAppQuit: false } },
+    default: {
+      autoUpdater: {
+        on: (event: string, fn: AnyListener) => { h.updaterOn.set(event, [...(h.updaterOn.get(event) ?? []), fn]); },
+        checkForUpdates: () => Promise.resolve(null),
+        quitAndInstall: () => { h.quitAndInstalls++; },
+        autoDownload: true, autoInstallOnAppQuit: false,
+      },
+    },
   };
 }
 

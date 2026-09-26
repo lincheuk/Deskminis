@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolveAppDirs } from './app-dirs';
 import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
-import { describeUpdateError, isPortableBuild, manualCheckDialog, type UpdateState } from './update-status';
+import { describeUpdateError, downloadedDialog, isPortableBuild, manualCheckDialog, type UpdateState } from './update-status';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES, LineSplitter } from './child-output';
 import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, type StopOutcome } from './minisd-stop';
@@ -284,42 +284,52 @@ function writeUpdatePrefs(p: { autoCheck: boolean }): void {
 /** 最近一次检查结果，供渲染端显示（不做全局状态机，够用即可）。 */
 let updateState: UpdateState = { status: 'idle' };
 
+/** 更新过程写进按天日志（W3-upd）：每行带 [update]，与 [main]、[minisd:err] 并列好找。多行原文（堆栈）逐行加前缀，
+ *  不加的话堆栈的后几行混进别的行里认不出来；空行不写。打包后的 GUI 里 stderr 没人看，
+ *  0.3.0 → 0.3.1 的第一次自动更新由 0.3.0 装机的这段代码执行，那次出了问题，能查的只有这里。 */
+function logUpdate(text: string): void {
+  minisdLog.append(text.split(/\r?\n/).filter(l => l.trim() !== '').map(l => `[update] ${l}`).join('\n'));
+}
+
 function setupUpdater(): void {
   // 下载完**不自动装**：Agent 应用可能正跑着长任务，自动重启会把用户的活干掉一半。
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on('checking-for-update', () => { updateState = { status: 'checking' }; });
-  autoUpdater.on('update-available', (i) => { updateState = { status: 'available', version: i?.version }; });
-  autoUpdater.on('update-not-available', () => { updateState = { status: 'latest' }; });
+  autoUpdater.on('update-available', (i) => {
+    updateState = { status: 'available', version: i?.version };
+    logUpdate(`发现新版本 ${i?.version ?? '（版本号未知）'}，开始后台下载`);
+  });
+  autoUpdater.on('update-not-available', (i) => {
+    updateState = { status: 'latest' };
+    // 带上发布页上的最新版本号：用户说「怎么一直没更新」时，看得出它查过、查到的是什么
+    logUpdate(`已是最新：发布页上的最新版本是 ${i?.version ?? '（未知）'}，当前 ${app.getVersion()}`);
+  });
   autoUpdater.on('download-progress', () => { updateState = { status: 'downloading' }; });
   autoUpdater.on('update-downloaded', (i) => {
     updateState = { status: 'downloaded', version: i?.version };
+    logUpdate(`新版本 ${i?.version ?? '（版本号未知）'} 已下载完成，等用户选择何时安装`);
     const w = BrowserWindow.getAllWindows()[0];
     if (!w) return;
-    // 只提示，装不装由用户点。dialog 是模态但不强制——取消即继续用当前版本。
+    // 只提示，装不装由用户点。dialog 是模态但不强制——取消即继续用当前版本。说明文字怎么写、为什么这么写见 downloadedDialog（W3-upd）。
     // 点「重启并安装」（W1b-5）：先停 minisd 再装。quitAndInstall 同步 spawn 安装器、下一拍才 app.quit()，
     // 不先停的话安装器起来时 minisd 还开着库、还挂着 MCP 子进程（NSIS 会连带硬杀同名进程）。
     // 停完 quitGate.markStopped()，quitAndInstall 触发的 before-quit 直接放行。
     // 安装器没起来时（electron-updater 的 install() 返回 false 就不调 app.quit）引擎已经停了、窗口还开着，什么也做不了：
     // 3 秒后还在就自己 app.quit()（W2b-3 · 设计稿 §4.1）；已经 markStopped，这次 before-quit 同样直接放行。
     // quitAndInstall 调用、兜底与收尾的右花括号留在同一行：auto-update 守卫的负向正则认「调用后紧跟换行」。
-    void dialog.showMessageBox(w, {
-      type: 'info',
-      title: '有新版本可用',
-      message: `DeskMinis ${i?.version ?? ''} 已下载完成`,
-      detail: '现在重启即可用上新版本；也可以继续用当前版本，下次启动时再装。',
-      buttons: ['稍后再说', '重启并安装'],
-      defaultId: 0,          // 默认焦点**不在**破坏性/打断性选项上
-      cancelId: 0,
-    }).then(async r => { if (r.response === 1) { quitting = true; await stopMinisdGracefully(MINISD_STOP_TIMEOUT_MS); quitGate.markStopped(); autoUpdater.quitAndInstall(); setTimeout(() => app.quit(), INSTALL_QUIT_FALLBACK_MS); } });
+    void dialog.showMessageBox(w, downloadedDialog(i?.version)).then(async r => { if (r.response === 1) { quitting = true; logUpdate('用户点了「重启并安装」：先停引擎，再交给安装程序'); await stopMinisdGracefully(MINISD_STOP_TIMEOUT_MS); quitGate.markStopped(); autoUpdater.quitAndInstall(); setTimeout(() => app.quit(), INSTALL_QUIT_FALLBACK_MS); } });
   });
   // 检查失败是常态（离线、公司网、GitHub 限流、发布仓库还没发过版）——
   // 静默记录即可，绝不弹窗打扰。更新是便利功能，不是必需路径（托盘手动检查的回执另走 checkUpdatesFromTray）。
   // 状态里只放一句中文（W2b-9）：原文带 HttpError 的响应头和内层堆栈，以前原样漏到设置→关于的状态行上。
-  // 原文写 stderr 留给排查；检查失败时 electron-updater 既发这个事件、又让 checkForUpdates reject，原文只在这里写一次。
+  // 原文留给排查：写 stderr（开发时看得见），也逐行写进按天日志（W3-upd，打包后只有它还在）。
+  // 检查失败时 electron-updater 既发这个事件、又让 checkForUpdates reject，原文只在这里写一次。
   autoUpdater.on('error', (e) => {
-    process.stderr.write('[update] ' + String(e?.stack ?? e) + '\n');
+    const raw = String(e?.stack ?? e);
+    process.stderr.write('[update] ' + raw + '\n');
+    logUpdate(raw);
     updateState = { status: 'error', error: describeUpdateError(e) };
   });
 }
