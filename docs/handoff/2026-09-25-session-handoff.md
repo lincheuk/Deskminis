@@ -34,7 +34,8 @@
     - W3-aumid `ee53bda`：打包后的 Windows 版在出现任何窗口之前设 AppUserModelID 为 appId；
     - W3-updb `b893f6e`：实拍发现再查时回执说「正在后台下载」、追出下载失败会记成主进程崩溃，一并修；并入审查建议修
       （electron-updater 自己的记录进日志、出错原文带错误码并截掉 feed XML、「联网时」再查），RELEASE §3 补「任务栏固定」「更新交接演练」两条真机核对。
-  - 报告 §2 其余的发版前核对（覆盖运行中的 0.1.1、e2e:m5 会卸掉本机已装版本、只杀主进程、清空 dist、版本纪律、2FA 等）还没写进 RELEASE.md，待用户点头。
+  - 报告 §2 其余的发版前核对（覆盖运行中的 0.1.1、e2e:m5 会卸掉本机已装版本、只结束主进程、清空 dist、版本号不复用、发布账号两步验证、README 两句）
+    在用户要做真机验证时补进 RELEASE.md 与 README（W3-rel，只改文档）。
   - Electron 38 → 当时受支持的大版本，排 0.3.x，属依赖版本变更，要用户同意（报告 §6-3），未答。
 - **发布现状**（2026-09-25 查 GitHub）：源码仓 Releases 只有 v0.1.1；`lincheuk/deskminis-releases` 搜不到，按还没建处理。
 - **之后**：W4a 办公内容包（0.3.1）→ W4b–W5 provider 正确性与上下文管线（0.4.0）→ W6–W7 运行时韧性与人在回路（0.5.0）
@@ -444,7 +445,7 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
    两份 driver README 补了 userData 在 `<DATA_DIR>/electron`、同一数据根同时只能开一个应用、打包形态单实例锁不随数据根分开。
 4. ~~lifecycle.md 前提订正~~ 已做：事实清单「渲染端没有 window.open」句后加了 2026-09-25 订正（docs `272e84c`）。
 5. ~~DSH 桌面端对照报告 §6-1 打包前的小补丁~~ 已做：W3-upd `eb70690`、W3-aumid `ee53bda`、W3-updb `b893f6e`（见 §4.5）。
-   报告 §2 的发版前核对里，只有「任务栏固定」「更新交接演练」两条随 W3-updb 写进了 RELEASE §3，其余待用户点头。
+   报告 §2 的发版前核对：「任务栏固定」「更新交接演练」随 W3-updb 写进 RELEASE §3，其余随 W3-rel 补齐。
 
 **用户在 Windows 上做**（设计稿 §5；RELEASE.md §0 九步清单）：
 1. 在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`，放 README、LICENSE、THIRD-PARTY-NOTICES、CHANGELOG 四个文件。
