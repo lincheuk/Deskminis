@@ -41,6 +41,8 @@ npm run dist      # 产物在 dist/：Setup.exe + Setup.exe.blockmap + portable.
 npm run verify:release   # 紧接着核对 dist/ 这四件与随包文件，全 PASS 才往下走（见第 2 节）
 ```
 
+- **构建前先清空 `dist/`**（`Remove-Item dist -Recurse -Force`），并确认 `npm run dist` 的退出码是 0：
+  `verify:release` 只能证明四件彼此一致，证明不了它们出自这一次构建——这次构建中途失败时，上一次成功构建留在 `dist/` 里的产物照样全 PASS。
 - 若 `dist/` 被其它进程占用（EBUSY）：构建到临时目录，再用
   `$env:DESKMINIS_M5_UNPACKED` / `$env:DESKMINIS_M5_SETUP` 指向产物跑验收，
   发布校验用 `npm run verify:release -- --dist <临时目录的绝对路径>`（见下）。
@@ -54,6 +56,11 @@ npm run verify:release
 
 `e2e:m5` 覆盖：extraResources 桥件随包、原生模块 asar 解包、打包态垫片 stdout / 退出码、
 含空格安装路径。全 PASS 才继续。
+
+> ⚠️ **`e2e:m5` 会动本机已装的 DeskMinis**：它用与正式版同一个身份（appId）把安装包静默装进一个临时目录，跑完只删目录、不跑卸载。
+> 安装程序遇到同身份的已装版本会先把它静默卸掉（数据目录保留），正在运行的会被结束；跑完以后，开始菜单与桌面快捷方式、
+> 「应用和功能」里的登记都指向那个已经删掉的临时目录。所以：**跑之前先从托盘「退出」本机的 DeskMinis；跑完按第 3 节重新安装一次**，
+> 登记与快捷方式就恢复了。（据 electron-builder 的 NSIS 模板读码推断，没在真机上复现；跑完看一眼开始菜单里的快捷方式就知道。）
 
 `verify:release`（`deskminis/scripts/verify-release.mjs`，零依赖）逐项核对 `dist/`，每项一行 PASS / FAIL / SKIP，
 FAIL 后面写着中文原因；有 FAIL 退出码 1，**有一项 FAIL 就不能上传**：
@@ -119,6 +126,10 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 
 - [ ] 干净机器 / 干净目录安装 `DeskMinis-<版本>-Setup.exe`；SmartScreen「未知发布者」
       属预期（未签名，README 已注明）。
+- [ ] **覆盖安装运行中的 0.1.1**（老用户唯一的升级路径：0.1.1 查不到新源，只能手动装）：装 0.1.1（私有源码仓 Release 里的安装包），
+      建两个会话、配一个 key，关窗藏到托盘；然后运行这一版的 Setup.exe。应当：安装选项页默认「仅为我安装」；
+      提示「DeskMinis 正在运行」，点确定后旧版被结束（0.1.1 没有优雅退出，这里是硬结束）；装完两个会话与 key 都在（数据库迁移跑过）；
+      开始菜单与桌面各只有一个快捷方式，「应用和功能」里只有一条 DeskMinis、版本是这一版。
 - [ ] 任务栏 / 开始菜单 / 窗口图标是**蓝底三对话行**新图标（不是 Electron 默认图标）。
 - [ ] 首启：欢迎屏正常，设置 → 模型 配一个 provider（配完确认「当前默认」高亮的是你选的那个）。
 - [ ] **跑一回合带工具调用，权限卡出现且能批准 / 拒绝**——这一条是**必验项**：
@@ -140,6 +151,9 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - [ ] 单实例：点窗口的关闭按钮（只是隐藏到托盘），再双击桌面图标——原来的窗口回来，不起第二个。
 - [ ] 让 agent 跑过命令、开过终端之后，从托盘「退出」：任务管理器里没有残留的 DeskMinis 进程，
       也没有它起的 powershell 留在后台（自己开着的 PowerShell 窗口不算，看「详细信息」页的命令行分辨）。
+- [ ] **只结束主进程**：任务管理器「详细信息」页只结束命令行里不带 `--type=` 的那个 DeskMinis.exe（主进程）。
+      几秒内其余 DeskMinis.exe 都应退出；再启动正常，不报「DeskMinis 已在运行」。引擎进程要是留了下来，它还握着数据目录锁，
+      而这时已经没有托盘可以退出它——记下来（修在路线 W6a）。
 - [ ] 「设置 → 关于 → 现在检查」：这时公开仓库里还没有这一版，显示「更新失败 · 发布页上还没有可用的版本…」
       或「已是最新」都属预期；发布之后按第 4 节第 6 步再核一次。
 - [ ] 便携版同机再冒烟一次：**先从托盘「退出」安装版**——便携版与安装版共用 `%APPDATA%\DeskMinis`，
@@ -183,6 +197,9 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
      `CHANGELOG.md` 这三个同样拷过去的文件；提到源码仓 `docs/` 的地方写的是纯文本路径，在公开仓库里不会变成死链。
      以后改 README 时保持这一点（要链到 `docs/` 就写成纯文本路径），拷贝才不用手改。
    - README 的 Releases 链接必须指向这个公开仓库——`deskminis/tests/readme-claims.test.ts` 核对它与 `publish` 段一致。
+   - **发布账号就是更新的信任根**：安装包没有签名，electron-updater 也就不核对签名（没有 `publisherName`）——
+     谁能往这个仓库传资产，谁就能给所有装了 DeskMinis 的机器推送安装包。发布前确认 GitHub 账号开了两步验证，
+     仓库没有别的写权限者，也没有第三方应用拿着写授权。
 2. 在**公开仓库**新建 Release：tag 填 `v<版本>`（如 `v0.3.0`），发布时 GitHub 自动创建该 tag；
    Release 说明里写上打出这份 `dist/` 的源码仓 commit——第 0 节第 2 步 `npm run dist` 之前记下的那个；
    第 6 步改 CHANGELOG 日期的那次提交只动文档、在它之后，不算（历史：0.1.1 → `6c48c8b`，发在私有源码仓的 Releases，
@@ -231,6 +248,9 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - 下载完成后只提示，不自动安装（`autoInstallOnAppQuit = false`），由用户选择何时重启。
 
 ## 6. 版本号与下一版
+
+- **已经发布过的版本号永不复用**：发布后发现问题，一律升 patch 重新发，不在同一个 Release 下换一份构建。
+  electron-updater 按版本号判断有没有新版，装了旧那份的机器永远不会再拉同号的新构建；删掉重传也一样。
 
 - 升版：改 `deskminis/package.json` 的 `version`（功能波升 minor，修补升 patch），
   随动 `tests/m5-packaging.test.ts` 版本钉（改锚要在 commit 申报）+ 根 `CHANGELOG.md` 新段
