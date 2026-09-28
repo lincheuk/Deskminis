@@ -24,6 +24,15 @@ describe('迁移 [10] cron_jobs', () => {
 });
 
 describe('CronStore CRUD', () => {
+  it('update：助手与工作目录交空串就清掉（W3-cronb：渲染端清空后保存交的就是空串；不交这个键则原样保留）', () => {
+    const j = store.create({ name: 'n', prompt: 'p', scheduleKind: 'interval', scheduleValue: '30', assistantId: 'A1', workspaceRoot: '/tmp/ws' });
+    expect(j.assistantId).toBe('A1');
+    expect(store.update(j.id, { name: 'n2' }).assistantId, '不交这个键：原样保留').toBe('A1');
+    const u = store.update(j.id, { assistantId: '', workspaceRoot: '' });
+    expect(u.assistantId).toBeUndefined();
+    expect(u.workspaceRoot).toBeUndefined();
+  });
+
   it('create：interval 任务 next_run_at 即算定（约 n 分钟后）', () => {
     const j = store.create({ name: '巡检', prompt: '检查工作区', scheduleKind: 'interval', scheduleValue: '30' });
     expect(j.nextRunAt).toBeGreaterThan(Date.now() / 1000 + 29 * 60);

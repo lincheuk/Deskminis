@@ -22,3 +22,25 @@ export function scheduleValueOf(kind: CronFormKind, form: CronFormValues): strin
   const ms = form.once ? new Date(form.once).getTime() : NaN;
   return String(Math.floor(ms / 1000));
 }
+
+/** 整张表单（W3-cronb）：调度三格之外，还有名称、指令、助手（空串 = 不指定）、工作目录（空串 = 默认）。 */
+export interface CronFormFields extends CronFormValues {
+  name: string;
+  prompt: string;
+  assistant: string;
+  workspace: string;
+}
+
+/** 表单 → cron.create / cron.update 的参数（W3-cronb；W3-cron 独立审查）。
+ *  助手与工作目录清空时交空串，不交 undefined：参数经 JSON 送到引擎，undefined 的键会被丢掉，
+ *  而引擎 update 只写传来的字段——以前清空了点保存，旧的助手与目录原样留着，也不报错。
+ *  引擎把空串存成 NULL（cron/store.ts 的 create 与 update 都是 trim() || null）。 */
+export function cronInputOf(kind: CronFormKind, f: CronFormFields): {
+  name: string; prompt: string; scheduleKind: CronFormKind; scheduleValue: string; assistantId: string; workspaceRoot: string;
+} {
+  return {
+    name: f.name, prompt: f.prompt,
+    scheduleKind: kind, scheduleValue: scheduleValueOf(kind, f),
+    assistantId: f.assistant, workspaceRoot: f.workspace,
+  };
+}

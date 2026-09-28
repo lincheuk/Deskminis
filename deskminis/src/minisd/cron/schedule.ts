@@ -88,6 +88,10 @@ export function computeNextRun(kind: ScheduleKind, value: string, fromMs: number
   return null;
 }
 
+/** 间隔的上限（分钟，一年；W3-cronb）。以前没有上限：天文数字能存，下一次运行时刻超出 Date 的范围，
+ *  列表显示「下次 NaN-NaN」、永远不跑。更长的周期用 cron 表达式。StageCron 间隔框的 max 与它一致（tests/cron-form.test.ts 核对）。 */
+const INTERVAL_MAX_MIN = 525_600;
+
 /** 入库前校验：抛中文错误（坏行不入库）。once 的「已过」只在**新建/修改**时拒——
  *  错过补跑是调度器对既有行的语义，不经这里。 */
 export function validateSchedule(kind: ScheduleKind, value: string): void {
@@ -95,6 +99,7 @@ export function validateSchedule(kind: ScheduleKind, value: string): void {
     const n = Number(value);
     if (!Number.isFinite(n) || !Number.isInteger(n)) throw new Error('间隔必须是整数分钟数');
     if (n < 5) throw new Error('间隔最短 5 分钟——更密的轮询对模型与本机都是 DDoS');
+    if (n > INTERVAL_MAX_MIN) throw new Error(`间隔最长 ${INTERVAL_MAX_MIN} 分钟（一年）；更长的周期请用 cron 表达式`);
     return;
   }
   if (kind === 'once') {

@@ -4,13 +4,19 @@
  *  时刻一律按**本地时间**构造（W3-tz）：实现按本地午夜切「今天 / 昨天」（group.ts 的 dayStart 用 setHours(0,0,0,0)），
  *  测试以前用 Date.UTC 构造，只在 UTC 的机器上凑巧成立——云端是 UTC 所以一直绿，UTC+8 的发版机上
  *  「昨晚 23:30 UTC」是本地次日 07:30，和「此刻」同属今天，稳定失败（0.3.0 真机验证报告 §3.6）。
- *  现在各时区结果相同；W3-tz 在 UTC、东八区、西八区、+14、−11 各跑过一遍。 */
-import { describe, it, expect } from 'vitest';
+ *  现在各时区结果相同；W3-tz 在 UTC、东八区、西八区、+14、−11 各跑过一遍。
+ *  再钉在东八区（W3-cronb，W3-tz 独立审查）：CI 跑在 UTC，不钉的话实现误改成按 UTC 切日（setUTCHours）也照样全绿。
+ *  基准时刻 NOW 因此在 beforeAll 里、钉完时区之后才算。 */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { groupSessions } from '../src/renderer/src/lib/nav/group';
 
 // 本地时间 2026-08-21 12:00:00 当基准（正午：前后几个小时都还在同一个自然日里）；用例里的时刻都相对它算
 const local = (y: number, mo: number, d: number, h: number, mi: number): number => Math.floor(new Date(y, mo, d, h, mi, 0).getTime() / 1000);
-const NOW = local(2026, 7, 21, 12, 0);
+let NOW = 0;
+// Node 运行中改 TZ 立即生效（同 tests/daily-log.test.ts）
+let savedTz: string | undefined;
+beforeAll(() => { savedTz = process.env.TZ; process.env.TZ = 'Asia/Shanghai'; NOW = local(2026, 7, 21, 12, 0); });
+afterAll(() => { if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz; });
 const D = 86400;
 const s = (id: string, updatedAt?: number, pinnedAt?: number) => ({ id, title: id, updatedAt, pinnedAt });
 

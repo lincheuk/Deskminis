@@ -9,7 +9,7 @@
 import { onMounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import { describeSchedule } from '../lib/cron/describe';
-import { scheduleValueOf } from '../lib/cron/form';
+import { cronInputOf } from '../lib/cron/form';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
@@ -50,13 +50,13 @@ async function save(): Promise<void> {
   err.value = '';
   // 参数在 try 里才构造（W3-cron）：以前在 try 之外，间隔被 v-model 转成数字后 .trim() 抛错，
   // 成了没人接的拒绝——错误行不出现，「创建 / 保存」点了毫无反应。现在任何异常都落到错误行。
+  // 清空的助手与工作目录交空串（W3-cronb）：以前交 undefined，经 JSON 丢了键，引擎就原样留着旧值。见 cronInputOf
   try {
-    const input = {
+    const input = cronInputOf(fKind.value, {
       name: fName.value, prompt: fPrompt.value,
-      scheduleKind: fKind.value,
-      scheduleValue: scheduleValueOf(fKind.value, { interval: fInterval.value, cron: fCron.value, once: fOnce.value }),
-      assistantId: fAssistant.value || undefined, workspaceRoot: fWorkspace.value || undefined,
-    };
+      interval: fInterval.value, cron: fCron.value, once: fOnce.value,
+      assistant: fAssistant.value, workspace: fWorkspace.value,
+    });
     if (editing.value === 'new') await chat.createCronJob(input);
     else await chat.updateCronJob(editing.value, input);
     editing.value = '';
@@ -127,9 +127,9 @@ function fmtTime(sec?: number): string {
           </label>
           <label v-if="fKind === 'interval'" class="f-label">
             <span>间隔（分钟）</span>
-            <!-- min 与引擎的下限一致（cron/schedule.ts：间隔最短 5 分钟）：浏览器自带的校验先拦下，就地提示 -->
-            <input v-model="fInterval" class="f-input tnum" type="number" min="5" required />
-            <span class="f-hint">最短 5 分钟。</span>
+            <!-- min、max 与引擎的上下限一致（cron/schedule.ts：最短 5 分钟、最长一年）：浏览器自带的校验先拦下，就地提示 -->
+            <input v-model="fInterval" class="f-input tnum" type="number" min="5" max="525600" required />
+            <span class="f-hint">最短 5 分钟，最长 525600 分钟（一年）。</span>
           </label>
           <label v-else-if="fKind === 'cron'" class="f-label">
             <span>cron 表达式</span>

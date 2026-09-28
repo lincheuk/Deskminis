@@ -72,6 +72,10 @@ describe('validateSchedule（入库前校验，坏行不入库）', () => {
     expect(() => validateSchedule('interval', 'abc')).toThrow();
     expect(() => validateSchedule('interval', '3')).toThrow(/5/);
     expect(() => validateSchedule('interval', '5')).not.toThrow();
+    // 上限一年（W3-cronb）：以前天文数字能存，下一次运行时刻超出 Date 的范围，列表显示「下次 NaN-NaN」、永远不跑
+    expect(() => validateSchedule('interval', '525600')).not.toThrow();
+    expect(() => validateSchedule('interval', '525601')).toThrow(/最长/);
+    expect(() => validateSchedule('interval', '1e+21')).toThrow(/最长/);
   });
   it('once：非数字拒收；过去时刻拒收（新建就该是将来的事）', () => {
     expect(() => validateSchedule('once', 'xyz')).toThrow();
