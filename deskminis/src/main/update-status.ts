@@ -62,7 +62,7 @@ function byStatus(status: number): string | undefined {
   return undefined;
 }
 
-/** 把 electron-updater 的错误变成一行中文。原文（带响应头与堆栈）由调用方写 stderr，不进界面。
+/** 把 electron-updater 的错误变成一行中文。原文（堆栈，响应头截掉，见 updateErrorForLog）由调用方写 stderr 与按天日志，不进界面。
  *
  *  判定顺序有讲究：
  *  - 校验不符、格式不对先认：这两类的 message 里拼着清单原文或整段 feed XML，里面出现什么字样都不能把分类带偏；
@@ -139,9 +139,27 @@ export function isPortableBuild(env: Record<string, string | undefined>): boolea
   return typeof v === 'string' && v !== '';
 }
 
+/** HttpError 附带的响应头（W3-updd）。builder-util-runtime 的 createHttpError 在消息里拼「\nHeaders: 」加
+ *  JSON.stringify(响应头, …, 2)：非空时「{」后面紧跟换行，到顶格的「}」为止——缩进 2，里层的收尾都不顶格；
+ *  响应头的值只有字符串与字符串数组，转义过，里面没有换行。所以只认「{」紧跟换行的：空的「{}」原样留着（没有可截的），
+ *  也不会被当成一段的开头、让懒惰匹配一路找到下一段响应头的「}」把中间的堆栈吞掉
+ *  （第二跳、第三跳的失败会把内层 HttpError 的 stack 拼进外层消息，一段原文里可能不止一段响应头）。 */
+const HEADERS_BLOCK = /\nHeaders: \{\n[\s\S]*?\n\}/g;
+
+/** 写进 stderr 与按天日志之前截掉的两样（W3-updb、W3-updd）：
+ *  - GitHubProvider 把 feed 解析阶段的错误包成 INVALID_RELEASE_FEED，消息后面拼着整段 releases.atom（几百行）；
+ *  - HttpError 附带的响应头：GitHub 匿名访问也回 set-cookie（会话 cookie，Windows 真机验证时在日志里见到），
+ *    日志可能被贴进问题反馈，这些不该跟着出去；排查要的状态行、请求地址（描述那一行）与堆栈都留着。
+ *  先截 XML 再认响应头：几百行的 feed 不必过一遍正则（响应头都在 XML 之前的内层堆栈里，次序不影响结果）。 */
+function trimForLog(text: string): string {
+  const at = text.indexOf(FEED_XML_MARK);
+  const cut = at < 0 ? text : `${text.slice(0, at)}\n（后面是整段 releases.atom，略）`;
+  return cut.replace(HEADERS_BLOCK, '\nHeaders: （响应头略）');
+}
+
 /** 更新出错时写进 stderr 与按天日志的原文（W3-updb）。与 describeUpdateError 的一句中文分开：这是留给排查的。
  *  - 错误码接在后面：describeUpdateError 按 code 分类，而 code 不在 e.stack 里，日志里看不到它就对不上界面那句话；
- *  - GitHubProvider 把 feed 解析阶段的错误包成 INVALID_RELEASE_FEED，消息后面拼着整段 releases.atom（几百行），截掉；
+ *  - 整段 feed XML 与响应头截掉，见 trimForLog；
  *  - 转不成文字的怪对象（无原型的对象，String() 会抛）不抛：这里在 autoUpdater 的 'error' 监听里，抛了会顺着 emit 回到 electron-updater。 */
 export function updateErrorForLog(e: unknown): string {
   let text: string;
@@ -151,11 +169,20 @@ export function updateErrorForLog(e: unknown): string {
   } catch {
     text = '（错误对象转不成文字）';
   }
-  const at = text.indexOf(FEED_XML_MARK);
-  if (at >= 0) text = `${text.slice(0, at)}\n（后面是整段 releases.atom，略）`;
+  text = trimForLog(text);
   let code: unknown;
   try { code = (e as { code?: unknown } | null | undefined)?.code; } catch { code = undefined; }
   return typeof code === 'string' && code !== '' && !text.includes(code) ? `${text}\n错误码：${code}` : text;
+}
+
+/** electron-updater 经 autoUpdater.logger 交来的记录转成写日志的文字（W3-updb 起三级都写进按天日志）。
+ *  error 级会把出错原文再交一遍：AppUpdater 构造时自己在 'error' 上挂了监听，`Error: ${error.stack || error.message}`；
+ *  差分下载退回整包时交的也是堆栈。所以与 updateErrorForLog 一样截整段 feed XML 与响应头（W3-updd）。
+ *  转不成文字的也不抛：抛了会回到 electron-updater 的调用处。 */
+export function updaterLogText(m: unknown): string {
+  let text: string;
+  try { text = String(m); } catch { return '（转不成文字）'; }
+  return trimForLog(text);
 }
 
 /** 手动检查（托盘「检查更新…」、关于页「现在检查」）在 checkForUpdates() 落定之后，再等自动下载落定的上限（W3-updb）。

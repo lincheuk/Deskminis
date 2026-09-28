@@ -8,13 +8,16 @@
  *  数据根是 mkdtemp 临时目录，日志落 <数据根>/logs）。electron-updater 桩记下主进程挂上来的处理器，这里逐个触发：
  *  - update-available、update-not-available：各记一行（发现新版、交给后台下载，下载过的只核对；已是最新、发布页上的最新版本号）；
  *  - error：原文逐行写进日志、每行都带 [update]（堆栈的后几行不带前缀就混进别的行里认不出来），照旧也写 stderr；
+ *    HttpError 附带的响应头（GitHub 匿名访问也回会话 cookie）不进日志也不进 stderr，electron-updater 经 logger 交来的那一份同样（W3-updd）；
  *  - update-downloaded：记一行；以主窗口为父弹 downloadedDialog(版本)，选「稍后再说」什么也不装；
  *  - 点「重启并安装」：先记一行，再请引擎关停，引擎退出之后才 quitAndInstall（顺序本身由 main-shutdown-wiring 的源码守卫钉着，
  *    这里钉「真的等到引擎退出」与日志的先后）。
  *  纯函数的文案在 tests/update-handoff.test.ts。 */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
+import type { IncomingMessage } from 'node:http';
 import { join } from 'node:path';
+import { createHttpError } from 'builder-util-runtime';
 import { bootMain, h } from './main-window-guard-harness';
 import { downloadedDialog } from '../src/main/update-status';
 
@@ -110,6 +113,28 @@ describe('electron-updater 自己的记录（W3-updb）', () => {
     expect(lines[1]).toContain('electron-updater 警告：disableWebInstaller is set to false');
     expect(lines[2]).toContain('electron-updater 报错：Cannot download differentially');
     expect(lines[3]).toContain('at y (z.js:1:1)');
+  });
+});
+
+describe('日志里不留响应头（W3-updd）', () => {
+  it('error 事件的原文与 electron-updater 经 logger 交来的那一份：都不带 HttpError 附带的响应头（set-cookie），请求地址照留', () => {
+    const e = createHttpError({
+      statusCode: 429, statusMessage: 'Too Many Requests',
+      headers: { server: 'github.com', 'set-cookie': ['_gh_sess=SESSIONVALUE; path=/; secure; HttpOnly'] },
+    } as unknown as IncomingMessage, 'method: GET url: https://github.com/lincheuk/deskminis-releases/releases.atom');
+    const logger = h.autoUpdater?.logger as { error(m: unknown): void } | undefined;
+    expect(logger, '主进程没有设 autoUpdater.logger').toBeDefined();
+    const { lines, stderr } = during(() => {
+      // 次序同 electron-updater：AppUpdater 构造时自己挂的监听先把 stack 交给 logger，再轮到主进程挂的处理器
+      logger!.error(`Error: ${e.stack}`);
+      updater('error')(e);
+    });
+    const all = lines.join('\n');
+    expect(all).not.toMatch(/set-cookie|_gh_sess|SESSIONVALUE/);
+    expect(stderr).not.toMatch(/set-cookie|_gh_sess|SESSIONVALUE/);
+    expect(lines.filter(l => l.includes('Headers: （响应头略）')), '两份原文各留一句说明').toHaveLength(2);
+    expect(all).toContain('url: https://github.com/lincheuk/deskminis-releases/releases.atom');
+    expect(all).toContain('错误码：HTTP_ERROR_429');
   });
 });
 

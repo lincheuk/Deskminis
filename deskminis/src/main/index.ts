@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolveAppDirs } from './app-dirs';
 import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
-import { describeUpdateError, downloadedDialog, isPortableBuild, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog, type UpdateState } from './update-status';
+import { describeUpdateError, downloadedDialog, isPortableBuild, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog, updaterLogText, type UpdateState } from './update-status';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES, LineSplitter } from './child-output';
 import { MinisdExitWatch, QuitGate, MINISD_STOP_TIMEOUT_MS, type StopOutcome } from './minisd-stop';
@@ -297,11 +297,6 @@ function logUpdate(text: string): void {
   minisdLog.append(text.split(/\r?\n/).filter(l => l.trim() !== '').map(l => `[update] ${l}`).join('\n'));
 }
 
-/** electron-updater 的日志内容转成文字（它交来的多半是字符串；万一是转不成文字的对象，也不抛回 electron-updater） */
-function updaterLogText(m: unknown): string {
-  try { return String(m); } catch { return '（转不成文字）'; }
-}
-
 function setupUpdater(): void {
   // 下载完**不自动装**：Agent 应用可能正跑着长任务，自动重启会把用户的活干掉一半。
   autoUpdater.autoDownload = true;
@@ -309,6 +304,7 @@ function setupUpdater(): void {
   // W3-updb：electron-updater 自己的记录也写进按天日志（它缺省只写 console，打包后没人看得见）。交接那一段最要紧的几行只有它记：
   // 安装参数、启动安装程序的路径与实参、启动失败的输出、缓存命中还是重下。三级都接：error 级除了回显 'error' 事件
   // （与下面处理器写的原文重复一份，可以接受），还有启动安装程序失败时的输出与差分下载退回整包，这些只走它。
+  // 交来的文字经 updaterLogText：与下面的原文一样截掉整段 feed XML 与响应头（W3-updd），转不成文字的不抛回去。
   autoUpdater.logger = {
     info: (m?: unknown) => logUpdate(`electron-updater: ${updaterLogText(m)}`),
     warn: (m?: unknown) => logUpdate(`electron-updater 警告：${updaterLogText(m)}`),
@@ -345,7 +341,7 @@ function setupUpdater(): void {
   // 静默记录即可，绝不弹窗打扰。更新是便利功能，不是必需路径（托盘手动检查的回执另走 checkUpdatesFromTray）。
   // 状态里只放一句中文（W2b-9）：原文带 HttpError 的响应头和内层堆栈，以前原样漏到设置→关于的状态行上。
   // 原文留给排查：写 stderr（开发时看得见），也逐行写进按天日志（W3-upd，打包后只有它还在）；
-  // 带错误码、截掉整段 feed XML、怪对象不抛，见 updateErrorForLog（W3-updb）。
+  // 带错误码、截掉整段 feed XML 与响应头（W3-updd：GitHub 匿名访问也回 set-cookie）、怪对象不抛，见 updateErrorForLog（W3-updb）。
   // 检查失败时 electron-updater 既发这个事件、又让 checkForUpdates reject，原文只在这里写一次。
   autoUpdater.on('error', (e) => {
     const raw = updateErrorForLog(e);

@@ -10,11 +10,16 @@
  *  ① 纯函数：下载完成框的选项（downloadedDialog）与托盘回执的 downloaded 一格（manualCheckDialog）；
  *  ② 关于页 STATUS_TEXT 的 downloaded（按 SFC 解析器切出脚本段、剥掉注释再认）；
  *  ③ 源码守卫：update-downloaded 处理器把 downloadedDialog 交给 showMessageBox，主进程里不再内联说明文字。
+ *  ⑥⑦ 写日志的原文（W3-updb、W3-updd）：带错误码、截掉整段 feed XML 与 HttpError 附带的响应头（GitHub 匿名访问也回会话 cookie）。
  *  行为（处理器真的弹这个框、挂在主窗口上、点了才装）在 tests/update-handoff-wiring.test.ts。 */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import type { IncomingMessage } from 'node:http';
 import { join } from 'node:path';
-import { downloadedDialog, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog } from '../src/main/update-status';
+import { createHttpError } from 'builder-util-runtime';
+import type { AppUpdater } from 'electron-updater';
+import { GitHubProvider } from 'electron-updater/out/providers/GitHubProvider';
+import { downloadedDialog, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog, updaterLogText } from '../src/main/update-status';
 import { sfcBlocks } from './sfc-blocks';
 import { stripComments } from './strip-comments';
 
@@ -184,3 +189,107 @@ describe('⑥ updateErrorForLog · 写进 stderr 与按天日志的出错原文'
   });
 });
 
+/** GitHub 回的响应头：匿名访问也带会话 cookie（Windows 真机验证时日志里见到的就是这几条，值是编的）。 */
+const GH_HEADERS = {
+  server: 'github.com',
+  'content-type': 'text/html; charset=utf-8',
+  'set-cookie': [
+    '_gh_sess=SESSIONVALUE; path=/; secure; HttpOnly; SameSite=Lax',
+    '_octo=GH1.1.123.456; Path=/; Domain=github.com; Secure; SameSite=Lax',
+    'logged_in=no; Path=/; Domain=github.com; HttpOnly; Secure; SameSite=Lax',
+  ],
+  'x-github-request-id': 'ABCD:1234:5678',
+};
+/** 响应头里的东西一样都不能出现在日志原文里 */
+const HEADER_TEXT = /set-cookie|_gh_sess|SESSIONVALUE|_octo|logged_in|x-github-request-id|"server"|content-type/;
+const RELEASES = '/lincheuk/deskminis-releases/releases';
+/** 同 builder-util-runtime 的 HttpExecutor.handleResponse：createHttpError，描述里带请求地址，随后是 Headers 的 JSON */
+function httpFail(status: number, statusMessage: string, path: string, headers: object = GH_HEADERS): Error {
+  return createHttpError({ statusCode: status, statusMessage, headers } as unknown as IncomingMessage, `method: GET url: https://github.com${path}`);
+}
+const FEED = '<?xml version="1.0" encoding="UTF-8"?>\n<feed xmlns="http://www.w3.org/2005/Atom">'
+  + `<entry><id>tag:github.com,2008:Repository/1/v0.3.1</id><updated>2026-09-20T00:00:00Z</updated>`
+  + `<link rel="alternate" type="text/html" href="https://github.com${RELEASES}/tag/v0.3.1"/><title>v0.3.1</title></entry></feed>`;
+/** 用真 GitHubProvider 走一遍检查（HTTP 执行器换成按路径应答的桩，同 tests/update-error-text.test.ts）：
+ *  第二跳、第三跳的失败被它包几层、拼上什么，由它自己决定，测试不替它拼。 */
+async function providerError(replies: Record<string, string | Error>): Promise<unknown> {
+  const executor = {
+    request: async (o: { path?: string }): Promise<string | null> => {
+      const r = replies[String(o.path)];
+      if (r === undefined) throw new Error(`桩没配这一跳：${o.path}`);
+      if (r instanceof Error) throw r;
+      return r;
+    },
+  };
+  const updater = { allowPrerelease: false, channel: null, fullChangelog: false, currentVersion: null } as unknown as AppUpdater;
+  const provider = new GitHubProvider({ provider: 'github', owner: 'lincheuk', repo: 'deskminis-releases' }, updater,
+    { isUseMultipleRangeRequest: false, platform: 'win32', executor } as unknown as ConstructorParameters<typeof GitHubProvider>[2]);
+  try { await provider.getLatestVersion(); } catch (e) { return e; }
+  throw new Error('期望检查失败，实际成功了');
+}
+
+describe('⑦ 写日志的原文不带 HttpError 附带的响应头（W3-updd）', () => {
+  it('直接到达的 HttpError（第一跳 releases.atom 被限流）：Headers 整段换成一句说明；状态行、请求地址、堆栈、错误码照留', () => {
+    const out = updateErrorForLog(httpFail(429, 'Too Many Requests', `${RELEASES}.atom`));
+    expect(out).not.toMatch(HEADER_TEXT);
+    expect(out).toContain('HttpError: 429 Too Many Requests');
+    expect(out).toContain(`url: https://github.com${RELEASES}.atom`);
+    expect(out).toContain('Headers: （响应头略）');
+    expect(out).toMatch(/\n {4}at createHttpError /);
+    expect(out).toContain('错误码：HTTP_ERROR_429');
+  });
+
+  it('第二跳 /releases/latest 404：LATEST_VERSION_NOT_FOUND 裹着 HttpError，外面再包 INVALID_RELEASE_FEED 拼整段 feed——响应头与 XML 都截', async () => {
+    const e = await providerError({ [`${RELEASES}.atom`]: FEED, [`${RELEASES}/latest`]: httpFail(404, 'Not Found', `${RELEASES}/latest`) });
+    expect((e as { code?: string }).code).toBe('ERR_UPDATER_INVALID_RELEASE_FEED');
+    const out = updateErrorForLog(e);
+    expect(out).not.toMatch(HEADER_TEXT);
+    expect(out).not.toContain('<entry>');
+    expect(out).toContain('Unable to find latest version on GitHub');
+    expect(out).toContain('HttpError: 404 Not Found');
+    expect(out).toContain(`url: https://github.com${RELEASES}/latest`);
+    expect(out).toContain('Headers: （响应头略）');
+    expect(out).toContain('releases.atom，略');
+    expect(out).toContain('错误码：ERR_UPDATER_INVALID_RELEASE_FEED');
+  });
+
+  it('第三跳 latest.yml 404（Release 里漏传）：CHANNEL_FILE_NOT_FOUND 拼着 HttpError 的 stack——响应头截，找不到的文件与地址照留', async () => {
+    const e = await providerError({
+      [`${RELEASES}.atom`]: FEED,
+      [`${RELEASES}/latest`]: JSON.stringify({ tag_name: 'v0.3.1' }),
+      [`${RELEASES}/download/v0.3.1/latest.yml`]: httpFail(404, 'Not Found', `${RELEASES}/download/v0.3.1/latest.yml`),
+    });
+    expect((e as { code?: string }).code).toBe('ERR_UPDATER_CHANNEL_FILE_NOT_FOUND');
+    const out = updateErrorForLog(e);
+    expect(out).not.toMatch(HEADER_TEXT);
+    expect(out).toContain('Cannot find latest.yml in the latest release artifacts');
+    expect(out).toContain('Headers: （响应头略）');
+    expect(out).toMatch(/\n {4}at /);
+  });
+
+  it('空的响应头 {} 原样留着，也不把它后面的堆栈连同下一段响应头一起吞掉；一段原文里有几段响应头就截几段', () => {
+    const inner = httpFail(404, 'Not Found', `${RELEASES}/latest`);
+    const innermost = httpFail(403, 'Forbidden', `${RELEASES}.atom`);
+    const text = `HttpError: 500 Internal Server Error\nHeaders: {}\n    at a (a.js:1:1)\n    at b (b.js:2:2)\ncaused by: ${inner.stack}\ncaused by: ${innermost.stack}`;
+    const out = updateErrorForLog(text);
+    expect(out).toContain('Headers: {}\n    at a (a.js:1:1)\n    at b (b.js:2:2)\ncaused by: HttpError: 404 Not Found');
+    expect(out).not.toMatch(HEADER_TEXT);
+    expect(out.match(/Headers: （响应头略）\n {4}at createHttpError /g)).toHaveLength(2);
+    expect(out).toContain('caused by: HttpError: 403 Forbidden');
+  });
+
+  it('updaterLogText：electron-updater 经 logger 交来的整段堆栈（它在 error 事件上自己挂的监听会把 e.stack 再交一遍）同样截响应头与 feed XML', async () => {
+    const e = await providerError({ [`${RELEASES}.atom`]: FEED, [`${RELEASES}/latest`]: httpFail(403, 'Forbidden', `${RELEASES}/latest`) });
+    // AppUpdater 构造时挂的监听：this._logger.error(`Error: ${error.stack || error.message}`)
+    const out = updaterLogText(`Error: ${(e as Error).stack}`);
+    expect(out).not.toMatch(HEADER_TEXT);
+    expect(out).not.toContain('<entry>');
+    expect(out).toContain('HttpError: 403 Forbidden');
+    expect(out).toContain('Headers: （响应头略）');
+    expect(out).toContain('releases.atom，略');
+    // 其余记录原样；转不成文字的不抛回 electron-updater
+    expect(updaterLogText('Install: isSilent: false, isForceRunAfter: true')).toBe('Install: isSilent: false, isForceRunAfter: true');
+    expect(() => updaterLogText(Object.create(null))).not.toThrow();
+    expect(updaterLogText(Object.create(null))).toContain('转不成文字');
+  });
+});
