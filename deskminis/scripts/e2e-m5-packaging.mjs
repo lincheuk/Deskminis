@@ -18,9 +18,10 @@
 // 若构建产物不存在，脚本给出明确「先构建」提示并以退出码 2 结束（与其它 e2e 脚本一致）。
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, cpSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, cpSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const CWD = process.cwd();
 const results = [];
@@ -154,6 +155,33 @@ async function verifyUnpacked(root) {
   }
 }
 
+/** 安装目录里 electron-builder 生成的卸载程序：名字随 electron-builder.yml 的 productName（tests/e2e-m5-uninstall.test.ts 核对）。 */
+export function uninstallerPath(installDir) {
+  return join(installDir, 'Uninstall DeskMinis.exe');
+}
+
+/** NSIS 卸载程序静默、就地运行的参数：/S 静默；_?=<目录> 让它在原地跑、卸完才返回
+ *  （不加的话它先把自己拷到临时目录再起，spawnSync 立刻返回，删目录时它还没卸完）。_?= 必须是最后一个参数。 */
+export function uninstallArgs(installDir) {
+  return ['/S', `_?=${installDir}`];
+}
+
+/** 把 §6-1 静默装进临时目录的那一份就地静默卸掉（W3-e2e）：卸载程序会删掉 HKCU 下的安装位置、「应用和功能」里的登记
+ *  与开始菜单、桌面快捷方式。以前只删目录不卸载，这些都还指着已删的临时目录，之后照 RELEASE 重装会被静默装进那个 Temp 路径
+ *  （0.3.0 真机验证报告 §3.3）。没装上（§6-1 已记 FAIL）或卸载程序不在就跳过；数据目录不动（deleteAppDataOnUninstall: false）。 */
+function uninstallTemp(installDir) {
+  const un = uninstallerPath(installDir);
+  if (!existsSync(un)) return;
+  try {
+    const r = spawnSync(un, uninstallArgs(installDir), { encoding: 'utf8', timeout: 180000, windowsHide: true });
+    const gone = !existsSync(join(installDir, 'DeskMinis.exe'));
+    record('§6-6 静默卸载临时安装', r.status === 0 && gone,
+      gone ? '已就地卸载：安装位置登记、「应用和功能」条目与快捷方式随之清掉' : `卸载后 DeskMinis.exe 还在（exit=${r.status}）`);
+  } catch (e) {
+    record('§6-6 静默卸载临时安装', false, `卸载异常: ${e.message}`);
+  }
+}
+
 async function installAndVerify(setupExe) {
   const target = mkdtempSync(join(tmpdir(), 'DeskMinis Install ')); // 含空格
   const installDir = join(target, 'Program Files', 'DeskMinis');
@@ -171,10 +199,17 @@ async function installAndVerify(setupExe) {
   } catch (e) {
     record('§6-1 NSIS 静默安装', false, `安装异常: ${e.message}`);
   } finally {
+    // 先就地卸载、再删目录（W3-e2e）：只删目录的话，登记与快捷方式都还指着这个临时目录
+    uninstallTemp(installDir);
     try { rmSync(target, { recursive: true, force: true }); } catch { /* 锁则忽略 */ }
   }
 }
 
 const sleep = ms => new Promise(iv => setTimeout(iv, ms));
 
-main().catch(e => { console.error('脚本异常:', e); process.exit(1); });
+// 被测试 import 时不跑 CLI（W3-e2e，与 smoke-release.mjs 同一认法）。realpath 比对：Windows 盘符大小写、经符号链接调用时 URL 字符串对不上
+const invokedDirectly = (() => {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+})();
+if (invokedDirectly) main().catch(e => { console.error('脚本异常:', e); process.exit(1); });

@@ -41,6 +41,13 @@ npm run dist      # 产物在 dist/：Setup.exe + Setup.exe.blockmap + portable.
 npm run verify:release   # 紧接着核对 dist/ 这四件与随包文件，全 PASS 才往下走（见第 2 节）
 ```
 
+- **国内网络下 `npm ci` 可能卡在下载 Electron**（`RequestError: connect ETIMEDOUT …:443`，出在 `node install.js` 那一步）：
+  Electron 的下载器默认不读 `HTTPS_PROXY`，直连 GitHub 超时。二选一，设好后重跑 `npm ci`：
+  ```powershell
+  $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"   # 走镜像
+  $env:ELECTRON_GET_USE_PROXY = "1"; $env:GLOBAL_AGENT_HTTPS_PROXY = "http://127.0.0.1:<代理端口>"   # 或走本机代理
+  ```
+  注意 `npm ci` 一开头就清空 `node_modules`：它失败之后仓库处于不可用状态，不是原来那份还在。
 - **构建前先清空 `dist/`**（`Remove-Item dist -Recurse -Force`），并确认 `npm run dist` 的退出码是 0：
   `verify:release` 只能证明四件彼此一致，证明不了它们出自这一次构建——这次构建中途失败时，上一次成功构建留在 `dist/` 里的产物照样全 PASS。
 - 若 `dist/` 被其它进程占用（EBUSY）：构建到临时目录，再用
@@ -57,10 +64,15 @@ npm run verify:release
 `e2e:m5` 覆盖：extraResources 桥件随包、原生模块 asar 解包、打包态垫片 stdout / 退出码、
 含空格安装路径。全 PASS 才继续。
 
-> ⚠️ **`e2e:m5` 会动本机已装的 DeskMinis**：它用与正式版同一个身份（appId）把安装包静默装进一个临时目录，跑完只删目录、不跑卸载。
-> 安装程序遇到同身份的已装版本会先把它静默卸掉（数据目录保留），正在运行的会被结束；跑完以后，开始菜单与桌面快捷方式、
-> 「应用和功能」里的登记都指向那个已经删掉的临时目录。所以：**跑之前先从托盘「退出」本机的 DeskMinis；跑完按第 3 节重新安装一次**，
-> 登记与快捷方式就恢复了。（据 electron-builder 的 NSIS 模板读码推断，没在真机上复现；跑完看一眼开始菜单里的快捷方式就知道。）
+> ⚠️ **`e2e:m5` 会动本机已装的 DeskMinis**：它用与正式版同一个身份（appId）把安装包静默装进一个临时目录（§6-1）。
+> 安装程序遇到同身份的已装版本会先把它静默卸掉（数据目录保留），正在运行的会被结束。跑完它先在临时目录里就地静默卸载（§6-6，W3-e2e 起），
+> 再删目录，安装位置的登记、「应用和功能」条目与快捷方式随之清掉——本机原来装着的那份也就没了。
+> 所以：**跑之前先从托盘「退出」本机的 DeskMinis；跑完按第 3 节重新安装**。
+>
+> 用 W3-e2e 之前的脚本跑过的（结果里没有「§6-6 静默卸载临时安装」这一行）：那一次只删了目录、没卸载，
+> `HKCU` 下的安装位置还指着那个已删的临时目录，照常重装会被**静默装进那个 Temp 路径**（安装向导没有目录页，只在第一页用一行小字写着路径；
+> 0.3.0 真机验证实测）。先在「应用和功能」里卸载那条 DeskMinis，再按第 3 节安装；装之前看一眼向导第一页写的路径是不是
+> `…\AppData\Local\Programs\DeskMinis`。
 
 `verify:release`（`deskminis/scripts/verify-release.mjs`，零依赖）逐项核对 `dist/`，每项一行 PASS / FAIL / SKIP，
 FAIL 后面写着中文原因；有 FAIL 退出码 1，**有一项 FAIL 就不能上传**：
