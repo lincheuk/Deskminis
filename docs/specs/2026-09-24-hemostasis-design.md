@@ -180,6 +180,11 @@
 | W3-e2e（新；真机验证 §3.3、§3.5） | `e2e:m5` 静默装进临时目录、跑完只删目录不卸载，`HKCU\Software\<GUID>\InstallLocation` 一直指向已删的目录，之后照 RELEASE 重装会被静默装进那个 Temp 路径。改：跑完先在安装目录里就地静默卸载（`Uninstall DeskMinis.exe /S _?=<目录>`，清掉登记与快捷方式）、记一行结果，再删目录；RELEASE §2 的说法改正（旧脚本跑过的先在「应用和功能」里卸载再装，装前看一眼向导第一页的路径）；§1 补国内网络下 Electron 下载超时的两种设法（镜像或代理），以及 `npm ci` 失败后 node_modules 已被清空 | 真机验证报告 §3.3、§3.5；主会话直接做 |
 | W3-ps（新；真机验证 §3.2） | agent 的 shell 与终端抽屉起 PowerShell 时加 `-ExecutionPolicy Bypass`（只作用于这个进程，不改系统设置）：Windows 客户端默认执行策略是 Restricted，`npm` 等命令会先解析到 `npm.ps1` 垫片而被挡下，agent 跑不了 npm / npx / pnpm / yarn；而 `set-executionpolicy` 在危险规则里，agent 也没法自己改。执行策略不是安全边界，命令本身照旧过权限网关 | 真机验证报告 §3.2；主会话直接做 |
 | W3-updd（新；真机验证 §3.8） | 更新出错写进日志的原文去掉 HttpError 附带的响应头（`Headers: {…}` 整段，含 GitHub 的匿名会话 cookie），只留状态行、请求地址与堆栈；在 `updateErrorForLog` 里截，与截 feed XML 同一处 | 真机验证报告 §3.8；主会话直接做 |
+| W3-e2eb（W3-e2e 主会话自查） | 就地卸载的 `_?=` 那一段不能带引号（NSIS 从命令行末尾找「 _?=」），而临时安装目录故意带空格、Node 在 Windows 上会整段加引号——卸载程序认不出，照没给处理：拷到临时目录再起、立刻返回。改：`windowsVerbatimArguments` 按原样拼命令行，程序名自己加引号（`argv0`）。测试按 libuv 与 NSIS 的规则算卸载程序实际收到的命令行 | W3-e2e 自查，独立审查同一结论；主会话直接做 |
+| W3-upddb（W3-updd 审查） | 认响应头的正则照 JSON 结构逐行认（`/\nHeaders: \{\n(?: {2}[^\n]*\n)*\}/g`），线性时间（懒惰匹配遇到构造输入是平方级）；补真 `handleResponse` 带正文、差分下载不带描述两种形状；文档说准：非 404 时服务器回的错误正文照留；RELEASE 那条核对换成可靠的触发办法 | W3-updd 独立审查；主会话直接做 |
+| W3-cronb（W3-cron、W3-tz 审查） | 编辑定时任务清空助手与工作目录再保存，旧值原样留着（交的是 undefined，经 JSON 丢了键）：表单参数改由 `cronInputOf` 构造、清空交空串；间隔加上限 525600 分钟（一年），输入框 `max` 与引擎一致；cron-form 与 nav-group 测试钉东八区（CI 在 UTC，不钉测不出按 UTC 切日的回退）。推迟：一次性任务跑过后改名被「时间已过去」挡、夏令时那天的分组、长列表时错误行不可见 | W3-cron、W3-tz 独立审查；主会话直接做 |
+| W3-e2ec（W3-e2e 审查） | 收尾的判定：正常跑完、DeskMinis.exe 删了、`HKCU\Software\<GUID>\InstallLocation` 清了三样都成才 PASS，失败写实际原因（错误码、信号）；GUID 是 appId 的 UUID v5（electron-builder 的算法）；装上了却找不到卸载程序记 FAIL；这一行改叫「§6-1 收尾」（§6-6 是 m5 计划的六桥实测）；RELEASE §2 的恢复步骤改成真能用的（先装一次再卸、或删两处登记） | W3-e2e 独立审查；主会话直接做 |
+| W3-psb（W3-ps 审查） | 执行策略那条说准：组策略设定的仍然生效；再起的 PowerShell 也继承；只有 agent 的命令过权限确认（终端里是用户自己敲的） | W3-ps 独立审查；主会话直接做 |
 
 **施工组织（2026-09-25 改为多链并行，用户要求加快）**：机器 4 核，每个工作流同时最多 2 个 agent，按下表分链：
 
