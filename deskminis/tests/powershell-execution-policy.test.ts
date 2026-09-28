@@ -4,7 +4,9 @@
  *  「npm : 无法加载文件 C:\Program Files\nodejs\npm.ps1，因为在此系统上禁止运行脚本」。
  *  Windows 客户端的默认执行策略是 Restricted（本机各作用域都是 Undefined），PowerShell 解析 npm 时先命中 npm.ps1 垫片，被策略挡下；
  *  npx / pnpm / yarn 同理。agent 也没法自己改：set-executionpolicy 在危险规则里（permissions.ts），这是对的。
- *  -ExecutionPolicy Bypass 只作用于这一个 PowerShell 进程，不改系统设置；执行策略本身不是安全边界，命令照旧逐条过权限网关。
+ *  -ExecutionPolicy Bypass 只作用于这个 PowerShell 进程（从里面再起的 PowerShell 经 PSExecutionPolicyPreference 继承），不改系统设置；
+ *  组策略（MachinePolicy / UserPolicy）设定的执行策略比它优先，那样的机器上照旧被挡（W3-psb，审查指出 CHANGELOG 原先说过头）。
+ *  执行策略本身不是安全边界：agent 的命令照旧逐条过权限网关；终端抽屉里是用户自己敲的，本来就不经网关。
  *  -EncodedCommand 必须是最后一个参数（它后面的都当成命令的一部分），所以 -ExecutionPolicy 要排在它前面。
  *
  *  注入假 spawn、把 platform 设成 'win32'，断言交给 spawn 的参数（与 tests/shell-kill-tree.test.ts 同一手法）。 */

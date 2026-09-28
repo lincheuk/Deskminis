@@ -86,7 +86,8 @@ export class PersistentShell {
     const exe = this.platform === 'win32' ? powershellPath(this.sysEnv) : 'powershell.exe';
     // -ExecutionPolicy Bypass（W3-ps，真机验证报告 §3.2）：Windows 客户端默认策略是 Restricted，npm / npx / pnpm / yarn 会先解析到
     // 同名 .ps1 垫片而被挡下，agent 跑不了它们（set-executionpolicy 在危险规则里，agent 也改不了——这是对的）。
-    // 只作用于这个进程、不改系统设置；执行策略不是安全边界，命令照旧逐条过权限网关。-EncodedCommand 必须留在最后。
+    // 只作用于这个进程（从它里面再起的 PowerShell 经 PSExecutionPolicyPreference 继承）、不改系统设置；组策略设定的执行策略仍优先，
+    // 那样的机器上照旧被挡。执行策略不是安全边界，命令照旧逐条过权限网关。-EncodedCommand 必须留在最后。
     const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
       // 剥掉 DESKMINIS_*（§3 第 10 条，见 proc/child-env.ts）；会话级变量与 ELECTRON_RUN_AS_NODE 照旧

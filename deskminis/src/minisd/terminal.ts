@@ -88,6 +88,7 @@ export class TerminalSession {
     // 子进程环境剥掉 DESKMINIS_*、叠上会话级 MINIS_*（值为 undefined 的跳过）。非 win32 保留裸名。
     const exe = this.platform === 'win32' ? powershellPath(this.sysEnv) : 'powershell.exe';
     // -ExecutionPolicy Bypass：与 PersistentShell 同因（W3-ps）——默认策略下 npm.ps1 这类垫片被挡，终端里敲 npm 同样跑不了。
+    // 作用范围同那边的说明：这个进程与它再起的 PowerShell，组策略设定的仍优先。终端里敲的命令本来就不经权限网关（用户自己敲的）。
     const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: childEnv(this.sysEnv, this.env),
     });
