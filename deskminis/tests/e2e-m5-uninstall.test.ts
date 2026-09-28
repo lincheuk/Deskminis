@@ -16,7 +16,11 @@
  *  ③ 被 import 时不跑 CLI（以前模块顶层直接 main()，非 Windows 上 process.exit(2)，测试没法引它）；
  *  ④ W3-e2ec（W3-e2e 独立审查）：收尾的判定。以前只看退出码与 DeskMinis.exe，失败时也写成功的那句，超时与启动失败看不到错误码，
  *     也不核对真正要清掉的东西——HKCU\Software\<GUID> 的安装位置登记（下一次安装读的就是它）。
- *     GUID 是 appId 的 UUID v5（electron-builder 的算法），对 app-builder-lib 与真机报告里的值核对。 */
+ *     GUID 是 appId 的 UUID v5（electron-builder 的算法），对 app-builder-lib 与真机报告里的值核对。
+ *  ⑤ W3-e2ed（二审必修）：跑的是拷到安装目录之外的那一份卸载程序。electron-builder 的卸载程序静默运行时，在 un.onInit 里先把
+ *     「路径以 $INSTDIR 开头的进程」一律结束（allowOnlyOneInstallerInstance.nsh，PowerShell 那一支不排除自己）——就地跑的卸载程序
+ *     本身就在 $INSTDIR 里，会把自己结束掉、什么都没卸。electron-builder 卸旧版时也是先拷到 $PLUGINSDIR 再跑（installUtil.nsh）。
+ *     收尾没做成就不删临时安装：卸载程序还在，「应用和功能」里能正常卸。reg 的退出码 1 是笼统的失败，先确认 reg 查得了再信「找不到」。 */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,7 +35,9 @@ interface VerdictInput { status: number | null; signal?: string | null; errorCod
 interface E2eM5Module {
   uninstallerPath(installDir: string): string;
   uninstallArgs(installDir: string): string[];
-  uninstallSpawnOptions?(installDir: string): SpawnOpts;
+  uninstallSpawnOptions?(exePath: string): SpawnOpts;
+  uninstallerCopyPath?(workDir: string): string;
+  registryState?(probeStatus: number | null, queryStatus: number | null): 'present' | 'absent' | 'unknown';
   APP_ID?: string;
   ELECTRON_BUILDER_NS_UUID?: string;
   appGuid?(appId: string): string;
@@ -70,14 +76,27 @@ describe('① 卸载程序的路径与参数', () => {
   });
 
   it('安装目录带空格（脚本故意的）：卸载程序收到的命令行末尾是不带引号的「 _?=<目录>」，程序名带引号，/S 在前', async () => {
-    const { uninstallerPath, uninstallArgs, uninstallSpawnOptions } = await load();
-    const dir = join('C:', 'Temp', 'DeskMinis Install ab12', 'Program Files', 'DeskMinis');
-    const file = uninstallerPath(dir);
-    const cmd = windowsCommandLine(file, uninstallArgs(dir), uninstallSpawnOptions?.(dir) ?? {});
+    const { uninstallerCopyPath, uninstallArgs, uninstallSpawnOptions } = await load();
+    const work = join('C:', 'Temp', 'DeskMinis Install ab12');
+    const dir = join(work, 'Program Files', 'DeskMinis');
+    expect(uninstallerCopyPath, '脚本没有导出 uninstallerCopyPath').toBeTypeOf('function');
+    const exe = uninstallerCopyPath!(work);
+    const cmd = windowsCommandLine(exe, uninstallArgs(dir), uninstallSpawnOptions?.(exe) ?? {});
     expect(nsisInPlaceDir(cmd), `卸载程序收到的命令行：${cmd}`).toBe(dir);
-    // 程序名「Uninstall DeskMinis.exe」自己带空格：NSIS 按引号跳过程序名，不加引号就在第一个空格处断开
-    expect(cmd.startsWith(`"${file}" `), cmd).toBe(true);
+    // 程序路径自己带空格（临时目录名）：NSIS 按引号跳过程序名，不加引号就在第一个空格处断开
+    expect(cmd.startsWith(`"${exe}" `), cmd).toBe(true);
     expect(cmd).toContain(' /S ');
+  });
+
+  it('跑的那一份在安装目录之外（W3-e2ed）：electron-builder 的卸载程序静默时先结束路径以 $INSTDIR 开头的进程，不排除自己', async () => {
+    const { uninstallerCopyPath } = await load();
+    const work = join('C:', 'Temp', 'DeskMinis Install ab12');
+    const dir = join(work, 'Program Files', 'DeskMinis');
+    const exe = uninstallerCopyPath!(work);
+    // 那边是不分大小写的 StartsWith、不带分隔符（…\DeskMinis-un\ 这样的兄弟目录同样会中）
+    expect(exe.toLowerCase().startsWith(dir.toLowerCase()), exe).toBe(false);
+    const tpl = readFileSync(join(root, 'node_modules', 'app-builder-lib', 'templates', 'nsis', 'include', 'allowOnlyOneInstallerInstance.nsh'), 'utf8');
+    expect(tpl, '模板认进程的办法变了：回头核一下还要不要拷出去再跑').toMatch(/StartsWith\('\$INSTDIR'/);
   });
 });
 
@@ -87,18 +106,23 @@ describe('② 安装段：先卸载、后删目录，卸载结果记一行', () 
   const body = at < 0 ? '' : src.slice(at, src.indexOf('\n}\n', at) + 2);
   const fin = body.slice(body.search(/\}\s*finally\s*\{/));
 
-  it('finally 里先调 uninstallTemp(installDir)，再 rmSync(target, …)', () => {
+  it('finally 里先调 uninstallTemp(installDir, target)，卸干净了才 rmSync(target, …)；没做成就留着临时安装（W3-e2ed）', () => {
     expect(body, '找不到 async function installAndVerify(').not.toBe('');
-    const iUn = fin.search(/uninstallTemp\(\s*installDir\s*\)/);
+    const iUn = fin.search(/if \(uninstallTemp\(\s*installDir\s*,\s*target\s*\)\)\s*\{/);
     const iRm = fin.search(/rmSync\(\s*target\b/);
-    expect(iUn, 'finally 里没有 uninstallTemp(installDir)').toBeGreaterThan(-1);
+    expect(iUn, 'finally 里没有 if (uninstallTemp(installDir, target)) {').toBeGreaterThan(-1);
     expect(iRm, 'finally 里没有 rmSync(target, …)').toBeGreaterThan(iUn);
+    expect(fin.slice(iRm), '删目录要带重试（杀软可能还攥着刚退出的卸载程序）').toMatch(/maxRetries/);
+    expect(fin, '没做成时说一声临时安装留在哪、怎么卸').toMatch(/\}\s*else\s*\{[\s\S]*应用和功能/);
   });
 
   it('uninstallTemp 用 uninstallerPath / uninstallArgs / uninstallSpawnOptions 就地静默卸载，结果经 uninstallVerdict 记「§6-1 收尾」一行', () => {
     const at = src.search(/function uninstallTemp\(/);
     const u = src.slice(at, src.indexOf('\n}\n', at) + 2);
-    expect(u).toMatch(/spawnSync\(\s*\w+\s*,\s*uninstallArgs\(\s*installDir\s*\)\s*,\s*\{\s*\.\.\.uninstallSpawnOptions\(\s*installDir\s*\)/);
+    // 先把卸载程序拷到安装目录之外，跑的是那一份（W3-e2ed）
+    expect(u).toMatch(/copyFileSync\(\s*un\s*,\s*copy\s*\)/);
+    expect(u).toMatch(/spawnSync\(\s*copy\s*,\s*uninstallArgs\(\s*installDir\s*\)\s*,\s*\{\s*\.\.\.uninstallSpawnOptions\(\s*copy\s*\)/);
+    expect(u, '不能再就地跑安装目录里的那一份').not.toMatch(/spawnSync\(\s*un\s*,/);
     expect(u).toMatch(/uninstallerPath\(\s*installDir\s*\)/);
     expect(u, '结果要经 uninstallVerdict 判定').toMatch(/uninstallVerdict\(/);
     expect(src).toMatch(/const UNINSTALL_STEP = '§6-1 收尾：静默卸载临时安装'/);
@@ -150,7 +174,7 @@ describe('④ 收尾的判定（W3-e2ec）', () => {
     expect(uninstallVerdict, '脚本没有导出 uninstallVerdict').toBeTypeOf('function');
     const v = uninstallVerdict!(ok);
     expect(v.pass).toBe(true);
-    expect(v.detail).toContain('已就地卸载');
+    expect(v.detail).toContain('已静默卸载');
   });
 
   it('任何一样没成就 FAIL，说明写实际情况——不再套用成功的那句；超时、启动失败带错误码与信号', async () => {
@@ -167,8 +191,21 @@ describe('④ 收尾的判定（W3-e2ec）', () => {
       const v = uninstallVerdict!(input);
       expect(v.pass, JSON.stringify(input)).toBe(false);
       expect(v.detail, JSON.stringify(input)).toMatch(reason);
-      expect(v.detail, JSON.stringify(input)).not.toContain('已就地卸载');
+      expect(v.detail, JSON.stringify(input)).not.toContain('已静默卸载');
       expect(v.detail, '失败时指向 RELEASE 的处理办法').toContain('RELEASE');
     }
+  });
+});
+
+describe('⑤ 登记状态（W3-e2ed）', () => {
+  it('先确认 reg 查得了（HKCU\\Software 本身），再按查询结果认：0 在、1 不在；查不了一律算「查不了」', async () => {
+    const { registryState } = await load();
+    expect(registryState, '脚本没有导出 registryState').toBeTypeOf('function');
+    expect(registryState!(0, 0)).toBe('present');
+    expect(registryState!(0, 1)).toBe('absent');
+    expect(registryState!(0, null)).toBe('unknown');
+    // reg 的退出码 1 是笼统的失败：拒绝访问、组策略禁用了注册表工具，也是 1——不能当「清掉了」
+    expect(registryState!(1, 1)).toBe('unknown');
+    expect(registryState!(null, 1)).toBe('unknown');
   });
 });

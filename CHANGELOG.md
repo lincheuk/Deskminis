@@ -183,7 +183,7 @@
 - **Windows 默认设置下 agent 跑不了 npm**：系统默认的 PowerShell 执行策略会挡住 npm / npx / pnpm / yarn 的 `.ps1` 垫片，
   agent 执行这些命令直接失败（Windows 真机验证发现）。现在 agent 的命令行与终端抽屉起的 PowerShell 不再受 Windows 默认执行策略限制
   （组策略强制设定的执行策略仍然生效）——只对 DeskMinis 起的 PowerShell 以及从里面再起的 PowerShell 生效，不改系统设置；
-  agent 的命令照旧逐条过权限确认。
+  agent 的命令照旧经权限网关，按所选权限档位放行或询问。
 
 ### 已知边界
 
