@@ -8,9 +8,10 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `b893f6e`，**version 0.3.0**，minis.db user_version 仍是 **11**。253 测试文件 / 3633 例
-  （云端 3581 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
-  （本文 §4、§5 的波史与文件地图写于 `35aab54`；之后 2026-09-26 又加了 W3-upd、W3-aumid、W3-updb 三步，见下一条与 §4.5。）
+- **代码**：main `351f4b5`，**version 0.3.0**，minis.db user_version 仍是 **11**。256 测试文件 / 3670 例
+  （云端 3618 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
+  （本文 §4、§5 的波史与文件地图写于 `35aab54`；之后 09-26 加了 W3-upd、W3-aumid、W3-updb，09-27 W3-rel，
+  09-28 真机验证后加了 W3-cron、W3-tz、W3-e2e、W3-ps、W3-updd 与三轮审查后的六步修，见下两条与 §4.5。）
 - **本轮做完了止血波 W1a–W2b**（2026-09-24～25，设计稿 `docs/specs/2026-09-24-hemostasis-design.md`）。
   从 09-10 的 `761b862` 起共 82 个提交：66 笔步骤（其中 22 笔是审查遗留的补修，3 笔是对外文档）加 16 次合流。
   - **W1a 伤数据**：file_edit 不再被 `$` 改坏文件；MCP 配置读坏拒写、外部修改不被覆盖、编辑不再丢字段；技能 zip 有上限；
@@ -37,6 +38,13 @@
   - 报告 §2 其余的发版前核对（覆盖运行中的 0.1.1、e2e:m5 会卸掉本机已装版本、只结束主进程、清空 dist、版本号不复用、发布账号两步验证、README 两句）
     在用户要做真机验证时补进 RELEASE.md 与 README（W3-rel，只改文档）。
   - Electron 38 → 当时受支持的大版本，排 0.3.x，属依赖版本变更，要用户同意（报告 §6-3），未答。
+- **2026-09-28 追加（Windows 真机验证）**：用户在 Windows 上照 RELEASE 做了一遍发版前验证（在 `d1c9a2f` 上；报告原文 `docs/handoff/2026-09-28-windows-verification.md`）。
+  结论「不建议按现状发版」：产品阻塞一个（定时任务改了间隔后「创建 / 保存」没反应）、测试阻塞一个（nav-group 用例在 UTC+8 失败）；
+  其余全过，包括 52 例 Windows-only 测试、任务栏固定、更新交接演练 7 步（弹框文案与向导吻合）。据此修了五步：
+  W3-cron `13b89e6`（阻塞）、W3-tz `eec87e7`、W3-e2e `86dfdb8`、W3-ps `e0b4727`、W3-updd `a5f1ece`。
+  三路独立审查整批（无新增阻塞），加上主会话自查，又修了五步：W3-e2eb `7a175f5`（e2e:m5 的就地卸载在带空格的目录里其实没就地跑，
+  自查发现、审查同一结论）、W3-upddb `b6799f2`、W3-cronb `535fc74`（清空助手与目录保存不生效、间隔上限）、W3-e2ec `70b866e`、W3-psb `0c6f348`；二审这五步又抓出一条必修（e2e:m5 的卸载程序就地跑会把自己结束掉），W3-e2ed `351f4b5` 修；三审无必修，留五条 should-fix 给下一轮（§6 一档第 7 条）。
+  没修的小问题进候选池（§6「其它悬空」、§8 C）。用户要在 Windows 上重做的项见 §6 一档。
 - **发布现状**（2026-09-25 查 GitHub）：源码仓 Releases 只有 v0.1.1；`lincheuk/deskminis-releases` 搜不到，按还没建处理。
 - **之后**：W4a 办公内容包（0.3.1）→ W4b–W5 provider 正确性与上下文管线（0.4.0）→ W6–W7 运行时韧性与人在回路（0.5.0）
   → W8–W9 cowork 结构与打磨（0.6.0）。OpenCode V2 研读与四家对比的 9 项，用户 2026-09-25 答复「全默認」，已写进路线详案（§6）。
@@ -61,6 +69,7 @@
     合入 main 的方式用户仍未裁定。
   - 本轮施工分支 `hemo/*` 只在本地（远端只有上面四支），合流后不推。
 - **提交身份与写法**（照旧）：`git -c user.name="lincheuk" -c user.email="linchaoheng3@gmail.com" commit -F <UTF-8 消息文件>`。
+  云端的 stop 钩子会提示这些提交在 GitHub 上显示 Unverified、要求改成 Claude 身份——**用户 2026-09-28 明确答复「提交身份不用改，照旧用 lincheuk 推」**，不用理，也不用再问。
   - 标题：步骤提交 `<步骤号>: 简述`，步骤号带子波字母（`W1a-2:`），与 09-07 的旧 W 波（`W1:`）区分；补修用 `<步骤号>b/c`；
     合流用 `合流: 链 X（步骤…）并入 main——一句话`；记账线用 `设计稿:` `研究:` `记账:` `驱动:` 前缀。
   - 正文分节：做了什么 / 为什么 / 先红 / 验证 / 有意翻红的守卫 / 偏差申报 / 自己判错又改回的；经过审查的加「审查意见处置」；
@@ -299,6 +308,18 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W3-upd（09-26） | 更新交接说实话：下载完成框抽成纯函数 `downloadedDialog`，说清会打开安装向导、关掉不会自动装；关于页与托盘回执不再说「重启后生效」；更新过程写进按天日志（每行 `[update]`） | `eb70690` | main（主会话直接做；独立审查无必修，Linux + xvfb 真 electron-updater 实拍七个场景成立） | DSH 对照报告 §1 U1–U3 |
 | W3-aumid（09-26） | 打包后的 Windows 版在出现任何窗口之前 `setAppUserModelId('com.deskminis.app')`，与 NSIS 写进快捷方式的 AUMID 一致；判定在 `src/main/app-identity.ts` | `ee53bda` | main（主会话直接做） | DSH 对照报告 §1 U4 |
 | W3-updb（09-26） | checkUpdates 接住自动下载的 promise：再查时回执与关于页说「已下载」，下载失败不再成为主进程未处理拒绝（旧问题，会被记成主进程崩溃）；electron-updater 自己的记录进日志；出错原文带错误码、截掉 feed XML；「联网时」再查；RELEASE §3 补两条真机核对 | `b893f6e` | main（主会话直接做；Linux + xvfb 真 electron-updater 实拍复核 68 项通过，剧本 `driver/hemostasis/W3-updb-live.mjs`） | W3-upd 实拍与独立审查 |
+| W3-rel（09-27） | 发版前核对补齐（只改文档）：e2e:m5 会卸掉本机已装版本的警告、覆盖安装运行中的 0.1.1、只结束主进程、构建前清空 dist、发布账号即更新信任根、版本号不复用；README 补智能应用控制与「无法关闭」误报两句 | `d1c9a2f` | main（主会话直接做） | DSH 对照报告 §2 |
+| W3-cron（09-28） | **阻塞**：定时任务改了间隔后「创建 / 保存」没反应。间隔输入框是 `type="number"`，`v-model` 交来数字，旧代码在 try 之前 `.trim()` 抛 TypeError。改为纯函数 `scheduleValueOf`（`lib/cron/form.ts`），参数在 try 里构造，删除失败也说出来，`min="5"` 与引擎下限一致 | `13b89e6` | main（主会话直接做；xvfb 真 Electron 在旧构建上复现、新构建上核对，剧本 `W3-cron-live.mjs`） | 真机验证报告 §3.1 |
+| W3-tz（09-28） | nav-group「今天 / 昨天」用例按本地时刻构造，不再只在 UTC 的机器上凑巧成立；东八区、西八区等全量复核没有别的时区依赖 | `eec87e7` | main（主会话直接做） | 真机验证报告 §3.6 |
+| W3-e2e（09-28） | e2e:m5 跑完先就地静默卸载临时安装（`Uninstall DeskMinis.exe /S _?=<目录>`）再删目录，之后重装不再被装进已删的 Temp 路径；RELEASE §1 加 Electron 下载镜像与代理提示、§2 说法改正 | `86dfdb8` | main（主会话直接做） | 真机验证报告 §3.3、§3.5 |
+| W3-ps（09-28） | agent 的 shell 与终端抽屉起 PowerShell 带 `-ExecutionPolicy Bypass`（只作用于这个进程）：Windows 默认执行策略下 `npm` / `npx` 解析到 `.ps1` 垫片被挡的问题不再出现；组策略设的执行策略仍优先 | `e0b4727` | main（主会话直接做） | 真机验证报告 §3.2 |
+| W3-updd（09-28） | 更新出错写进日志的原文去掉 HttpError 附带的响应头（GitHub 匿名访问也回 set-cookie），electron-updater 经 logger 交来的那一份同样截（这一份以前连 feed XML 都没截）；只留状态行、请求地址、堆栈与错误码 | `a5f1ece` | main（主会话直接做） | 真机验证报告 §3.8 |
+| W3-e2eb（09-28） | e2e:m5 就地卸载的 `_?=` 那一段不加引号：临时安装目录故意带空格，Node 会整段加引号，NSIS 认不出、照没给处理（拷到临时目录再起、立刻返回）。改为按原样拼命令行（`windowsVerbatimArguments`），程序名自己加引号（`argv0`） | `7a175f5` | main（主会话自查发现；独立审查同一结论与同一改法） | W3-e2e 自查 |
+| W3-upddb（09-28） | 认响应头的正则照 JSON 结构逐行认，线性时间（懒惰匹配对构造输入是平方级，40 万字 2～5 秒）；补真 `handleResponse` 带正文、差分下载两种形状的测试；CHANGELOG、RELEASE 说准非 404 时服务器错误正文照留；RELEASE §3 那条核对换成可靠触发（`app-update.yml` 的 repo 临时改错、要退出再开） | `b6799f2` | main（主会话直接做） | W3-updd 独立审查 |
+| W3-cronb（09-28） | 编辑定时任务清空助手与工作目录再保存真的清掉（以前交 undefined，旧值原样留着）；间隔上限 525600 分钟与输入框 `max` 一致（以前天文数字能存，列表「下次 NaN」永不跑）；cron-form、nav-group 测试钉东八区；CHANGELOG 说准。xvfb 新旧构建对照（剧本 `W3-cronb-live.mjs`） | `535fc74` | main（主会话直接做） | W3-cron、W3-tz 独立审查 |
+| W3-e2ec（09-28） | e2e:m5 收尾的判定核对 `HKCU\Software\<GUID>\InstallLocation`、失败写实际原因（错误码、信号）；GUID 由 appId 按 electron-builder 的 UUID v5 算；装上了找不到卸载程序记 FAIL；改叫「§6-1 收尾」；RELEASE §2 恢复步骤改成真能用的（先装一次再卸，或删两处登记） | `70b866e` | main（主会话直接做；脚本只在 Windows 真跑，未上真机） | W3-e2e 独立审查 |
+| W3-psb（09-28） | W3-ps 的说法改准：组策略设定的执行策略仍然生效；再起的 PowerShell 继承；只有 agent 的命令过权限确认 | `0c6f348` | main（主会话直接做） | W3-ps 独立审查 |
+| W3-e2ed（09-28） | e2e:m5 收尾先把卸载程序拷到安装目录之外再跑（electron-builder 的卸载程序静默时先结束路径以 $INSTDIR 开头的进程、不排除自己，就地跑会自杀）；没卸干净就留着临时安装、说清怎么卸；reg 先探测 HKCU\Software 再信「找不到」；删目录带重试；CHANGELOG 权限网关与间隔上限报错两处措辞 | `351f4b5` | main（主会话直接做；未上真机，下次 e2e:m5 的「§6-1 收尾」一行即真机验证） | W3-e2eb…W3-psb 二审 |
 
 ### 4.6 合流提交
 
@@ -331,9 +352,10 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 
 ### 4.8 当前状态
 
-- main `b893f6e`：253 测试文件 / 3633 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
-  （止血波收官时是 `35aab54`：249 / 3594；之后 09-26 的 W3-upd、W3-aumid、W3-updb 三步加了 4 个测试文件、39 例。）
-- 与 09-10 的 `761b862` 比：85 个提交，228 个文件，+33611 / −879 行；测试文件 170 → 253。
+- main `351f4b5`：256 测试文件 / 3670 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
+  （止血波收官时是 `35aab54`：249 / 3594；09-26 的 W3-upd、W3-aumid、W3-updb 加了 4 个测试文件、39 例；
+  09-28 真机验证后的五步与六步审查修加了 3 个测试文件、37 例。）
+- 与 09-10 的 `761b862` 比：97 个提交，236 个文件，+34543 / −908 行；测试文件 170 → 256。
 - 版本 0.3.0；user_version 11；dependencies / devDependencies 零改动（scripts 加了 `verify:release`；链 S 加 `smoke:release`）；
   `package.json` 与锁根的 license 改为 Apache-2.0。
 
@@ -446,8 +468,29 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 4. ~~lifecycle.md 前提订正~~ 已做：事实清单「渲染端没有 window.open」句后加了 2026-09-25 订正（docs `272e84c`）。
 5. ~~DSH 桌面端对照报告 §6-1 打包前的小补丁~~ 已做：W3-upd `eb70690`、W3-aumid `ee53bda`、W3-updb `b893f6e`（见 §4.5）。
    报告 §2 的发版前核对：「任务栏固定」「更新交接演练」随 W3-updb 写进 RELEASE §3，其余随 W3-rel 补齐。
+6. ~~2026-09-28 Windows 真机验证发现的问题~~ 已修五步：W3-cron（阻塞）、W3-tz（测试阻塞）、W3-e2e、W3-ps、W3-updd，
+   及三轮审查后的六步 W3-e2eb、W3-upddb、W3-cronb、W3-e2ec、W3-psb、W3-e2ed（见 §4.5）；
+   验证报告原文 `docs/handoff/2026-09-28-windows-verification.md`。没修的小问题见下面「其它悬空」。
+7. **下一轮先做：W3-e2ef（`351f4b5` 三审的 should-fix，不挡发版，只在 e2e:m5 收尾 FAIL 时才碰得到）**。三审确认主路径正确：
+   副本在安装目录之外、卸载程序按「仅为我」认出安装目录、删文件与两处登记和快捷方式、退出码 0、判定 PASS（读模板与 NSIS 语义推断，未上真机）。留下五条：
+   ① `tests/e2e-m5-uninstall.test.ts` 里「装上了却找不到卸载程序：记一行 FAIL」的守卫切到 `indexOf('return;')`，W3-e2ed 把那一支改成
+      `return false;` / `return true;` 之后切到了函数尾、被 catch 里的 record 蒙过去（删掉那句 record 照样 13/13）——改成切到 `/return (?:true|false);/`；
+   ② 修复本身没钉在调用处：`uninstallerCopyPath(installDir)`（副本落进安装目录，自杀复现）、`return v.pass` 改 `return true`、catch 与缺卸载程序那一支
+      `return true`、`registryState(0, query.status)` 都能全绿——补源码守卫，或给 `uninstallTemp` 注入 spawn / copy / exists / record 做行为测试；
+   ③ 收尾 FAIL 时脚本一律说「卸载程序还在，到『应用和功能』里卸」，三种情形不对：找不到卸载程序那一支；卸载程序跑完（退出码 0）但 DeskMinis.exe 删不掉
+      或 reg 查不了——这时卸载程序与两处登记都已删，只需删目录；超时卡在一半——卸载程序可能已删、登记还在。按「登记 absent / present+卸载程序在 /
+      present+卸载程序不在 / unknown」分四种说法，RELEASE §2 同步；
+   ④ 脚本三处「按 RELEASE 第 2 节『收尾没做成』处理」指向的段落已改名，改指「『§6-1 收尾』那一行是 FAIL」；
+   ⑤ nit：中途 Ctrl+C 时 finally 不跑，临时目录与卸载程序都还在，直接在「应用和功能」里卸即可（RELEASE 写成了先装再卸）；FAIL 提示打印的是安装目录，
+      该打印要删的临时目录（`target`，含 `old-uninstaller.exe`）；两处注释：副本在安装目录「上两层」不是「上一层」，`_?=` 不决定卸哪个目录
+      （un.onInit 的 initMultiUser 用 HKCU 的 InstallLocation 覆盖 $INSTDIR，`_?=` 只让它在本进程里跑、并决定「正在运行」检查看哪个目录）。
+   三审的剧本在 scratchpad（不入库）；要复现变异，照上面①②逐条改源码跑 `tests/e2e-m5-uninstall.test.ts` 即可。
 
 **用户在 Windows 上做**（设计稿 §5；RELEASE.md §0 九步清单）：
+> 2026-09-28 已在 `d1c9a2f` 上做过一遍（报告见上），修完五步后要重做：`npm ci`、`npm test`（应当全过，含原先在东八区失败的 nav-group 一例）、
+> `npm run typecheck`、清空 dist 后 `npm run dist`、`e2e:m5`（这次末尾多一项「§6-1 收尾：静默卸载临时安装」，要 PASS）、`verify:release`；
+> 手动冒烟里重做定时任务（改间隔能建、编辑改间隔能存、编辑时清空助手与工作目录能存上）与权限卡（让 agent 跑 `npm view left-pad version` 能跑通）；
+> 上次没设 key 跳过的 `smoke:release` 要补跑；「覆盖安装运行中的 0.1.1」拿得到安装包就补做。其余上次已通过的项不必重复。
 1. 在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`，放 README、LICENSE、THIRD-PARTY-NOTICES、CHANGELOG 四个文件。
 2. 真机构建自测：`npm ci` → `npm test`（52 例 Windows-only 也必须过）→ `npm run typecheck` → `npm run dist`。
 3. 打包验收：`npm run e2e:m5`（**必须重跑**，R 波之后的结论全部过期）、`npm run verify:release`，全 PASS。
@@ -503,6 +546,16 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 - **本轮施工留下的小裁定**：终端链接确认框的按钮是 Electron 写死的英文「Ok / Cancel」（要中文得改走主进程对话框，多一条 IPC）；
   合法中文域名在确认框里显示成 punycode；`openInSystem` 要不要节流；README 要不要写 MCP 的 env / headers 可用 `$$变量名` 引用环境变量
   （界面没提供，改环境变量要从托盘退出再开）。
+- **2026-09-28 审查留下、推迟的**（W3-cron、W3-tz 独立审查，旧问题）：一次性任务跑过之后改名会被「一次性任务的时间已过去」挡住
+  （界面总是连调度一起交，store 的「只改名不校验」没用上）；按天分组（`lib/nav/group.ts`）与「昨天」（`lib/time/relative.ts`）用 86400 秒算一天，
+  夏令时切换那天差一天（东八区没有夏令时，不受影响）；定时任务列表很长时，页顶的错误行可能看不见。排 W9。
+- **2026-09-28 真机验证留下、没在 0.3.0 修的**（报告 §3.7、§3.9）：
+  - 权限请求超时回给模型的话是「命令被用户拒绝」，模型可能对用户说「你拒绝了」（界面上是「权限请求已超时，自动拒绝」，没问题）；
+    网关对超时与用户点拒绝都只回 deny，工具侧分不出来；shell、文件读、文件写、网页抓取、搜索、MCP 共 6 处，要把超时从网关一路带到工具，排 W7（人在回路）。见 §8 C。
+  - 不按 Shift 的 Ctrl+= 与小键盘 + 不放大（`zoomIn` 角色只认 Plus；加隐藏菜单项绑 `CmdOrCtrl+=`、`CmdOrCtrl+numadd`），排 W9b。
+  - 终端抽屉首行漏出 `#< CLIXML`（PowerShell 以 `-EncodedCommand` 起、stderr 被重定向时输出序列化的进度流）；终端抽屉 0.4.0 要砍，不单修。
+  - 回复里的裸网址不能点（Markdown 没开自动识别链接），排 W9a；扩展市场一条描述里出现 `��`（来源数据或解码，未深究）；
+    安装向导里很长的路径压线（纯外观）。
 - **09-10 就悬着的**：docs 分支合入 main 的方式；brave / tavily 真 key 首跑验收。（「仓库转 public」已由公开发布仓库取代。）
 - **09-10 候选池的去向**：办公技能包 → W4a；vue-tsc 立项评估 → 上面十二项里的零依赖破例；会话正文全文搜索、用量与成本面板 → W8c；
   genui、多窗口对话墙（改单窗口分屏）、图片生成、内置浏览器 → 0.6.0 之后；预览区 T10 遗留与「其它仍未做」多数落在 W8、W9，其余照旧在池里；
@@ -593,6 +646,8 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 - 渲染端在回合中途重载后，下一个事件到达之前，在跑的工具先显示「已中断」、停止键缺席；设备同步过来的在跑回合同样先标「已中断」。出处：同上。
 - 断线横幅只在连接断开时出现：minisd 卡死但 socket 没断不会触发（没有心跳，W6）。出处：W2b-3 `0b1db3a` 偏差 8。
 - 在 A 上点停止、又在 A 的发送被拒之前切走，A 那条话既不交回输入框也没落库。出处：W1b-4 `00e33d1` 偏差 11。
+- 权限请求超时，回给模型的是「命令被用户拒绝（可在设置-权限中调整）」（`tools/shell.ts`、`files.ts` 读与写、`web.ts`、`web-search.ts`、`mcp/manager.ts` 共 6 处，网关对超时只回 deny），
+  模型可能对用户说「你拒绝了这个命令」；界面上的说法是对的。排 W7。出处：2026-09-28 真机验证报告 §3.7。
 - `chat.cancel` 不了结权限卡：点停止后卡还在，要等用户点或 90 秒超时。出处：W1b-4 偏差 8。
 - 「重启并安装」停引擎那几秒（最坏 5 秒）窗口仍可见可点；这段时间横幅上的「重启应用」是个空按钮。出处：W1b-5 `1b411d4` 偏差 9、W2b-3 偏差 5。
 - 「≥30 条保留 14 条」的压缩规则，锚点可能落在 toolUse 与 toolResult 中间（旧行为）。出处：W2a-1 `6cb83b5` 待决问题。
@@ -614,16 +669,24 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 
 ### D. 只有 Windows 真机能确认的推断
 
+> **2026-09-28 真机验证已证实的**（报告 `docs/handoff/2026-09-28-windows-verification.md` 第 2、4 节）：
+> 52 例 Windows-only 测试全过（`main-window-guard-wiring*` 的 Windows 语义在内）；单实例（点关闭藏托盘，再双击回来的是同一个窗口与主进程）；
+> 托盘退出 1 秒内全部进程退出、锁释放；只结束主进程其余 1 秒内跟着退、残留的 `minisd.lock` 重启时被接管；
+> 便携版不检查不下载、与安装版共用数据、退出后清掉解压临时目录；打包版 Ctrl+R 不重载、Ctrl+Shift+I 不开开发者工具；
+> **更新交接**：非静默向导以 `--updated --force-run` 打开，弹框文案与向导吻合不用改，主窗口藏托盘时从托盘再查，提示框与回执都看得见，
+> 再查时重新弹出、回执说「已下载完成」，旧版 blockmap 404 时自动回落整包；**任务栏**：固定项 AUMID 是 `com.deskminis.app`，
+> 退出后点固定项启动任务栏上始终只有一个按钮。下面各条只留还没证实的部分。
+
 - 打包后的 minisd 自己没有控制台，子进程不加 `windowsHide` 会弹出控制台窗口（W1b-1 偏差 10，已加，未实测）。
 - 设置页 MCP 一节在「切回窗口」时重拉（W1a-5 偏差 2，xvfb 只能派发事件）；「最小化后唤出」（W1b-3 偏差 10）。
-- 便携版：`PORTABLE_EXECUTABLE_DIR` 真由启动器设上、「重启应用」重启的是外面那个便携 exe（W2b-9、W2b-3 偏差 4）。
-- `Program Files` 与中文用户名下的 file:// 本应用判定与 `fileURLToPath` 还原；`main-window-guard-wiring*` 接线测试的 Windows 语义
-  没法在 Linux 模拟，要等真机的 `npm test`（W2b-6 留给主会话）。
+- 便携版：~~`PORTABLE_EXECUTABLE_DIR` 真由启动器设上~~（已证实：便携版「现在检查」说不自动更新）；「重启应用」重启的是外面那个便携 exe（W2b-3 偏差 4，没测）。
+- `Program Files` 与中文用户名下的 file:// 本应用判定与 `fileURLToPath` 还原（验证机的用户名是英文，没覆盖）；
+  ~~`main-window-guard-wiring*` 接线测试的 Windows 语义~~（真机 `npm test` 已过）。
 - NSIS 的真实下载、校验不符；打包版菜单下输入框的 Ctrl+C / Ctrl+V（W2b-9 偏差 6、W2b-6b 偏差 6）。
-- 路线 W3 列的真机手测：杀进程树、双击启动两次只剩一个实例、DB_NEWER 提示；另记录同名 exe 劫持与 junction 逃逸能否复现（修复在 W6d）。
-- 更新交接（W3-upd / W3-updb，RELEASE §3「更新交接演练」）：不带参数的 `quitAndInstall()` 走的非静默安装向导实际长什么样；
-  主窗口藏在托盘时，挂在它上面的下载完成框看不看得见；Windows 上 NsisUpdater 再查时是否同样几毫秒内发 update-downloaded。
-- 任务栏（W3-aumid，RELEASE §3「任务栏固定」）：固定项与运行中的窗口是否同一个按钮；Electron 不设 AUMID 时的缺省行为（报告里凭记忆推断，未核实）。
+- 路线 W3 列的真机手测：~~杀进程树、双击启动两次只剩一个实例~~（已证实）、DB_NEWER 提示（没测）；另记录同名 exe 劫持与 junction 逃逸能否复现（修复在 W6d）。
+- ~~更新交接~~、~~任务栏固定~~：已证实（见上）。只剩「刚启动就藏进托盘」这一时机下下载完成框看不看得见没观察到；
+  Electron 不设 AUMID 时的缺省行为仍是凭记忆推断（现在设了，不影响）。
+- 从 Release 下载回来的安装包（带「来自网络」标记）SmartScreen 与智能应用控制怎么拦：本机构建的没有标记，验证时不会弹，发版后再看一次。
 
 ### E. 仍有效的旧账
 

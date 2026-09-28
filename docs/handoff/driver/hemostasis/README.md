@@ -42,6 +42,8 @@ NODE_PATH=<装了 playwright-core 的目录>/node_modules xvfb-run -a node <剧�
 | W2b-11d-changes.mjs | 右栏「改动」清单按工具结果判：成功、失败、中断各一个写工具，只列成功的那个 |
 | W3-upd-live.mjs | （2026-09-26）真 electron-updater 走一遍更新交接：模拟打包加 `APPIMAGE` 占位让 Linux 上的 AppImageUpdater 工作，`resources/app-update.yml` 指向剧本自写的 generic 源；下载完成框的实参与真 `downloadedDialog` 逐字段比，稍后再说、关于页、现在检查再弹、关掉不装、更新源 404 时日志逐行带 `[update]` |
 | W3-updb-live.mjs | （2026-09-26）同上，针对 W3-updb：再查时关于页与托盘回执说「已下载」、安装包 404 时自动与手动各失败一次都不记崩溃（末尾用一次故意不接的拒绝验证检测手段）、electron-updater 自己的记录进按天日志 |
+| W3-cron-live.mjs（参数 old 或 new） | （2026-09-28）真机验证报告 §3.1 的阻塞项：old 在修之前的构建上复现「改了间隔点创建没反应」（表单不关、列表不变、错误行不出、控制台是没人接的 TypeError）；new 核对改间隔能建、编辑改间隔能存、填 3 被浏览器自带校验拦下（min 与引擎下限一致）、引擎拒绝的 cron 表达式落到错误行 |
+| W3-cronb-live.mjs | （2026-09-28）W3-cron 审查修：编辑任务清空助手与工作目录再保存后重新打开编辑，读回的是「不指定」与空（旧构建上读回原来的助手与目录）；间隔 600000 被浏览器自带校验拦下、525600 能建（显示「每 8760 小时」） |
 | W2b-6b-x11.py、W1a-8-x11.py | 用 XTest 发真实按键、点击与截整屏（playwright 的合成事件触发不了菜单快捷键与原生对话框） |
 
 ## 步骤工作流
