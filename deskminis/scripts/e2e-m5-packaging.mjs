@@ -18,6 +18,7 @@
 // 若构建产物不存在，脚本给出明确「先构建」提示并以退出码 2 结束（与其它 e2e 脚本一致）。
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, cpSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -169,7 +170,7 @@ export function uninstallArgs(installDir) {
 /** 起卸载程序时给 spawnSync 的选项（W3-e2e 审查修）。NSIS 从命令行末尾往前找「 _?=」，其后整段当安装目录，
  *  所以 _?= 这一段不能带引号——路径有空格也不能（NSIS 手册 3.2）。Node 在 Windows 上会给含空格的参数整段加引号，
  *  而这里的临时安装目录故意带空格（「DeskMinis Install …\Program Files\DeskMinis」）：加了引号 NSIS 就认不出，
- *  照没给 _?= 处理，spawnSync 立刻返回、§6-6 记成失败、删目录与后台卸载抢文件。
+ *  照没给 _?= 处理，spawnSync 立刻返回、收尾记成失败、删目录与后台卸载抢文件。
  *  所以命令行按原样拼（windowsVerbatimArguments），程序名「Uninstall DeskMinis.exe」自己带空格，由这里加引号（argv0）。
  *  安装那一步的 /D= 同样会被加引号，但 electron-builder 的安装程序自己从完整命令行里取 /D= 之后的整段（multiUser.nsh 的 GetDParameter），
  *  真机上装进了带空格的临时目录；卸载程序没有这一层，靠的是 NSIS 自己的解析。 */
@@ -177,19 +178,74 @@ export function uninstallSpawnOptions(installDir) {
   return { argv0: `"${uninstallerPath(installDir)}"`, windowsVerbatimArguments: true };
 }
 
+/** electron-builder.yml 的 appId（tests/e2e-m5-uninstall.test.ts 核对两边一致）。 */
+export const APP_ID = 'com.deskminis.app';
+/** app-builder-lib 的 NsisTarget 算 GUID 用的命名空间（同一测试对 app-builder-lib 核对）。 */
+export const ELECTRON_BUILDER_NS_UUID = '50e065bc-3134-11e6-9bab-38c9862bdaf3';
+
+/** NSIS 安装程序的 GUID：appId 的 UUID v5（RFC 4122：SHA-1(命名空间 + 名字) 取前 16 字节，标版本 5 与变体位），
+ *  与 electron-builder 的 UUID.v5(appId, ELECTRON_BUILDER_NS_UUID) 同一算法（W3-e2ec）。
+ *  安装位置登记在 HKCU\Software\<GUID>\InstallLocation（下一次安装读的就是它），「应用和功能」的条目在 …\Uninstall\<GUID>。
+ *  自己算、不引 builder-util-runtime：这份脚本只用 node: 内置模块。 */
+export function appGuid(appId) {
+  const ns = Buffer.from(ELECTRON_BUILDER_NS_UUID.replace(/-/g, ''), 'hex');
+  const h = createHash('sha1').update(ns).update(Buffer.from(appId, 'utf8')).digest();
+  h[6] = (h[6] & 0x0f) | 0x50;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const x = h.subarray(0, 16).toString('hex');
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
+
+/** 收尾那一行的名字（W3-e2ec）：它是 §6-1 安装的收尾。不叫 §6-6——m5 计划 §6 的第 6 项是「六个桥逐一实测」，这里的 §6-x 都指那份清单。 */
+const UNINSTALL_STEP = '§6-1 收尾：静默卸载临时安装';
+
+/** 收尾的判定（W3-e2ec，纯函数，tests/e2e-m5-uninstall.test.ts 逐项测）：卸载程序正常跑完、DeskMinis.exe 删了、
+ *  安装位置登记清了，三样都成才 PASS。以前只看退出码与 DeskMinis.exe，失败时也写成功的那句，超时（spawnSync 超时给
+ *  error.code = ETIMEDOUT、signal = SIGTERM、status = null）与启动失败都看不到原因；也不核对真正要紧的那条登记。
+ *  registry：'present' 还在、'absent' 清了、'unknown' reg query 本身出错。 */
+export function uninstallVerdict({ status, signal, errorCode, exeGone, registry }) {
+  const problems = [];
+  const sig = signal ? `，信号 ${signal}` : '';
+  if (errorCode) problems.push(`卸载程序没能正常跑完（${errorCode}${sig}）`);
+  else if (status !== 0) problems.push(`卸载程序退出码 ${status}${sig}`);
+  if (!exeGone) problems.push('DeskMinis.exe 还在');
+  if (registry === 'present') problems.push('安装位置登记还在（HKCU\\Software\\<GUID> 的 InstallLocation，下次安装会照它装）');
+  else if (registry === 'unknown') problems.push('查不了安装位置登记（reg query 出错）');
+  return problems.length === 0
+    ? { pass: true, detail: '已就地卸载：DeskMinis.exe 已删，安装位置登记已清（「应用和功能」条目与快捷方式随之清掉）' }
+    : { pass: false, detail: `${problems.join('；')}——按 RELEASE 第 2 节「收尾没做成」处理` };
+}
+
+/** 安装位置登记在不在：reg query 找到这个值退出码 0，找不到 1，别的（reg 起不来、超时）算查不了。 */
+function installLocationState(guid) {
+  const r = spawnSync('reg', ['query', `HKCU\\Software\\${guid}`, '/v', 'InstallLocation'], { encoding: 'utf8', timeout: 15000, windowsHide: true });
+  if (r.status === 0) return 'present';
+  if (r.status === 1) return 'absent';
+  return 'unknown';
+}
+
 /** 把 §6-1 静默装进临时目录的那一份就地静默卸掉（W3-e2e）：卸载程序会删掉 HKCU 下的安装位置、「应用和功能」里的登记
  *  与开始菜单、桌面快捷方式。以前只删目录不卸载，这些都还指着已删的临时目录，之后照 RELEASE 重装会被静默装进那个 Temp 路径
- *  （0.3.0 真机验证报告 §3.3）。没装上（§6-1 已记 FAIL）或卸载程序不在就跳过；数据目录不动（deleteAppDataOnUninstall: false）。 */
+ *  （0.3.0 真机验证报告 §3.3）。数据目录不动（deleteAppDataOnUninstall: false）。
+ *  没装上（§6-1 已记 FAIL）就没有要卸的；装上了却找不到卸载程序记 FAIL，不悄悄跳过（W3-e2ec）。 */
 function uninstallTemp(installDir) {
   const un = uninstallerPath(installDir);
-  if (!existsSync(un)) return;
+  if (!existsSync(un)) {
+    if (existsSync(join(installDir, 'DeskMinis.exe'))) {
+      record(UNINSTALL_STEP, false, `装上了却找不到卸载程序 ${un}——按 RELEASE 第 2 节「收尾没做成」处理`);
+    }
+    return;
+  }
   try {
     const r = spawnSync(un, uninstallArgs(installDir), { ...uninstallSpawnOptions(installDir), encoding: 'utf8', timeout: 180000, windowsHide: true });
-    const gone = !existsSync(join(installDir, 'DeskMinis.exe'));
-    record('§6-6 静默卸载临时安装', r.status === 0 && gone,
-      gone ? '已就地卸载：安装位置登记、「应用和功能」条目与快捷方式随之清掉' : `卸载后 DeskMinis.exe 还在（exit=${r.status}）`);
+    const v = uninstallVerdict({
+      status: r.status, signal: r.signal, errorCode: r.error?.code,
+      exeGone: !existsSync(join(installDir, 'DeskMinis.exe')),
+      registry: installLocationState(appGuid(APP_ID)),
+    });
+    record(UNINSTALL_STEP, v.pass, v.detail);
   } catch (e) {
-    record('§6-6 静默卸载临时安装', false, `卸载异常: ${e.message}`);
+    record(UNINSTALL_STEP, false, `卸载异常: ${e.message}——按 RELEASE 第 2 节「收尾没做成」处理`);
   }
 }
 
