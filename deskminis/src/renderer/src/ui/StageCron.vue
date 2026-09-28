@@ -9,6 +9,7 @@
 import { onMounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import { describeSchedule } from '../lib/cron/describe';
+import { scheduleValueOf } from '../lib/cron/form';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
@@ -18,7 +19,8 @@ const editing = ref('');          // ''=列表态；'new'=新建；其余=编辑
 const confirming = ref('');
 const fName = ref(''); const fPrompt = ref('');
 const fKind = ref<'interval' | 'once' | 'cron'>('interval');
-const fInterval = ref('30'); const fOnce = ref(''); const fCron = ref('0 9 * * *');
+// 间隔框是 type="number"：v-model 改过之后是数字，初值与回填是字符串（W3-cron，见 lib/cron/form.ts）
+const fInterval = ref<string | number>('30'); const fOnce = ref(''); const fCron = ref('0 9 * * *');
 const fAssistant = ref(''); const fWorkspace = ref('');
 const err = ref('');
 
@@ -44,20 +46,17 @@ function toLocalInput(ms: number): string {
   const two = (n: number): string => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}`;
 }
-function scheduleValue(): string {
-  if (fKind.value === 'interval') return fInterval.value.trim();
-  if (fKind.value === 'cron') return fCron.value.trim();
-  const ms = fOnce.value ? new Date(fOnce.value).getTime() : NaN;
-  return String(Math.floor(ms / 1000));
-}
 async function save(): Promise<void> {
   err.value = '';
-  const input = {
-    name: fName.value, prompt: fPrompt.value,
-    scheduleKind: fKind.value, scheduleValue: scheduleValue(),
-    assistantId: fAssistant.value || undefined, workspaceRoot: fWorkspace.value || undefined,
-  };
+  // 参数在 try 里才构造（W3-cron）：以前在 try 之外，间隔被 v-model 转成数字后 .trim() 抛错，
+  // 成了没人接的拒绝——错误行不出现，「创建 / 保存」点了毫无反应。现在任何异常都落到错误行。
   try {
+    const input = {
+      name: fName.value, prompt: fPrompt.value,
+      scheduleKind: fKind.value,
+      scheduleValue: scheduleValueOf(fKind.value, { interval: fInterval.value, cron: fCron.value, once: fOnce.value }),
+      assistantId: fAssistant.value || undefined, workspaceRoot: fWorkspace.value || undefined,
+    };
     if (editing.value === 'new') await chat.createCronJob(input);
     else await chat.updateCronJob(editing.value, input);
     editing.value = '';
@@ -69,8 +68,12 @@ async function toggleEnabled(id: string, enabled: boolean): Promise<void> {
   catch (e) { err.value = e instanceof Error ? e.message : String(e); }
 }
 async function onDelete(id: string): Promise<void> {
-  await chat.deleteCronJob(id); confirming.value = '';
-  if (editing.value === id) editing.value = '';
+  err.value = '';
+  // 删除失败同样要说出来（W3-cron）：以前没有 try，引擎断开时点「删除」毫无反应
+  try {
+    await chat.deleteCronJob(id); confirming.value = '';
+    if (editing.value === id) editing.value = '';
+  } catch (e) { err.value = e instanceof Error ? e.message : String(e); }
 }
 async function runNow(id: string): Promise<void> {
   err.value = '';
@@ -124,7 +127,9 @@ function fmtTime(sec?: number): string {
           </label>
           <label v-if="fKind === 'interval'" class="f-label">
             <span>间隔（分钟）</span>
-            <input v-model="fInterval" class="f-input tnum" type="number" min="1" required />
+            <!-- min 与引擎的下限一致（cron/schedule.ts：间隔最短 5 分钟）：浏览器自带的校验先拦下，就地提示 -->
+            <input v-model="fInterval" class="f-input tnum" type="number" min="5" required />
+            <span class="f-hint">最短 5 分钟。</span>
           </label>
           <label v-else-if="fKind === 'cron'" class="f-label">
             <span>cron 表达式</span>
