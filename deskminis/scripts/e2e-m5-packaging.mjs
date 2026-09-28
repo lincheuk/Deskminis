@@ -161,13 +161,15 @@ export function uninstallerPath(installDir) {
   return join(installDir, 'Uninstall DeskMinis.exe');
 }
 
-/** NSIS 卸载程序的参数：/S 静默；_?=<目录> 告诉它卸哪个安装目录，并让它在本进程里跑完才返回
- *  （不给的话它先把自己拷到临时目录再起、原进程立刻退出，spawnSync 等不到卸完）。_?= 必须是最后一个参数。 */
+/** NSIS 卸载程序的参数：/S 静默；_?=<目录> 让它在本进程里跑完才返回（不给的话它先把自己拷到临时目录再起、原进程立刻退出，
+ *  spawnSync 等不到卸完），也决定 un.onInit 里「正在运行」那道检查看哪个目录。卸哪个目录不由它定：un.onInit 接着 initMultiUser，
+ *  按「仅为我」读 HKCU\Software\<GUID> 的 InstallLocation 覆盖 $INSTDIR——卸的是登记的那个目录，也就是 §6-1 刚装的这份（W3-e2ef 订正）。
+ *  _?= 必须是最后一个参数。 */
 export function uninstallArgs(installDir) {
   return ['/S', `_?=${installDir}`];
 }
 
-/** 起卸载程序时给 spawnSync 的选项（W3-e2e 审查修）。NSIS 从命令行末尾往前找「 _?=」，其后整段当安装目录，
+/** 起卸载程序时给 spawnSync 的选项（W3-e2e 审查修）。NSIS 从命令行末尾往前找「 _?=」，其后整段当 $INSTDIR，
  *  所以 _?= 这一段不能带引号——路径有空格也不能（NSIS 手册 3.2）。Node 在 Windows 上会给含空格的参数整段加引号，
  *  而这里的临时安装目录故意带空格（「DeskMinis Install …\Program Files\DeskMinis」）：加了引号 NSIS 就认不出，
  *  照没给 _?= 处理，spawnSync 立刻返回、收尾记成失败、删目录与后台卸载抢文件。
@@ -182,7 +184,8 @@ export function uninstallSpawnOptions(exePath) {
  *  先把「路径以 $INSTDIR 开头的进程」一律结束（allowOnlyOneInstallerInstance.nsh 的 FIND_PROCESS / KILL_PROCESS，
  *  PowerShell 那一支不排除自己）——就地跑的卸载程序本身就在 $INSTDIR 里，会把自己结束掉，什么都没卸。
  *  electron-builder 自己卸旧版时也是先拷到 $PLUGINSDIR 再带 _?= 跑（installUtil.nsh 的 uninstallOldVersion）。
- *  放在临时安装的上一层（workDir）：跑完随临时目录一起删；路径不能以安装目录开头——那边是不分大小写的 StartsWith、不带分隔符。
+ *  放在临时安装的上两层（workDir；安装目录是 workDir\Program Files\DeskMinis）：跑完随临时目录一起删；
+ *  路径不能以安装目录开头——那边是不分大小写的 StartsWith、不带分隔符。
  *  这样卸载时 RMDir /r 连安装目录里原来那份卸载程序一起删掉。 */
 export function uninstallerCopyPath(workDir) {
   return join(workDir, 'old-uninstaller.exe');
@@ -212,7 +215,8 @@ const UNINSTALL_STEP = '§6-1 收尾：静默卸载临时安装';
 /** 收尾的判定（W3-e2ec，纯函数，tests/e2e-m5-uninstall.test.ts 逐项测）：卸载程序正常跑完、DeskMinis.exe 删了、
  *  安装位置登记清了，三样都成才 PASS。以前只看退出码与 DeskMinis.exe，失败时也写成功的那句，超时（spawnSync 超时给
  *  error.code = ETIMEDOUT、signal = SIGTERM、status = null）与启动失败都看不到原因；也不核对真正要紧的那条登记。
- *  registry：'present' 还在、'absent' 清了、'unknown' reg query 本身出错。 */
+ *  registry：'present' 还在、'absent' 清了、'unknown' reg query 本身出错。
+ *  失败时只写哪里没成；怎么收拾由 uninstallTemp 按剩下的情形接在破折号后面（leftoverAdvice，W3-e2ef）。 */
 export function uninstallVerdict({ status, signal, errorCode, exeGone, registry }) {
   const problems = [];
   const sig = signal ? `，信号 ${signal}` : '';
@@ -223,7 +227,26 @@ export function uninstallVerdict({ status, signal, errorCode, exeGone, registry 
   else if (registry === 'unknown') problems.push('查不了安装位置登记（reg query 出错）');
   return problems.length === 0
     ? { pass: true, detail: '已静默卸载：DeskMinis.exe 已删，安装位置登记已清（「应用和功能」条目与快捷方式随之清掉）' }
-    : { pass: false, detail: `${problems.join('；')}——按 RELEASE 第 2 节「收尾没做成」处理` };
+    : { pass: false, detail: problems.join('；') };
+}
+
+/** 收尾没做成时剩下什么、怎么收拾（W3-e2ef，纯函数）。以前一律说「卸载程序还在，到『应用和功能』里卸」，三种情形都不对：
+ *  找不到卸载程序；卸载程序走完了只是文件删不掉（两处登记与卸载程序都没了，只需删目录）；卸到一半（卸载程序可能删了、登记还在）。
+ *  所以按安装位置登记（registry，同 uninstallVerdict）与安装目录里那份卸载程序在不在（uninstallerLeft——「应用和功能」卸载时跑的就是它）
+ *  分四种，开头那句与 RELEASE 第 2 节的表逐条对应（tests/e2e-m5-uninstall.test.ts 核对）。
+ *  卸载程序最后才删两处登记（先「应用和功能」那条、紧接着安装位置，uninstaller.nsh），安装程序最先写安装位置：
+ *  安装位置登记清了，「应用和功能」那条也就没了。要删的是临时目录 workDir（里面还有拷出来的那份卸载程序），不是安装目录。 */
+export function leftoverAdvice({ registry, uninstallerLeft, workDir }) {
+  const rm = `删掉临时目录 ${workDir}`;
+  const byHand = '按 RELEASE 第 2 节「登记还在、卸载程序没了」处理';
+  if (registry === 'absent') return `安装位置登记已清：「应用和功能」里也没有这一条了，不用再卸，只需${rm}`;
+  if (registry === 'present') {
+    return uninstallerLeft
+      ? `卸载程序还在：到「应用和功能」里卸载 DeskMinis（数据保留），再${rm}`
+      : `卸载程序已经不在了：「应用和功能」里卸不掉，${byHand}，再${rm}`;
+  }
+  const then = uninstallerLeft ? '到「应用和功能」里卸载 DeskMinis（卸载程序还在，数据保留）' : `${byHand}（卸载程序已经不在了）`;
+  return `先在 PowerShell 里查登记：Test-Path 'HKCU:\\Software\\${appGuid(APP_ID)}' 是 False 就不用再卸，是 True 就${then}；最后${rm}`;
 }
 
 /** reg 两次查询的退出码 → 登记状态（W3-e2ed，纯函数）。reg 的退出码 1 是笼统的失败：找不到是 1，拒绝访问、组策略禁用了注册表工具
@@ -235,44 +258,50 @@ export function registryState(probeStatus, queryStatus) {
   return 'unknown';
 }
 
-/** 安装位置登记在不在（HKCU\Software\<GUID> 的 InstallLocation）。 */
-function installLocationState(guid) {
+/** 安装位置登记在不在（HKCU\Software\<GUID> 的 InstallLocation）。spawn 可注入（W3-e2ef）。 */
+function installLocationState(guid, spawn = spawnSync) {
   const opts = { encoding: 'utf8', timeout: 15000, windowsHide: true };
-  const probe = spawnSync('reg', ['query', 'HKCU\\Software'], opts);
-  const query = spawnSync('reg', ['query', `HKCU\\Software\\${guid}`, '/v', 'InstallLocation'], opts);
+  const probe = spawn('reg', ['query', 'HKCU\\Software'], opts);
+  const query = spawn('reg', ['query', `HKCU\\Software\\${guid}`, '/v', 'InstallLocation'], opts);
   return registryState(probe.status, query.status);
 }
+
+/** 收尾真去查文件、拷文件、起进程、记结果的四样。可注入（W3-e2ef）：tests/e2e-m5-uninstall.test.ts 换成假的，把 uninstallTemp 的每一支真跑一遍
+ *  ——以前只有源码守卫，副本落进安装目录、失败照样返回 true、reg 探测被跳过都能全绿。 */
+const REAL_IO = { exists: existsSync, copy: copyFileSync, spawn: spawnSync, record };
 
 /** 把 §6-1 静默装进临时目录的那一份静默卸掉（W3-e2e）：卸载程序会删掉 HKCU 下的安装位置、「应用和功能」里的登记
  *  与开始菜单、桌面快捷方式。以前只删目录不卸载，这些都还指着已删的临时目录，之后照 RELEASE 重装会被静默装进那个 Temp 路径
  *  （0.3.0 真机验证报告 §3.3）。数据目录不动（deleteAppDataOnUninstall: false）。
- *  跑的是拷到 workDir 的那一份，带 _?= 指回安装目录（为什么见 uninstallerCopyPath）。
+ *  跑的是拷到 workDir 的那一份，带 _?= 让它就地跑完（为什么见 uninstallerCopyPath、uninstallArgs）。
  *  返回 true 表示临时目录可以删：没装上（§6-1 已记 FAIL，没有要卸的），或卸干净了。
- *  装上了却找不到卸载程序、或收尾没做成，记 FAIL、返回 false——调用方就不删临时安装，卸载程序还在，「应用和功能」里能正常卸
- *  （删了目录的话，登记指着一个没有卸载程序的空目录，只能按 RELEASE 第 2 节手工处理）。 */
-function uninstallTemp(installDir, workDir) {
+ *  装上了却找不到卸载程序、或收尾没做成，记 FAIL、返回 false——调用方就不删临时目录：卸载程序还在的话「应用和功能」里能正常卸
+ *  （删了目录，登记就指着一个没有卸载程序的空目录，只能手工处理）。FAIL 那一行破折号后面按剩下的情形说怎么收拾（leftoverAdvice，W3-e2ef）。 */
+export function uninstallTemp(installDir, workDir, io = REAL_IO) {
   const un = uninstallerPath(installDir);
-  if (!existsSync(un)) {
-    if (existsSync(join(installDir, 'DeskMinis.exe'))) {
-      record(UNINSTALL_STEP, false, `装上了却找不到卸载程序 ${un}——按 RELEASE 第 2 节「收尾没做成」处理`);
-      return false;
-    }
-    return true;
+  const guid = appGuid(APP_ID);
+  const fail = (what, registry = installLocationState(guid, io.spawn)) => {
+    io.record(UNINSTALL_STEP, false, `${what}——${leftoverAdvice({ registry, uninstallerLeft: io.exists(un), workDir })}`);
+    return false;
+  };
+  if (!io.exists(un)) {
+    return io.exists(join(installDir, 'DeskMinis.exe')) ? fail(`装上了却找不到卸载程序 ${un}`) : true;
   }
   try {
     const copy = uninstallerCopyPath(workDir);
-    copyFileSync(un, copy);
-    const r = spawnSync(copy, uninstallArgs(installDir), { ...uninstallSpawnOptions(copy), encoding: 'utf8', timeout: 180000, windowsHide: true });
+    io.copy(un, copy);
+    const r = io.spawn(copy, uninstallArgs(installDir), { ...uninstallSpawnOptions(copy), encoding: 'utf8', timeout: 180000, windowsHide: true });
+    const registry = installLocationState(guid, io.spawn);
     const v = uninstallVerdict({
       status: r.status, signal: r.signal, errorCode: r.error?.code,
-      exeGone: !existsSync(join(installDir, 'DeskMinis.exe')),
-      registry: installLocationState(appGuid(APP_ID)),
+      exeGone: !io.exists(join(installDir, 'DeskMinis.exe')),
+      registry,
     });
-    record(UNINSTALL_STEP, v.pass, v.detail);
-    return v.pass;
+    if (!v.pass) return fail(v.detail, registry);
+    io.record(UNINSTALL_STEP, true, v.detail);
+    return true;
   } catch (e) {
-    record(UNINSTALL_STEP, false, `卸载异常: ${e.message}——按 RELEASE 第 2 节「收尾没做成」处理`);
-    return false;
+    return fail(`卸载异常: ${e.message}`);
   }
 }
 
@@ -294,11 +323,12 @@ async function installAndVerify(setupExe) {
     record('§6-1 NSIS 静默安装', false, `安装异常: ${e.message}`);
   } finally {
     // 先卸载、再删目录（W3-e2e）：只删目录的话，登记与快捷方式都还指着这个临时目录。
-    // 收尾没做成就不删（W3-e2ed）：卸载程序还在，「应用和功能」里能正常卸。删目录带重试：杀软可能还攥着刚退出的卸载程序
+    // 收尾没做成就不删（W3-e2ed）：卸载程序还在的话，「应用和功能」里能正常卸。删目录带重试：杀软可能还攥着刚退出的卸载程序。
+    // 怎么收拾按剩下的情形分（W3-e2ef），写在「§6-1 收尾」那一行里，要删的临时目录也写在那里
     if (uninstallTemp(installDir, target)) {
       try { rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* 锁则忽略 */ }
     } else {
-      console.log(`  临时安装留在 ${installDir}，没删：到「应用和功能」里卸载 DeskMinis（卸载程序还在，数据保留），再按 RELEASE 第 3 节安装`);
+      console.log('  临时目录没删：照上面「§6-1 收尾」那一行破折号后面说的收拾（详见 RELEASE 第 2 节「『§6-1 收尾』那一行是 FAIL」），收拾完按第 3 节安装');
     }
   }
 }
