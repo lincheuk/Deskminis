@@ -14,9 +14,10 @@
  *  行为（处理器真的弹这个框、挂在主窗口上、点了才装）在 tests/update-handoff-wiring.test.ts。 */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import type { IncomingMessage } from 'node:http';
+import type { ClientRequest, IncomingMessage } from 'node:http';
 import { join } from 'node:path';
-import { createHttpError } from 'builder-util-runtime';
+import { CancellationToken, createHttpError, HttpExecutor } from 'builder-util-runtime';
+import { EventEmitter } from 'node:events';
 import type { AppUpdater } from 'electron-updater';
 import { GitHubProvider } from 'electron-updater/out/providers/GitHubProvider';
 import { downloadedDialog, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog, updaterLogText } from '../src/main/update-status';
@@ -228,6 +229,26 @@ async function providerError(replies: Record<string, string | Error>): Promise<u
   throw new Error('期望检查失败，实际成功了');
 }
 
+/** HttpExecutor 是抽象类（类型上 createRequest 抽象；运行时 handleResponse 用不到它），补一个不发请求的实现。
+ *  handleResponse 在类型声明里是 private，运行时照常可调，这里按它的实参列一个类型来调 */
+class ProbeExecutor extends HttpExecutor<ClientRequest> {
+  createRequest(): ClientRequest { throw new Error('这里不发请求'); }
+}
+type HandleResponse = (response: IncomingMessage, options: object, token: CancellationToken,
+  resolve: (v: unknown) => void, reject: (e: Error) => void, redirectCount: number, requestProcessor: () => void) => void;
+/** 让真的 HttpExecutor.handleResponse 处理一个假响应，交回它 reject 的错误（W3-upddb）。404 不读正文；
+ *  其余 ≥400 读完正文，把「Data: <正文>」拼进描述（JSON 转义成一行），再拼响应头。 */
+function viaHandleResponse(status: number, statusMessage: string, path: string, body: string, contentType: string): Promise<Error> {
+  const res = Object.assign(new EventEmitter(), { statusCode: status, statusMessage, headers: { ...GH_HEADERS, 'content-type': contentType }, setEncoding() {} });
+  return new Promise<Error>((resolve) => {
+    (new ProbeExecutor() as unknown as { handleResponse: HandleResponse }).handleResponse(res as unknown as IncomingMessage,
+      { hostname: 'github.com', path, protocol: 'https:', method: 'GET' }, new CancellationToken(),
+      () => resolve(new Error('期望失败，实际成功了')), (e: Error) => resolve(e), 0, () => {});
+    res.emit('data', body);
+    res.emit('end');
+  });
+}
+
 describe('⑦ 写日志的原文不带 HttpError 附带的响应头（W3-updd）', () => {
   it('直接到达的 HttpError（第一跳 releases.atom 被限流）：Headers 整段换成一句说明；状态行、请求地址、堆栈、错误码照留', () => {
     const out = updateErrorForLog(httpFail(429, 'Too Many Requests', `${RELEASES}.atom`));
@@ -291,5 +312,38 @@ describe('⑦ 写日志的原文不带 HttpError 附带的响应头（W3-updd）
     expect(updaterLogText('Install: isSilent: false, isForceRunAfter: true')).toBe('Install: isSilent: false, isForceRunAfter: true');
     expect(() => updaterLogText(Object.create(null))).not.toThrow();
     expect(updaterLogText(Object.create(null))).toContain('转不成文字');
+  });
+
+  it('非 404 读了正文的（W3-upddb）：正文 JSON 转义成一行留在描述里，正文里写着「Headers: {」也不干扰，真正的响应头照截', async () => {
+    const html = '<!DOCTYPE html>\n<html>\n<body>\nHeaders: {\n  "fake": "x"\n}\nToo many requests\n</body>\n</html>\n';
+    const e429 = await viaHandleResponse(429, 'Too Many Requests', `${RELEASES}.atom`, html, 'text/html; charset=utf-8');
+    const out = updateErrorForLog(e429);
+    expect(out).not.toMatch(HEADER_TEXT);
+    expect(out).toContain('HttpError: 429 Too Many Requests');
+    expect(out).toContain(`url: https://github.com${RELEASES}.atom`);
+    expect(out).toContain('Too many requests');   // 服务器回的错误正文照留（排查限流要看它）
+    expect(out.match(/Headers: （响应头略）/g)).toHaveLength(1);
+    const json = JSON.stringify({ message: 'API rate limit exceeded', documentation_url: 'https://docs.github.com/rest' });
+    const e403 = await viaHandleResponse(403, 'Forbidden', `${RELEASES}/latest`, json, 'application/json; charset=utf-8');
+    const out403 = updaterLogText(`Error: ${e403.stack}`);
+    expect(out403).not.toMatch(HEADER_TEXT);
+    expect(out403).toContain('API rate limit exceeded');
+    expect(out403).toContain('Headers: （响应头略）');
+  });
+
+  it('差分下载失败退回整包（W3-upddb）：createHttpError 不带描述，electron-updater 记「Cannot download differentially…」加 stack——同样截', () => {
+    const e = createHttpError({ statusCode: 416, statusMessage: 'Range Not Satisfiable', headers: GH_HEADERS } as unknown as IncomingMessage);
+    const out = updaterLogText(`Cannot download differentially, fallback to full download: ${e.stack}`);
+    expect(out).not.toMatch(HEADER_TEXT);
+    expect(out).toContain('HttpError: 416 Range Not Satisfiable\nHeaders: （响应头略）\n    at createHttpError ');
+  });
+
+  it('构造出来的输入（大量不收尾的「Headers: {」）也在线性时间内处理完（W3-upddb）：检查在主进程同步跑，不能卡住界面', () => {
+    const crafted = 'Error: x' + '\nHeaders: {\n  "a": "b"'.repeat(20_000);   // 约 40 万字，一段也不收尾
+    const t0 = performance.now();
+    const out = updateErrorForLog(crafted);
+    const took = performance.now() - t0;
+    expect(out.length).toBe(crafted.length);   // 没有收尾的「}」：一段都不算响应头，原样留着
+    expect(took, `处理 ${crafted.length} 字用了 ${took.toFixed(0)}ms`).toBeLessThan(1_000);
   });
 });

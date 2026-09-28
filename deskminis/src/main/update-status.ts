@@ -140,11 +140,14 @@ export function isPortableBuild(env: Record<string, string | undefined>): boolea
 }
 
 /** HttpError 附带的响应头（W3-updd）。builder-util-runtime 的 createHttpError 在消息里拼「\nHeaders: 」加
- *  JSON.stringify(响应头, …, 2)：非空时「{」后面紧跟换行，到顶格的「}」为止——缩进 2，里层的收尾都不顶格；
- *  响应头的值只有字符串与字符串数组，转义过，里面没有换行。所以只认「{」紧跟换行的：空的「{}」原样留着（没有可截的），
- *  也不会被当成一段的开头、让懒惰匹配一路找到下一段响应头的「}」把中间的堆栈吞掉
- *  （第二跳、第三跳的失败会把内层 HttpError 的 stack 拼进外层消息，一段原文里可能不止一段响应头）。 */
-const HEADERS_BLOCK = /\nHeaders: \{\n[\s\S]*?\n\}/g;
+ *  JSON.stringify(响应头, …, 2)：非空时「{」后面紧跟换行，里面每行都至少缩进两格，到顶格的「}」为止；
+ *  响应头的值只有字符串与字符串数组，转义过，里面没有换行。正则照这个结构逐行认（W3-upddb）：
+ *  - 空的「{}」不认，原样留着（没有可截的），也不会被当成一段的开头；
+ *  - 中间只吃缩进两格的行，碰到别的行就不算一段——不会一路找到下一段响应头的「}」把中间的堆栈吞掉
+ *    （第二跳、第三跳的失败会把内层 HttpError 的 stack 拼进外层消息，一段原文里可能不止一段响应头）；
+ *  - 线性时间：以前的懒惰匹配 [\s\S]*?，遇到大量不收尾的「Headers: {」是平方级（审查实测 40 万字 5 秒），
+ *    这段在主进程同步跑。 */
+const HEADERS_BLOCK = /\nHeaders: \{\n(?: {2}[^\n]*\n)*\}/g;
 
 /** 写进 stderr 与按天日志之前截掉的两样（W3-updb、W3-updd）：
  *  - GitHubProvider 把 feed 解析阶段的错误包成 INVALID_RELEASE_FEED，消息后面拼着整段 releases.atom（几百行）；

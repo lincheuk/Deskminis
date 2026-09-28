@@ -190,8 +190,11 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
       7. 卸载演练版，重新装回正式的这一版（数据保留，`app-update.yml` 随安装恢复）；`dist-rehearsal` 删掉，别传上去。
 - [ ] 断网后点「现在检查」：状态行是「更新失败 · 连不上更新服务器（离线或网络受限）」这样一句中文，
       没有英文堆栈和响应头。
-- [ ] 检查出过 HTTP 错误时（例如发布仓库还没有正式 Release 时的 404），当天按天日志里 `[update]` 那段原文有状态行与请求地址，
-      响应头一段只剩 `Headers: （响应头略）`，整个日志文件搜不到 `set-cookie`。
+- [ ] 更新出错的日志不带响应头：把装好的 `resources\app-update.yml` 里的 `repo:` 临时改成不存在的名字（例如 `deskminis-releases-nope`），
+      从托盘退出再打开（这份文件一个进程只读一次），点「现在检查」（状态行说「发布页上还没有可用的版本……」），
+      然后改回原样、再退出打开一次。当天按天日志里这次检查写下的 `[update]` 原文
+      有 `HttpError: 404` 与请求地址，响应头一段只剩 `Headers: （响应头略）`，这之后写的行里搜不到 `set-cookie`
+      （同一天早些时候旧版本写的行不算；发布仓库在但还没发过版时，检查拿到的是空的 feed，不是 HTTP 错误，看不到这一段）。
 - [ ] 安装目录 `resources\` 下有 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`（W1a-1 起随包；
       `extraResources` 的 `from: ../` 指向工程目录之外，缺了就退回在 `deskminis/` 下放拷贝并加一致性测试）。
       `verify:release` 第 8 项查的是 `win-unpacked`，这一条确认装出来的也有。
@@ -254,9 +257,10 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - **0.1.1 的用户收不到自动更新**：0.1.1 写死的是私有源码仓，检查永远 404，需要手动下载安装一次 0.3.0，之后才走新源。
 - 公开仓库建好、还没发第一个正式 Release 时，检查会显示「发布页上还没有可用的版本」——这是预期，不是坏了。
   已经发过版却也显示这句，先看最新那个 Release 是不是误勾了 pre-release、是不是还停在 draft、`latest.yml` 有没有传上去。
-- 失败原因由主进程译成一句中文（`src/main/update-status.ts` 的 `describeUpdateError`）；原始错误（状态行、请求地址、堆栈与错误码）
-  写进主进程的 stderr 与按天日志 `%LOCALAPPDATA%\DeskMinis\logs\minisd-<日期>.log`，每行带 `[update]`。
-  服务器回的响应头不写（GitHub 匿名访问也回会话 cookie），整段 releases.atom 也截掉，见 `updateErrorForLog`。
+- 失败原因由主进程译成一句中文（`src/main/update-status.ts` 的 `describeUpdateError`）；原始错误（状态行、请求地址、
+  服务器回的错误正文——404 没有、限流与 5xx 有——堆栈与错误码）写进主进程的 stderr 与按天日志
+  `%LOCALAPPDATA%\DeskMinis\logs\minisd-<日期>.log`，每行带 `[update]`。服务器回的响应头不写（GitHub 匿名访问也回会话 cookie），
+  整段 releases.atom 也截掉，见 `updateErrorForLog`。
   更新的过程（发现新版、已是最新、下载完成、点了「重启并安装」）与 electron-updater 自己的记录（安装参数、启动安装程序）也在这里。
 - 便携版不参与自动更新：主进程认出便携版（环境变量 `PORTABLE_EXECUTABLE_DIR`）就不检查、不下载，
   状态显示「便携版不自动更新，请到发布页下载新版」。
