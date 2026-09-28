@@ -166,6 +166,17 @@ export function uninstallArgs(installDir) {
   return ['/S', `_?=${installDir}`];
 }
 
+/** 起卸载程序时给 spawnSync 的选项（W3-e2e 审查修）。NSIS 从命令行末尾往前找「 _?=」，其后整段当安装目录，
+ *  所以 _?= 这一段不能带引号——路径有空格也不能（NSIS 手册 3.2）。Node 在 Windows 上会给含空格的参数整段加引号，
+ *  而这里的临时安装目录故意带空格（「DeskMinis Install …\Program Files\DeskMinis」）：加了引号 NSIS 就认不出，
+ *  照没给 _?= 处理，spawnSync 立刻返回、§6-6 记成失败、删目录与后台卸载抢文件。
+ *  所以命令行按原样拼（windowsVerbatimArguments），程序名「Uninstall DeskMinis.exe」自己带空格，由这里加引号（argv0）。
+ *  安装那一步的 /D= 同样会被加引号，但 electron-builder 的安装程序自己从完整命令行里取 /D= 之后的整段（multiUser.nsh 的 GetDParameter），
+ *  真机上装进了带空格的临时目录；卸载程序没有这一层，靠的是 NSIS 自己的解析。 */
+export function uninstallSpawnOptions(installDir) {
+  return { argv0: `"${uninstallerPath(installDir)}"`, windowsVerbatimArguments: true };
+}
+
 /** 把 §6-1 静默装进临时目录的那一份就地静默卸掉（W3-e2e）：卸载程序会删掉 HKCU 下的安装位置、「应用和功能」里的登记
  *  与开始菜单、桌面快捷方式。以前只删目录不卸载，这些都还指着已删的临时目录，之后照 RELEASE 重装会被静默装进那个 Temp 路径
  *  （0.3.0 真机验证报告 §3.3）。没装上（§6-1 已记 FAIL）或卸载程序不在就跳过；数据目录不动（deleteAppDataOnUninstall: false）。 */
@@ -173,7 +184,7 @@ function uninstallTemp(installDir) {
   const un = uninstallerPath(installDir);
   if (!existsSync(un)) return;
   try {
-    const r = spawnSync(un, uninstallArgs(installDir), { encoding: 'utf8', timeout: 180000, windowsHide: true });
+    const r = spawnSync(un, uninstallArgs(installDir), { ...uninstallSpawnOptions(installDir), encoding: 'utf8', timeout: 180000, windowsHide: true });
     const gone = !existsSync(join(installDir, 'DeskMinis.exe'));
     record('§6-6 静默卸载临时安装', r.status === 0 && gone,
       gone ? '已就地卸载：安装位置登记、「应用和功能」条目与快捷方式随之清掉' : `卸载后 DeskMinis.exe 还在（exit=${r.status}）`);
