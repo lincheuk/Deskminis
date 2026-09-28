@@ -87,7 +87,8 @@ export class TerminalSession {
     // 与 PersistentShell 同因：win32 用 System32 绝对路径（cwd 是工作区，裸名会先在 cwd 里找）、windowsHide，
     // 子进程环境剥掉 DESKMINIS_*、叠上会话级 MINIS_*（值为 undefined 的跳过）。非 win32 保留裸名。
     const exe = this.platform === 'win32' ? powershellPath(this.sysEnv) : 'powershell.exe';
-    const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-EncodedCommand', encoded], {
+    // -ExecutionPolicy Bypass：与 PersistentShell 同因（W3-ps）——默认策略下 npm.ps1 这类垫片被挡，终端里敲 npm 同样跑不了。
+    const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: childEnv(this.sysEnv, this.env),
     });
     // 与 PersistentShell 同因：无监听器的 'error' / stdin 'error' 会冒泡成未捕获异常杀死整个 minisd。

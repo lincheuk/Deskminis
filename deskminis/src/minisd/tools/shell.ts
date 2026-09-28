@@ -84,7 +84,10 @@ export class PersistentShell {
     // 非 win32 保留裸名，Linux 上 shell.test.ts 的失败与通过逐例不变。
     // windowsHide：打包后的 minisd 自己没有控制台（推断），控制台程序不加这一项会另开一个可见的控制台窗口。
     const exe = this.platform === 'win32' ? powershellPath(this.sysEnv) : 'powershell.exe';
-    const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-EncodedCommand', encoded], {
+    // -ExecutionPolicy Bypass（W3-ps，真机验证报告 §3.2）：Windows 客户端默认策略是 Restricted，npm / npx / pnpm / yarn 会先解析到
+    // 同名 .ps1 垫片而被挡下，agent 跑不了它们（set-executionpolicy 在危险规则里，agent 也改不了——这是对的）。
+    // 只作用于这个进程、不改系统设置；执行策略不是安全边界，命令照旧逐条过权限网关。-EncodedCommand 必须留在最后。
+    const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
       // 剥掉 DESKMINIS_*（§3 第 10 条，见 proc/child-env.ts）；会话级变量与 ELECTRON_RUN_AS_NODE 照旧
       env: childEnv(this.sysEnv, this.env ? { ELECTRON_RUN_AS_NODE: '1', ...this.env } : undefined),
