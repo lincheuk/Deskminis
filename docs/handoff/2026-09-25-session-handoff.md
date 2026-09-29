@@ -8,10 +8,10 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `351f4b5`，**version 0.3.0**，minis.db user_version 仍是 **11**。256 测试文件 / 3670 例
-  （云端 3618 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
+- **代码**：main `5b34720`，**version 0.3.0**，minis.db user_version 仍是 **11**。256 测试文件 / 3679 例
+  （云端 3627 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
   （本文 §4、§5 的波史与文件地图写于 `35aab54`；之后 09-26 加了 W3-upd、W3-aumid、W3-updb，09-27 W3-rel，
-  09-28 真机验证后加了 W3-cron、W3-tz、W3-e2e、W3-ps、W3-updd 与三轮审查后的六步修，见下两条与 §4.5。）
+  09-28 真机验证后加了 W3-cron、W3-tz、W3-e2e、W3-ps、W3-updd 与三轮审查后的六步修，09-29 W3-e2ef，见下三条与 §4.5。）
 - **本轮做完了止血波 W1a–W2b**（2026-09-24～25，设计稿 `docs/specs/2026-09-24-hemostasis-design.md`）。
   从 09-10 的 `761b862` 起共 82 个提交：66 笔步骤（其中 22 笔是审查遗留的补修，3 笔是对外文档）加 16 次合流。
   - **W1a 伤数据**：file_edit 不再被 `$` 改坏文件；MCP 配置读坏拒写、外部修改不被覆盖、编辑不再丢字段；技能 zip 有上限；
@@ -43,8 +43,10 @@
   其余全过，包括 52 例 Windows-only 测试、任务栏固定、更新交接演练 7 步（弹框文案与向导吻合）。据此修了五步：
   W3-cron `13b89e6`（阻塞）、W3-tz `eec87e7`、W3-e2e `86dfdb8`、W3-ps `e0b4727`、W3-updd `a5f1ece`。
   三路独立审查整批（无新增阻塞），加上主会话自查，又修了五步：W3-e2eb `7a175f5`（e2e:m5 的就地卸载在带空格的目录里其实没就地跑，
-  自查发现、审查同一结论）、W3-upddb `b6799f2`、W3-cronb `535fc74`（清空助手与目录保存不生效、间隔上限）、W3-e2ec `70b866e`、W3-psb `0c6f348`；二审这五步又抓出一条必修（e2e:m5 的卸载程序就地跑会把自己结束掉），W3-e2ed `351f4b5` 修；三审无必修，留五条 should-fix 给下一轮（§6 一档第 7 条）。
+  自查发现、审查同一结论）、W3-upddb `b6799f2`、W3-cronb `535fc74`（清空助手与目录保存不生效、间隔上限）、W3-e2ec `70b866e`、W3-psb `0c6f348`；二审这五步又抓出一条必修（e2e:m5 的卸载程序就地跑会把自己结束掉），W3-e2ed `351f4b5` 修；三审无必修，留五条 should-fix 给下一轮（§6 一档第 7 条，09-29 已由 W3-e2ef 收掉）。
   没修的小问题进候选池（§6「其它悬空」、§8 C）。用户要在 Windows 上重做的项见 §6 一档。
+- **2026-09-29 追加**：W3-e2ef `5b34720` 收掉三审的五条 should-fix（§4.5、§6 一档第 7 条）。用户放行推送，同时要求**提交里不放 Claude 或任何 AI 的信息**（§1）。
+  现在等用户在 Windows 上照 §6 一档重做验证、带回结果再处理。
 - **发布现状**（2026-09-25 查 GitHub）：源码仓 Releases 只有 v0.1.1；`lincheuk/deskminis-releases` 搜不到，按还没建处理。
 - **之后**：W4a 办公内容包（0.3.1）→ W4b–W5 provider 正确性与上下文管线（0.4.0）→ W6–W7 运行时韧性与人在回路（0.5.0）
   → W8–W9 cowork 结构与打磨（0.6.0）。OpenCode V2 研读与四家对比的 9 项，用户 2026-09-25 答复「全默認」，已写进路线详案（§6）。
@@ -60,20 +62,23 @@
 - **用户风格**：中文、决策快、放权但要求**申报与可否决**。有分歧先陈述一两句，然后照做并申报。
 - **分支**（规则照旧，多了一支同点分支）：
   - `main` = 功能落地线。代码直接推 main。
-  - `claude/handover-documentation-pfr2l4` 与 `claude/deskminis-handoff-qq2kn3` = 云端会话的指定分支，**与 main 同点**：
-    每推一次 main，`git branch -f claude/handover-documentation-pfr2l4 main`、`git branch -f claude/deskminis-handoff-qq2kn3 main`，三支一起推。
-    2026-09-25 收尾时查 origin：三支都在 `35aab54`。
+  - `claude/handover-documentation-pfr2l4`、`claude/deskminis-handoff-qq2kn3` 与 `claude/sweet-bell-1ziwhy`（09-29 会话）= 云端会话的指定分支，**与 main 同点**：
+    每推一次 main，把这几支指定分支一起推到同一个提交（`git push origin HEAD:main HEAD:claude/…`，都是快进）。
+    2026-09-29 查 origin：main 与这三支都在 `5b34720`。新会话若另有指定分支，照此加进来。
   - `claude/deskminis-handoff-dd9wrk` = **权威记账线**（PROJECT_NOTES 波结、docs/specs、docs/research、docs/handoff、driver）。
     本地是 worktree `/home/user/deskminis-docs` 的 `docs-work` 分支，upstream 指向它；推时写明目标
     `git push origin docs-work:claude/deskminis-handoff-dd9wrk`。树上的代码是旧快照——**看代码去 main，看账本来这里**。
     合入 main 的方式用户仍未裁定。
-  - 本轮施工分支 `hemo/*` 只在本地（远端只有上面四支），合流后不推。
+  - 本轮施工分支 `hemo/*` 只在本地（远端只有上面这几支），合流后不推。
 - **提交身份与写法**（照旧）：`git -c user.name="lincheuk" -c user.email="linchaoheng3@gmail.com" commit -F <UTF-8 消息文件>`。
   云端的 stop 钩子会提示这些提交在 GitHub 上显示 Unverified、要求改成 Claude 身份——**用户 2026-09-28 明确答复「提交身份不用改，照旧用 lincheuk 推」**，不用理，也不用再问。
+  **提交里不放 Claude 或任何 AI 的信息（用户 2026-09-29）**：不加 `Co-Authored-By`、`Claude-Session` 两行（会话给的署名提示也不照加），标题与正文也不写。
+  GitHub 会把 `Co-Authored-By` 里的人算进贡献者。W3-e2ef 之前 main 上有 198 个提交带着 `Co-Authored-By: Claude`（最早是 07-26 的 `bcbdf55`）；
+  要去掉只能重写 main 的历史（所有 SHA 都变，本文与账本里引用的提交号全部失效），用户没要求，不动。
   - 标题：步骤提交 `<步骤号>: 简述`，步骤号带子波字母（`W1a-2:`），与 09-07 的旧 W 波（`W1:`）区分；补修用 `<步骤号>b/c`；
     合流用 `合流: 链 X（步骤…）并入 main——一句话`；记账线用 `设计稿:` `研究:` `记账:` `驱动:` 前缀。
   - 正文分节：做了什么 / 为什么 / 先红 / 验证 / 有意翻红的守卫 / 偏差申报 / 自己判错又改回的；经过审查的加「审查意见处置」；
-    合流提交写冲突与处置、合流后的验证数字。末尾两行署名照当次会话给的 attribution（Co-Authored-By 与 Claude-Session）。
+    合流提交写冲突与处置、合流后的验证数字。末尾不加署名行（见上）。
   - 推送：commit 后立即推，失败 2/4/8/16 秒退避重试不超过 4 次，推后 `git log origin/<分支> --oneline -1` 核对。
 
 ## 2. 纪律（违反任一条即返工，对自己同样适用）
@@ -320,6 +325,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W3-e2ec（09-28） | e2e:m5 收尾的判定核对 `HKCU\Software\<GUID>\InstallLocation`、失败写实际原因（错误码、信号）；GUID 由 appId 按 electron-builder 的 UUID v5 算；装上了找不到卸载程序记 FAIL；改叫「§6-1 收尾」；RELEASE §2 恢复步骤改成真能用的（先装一次再卸，或删两处登记） | `70b866e` | main（主会话直接做；脚本只在 Windows 真跑，未上真机） | W3-e2e 独立审查 |
 | W3-psb（09-28） | W3-ps 的说法改准：组策略设定的执行策略仍然生效；再起的 PowerShell 继承；只有 agent 的命令过权限确认 | `0c6f348` | main（主会话直接做） | W3-ps 独立审查 |
 | W3-e2ed（09-28） | e2e:m5 收尾先把卸载程序拷到安装目录之外再跑（electron-builder 的卸载程序静默时先结束路径以 $INSTDIR 开头的进程、不排除自己，就地跑会自杀）；没卸干净就留着临时安装、说清怎么卸；reg 先探测 HKCU\Software 再信「找不到」；删目录带重试；CHANGELOG 权限网关与间隔上限报错两处措辞 | `351f4b5` | main（主会话直接做；未上真机，下次 e2e:m5 的「§6-1 收尾」一行即真机验证） | W3-e2eb…W3-psb 二审 |
+| W3-e2ef（09-29） | W3-e2ed 三审的五条 should-fix：收尾 FAIL 不再一律说「卸载程序还在」，按安装位置登记与安装目录里那份卸载程序在不在分四种说怎么收拾（纯函数 `leftoverAdvice`：登记已清只删临时目录；登记在、卸载程序在到「应用和功能」里卸；登记在、卸载程序不在按 RELEASE「登记还在、卸载程序没了」处理；查不了给 `Test-Path` 自己查），FAIL 那一行写要删的临时目录；`uninstallTemp` 注入 exists / copy / spawn / record，测试把每一支真跑一遍（假卸载程序照模板演，在 $INSTDIR 里跑就结束自己）；脚本指向 RELEASE 的段名改正并加守卫；两处注释（「上两层」、`_?=` 不决定卸哪个目录）；RELEASE §2 改成四种情形的表、Ctrl+C 单列 | `5b34720` | main（主会话直接做，没走独立审查；三审点名的变异加另外 8 个共 13 个全红；未上真机，「§6-1 收尾」FAIL 时才碰得到） | W3-e2ed 三审 |
 
 ### 4.6 合流提交
 
@@ -352,9 +358,9 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 
 ### 4.8 当前状态
 
-- main `351f4b5`：256 测试文件 / 3670 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
+- main `5b34720`：256 测试文件 / 3679 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
   （止血波收官时是 `35aab54`：249 / 3594；09-26 的 W3-upd、W3-aumid、W3-updb 加了 4 个测试文件、39 例；
-  09-28 真机验证后的五步与六步审查修加了 3 个测试文件、37 例。）
+  09-28 真机验证后的五步与六步审查修加了 3 个测试文件、37 例；09-29 的 W3-e2ef 在 `tests/e2e-m5-uninstall.test.ts` 里净加 9 例。）
 - 与 09-10 的 `761b862` 比：97 个提交，236 个文件，+34543 / −908 行；测试文件 170 → 256。
 - 版本 0.3.0；user_version 11；dependencies / devDependencies 零改动（scripts 加了 `verify:release`；链 S 加 `smoke:release`）；
   `package.json` 与锁根的 license 改为 Apache-2.0。
@@ -471,24 +477,15 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 6. ~~2026-09-28 Windows 真机验证发现的问题~~ 已修五步：W3-cron（阻塞）、W3-tz（测试阻塞）、W3-e2e、W3-ps、W3-updd，
    及三轮审查后的六步 W3-e2eb、W3-upddb、W3-cronb、W3-e2ec、W3-psb、W3-e2ed（见 §4.5）；
    验证报告原文 `docs/handoff/2026-09-28-windows-verification.md`。没修的小问题见下面「其它悬空」。
-7. **下一轮先做：W3-e2ef（`351f4b5` 三审的 should-fix，不挡发版，只在 e2e:m5 收尾 FAIL 时才碰得到）**。三审确认主路径正确：
-   副本在安装目录之外、卸载程序按「仅为我」认出安装目录、删文件与两处登记和快捷方式、退出码 0、判定 PASS（读模板与 NSIS 语义推断，未上真机）。留下五条：
-   ① `tests/e2e-m5-uninstall.test.ts` 里「装上了却找不到卸载程序：记一行 FAIL」的守卫切到 `indexOf('return;')`，W3-e2ed 把那一支改成
-      `return false;` / `return true;` 之后切到了函数尾、被 catch 里的 record 蒙过去（删掉那句 record 照样 13/13）——改成切到 `/return (?:true|false);/`；
-   ② 修复本身没钉在调用处：`uninstallerCopyPath(installDir)`（副本落进安装目录，自杀复现）、`return v.pass` 改 `return true`、catch 与缺卸载程序那一支
-      `return true`、`registryState(0, query.status)` 都能全绿——补源码守卫，或给 `uninstallTemp` 注入 spawn / copy / exists / record 做行为测试；
-   ③ 收尾 FAIL 时脚本一律说「卸载程序还在，到『应用和功能』里卸」，三种情形不对：找不到卸载程序那一支；卸载程序跑完（退出码 0）但 DeskMinis.exe 删不掉
-      或 reg 查不了——这时卸载程序与两处登记都已删，只需删目录；超时卡在一半——卸载程序可能已删、登记还在。按「登记 absent / present+卸载程序在 /
-      present+卸载程序不在 / unknown」分四种说法，RELEASE §2 同步；
-   ④ 脚本三处「按 RELEASE 第 2 节『收尾没做成』处理」指向的段落已改名，改指「『§6-1 收尾』那一行是 FAIL」；
-   ⑤ nit：中途 Ctrl+C 时 finally 不跑，临时目录与卸载程序都还在，直接在「应用和功能」里卸即可（RELEASE 写成了先装再卸）；FAIL 提示打印的是安装目录，
-      该打印要删的临时目录（`target`，含 `old-uninstaller.exe`）；两处注释：副本在安装目录「上两层」不是「上一层」，`_?=` 不决定卸哪个目录
-      （un.onInit 的 initMultiUser 用 HKCU 的 InstallLocation 覆盖 $INSTDIR，`_?=` 只让它在本进程里跑、并决定「正在运行」检查看哪个目录）。
-   三审的剧本在 scratchpad（不入库）；要复现变异，照上面①②逐条改源码跑 `tests/e2e-m5-uninstall.test.ts` 即可。
+7. ~~下一轮先做：W3-e2ef（`351f4b5` 三审的 should-fix）~~ 已做 `5b34720`（09-29）：五条都收——①② 源码守卫换成注入 exists / copy / spawn / record 的
+   行为测试（三审点名的变异——副本落进安装目录、失败返回 true、跳过 reg 探测、删掉那句 record——加另外 8 个，13 个全红）；
+   ③ 收尾 FAIL 按「登记已清 / 登记在、卸载程序在 / 登记在、卸载程序不在 / 查不了」分四种说法，写要删的临时目录，RELEASE §2 改成同一张表；
+   ④ 脚本指向 RELEASE 的段名改正、加守卫（段名必须真有）；⑤ Ctrl+C 单列（直接在「应用和功能」里卸）、打印临时目录、两处注释。
+   未上真机：只有「§6-1 收尾」FAIL 时才碰得到，正常路径与 W3-e2ed 相同。
 
 **用户在 Windows 上做**（设计稿 §5；RELEASE.md §0 九步清单）：
-> 2026-09-28 已在 `d1c9a2f` 上做过一遍（报告见上），修完五步后要重做：`npm ci`、`npm test`（应当全过，含原先在东八区失败的 nav-group 一例）、
-> `npm run typecheck`、清空 dist 后 `npm run dist`、`e2e:m5`（这次末尾多一项「§6-1 收尾：静默卸载临时安装」，要 PASS）、`verify:release`；
+> 2026-09-28 已在 `d1c9a2f` 上做过一遍（报告见上），修完五步后要在 main `5b34720` 上重做：`npm ci`、`npm test`（256 文件 / 3679 例应当全过，含原先在东八区失败的 nav-group 一例）、
+> `npm run typecheck`、清空 dist 后 `npm run dist`、`e2e:m5`（这次末尾多一项「§6-1 收尾：静默卸载临时安装」，要 PASS；FAIL 就把那一行原文带回来，破折号后面写着是四种情形里的哪一种）、`verify:release`；
 > 手动冒烟里重做定时任务（改间隔能建、编辑改间隔能存、编辑时清空助手与工作目录能存上）与权限卡（让 agent 跑 `npm view left-pad version` 能跑通）；
 > 上次没设 key 跳过的 `smoke:release` 要补跑；「覆盖安装运行中的 0.1.1」拿得到安装包就补做。其余上次已通过的项不必重复。
 1. 在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`，放 README、LICENSE、THIRD-PARTY-NOTICES、CHANGELOG 四个文件。
