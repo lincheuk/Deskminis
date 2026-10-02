@@ -1,8 +1,9 @@
-import { readdirSync, lstatSync, readFileSync, type Stats } from 'node:fs';
+import { readdirSync, lstatSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolContext, ToolExecutor, ToolOutcome } from './types';
 import { guardRead } from './files';
 import { dataRootSkipper } from './data-gate';
+import { grepInWorker, GREP_LIMITS } from './grep-scan';
 
 const TOOL_TITLE = { type: 'string' as const, description: '这次调用的 5-10 字用户语言摘要' };
 
@@ -12,15 +13,10 @@ const LIST_MAX = 500;
 const WALK_ENTRY_LIMIT = 50000;
 // file_glob 匹配结果上限：超出说明模式太宽，截断提示让模型自己收窄
 const GLOB_MATCH_LIMIT = 1000;
-// 以下均为 file_grep 的防线：复用 files.ts MAX_READ 的精神（1MB 以上不整读，file_read 要分段读），
-// 二进制嗅探窗口、单行扫描上限（砍掉灾难回溯的输入面）、时间预算与输出体积上限
-const GREP_MAX_FILE = 1024 * 1024;
-const BINARY_SNIFF_BYTES = 8192;
-const LINE_SCAN_LIMIT = 10000;
-const LINE_DISPLAY_LIMIT = 500;
-const GREP_MATCH_LIMIT = 500;
+// file_grep 的防线：文件大小、二进制嗅探、单行扫描与展示、匹配条数、输出体积几项上限在 grep-scan.ts 的 GREP_LIMITS（扫描在 worker 里跑，W3-sec2）；
+// 这里留匹配条数（尾注要用）与时间预算——到时 terminate worker，灾难性回溯也停得下来
+const GREP_MATCH_LIMIT = GREP_LIMITS.maxMatches;
 const GREP_TIME_BUDGET_MS = 10000;
-const OUTPUT_MAX = 100 * 1024; // 复用 shell 的 100KB 输出上限精神
 
 /** glob → RegExp。只支持 ** * ? 三种元字符的保守子集——宁缺勿歧义：
  *  {}[]() 这类语法的隐式规则（转义、优先级）最容易让模型写出「自以为」的模式然后怪工具不准。
@@ -219,8 +215,8 @@ export const fileGrepTool: ToolExecutor = {
   },
   async execute(input, ctx) {
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-    let re: RegExp;
-    try { re = new RegExp(String(input.pattern), input.ignore_case === true ? 'i' : ''); }
+    // 语法先在这里核一遍：错误信息照旧直接交回，不必起 worker
+    try { new RegExp(String(input.pattern), input.ignore_case === true ? 'i' : ''); }
     catch (e) { return { output: `正则表达式无效: ${String(e)}`, success: false }; }
     let nameRe: RegExp | undefined;
     const globRaw = input.glob;
@@ -236,47 +232,26 @@ export const fileGrepTool: ToolExecutor = {
     // 不调用 ctx.onFileRead：三件套不返回完整文件内容（清单/路径/匹配行），
     // 不构成 file_read 那种「读了某文件」的语义，技能 use_count 追踪不适用。
 
-    const deadline = Date.now() + GREP_TIME_BUDGET_MS;
-    const rows: string[] = [];
-    let rowsLen = 0;
-    const notes: string[] = [];
-    let matches = 0, skippedBig = 0, skippedBin = 0;
-    let cappedMatches = false, timedOut = false, cappedOutput = false;
-
-    scan: for (let fi = 0; fi < files.length; fi++) {
-      // 每 200 个文件查一次取消：数万文件的目录树不查会拖住「停止」按钮
-      if (fi % 200 === 0 && ctx.signal?.aborted) return { output: '[已取消]', success: false };
-      const rel = files[fi];
-      // glob 过滤的是文件名（basename）：`**/*.ts` 这类模式对 basename 依旧成立（**/ 可匹配零层）
-      if (nameRe && !nameRe.test(rel.slice(rel.lastIndexOf('/') + 1))) continue;
-      let buf: Buffer;
-      try {
-        if (lstatSync(join(base.abs, rel)).size > GREP_MAX_FILE) { skippedBig++; continue; }
-        buf = readFileSync(join(base.abs, rel));
-      } catch { continue; } // 竞态消失/无权读的文件跳过
-      // 前 8KB 含 \0 判二进制：合法 UTF-8 文本不含 \0，硬扫 exe/图片只会产出乱码匹配
-      if (buf.subarray(0, BINARY_SNIFF_BYTES).includes(0)) { skippedBin++; continue; }
-      const lines = buf.toString('utf8').split('\n');
-      for (let li = 0; li < lines.length; li++) {
-        let line = lines[li];
-        if (line.endsWith('\r')) line = line.slice(0, -1); // CRLF 行尾的 \r 不属于内容
-        // 单行只扫前 10000 字符：超长行（压缩 JS/base64）遇上回溯型正则会卡死整个搜索
-        if (!re.test(line.slice(0, LINE_SCAN_LIMIT))) continue;
-        matches++;
-        const shown = line.length > LINE_DISPLAY_LIMIT ? line.slice(0, LINE_DISPLAY_LIMIT) : line;
-        const row = `${rel}:${li + 1}:${shown}`;
-        rows.push(row);
-        rowsLen += row.length + 1;
-        if (rowsLen > OUTPUT_MAX) { cappedOutput = true; break scan; }
-        if (matches >= GREP_MATCH_LIMIT) { cappedMatches = true; break scan; }
-      }
-      if (Date.now() > deadline) { timedOut = true; break; }
+    // glob 过滤的是文件名（basename）：`**/*.ts` 这类模式对 basename 依旧成立（**/ 可匹配零层）
+    const targets = nameRe ? files.filter(rel => nameRe!.test(rel.slice(rel.lastIndexOf('/') + 1))) : files;
+    // 逐行匹配放进可终止的 worker（W3-sec2）：调用方给的正则遇上灾难性回溯，以前会卡死整个引擎
+    let scanned;
+    try {
+      scanned = await grepInWorker(
+        { base: base.abs, files: targets, pattern: String(input.pattern), flags: input.ignore_case === true ? 'i' : '' },
+        { budgetMs: GREP_TIME_BUDGET_MS, signal: ctx.signal },
+      );
+    } catch (e) {
+      return { output: `file_grep 扫描失败: ${e instanceof Error ? e.message : String(e)}`, success: false };
     }
+    if (scanned.aborted) return { output: '[已取消]', success: false };
+    const { rows, skippedBig, skippedBin, cappedMatches, cappedOutput, timedOut } = scanned;
+    const notes: string[] = [];
 
     if (skippedBig > 0) notes.push(`[已跳过 ${skippedBig} 个大于 1MB 的文件]`);
     if (skippedBin > 0) notes.push(`[已跳过 ${skippedBin} 个二进制文件]`);
     if (cappedMatches) notes.push(`[已达 ${GREP_MATCH_LIMIT} 条匹配上限，结果被截断]`);
-    if (timedOut) notes.push(`[已达 ${GREP_TIME_BUDGET_MS / 1000} 秒时间预算，返回部分结果]`);
+    if (timedOut) notes.push(`[已达 ${GREP_TIME_BUDGET_MS / 1000} 秒时间预算，返回部分结果；正则回溯太慢时会在这里被终止，可以换个更简单的写法]`);
     if (cappedOutput) notes.push('[输出超过 100KB 被截断]');
     if (hitLimit) notes.push(`[已截断: 遍历条目达上限 ${WALK_ENTRY_LIMIT}，结果可能不全]`);
     notes.push(...skippedNote(skipped));

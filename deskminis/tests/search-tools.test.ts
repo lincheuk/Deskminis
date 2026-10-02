@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ToolRegistry } from '../src/minisd/tools/registry';
 import { fileListTool, fileGlobTool, fileGrepTool, globToRegExp, walkDir } from '../src/minisd/tools/search';
+import * as grepScanModule from '../src/minisd/tools/grep-scan';
 import type { ToolContext, PermissionRequest, PermissionDecision } from '../src/minisd/tools/types';
 import { MinisPaths } from '../src/minisd/paths';
 import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
@@ -251,5 +252,47 @@ describe('search 工具取消', () => {
       expect(r.success).toBe(false);
       expect(r.output).toBe('[已取消]');
     }
+  });
+});
+
+/** W3-sec2（安全审计第 4 条）：调用方给的正则在引擎的事件循环里同步跑，灾难性回溯（41 字节的 aaa…! 配 (a+)+$）能把整个 minisd 卡死——
+ *  所有会话、停止键、RPC 一起停；以前的 10 秒预算只在每个文件扫完之后才查，单个文件里卡住就永远查不到。
+ *  现在扫描放进 worker_threads 的 Worker：到时或点停止就 terminate，引擎的事件循环一直能动。 */
+describe('W3-sec2：正则扫描放进可终止的 worker', () => {
+  const REDOS_LINE = 'a'.repeat(40) + '!';
+  type GrepInWorker = (job: { base: string; files: string[]; pattern: string; flags: string }, o: { budgetMs: number; signal?: AbortSignal }) =>
+    Promise<{ rows: string[]; timedOut: boolean; aborted: boolean }>;
+  const grepInWorker = (grepScanModule as unknown as { grepInWorker?: GrepInWorker }).grepInWorker;
+
+  it('点停止：灾难性回溯中途也立即返回 [已取消]，扫描期间引擎的事件循环照常转', async () => {
+    writeFileSync(join(ws, 'x.txt'), REDOS_LINE);
+    const controller = new AbortController();
+    let ticks = 0;
+    const iv = setInterval(() => { ticks++; }, 20);
+    setTimeout(() => controller.abort(), 300);
+    const t0 = Date.now();
+    const r = await reg.execute('file_grep', JSON.stringify({ pattern: '(a+)+$', tool_title: '搜' }), { ...ctx, signal: controller.signal });
+    clearInterval(iv);
+    expect(r.output).toBe('[已取消]');
+    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(ticks, '扫描期间事件循环被卡住了').toBeGreaterThanOrEqual(5);
+  }, 20_000);
+
+  it('到时限就终止 worker，已经扫到的结果照样交回并注明', async () => {
+    expect(grepInWorker, 'grep-scan 没有导出 grepInWorker').toBeTypeOf('function');
+    writeFileSync(join(ws, 'a.txt'), 'NEEDLE');
+    writeFileSync(join(ws, 'b.txt'), REDOS_LINE);
+    const t0 = Date.now();
+    const r = await grepInWorker!({ base: ws, files: ['a.txt', 'b.txt'], pattern: '^(a+)+$|NEEDLE', flags: '' }, { budgetMs: 400 });
+    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(r.timedOut).toBe(true);
+    expect(r.aborted).toBe(false);
+    expect(r.rows).toEqual(['a.txt:1:NEEDLE']);
+  }, 20_000);
+
+  it('正常扫描：结果与时限无关、不标超时', async () => {
+    writeFileSync(join(ws, 'a.txt'), 'one\nNEEDLE two');
+    const r = await grepInWorker!({ base: ws, files: ['a.txt'], pattern: 'NEEDLE', flags: '' }, { budgetMs: 5000 });
+    expect(r).toMatchObject({ rows: ['a.txt:2:NEEDLE two'], timedOut: false, aborted: false });
   });
 });
