@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OffloadEngine } from '../src/minisd/agent/offload';
 import { MinisPaths } from '../src/minisd/paths';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
 let dir: string;
 let paths: MinisPaths;
@@ -72,5 +72,51 @@ describe('OffloadEngine', () => {
     e.offload(SID, 'T3', 'second'.repeat(5000));
     const abs = join(dir, 'sessions', SID, 'offloads', 'T3.txt');
     expect(readFileSync(abs, 'utf8')).toContain('second');
+  });
+});
+
+/** W3-sec3（安全审计第 5 条）：卸载文件名以前是 `${toolUseId}.txt` 直接拼宿主路径，而 toolUseId 是模型端点响应里原样带回来的——
+ *  恶意或被劫持的端点给一个 ../../x 就能把大结果写到卸载桶外面。现在只认 [A-Za-z0-9_-]{1,128} 原样当文件名（三家真实的 ID 都在这里面，
+ *  已有会话的桩路径不变），其余一律换成 sha256 的十六进制；写之前再核一遍落点仍在桶里。 */
+describe('W3-sec3：卸载文件名不信任模型给的工具调用 ID', () => {
+  const bucket = (): string => paths.sessionBucket(SID, 'offloads');
+  const BIG = 'Q'.repeat(21_000);
+
+  it.each([
+    '../../../../outside-marker',
+    '..\\..\\outside-marker',
+    'a/b',
+    'C:\\x\\y',
+    '/etc/x',
+    '..',
+    'x'.repeat(300),
+    'id with space',
+    '',
+  ])('%s：只落在本会话的卸载桶里，文件名是 64 位十六进制，桩给的路径就是这个文件', (id) => {
+    const e = new OffloadEngine(paths);
+    const r = e.offload(SID, id, BIG);
+    const files = readdirSync(bucket());
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^[0-9a-f]{64}\.txt$/);
+    expect(r.relativePath).toBe(`offloads/${files[0]}`);
+    expect(r.stub).toContain(`/var/minis/offloads/${files[0]}`);
+    expect(readFileSync(join(bucket(), files[0]), 'utf8')).toBe(BIG);
+    expect(existsSync(join(dirname(dir), 'outside-marker.txt'))).toBe(false);
+    expect(existsSync(join(dir, 'outside-marker.txt'))).toBe(false);
+  });
+
+  it.each(['toolu_01AbCdEf234', 'call_0_9f8e7d', 'AB12CD34-0000-4000-8000-ABCDEF012345', 'T3'])(
+    '%s：真实的 ID 形状原样当文件名（已有会话的桩路径不变）', (id) => {
+      const e = new OffloadEngine(paths);
+      const r = e.offload(SID, id, BIG);
+      expect(r.relativePath).toBe(`offloads/${id}.txt`);
+      expect(existsSync(join(bucket(), `${id}.txt`))).toBe(true);
+    });
+
+  it('换过名的卸载文件照样认得出是读回（不会再被卸载一次）', () => {
+    const e = new OffloadEngine(paths);
+    const r = e.offload(SID, '../evil', BIG);
+    const guest = `/var/minis/${r.relativePath}`;
+    expect(e.readBackOf(SID, 'file_read', JSON.stringify({ path: guest }))).toBeDefined();
   });
 });

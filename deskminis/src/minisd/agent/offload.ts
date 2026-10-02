@@ -1,4 +1,5 @@
 import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, relative, isAbsolute, sep } from 'node:path';
 import type { MinisPaths } from '../paths';
 import type { ReadRange } from '../tools/types';
@@ -14,8 +15,18 @@ const THRESHOLD = 20_000;
 export const READBACK_MAX = 50_000;
 
 /**
+ * 卸载文件名（W3-sec3，安全审计第 5 条）。toolUseId 来自模型端点的响应、原样带回，不能直接拼进宿主路径：
+ * 恶意或被劫持的端点给一个 ../../x 就能把大结果写到卸载桶外面。只有 [A-Za-z0-9_-]{1,128} 原样用——
+ * 三家真实的 ID（toolu_…、call_…、Gemini 适配器生成的 UUID）都在这里面，已有会话的桩路径不变；其余换成 sha256 的十六进制。
+ */
+export function offloadFileName(toolUseId: string): string {
+  const stem = /^[A-Za-z0-9_-]{1,128}$/.test(toolUseId) ? toolUseId : createHash('sha256').update(toolUseId, 'utf8').digest('hex');
+  return `${stem}.txt`;
+}
+
+/**
  * 大工具结果卸载（设计 §4.2「大工具结果卸载」段）。
- * >20k 字符写 offloads/<toolUseId>.txt，落库的 tool_result.output 替换为桩。
+ * >20k 字符写 offloads/<文件名>.txt（文件名见 offloadFileName），落库的 tool_result.output 替换为桩。
  * 决策：落库时替换（设计原文"历史替换为桩"）；toolEnd 事件广播替换前完整 output（Task 7 在 loop.ts 处理）。
  */
 export class OffloadEngine {
@@ -78,8 +89,11 @@ export class OffloadEngine {
   offload(sessionId: string, toolUseId: string, output: string): { stub: string; relativePath: string } {
     const dir = this.paths.sessionBucket(sessionId, 'offloads');
     mkdirSync(dir, { recursive: true });
-    const fileName = `${toolUseId}.txt`;
+    const fileName = offloadFileName(toolUseId);
     const abs = join(dir, fileName);
+    // 文件名已经只剩安全字符；再核一遍落点仍在桶里，将来改了命名规则也漏不出去
+    const rel = relative(dir, abs);
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || rel.includes(sep)) throw new Error(`卸载文件名越出卸载目录: ${fileName}`);
     // 原子写
     const tmp = abs + '.tmp';
     writeFileSync(tmp, output, 'utf8');
@@ -94,8 +108,8 @@ export class OffloadEngine {
     // 桩再说「取回完整内容」就是空头支票；不超过的维持原文（offload.test.ts 的全等断言钉着）。
     // 超过的直接给分段读法（W1b-2d 起 file_read 支持 offset/limit）：落盘超过 1MB 的卸载文件整读会先报超限，白走一趟
     const pointer = output.length <= READBACK_MAX
-      ? `使用 file_read 工具读取 /var/minis/offloads/${toolUseId}.txt 取回完整内容`
-      : `全文 ${output.length} 字符，一次读不完：用 file_read 分段读取 /var/minis/offloads/${toolUseId}.txt，offset 从 0 起，每段 limit 不超过 ${READBACK_MAX}，每段末尾会注明下一段的 offset`;
+      ? `使用 file_read 工具读取 /var/minis/${relativePath} 取回完整内容`
+      : `全文 ${output.length} 字符，一次读不完：用 file_read 分段读取 /var/minis/${relativePath}，offset 从 0 起，每段 limit 不超过 ${READBACK_MAX}，每段末尾会注明下一段的 offset`;
     const stub = `[CONTEXT OFFLOADED: ${relativePath} (${output.length} 字符)]\n开头: ${excerpt}\n${pointer}`;
     return { stub, relativePath };
   }
