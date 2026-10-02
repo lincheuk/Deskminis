@@ -1499,6 +1499,15 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   };
 }
 
+/** 引擎被设成监听本机以外的地址时启动写的一行警告（W3-sec5，安全审计第 2 条的 0.3.0 部分）。
+ *  跨机器的设备同步走明文 WebSocket：聊天内容、握手里的令牌，同一网络里的人都看得见；加密通道排在之后一波。
+ *  只监听回环（不设、127.x、localhost、::1）返回 undefined。 */
+export function lanExposureWarning(host: string | undefined): string | undefined {
+  const h = (host ?? '').trim().toLowerCase();
+  if (h === '' || h === 'localhost' || h === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return undefined;
+  return `警告：MINISD_HOST=${host}，引擎对本机以外开放。设备同步是明文传输（聊天内容与连接令牌在网络上看得见），只在可信的局域网里用。`;
+}
+
 // 作为独立进程启动时（Electron utilityProcess / --headless）
 if (process.env.DESKMINIS_STANDALONE === '1') {
   // W2b-7 崩溃钩子（行为在 diag/crash-hooks.ts）：未捕获异常记进 <logRoot>/crashes.json 后退出，未处理拒绝记完继续跑。
@@ -1509,6 +1518,9 @@ if (process.env.DESKMINIS_STANDALONE === '1') {
   // standalone 分支读 env 传入 startMinisd({ host })，不改 startMinisd 签名。
   // 默认 127.0.0.1（仅本机）；设 0.0.0.0 开放局域网（配 PASETO/配对码鉴权）。
   const startOpts = process.env.MINISD_HOST ? { host: process.env.MINISD_HOST } : undefined;
+  // stderr 由主进程记进按天日志（[minisd:err] 行）
+  const lanWarning = lanExposureWarning(process.env.MINISD_HOST);
+  if (lanWarning) process.stderr.write(lanWarning + '\n');
   const starting = startMinisd(startOpts);
   // W1b-5 优雅退出：主进程退出（托盘、before-quit、重启并安装）前 postMessage({type:'shutdown'})，
   // 这里有序 close（了结权限卡、等 run 收尾、关库、放锁）再退；主进程等 5 秒，超时才 kill。
