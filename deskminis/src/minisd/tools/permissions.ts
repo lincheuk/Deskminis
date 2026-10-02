@@ -100,6 +100,20 @@ const READONLY_FORBIDDEN_CHARS = [';', '&', '`', '(', ')', '<', '>', '{', '}', '
  *  前缀匹配会把它们一并误伤回 gated——免批面该收窄，但不该收窄到常用只读命令头上。 */
 const EXEC_FLAG_RE = /^--(pre|pre-glob|hostname-bin)(=|$)/i;
 
+/** PowerShell 认作引号的字符（含弯引号 ‘ ’ ‚ ‛ “ ” „）。它把引号和紧挨着的字拼成一个参数、去掉引号再交给原生程序：
+ *  "--pre=x"、--p"re"=x 到 rg 手里都是 --pre=x。 */
+const QUOTE_CHARS_RE = /["'\u2018-\u201e]/g;
+
+/** 只读判定里一个 token 该不该让整条命令回落询问（W3-sec1，安全审计第 1 条）：
+ *  --output 前缀与执行型旗标按去掉引号后的样子认（以前只认原文，引号开头的写法漏掉，rg "--pre=…" 被静默执行）；
+ *  另外，带引号、去掉引号后以 - 开头的 token 一律回落——引号包住的旗标没有正当的只读用途，认不全的写法宁可多问一次。 */
+function flagTokenUnsafe(token: string): boolean {
+  const raw = token.toLowerCase();
+  const bare = raw.replace(QUOTE_CHARS_RE, '');
+  if (bare.startsWith('--output') || EXEC_FLAG_RE.test(bare)) return true;
+  return bare !== raw && bare.startsWith('-');
+}
+
 /** PowerShell 参数 token 的名字（小写）：-Name、-Name:值 都取 Name；长短横线 – — ― PowerShell 也认作参数前缀。不是参数返回 undefined。 */
 function paramName(token: string): string | undefined {
   const m = /^[-\u2013-\u2015]([a-z]+)(?::|$)/i.exec(token);
@@ -171,11 +185,9 @@ function isReadonlySingle(segment: string): boolean {
   if (READONLY_FORBIDDEN_CHARS.some(ch => c.includes(ch))) return false;
   if (!readonlyQuotesSafe(c)) return false;
   const tokens = c.split(/\s+/);
-  // --output 是 git 家族把只读查询结果写进文件的后门（diff/show/log 通用旗标），
-  // 白名单内没有命令合法使用该前缀，全局按 token 前缀拒绝
-  if (tokens.some(t => t.toLowerCase().startsWith('--output'))) return false;
-  // 执行型旗标：白名单里的 rg 本身只读，但 --pre 之类会把它变成任意程序启动器
-  if (tokens.some(t => EXEC_FLAG_RE.test(t))) return false;
+  // --output 是 git 家族把只读查询结果写进文件的后门（diff/show/log 通用旗标），白名单内没有命令合法使用该前缀；
+  // 执行型旗标：白名单里的 rg 本身只读，但 --pre 之类会把它变成任意程序启动器。两样都按去引号后的样子认（flagTokenUnsafe）
+  if (tokens.some(flagTokenUnsafe)) return false;
   // 结构过滤已拒绝一切 &，这里再剥一次调用符前缀是防御性兜底：两道闸少一道也不至于漏
   const head = tokens[0].replace(/^&/, '').toLowerCase();
   if (!READONLY_ALLOWLIST.has(head)) return false;
@@ -206,9 +218,8 @@ function isPureFilterSegment(segment: string): boolean {
   if (READONLY_FORBIDDEN_CHARS.some(ch => segment.includes(ch))) return false;
   if (!readonlyQuotesSafe(segment)) return false;
   const tokens = segment.split(/\s+/);
-  if (tokens.some(t => t.toLowerCase().startsWith('--output'))) return false;
   // 管道右侧同样有 rg/sls：这一侧必须用同一道闸，否则 gci | rg --pre cmd 就绕过去了
-  if (tokens.some(t => EXEC_FLAG_RE.test(t))) return false;
+  if (tokens.some(flagTokenUnsafe)) return false;
   // 结构过滤已拒绝一切 &，剥调用符前缀与段 1 同理是防御性兜底
   const head = tokens[0].replace(/^&/, '').toLowerCase();
   return READONLY_PIPE_FILTERS.has(head);
@@ -271,7 +282,7 @@ const ASK_EVEN_IF_READONLY = [DATA_ROOT_HINT_RE, REMOTE_PATH_RE, ENV_PROVIDER_RE
 /** 原文与「去掉引号」的文本各判一次：PowerShell 把引号和紧挨着的字拼成一个参数（Desk''Minis → DeskMinis、e''nv: → env:、
  *  \''\host → \\host），只看原文会被引号拆开的字样骗过；原文那一遍保留「引号后面紧跟 \\host 也算打头」。 */
 function asksEvenIfReadonly(c: string): boolean {
-  const joined = c.replace(/["'\u2018-\u201e]/g, '');
+  const joined = c.replace(QUOTE_CHARS_RE, '');
   return ASK_EVEN_IF_READONLY.some(re => re.test(c) || re.test(joined));
 }
 

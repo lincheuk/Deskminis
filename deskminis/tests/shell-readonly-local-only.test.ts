@@ -128,6 +128,24 @@ describe('补：引号拼接出的数据根字样同样回落（W1b-2 的规则�
   ]);
 });
 
+describe('W3-sec1：引号包住或拼出来的执行型、写文件旗标同样回落（安全审计第 1 条）', () => {
+  // PowerShell 交给原生程序的参数去掉了引号：rg 收到的就是 --pre=…，按 token 首字符认的旧判定漏掉了引号开头的写法
+  expectGated([
+    'rg "--pre=C:\\t\\pre.cmd" needle input.txt',
+    "rg '--pre=C:\\t\\pre.cmd' needle input.txt",
+    'rg \u201c--pre=C:\\t\\pre.cmd\u201d needle input.txt',
+    'rg --p"re"=C:\\t\\pre.cmd needle input.txt',
+    'rg "--pre" C:\\t\\pre.cmd needle input.txt',
+    'rg "--pre-glob=*.txt" needle .',
+    'git diff "--output=marker.txt"',
+    "git log '--output=marker.txt'",
+    'git log --out"put"=marker.txt',
+    'Get-ChildItem | rg "--pre=C:\\t\\pre.cmd" needle',
+    // 引号包住的旗标没有正当的只读用途：去引号后以 - 开头的一律多问一次
+    'rg "-e" needle src',
+  ]);
+});
+
 describe('放行对照：只读本地的命令照旧免询问', () => {
   it.each([
     'npm ls',
