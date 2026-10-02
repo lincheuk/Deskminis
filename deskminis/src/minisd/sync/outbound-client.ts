@@ -2,6 +2,8 @@
  * M3c 出站 WS 客户端 OutboundClient（决策 1/2/4/6）。
  *
  * 主动连已配对对端（LAN 直连，noProxy），实现：
+ *   - 加密通道（W3-sec6，安全审计第 2 条）：连 ?ch=1，第一帧握手（PASETO hello 带 jti/aud/60s 与临时公钥，见 remote/channel.ts），
+ *     之后每一帧都加密；以前 PASETO 放在 URL 里、之后的帧全是明文
  *   - PASETO jti/aud/60s 防重放（决策 1 层 1，握手层防错连投毒）
  *   - sync.hello 挑战应答双向互认（决策 1 层 2，HMAC-SHA256(authKey, 'm3c-hello'||nonce)）
  *     W2b-8：hello 两个方向都多带 protocolVersion/caps（不进 MAC）；对端不带就按 0.1.1 旧版处理，
@@ -19,9 +21,9 @@
 import { WebSocket } from 'ws';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { PairingService } from '../remote/pairing';
-import { encodePaseto } from '../remote/paseto';
+import { beginClientHandshake, type FrameCipher } from '../remote/channel';
 import { LEGACY_SYNC_PEER, LOCAL_SYNC_CAPS, SYNC_PROTOCOL_VERSION, parseSyncHello, type SyncPeerInfo } from './wire';
 
 /** 默认参数（决策 6）。 */
@@ -30,6 +32,8 @@ const DEFAULT_PONG_TIMEOUT_MS = 60_000;
 const DEFAULT_RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 const DEFAULT_PASETO_TTL_MS = 60_000;
 const CALL_RPC_TIMEOUT_MS = 10_000;
+/** 加密通道握手的时限（W3-sec6）：对端 10 秒内不回 accept 就断开重连。 */
+const CHANNEL_HANDSHAKE_TIMEOUT_MS = 10_000;
 
 export interface OutboundClientOpts {
   pingIntervalMs?: number;
@@ -56,6 +60,8 @@ interface PeerConnection {
   addr: string;
   /** 对端在 sync.hello 响应里声明的协议版本与能力位；互认通过前一律按旧版（W2b-8） */
   peer: SyncPeerInfo;
+  /** 加密通道握完之后的帧加解密（W3-sec6）；握手前为 undefined，这时收到的只能是 accept */
+  cipher?: FrameCipher;
 }
 
 export class OutboundClient {
@@ -103,7 +109,7 @@ export class OutboundClient {
     this.dial(peerFp, addr);
   }
 
-  /** 拨单个对端：铸 PASETO(jti/aud/60s) + new WebSocket + sync.hello 互认 + ping/pong/reconnect。 */
+  /** 拨单个对端：new WebSocket(?ch=1) + 加密通道握手（hello 里的 PASETO 带 jti/aud/60s）+ sync.hello 互认 + ping/pong/reconnect。 */
   private dial(peerFp: string, addr: string): void {
     const key = this.pairing.get(peerFp);
     if (!key) return; // 未配对，不拨
@@ -112,18 +118,9 @@ export class OutboundClient {
     const old = this.connections.get(peerFp);
     if (old) this.cleanupConnection(peerFp, old);
 
-    // 铸 PASETO（jti/aud/短 TTL，决策 1 层 1）
     const now = Date.now();
-    const jti = randomUUID();
-    const token = encodePaseto({
-      exp: now + this.pasetoTtlMs,
-      iat: now,
-      device_fingerprint: this.myFingerprint,
-      jti,
-      aud: peerFp,
-    }, key.authKey);
-
-    const url = `ws://${addr}/?paseto=${encodeURIComponent(token)}`;
+    // 加密通道（W3-sec6）：URL 里不带任何秘密，令牌放进第一帧 hello（PASETO 照旧带 jti/aud/短 TTL，另带临时公钥）
+    const url = `ws://${addr}/?ch=1`;
     // noProxy：ws 库默认不读 HTTP_PROXY，天然直连 LAN（红线 4e）
     const ws = new WebSocket(url);
 
@@ -143,8 +140,26 @@ export class OutboundClient {
     };
     this.connections.set(peerFp, conn);
 
+    const failHandshake = (): void => {
+      // 握手失败与互认失败同样处理：onOffline（wasOnline=false，onClose 不会重复调）+ terminate + 退避重连
+      this.onOffline?.(peerFp);
+      try { ws.terminate(); } catch { /* */ }
+      this.scheduleReconnect(peerFp, conn);
+    };
+    let finishHandshake: ((reply: string) => FrameCipher) | undefined;
+    let handshakeTimer: ReturnType<typeof setTimeout> | undefined;
+
     ws.on('open', () => {
-      // 不立即 onOnline——先发 sync.hello 互认（决策 1 层 2）
+      // 先握加密通道：发 hello，等 accept（在 message 里处理）
+      const hs = beginClientHandshake({ authKey: key.authKey, sessionSecret: key.sessionSecret }, this.myFingerprint, peerFp);
+      finishHandshake = hs.finish;
+      handshakeTimer = setTimeout(failHandshake, CHANNEL_HANDSHAKE_TIMEOUT_MS);
+      handshakeTimer.unref?.();
+      try { ws.send(hs.hello); } catch { clearTimeout(handshakeTimer); failHandshake(); }
+    });
+
+    const afterChannel = (): void => {
+      // 不立即 onOnline——先在加密通道上发 sync.hello 互认（决策 1 层 2）
       this.doHello(peerFp, conn, key.authKey).then(ok => {
         if (ok) {
           conn.helloDone = true;
@@ -166,11 +181,27 @@ export class OutboundClient {
         try { ws.terminate(); } catch { /* */ }
         this.scheduleReconnect(peerFp, conn);
       });
-    });
+    };
 
-    ws.on('message', (raw: Buffer | string) => {
+    ws.on('message', (raw: Buffer, isBinary: boolean) => {
+      if (!conn.cipher) {
+        // 握手阶段：唯一该来的是文本的 accept；对端证明不了持有配对密钥（MAC 不对）就断开
+        if (!finishHandshake || isBinary) return;
+        const finish = finishHandshake;
+        finishHandshake = undefined;
+        clearTimeout(handshakeTimer);
+        try { conn.cipher = finish(String(raw)); } catch { failHandshake(); return; }
+        afterChannel();
+        return;
+      }
+      // 加密通道上：解不开（明文、篡改、重放、乱序）当场断开，由 onClose 退避重连
+      let text: string;
+      try {
+        if (!isBinary) throw new Error('明文帧');
+        text = conn.cipher.open(new Uint8Array(raw));
+      } catch { try { ws.terminate(); } catch { /* */ } return; }
       let msg: { id?: number; method?: string; params?: unknown; result?: unknown; error?: unknown };
-      try { msg = JSON.parse(String(raw)); } catch { return; }
+      try { msg = JSON.parse(text); } catch { return; }
       // RPC 响应（有 id）→ resolve pending callRpc
       if (msg.id !== undefined && conn.pending.has(msg.id)) {
         const entry = conn.pending.get(msg.id)!;
@@ -195,6 +226,7 @@ export class OutboundClient {
     });
 
     const onClose = () => {
+      clearTimeout(handshakeTimer);
       if (conn.stopped) return;
       const wasOnline = conn.online;
       conn.online = false;
@@ -269,7 +301,9 @@ export class OutboundClient {
       timer.unref?.();
       conn.pending.set(id, { resolve, reject, timer });
       try {
-        conn.ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+        // 只在加密通道上发（W3-sec6）：握手没完成就没有 cipher，不发明文
+        if (!conn.cipher) throw new Error('加密通道还没建立');
+        conn.ws.send(conn.cipher.seal(JSON.stringify({ jsonrpc: '2.0', id, method, params })));
       } catch (e) {
         clearTimeout(timer);
         conn.pending.delete(id);

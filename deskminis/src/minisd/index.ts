@@ -1499,13 +1499,13 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   };
 }
 
-/** 引擎被设成监听本机以外的地址时启动写的一行警告（W3-sec5，安全审计第 2 条的 0.3.0 部分）。
- *  跨机器的设备同步走明文 WebSocket：聊天内容、握手里的令牌，同一网络里的人都看得见；加密通道排在之后一波。
+/** 引擎被设成监听本机以外的地址时启动写的一行提示（W3-sec5；W3-sec6 起设备之间的连接已加密）。
+ *  还剩配对那一步不加密：同一网络里的主动攻击者看得到配对码就能在配对时插一脚，所以提醒只在可信网络里配对。
  *  只监听回环（不设、127.x、localhost、::1）返回 undefined。 */
 export function lanExposureWarning(host: string | undefined): string | undefined {
   const h = (host ?? '').trim().toLowerCase();
   if (h === '' || h === 'localhost' || h === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return undefined;
-  return `警告：MINISD_HOST=${host}，引擎对本机以外开放。设备同步是明文传输（聊天内容与连接令牌在网络上看得见），只在可信的局域网里用。`;
+  return `提示：MINISD_HOST=${host}，引擎对本机以外开放。设备之间的连接是加密的，但配对那一步不加密（明文交换公钥），请只在可信的局域网里配对。`;
 }
 
 // 作为独立进程启动时（Electron utilityProcess / --headless）

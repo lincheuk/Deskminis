@@ -32,6 +32,8 @@ export interface PasetoPayload {
   jti?: string;
   /** M3c 出站专用：对端指纹，防投递错对端。undefined = 会话路径（M3a 兼容） */
   aud?: string;
+  /** W3-sec6 加密通道的 hello 专用：客户端这次连接的临时 X25519 公钥（base64url）。带它的令牌只能用来握手，?paseto= 老路径不收 */
+  epk?: string;
 }
 
 const HEADER = 'v4.local';

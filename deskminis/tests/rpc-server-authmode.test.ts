@@ -75,12 +75,15 @@ describe('local 模式 = 老 token + 回环源地址双条件（评审缺口修�
     })).rejects.toThrow();
   });
 
-  it.skipIf(!lanIp)('listen 0.0.0.0 + LAN IP + paseto 合法 → 仍连上（remote 不绑源地址）', async () => {
+  // W3-sec6（安全审计第 2 条）起改判：?paseto= 老路径是明文、令牌在 URL 里，网络来源的远程连接只认加密通道（?ch=1，见 remote-channel.test.ts），
+  // 老路径只留给本机回环。以前这一例断言「LAN IP + paseto 合法 → 仍连上」
+  it.skipIf(!lanIp)('listen 0.0.0.0 + LAN IP + paseto 合法 → 401（网络来源只认加密通道）；回环来源照旧连上', async () => {
     const { port } = await boot(async () => ({ ok: true as const, authMode: 'remote' as AuthMode }), '0.0.0.0');
-    const ws = await new Promise<WebSocket>((res, rej) => {
+    await expect(new Promise<WebSocket>((res, rej) => {
       const w = new WebSocket(`ws://${lanIp}:${port}?paseto=VALID`);
       w.on('open', () => res(w)); w.on('error', rej);
-    });
+    })).rejects.toThrow(/401/);
+    const { ws } = await connect(port, 'paseto=VALID');
     expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();
   });

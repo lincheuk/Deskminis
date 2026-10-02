@@ -16,6 +16,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import type { AdditionalVerify, AdditionalVerifyResult, AuthMode, RpcConnection, RpcMethods } from '../rpc/server';
 import { PAIRING_CODE_TTL_S, type PairingService } from './pairing';
 import { decodePaseto } from './paseto';
+import { acceptChannelHello, type ChannelAcceptResult } from './channel';
 
 /** PASETO 会话 token 有效期 10 分钟（设计 §2.1）。 */
 export const PASETO_TTL_MS = 10 * 60 * 1000;
@@ -201,8 +202,8 @@ export const OUTBOUND_PASETO_TTL_MS = 60 * 1000;
  *
  * @param service PairingService 实例（提供 hasPending/list/get/myFingerprint）
  */
-export function createAdditionalVerify(service: PairingService): AdditionalVerify {
-  // jti 重放缓存：jti → 过期时间戳（ms）。60s 窗口内已见拒重放（决策 1 层 1）。
+export function createAdditionalVerify(service: PairingService): AdditionalVerify & { channel: (hello: string) => ChannelAcceptResult } {
+  // jti 重放缓存：jti → 过期时间戳（ms）。60s 窗口内已见拒重放（决策 1 层 1）。老路径与加密通道的 hello 共用一份
   const seenJtis = new Map<string, number>();
   const jtiCleanupTimer = setInterval(() => {
     const now = Date.now();
@@ -210,7 +211,7 @@ export function createAdditionalVerify(service: PairingService): AdditionalVerif
   }, 60_000);
   jtiCleanupTimer.unref?.();
 
-  return ({ url }: { req: IncomingMessage; url: URL }): AdditionalVerifyResult | Promise<AdditionalVerifyResult> => {
+  const verify = ({ url }: { req: IncomingMessage; url: URL }): AdditionalVerifyResult | Promise<AdditionalVerifyResult> => {
     // 优先判 pairingCode（一次性，pairing 模式只能调 pair.complete）
     const pairingCode = url.searchParams.get('pairingCode');
     if (pairingCode) {
@@ -226,6 +227,8 @@ export function createAdditionalVerify(service: PairingService): AdditionalVerif
         if (!key) continue;
         try {
           const payload = decodePaseto(paseto, key.authKey);
+          // 加密通道的 hello 令牌（带临时公钥）只能用来握手，不能拿来走明文的老路径（W3-sec6）
+          if (payload.epk !== undefined) return { ok: false };
           // M3c 出站路径：payload.jti 存在 → 校验 aud + jti 重放
           if (payload.jti !== undefined) {
             // aud 校验：防投递到错对端
@@ -244,6 +247,22 @@ export function createAdditionalVerify(service: PairingService): AdditionalVerif
     }
     return { ok: false };
   };
+
+  // 加密通道（W3-sec6，安全审计第 2 条）：?ch=1 连进来的第一帧 hello 由这里受理，RpcServer 经 additionalVerify.channel 取用。
+  // 挂在 additionalVerify 上而不另开一个工厂：引擎与各测试装 RpcServer 都经 createAdditionalVerify，少一处会忘接的线
+  const channel = (hello: string): ChannelAcceptResult => acceptChannelHello(hello, {
+    myFingerprint: service.myFingerprint,
+    candidates: () => service.list().flatMap(d => {
+      const key = service.get(d.peerFingerprint);
+      return key ? [{ peerFingerprint: d.peerFingerprint, keys: { authKey: key.authKey, sessionSecret: key.sessionSecret } }] : [];
+    }),
+    rememberJti: (jti, exp) => {
+      if (seenJtis.has(jti)) return false;
+      seenJtis.set(jti, exp);
+      return true;
+    },
+  });
+  return Object.assign(verify, { channel });
 }
 
 /**
