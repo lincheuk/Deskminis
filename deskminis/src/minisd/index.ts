@@ -1334,8 +1334,10 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   // 业务面方法（chat.*/permission.*/skills.* 等）统一加 pairing 模式守卫（红线 4c）：
   // pairing 模式只能调 remote.pair.complete，其他业务面全拒。
   // remote.* 方法自带 assertAuthMode 守卫，不重复包装。
+  // remote 连接每次调用复查对端还在配对表里（W3-sec4）：取消配对之后旧连接不能再调
+  const isPaired = (fp: string): boolean => pairingService.get(fp) !== undefined;
   for (const k of Object.keys(methods)) {
-    if (!k.startsWith('remote.')) (methods as any)[k] = guardBusinessMethod((methods as any)[k], k);
+    if (!k.startsWith('remote.')) (methods as any)[k] = guardBusinessMethod((methods as any)[k], k, isPaired);
   }
   Object.assign(methods, remoteMethods);
   const additionalVerify = createAdditionalVerify(pairingService);
@@ -1359,7 +1361,7 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   };
   const syncMethods = createSyncMethods(chat, syncOpts);
   for (const k of Object.keys(syncMethods)) {
-    (syncMethods as any)[k] = guardBusinessMethod((syncMethods as any)[k], k);
+    (syncMethods as any)[k] = guardBusinessMethod((syncMethods as any)[k], k, isPaired);
   }
   Object.assign(methods, syncMethods);
 

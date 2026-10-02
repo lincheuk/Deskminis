@@ -3,7 +3,7 @@
 // 权限边界（红线 4c）：
 //   - remote.pair.begin / remote.status / remote.unpair：仅 local 模式可调
 //   - remote.pair.complete：仅 pairing 模式可调（配对握手期专用，一次性）
-//   - 业务面（chat.* / permission.* / skills.* 等）：pairing 模式全拒；remote 模式全开
+//   - 业务面（chat.* / permission.* / skills.* 等）：pairing 模式全拒；remote 模式全开，但每次调用复查对端仍在配对表里（W3-sec4）
 //     业务面守卫不在本文件——由 startMinisd 在 methods 注册时统一包装（见 index.ts 接线）
 //
 // additionalVerify 路由：
@@ -36,9 +36,9 @@ export interface RemoteMethodsOpts {
   onPairComplete?: (peerFingerprint: string, remoteAddress: string | undefined, listenPort: number | undefined) => void;
   /** M3c Task 5：出站客户端 lazy getter（避免循环依赖，remote.status 合并出站源 online）。
    *  Task 6：增 dialNow 供 remote.pair.join 成功后立即拨号（计划 L463）。 */
-  getOutbound?: () => { isOnline(fp: string): boolean; dialNow?(peerFp: string): void } | undefined;
+  getOutbound?: () => { isOnline(fp: string): boolean; dialNow?(peerFp: string): void; disconnect?(peerFp: string): void } | undefined;
   /** M3c Task 5：RPC 服务端 lazy getter（remote.status 合并入站源 online，命门 2 出站 ∪ 入站）。 */
-  getRpcServer?: () => { isInboundOnline(fp: string): boolean } | undefined;
+  getRpcServer?: () => { isInboundOnline(fp: string): boolean; closeByFingerprint?(fp: string): void } | undefined;
 }
 
 /**
@@ -77,6 +77,8 @@ export function createRemoteMethods(service: PairingService, opts?: RemoteMethod
       const r = service.completePairing(p.pairingCode, peerPubKeyB64, p.peerFingerprint, p.peerName);
       // M3c Task 4：begin 侧地址捕获（必改 4）——从 conn.remoteAddress + p.listenPort 组合
       opts?.onPairComplete?.(r.fingerprint, conn.remoteAddress, p.listenPort);
+      // 配对码已用掉，这条 pairing 连接回包之后就关（W3-sec4）：之后的往来走 PASETO 的 remote 连接
+      conn.closeAfterReply?.();
       return { ok: true, peerFingerprint: r.fingerprint, myPublicKeyB64: r.ourPubKeyB64 };
     },
 
@@ -102,6 +104,9 @@ export function createRemoteMethods(service: PairingService, opts?: RemoteMethod
     'remote.unpair': async (p: { peerFingerprint: string }, conn) => {
       assertAuthMode(conn, ['local'], 'remote.unpair');
       service.delete(p.peerFingerprint);
+      // 取消配对当场生效（W3-sec4，安全审计第 3 条）：以前只删配对存储，已经连着的入站连接照样能调业务、出站连接照样挂着
+      opts?.getRpcServer?.()?.closeByFingerprint?.(p.peerFingerprint);
+      opts?.getOutbound?.()?.disconnect?.(p.peerFingerprint);
       return { ok: true };
     },
 
@@ -244,14 +249,21 @@ export function createAdditionalVerify(service: PairingService): AdditionalVerif
 /**
  * 业务面守卫工厂：包装一个业务面 method，按 authMode 拒绝 pairing 模式。
  * pairing 模式除了 remote.pair.complete 之外什么都不能调——防止配对期连接乱用业务面。
- * remote 模式全开（已通过 PASETO 鉴权，是合法远程客户端）。
+ * remote 模式（已通过 PASETO 鉴权）：给了 isPaired 就每次调用都复查对端指纹还在配对表里（W3-sec4，安全审计第 3 条）——
+ * authMode 在建连时定死，取消配对以后旧连接以前照样能调；不在了就拒，回包之后关掉连接。
+ * 已配对的设备等同本机：能发消息、批权限卡（现有设计，写在 CHANGELOG 已知边界）。
  */
 export function guardBusinessMethod<T extends (params: any, conn: RpcConnection) => unknown>(
-  method: T, name: string,
+  method: T, name: string, isPaired?: (peerFingerprint: string) => boolean,
 ): T {
   return ((params: any, conn: RpcConnection) => {
     if (conn.authMode === 'pairing') {
       throw new Error(`${name} 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）`);
+    }
+    if (conn.authMode === 'remote' && isPaired && !(conn.peerFingerprint !== undefined && isPaired(conn.peerFingerprint))) {
+      // 拒绝的回包要送到，送完再关（先关的话回包发不出去，对端只会干等）
+      conn.closeAfterReply?.();
+      throw new Error(`${name} 被拒：这台设备已取消配对`);
     }
     return method(params, conn);
   }) as T;

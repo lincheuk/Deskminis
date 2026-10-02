@@ -9,7 +9,13 @@ export interface RpcConnection {
   /** W2b-8：对端在 sync.hello 里声明的协议版本与能力位（应答端鉴权通过后才写）。一个连接一份，随连接而灭；
    *  W5c 在 sync.pull/sync.push 里按它过滤。用结构类型而不 import sync/wire 的 SyncPeerInfo：rpc 层不依赖 sync 层。 */
   syncPeer?: { readonly protocolVersion: number; readonly caps: Readonly<Record<string, boolean>> };
+  /** W3-sec4：这一次调用的回包发出去之后关掉连接。remote.pair.complete 用（配对阶段的连接随后就不留了）；
+   *  业务守卫发现对端已取消配对时也用（拒绝的回包要送到）。 */
+  closeAfterReply?(): void;
 }
+
+/** pairing 连接的时限缺省值：与配对码有效期（remote/pairing.ts 的 PAIRING_CODE_TTL_S，300 秒）一致。rpc 层不依赖 remote 层，这里写数值。 */
+export const PAIRING_CONN_IDLE_MS = 300_000;
 export interface RpcMethods { [method: string]: (params: any, conn: RpcConnection) => Promise<unknown> | unknown }
 
 export type AdditionalVerifyResult = { ok: true; authMode: AuthMode; peerFingerprint?: string } | { ok: false };
@@ -17,13 +23,17 @@ export type AdditionalVerify = (info: { req: IncomingMessage; url: URL }) => Pro
 
 export class RpcServer {
   private wss: WebSocketServer | undefined;
-  private clients = new Set<WebSocket>();
+  /** 每条连接与它的 RpcConnection（W3-sec4：广播要按 authMode 挑、取消配对要按指纹找） */
+  private clients = new Map<WebSocket, RpcConnection>();
   /** M3c 命门 2 入站注册表：peerFingerprint → 活跃连接计数（open++/close--） */
   private inboundRemote = new Map<string, number>();
 
   /** authToken：每次启动新生成，只经 IPC 交给自己的渲染进程。浏览器页面拿不到它。
    *  additionalVerify（可选）：远程客户端鉴权回调；返回 {ok:true,authMode} 放行并标记连接模式，{ok:false} 拒绝。 */
-  constructor(private methods: RpcMethods, private authToken: string, private additionalVerify?: AdditionalVerify) {}
+  constructor(
+    private methods: RpcMethods, private authToken: string, private additionalVerify?: AdditionalVerify,
+    private opts: { pairingIdleMs?: number } = {},
+  ) {}
 
   listen(host: string, port: number): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -84,13 +94,24 @@ export class RpcServer {
     const authMode: AuthMode = (req as any)?.__authMode ?? 'local';
     const peerFingerprint: string | undefined = (req as any)?.__peerFingerprint;
     const remoteAddress: string | undefined = req?.socket.remoteAddress;
-    this.clients.add(ws);
     // M3c 命门 2：入站注册表 open++（remote 模式有 peerFingerprint 才记）
     if (peerFingerprint) {
       this.inboundRemote.set(peerFingerprint, (this.inboundRemote.get(peerFingerprint) ?? 0) + 1);
     }
-    const conn: RpcConnection = { authMode, peerFingerprint, remoteAddress, notify: (method, params) => ws.send(JSON.stringify({ jsonrpc: '2.0', method, params })) };
+    let closeAfterReply = false;
+    const conn: RpcConnection = {
+      authMode, peerFingerprint, remoteAddress,
+      notify: (method, params) => ws.send(JSON.stringify({ jsonrpc: '2.0', method, params })),
+      closeAfterReply: () => { closeAfterReply = true; },
+    };
+    this.clients.set(ws, conn);
+    // 配对阶段的连接只为跑完一次配对握手而存在（W3-sec4）：到配对码有效期就关，不让它一直挂着
+    const pairingTimer = authMode === 'pairing'
+      ? setTimeout(() => { try { ws.close(1000, 'pairing window over'); } catch { /* 已关闭 */ } }, this.opts.pairingIdleMs ?? PAIRING_CONN_IDLE_MS)
+      : undefined;
+    pairingTimer?.unref?.();
     ws.on('close', () => {
+      if (pairingTimer) clearTimeout(pairingTimer);
       this.clients.delete(ws);
       // M3c 命门 2：入站注册表 close--
       if (peerFingerprint) {
@@ -116,6 +137,8 @@ export class RpcServer {
       } catch (e) {
         if (msg.id !== undefined) ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: String(e instanceof Error ? e.message : e) } }));
       }
+      // 回包已经排进发送队列；close 帧排在它后面，对端先收到回包再收到关闭
+      if (closeAfterReply) { try { ws.close(1000, 'done'); } catch { /* 已关闭 */ } }
     });
   }
 
@@ -124,12 +147,24 @@ export class RpcServer {
     return (this.inboundRemote.get(peerFingerprint) ?? 0) > 0;
   }
 
+  /** 关掉某个对端指纹的全部入站连接（W3-sec4：remote.unpair 时调，取消配对当场生效）。 */
+  closeByFingerprint(peerFingerprint: string): void {
+    for (const [ws, conn] of this.clients) {
+      if (conn.peerFingerprint === peerFingerprint) { try { ws.close(1008, 'unpaired'); } catch { /* 已关闭 */ } }
+    }
+  }
+
+  /** 业务广播（聊天事件、权限请求全文等）。只发给 local 与 remote 连接（W3-sec4）：只拿着配对码连上的 pairing 连接
+   *  只该走配对协议，以前也收得到全部广播。 */
   broadcast(method: string, params: unknown): void {
     const frame = JSON.stringify({ jsonrpc: '2.0', method, params });
-    for (const ws of this.clients) { try { ws.send(frame); } catch { /* 断开连接忽略 */ } }
+    for (const [ws, conn] of this.clients) {
+      if (conn.authMode === 'pairing') continue;
+      try { ws.send(frame); } catch { /* 断开连接忽略 */ }
+    }
   }
 
   close(): Promise<void> {
-    return new Promise(resolve => { if (!this.wss) return resolve(); for (const c of this.clients) c.terminate(); this.wss.close(() => resolve()); });
+    return new Promise(resolve => { if (!this.wss) return resolve(); for (const c of this.clients.keys()) c.terminate(); this.wss.close(() => resolve()); });
   }
 }
