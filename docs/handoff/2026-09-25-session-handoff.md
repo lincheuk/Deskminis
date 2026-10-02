@@ -8,10 +8,10 @@
 
 ## 0. 三十秒版
 
-- **代码**：main `f8422f8`，**version 0.3.0**，minis.db user_version 仍是 **11**。258 测试文件 / 3728 例
-  （云端 3676 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
+- **代码**：main `11fe405`，**version 0.3.0**，minis.db user_version 仍是 **11**。259 测试文件 / 3751 例
+  （云端 3699 过 + 52 Windows-only 基线），typecheck 0；全量跑完应用目录不再留管道套接字。本波零迁移、零新依赖。
   （本文 §4、§5 的波史与文件地图写于 `35aab54`；之后 09-26 加了 W3-upd、W3-aumid、W3-updb，09-27 W3-rel，
-  09-28 真机验证后加了 W3-cron、W3-tz、W3-e2e、W3-ps、W3-updd 与三轮审查后的六步修，09-29 W3-e2ef，10-02 安全审计后的 W3-sec1…5，见下四条与 §4.5。）
+  09-28 真机验证后加了 W3-cron、W3-tz、W3-e2e、W3-ps、W3-updd 与三轮审查后的六步修，09-29 W3-e2ef，10-02 安全审计后的 W3-sec1…6，见下四条与 §4.5。）
 - **本轮做完了止血波 W1a–W2b**（2026-09-24～25，设计稿 `docs/specs/2026-09-24-hemostasis-design.md`）。
   从 09-10 的 `761b862` 起共 82 个提交：66 笔步骤（其中 22 笔是审查遗留的补修，3 笔是对外文档）加 16 次合流。
   - **W1a 伤数据**：file_edit 不再被 `$` 改坏文件；MCP 配置读坏拒写、外部修改不被覆盖、编辑不再丢字段；技能 zip 有上限；
@@ -51,6 +51,8 @@
   用户定：0.3.0 修第 1、3、4、5、6 条，第 2 条（局域网明文）先把话说清楚、加密通道单独排一波。已做五步并推 main：
   W3-sec1 `79a59f2`（只读免询问按去引号后的参数认）、W3-sec2 `151011f`（file_grep 正则放进可终止的 worker）、W3-sec3 `d8a174c`（卸载文件名不信任工具调用 ID）、
   W3-sec4 `0e8b018`（取消配对当场断开、每次调用复查配对、pairing 连接不收业务广播）、W3-sec5 `f8422f8`（明文的警告与文档）。见 §4.5、§6。
+  之后用户要求加密通道现在就做：W3-sec6 `11fe405`（设备之间的远程连接加密，网络来源不再收明文老路径；W3-sec5 的「明文」说法随之改为「配对那一步不加密」）。
+  **两台设备都要是这一版才能同步**（不退回明文）。
 - **发布现状**（2026-09-25 查 GitHub）：源码仓 Releases 只有 v0.1.1；`lincheuk/deskminis-releases` 搜不到，按还没建处理。
 - **之后**：W4a 办公内容包（0.3.1）→ W4b–W5 provider 正确性与上下文管线（0.4.0）→ W6–W7 运行时韧性与人在回路（0.5.0）
   → W8–W9 cowork 结构与打磨（0.6.0）。OpenCode V2 研读与四家对比的 9 项，用户 2026-09-25 答复「全默認」，已写进路线详案（§6）。
@@ -68,7 +70,7 @@
   - `main` = 功能落地线。代码直接推 main。
   - `claude/handover-documentation-pfr2l4`、`claude/deskminis-handoff-qq2kn3` 与 `claude/sweet-bell-1ziwhy`（09-29 会话）= 云端会话的指定分支，**与 main 同点**：
     每推一次 main，把这几支指定分支一起推到同一个提交（`git push origin HEAD:main HEAD:claude/…`，都是快进）。
-    2026-10-02 查 origin：main 与这三支都在 `f8422f8`。新会话若另有指定分支，照此加进来。
+    2026-10-02 查 origin：main 与这三支都在 `11fe405`。新会话若另有指定分支，照此加进来。
   - `claude/deskminis-handoff-dd9wrk` = **权威记账线**（PROJECT_NOTES 波结、docs/specs、docs/research、docs/handoff、driver）。
     本地是 worktree `/home/user/deskminis-docs` 的 `docs-work` 分支，upstream 指向它；推时写明目标
     `git push origin docs-work:claude/deskminis-handoff-dd9wrk`。树上的代码是旧快照——**看代码去 main，看账本来这里**。
@@ -335,6 +337,7 @@ A–Z、T6 与 09-24 调研的波史见 09-10 交接 §4。本轮的依据：
 | W3-sec3（10-02） | 卸载文件名只认 `[A-Za-z0-9_-]{1,128}` 的工具调用 ID，其余换 sha256；写前核对落点在桶内 | `d8a174c` | main | 外部安全审计第 5 条 |
 | W3-sec4（10-02） | `remote.unpair` 关掉该指纹的入站与出站连接；remote 连接每次业务调用复查配对；broadcast 跳过 pairing 连接；pairing 连接 complete 后或 300 秒到时关 | `0e8b018` | main（真 WebSocket + 真 PASETO 端到端测试；变异 8 个全红） | 外部安全审计第 3、6 条 |
 | W3-sec5（10-02） | 设 `MINISD_HOST` 时引擎启动写明文警告进日志；README、CHANGELOG 写明跨机器同步是明文、已配对设备等同本机 | `f8422f8` | main | 外部安全审计第 2 条（0.3.0 部分） |
+| W3-sec6（10-02） | 设备之间的远程连接加密：?ch=1 第一帧 PASETO hello（带临时 X25519 公钥）、服务端 accept 带 HMAC，临时 ECDH + HKDF（盐 sessionSecret）得两个方向的 XChaCha20-Poly1305 密钥，逐帧加密、计数入 nonce；OutboundClient 改走它；网络来源拒 ?paseto=（回环保留）；README / CHANGELOG / 启动提示改为「连接加密、配对不加密、两台都要 0.3.0」 | `11fe405` | main（主会话直接做；变异 11 个里 10 红、1 个等价；TCP 转发器实测链路无明文；e2e:m3b 10/10） | 外部安全审计第 2 条；用户要求当场做 |
 
 ### 4.6 合流提交
 
@@ -367,9 +370,9 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
 
 ### 4.8 当前状态
 
-- main `f8422f8`：258 测试文件 / 3728 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
+- main `11fe405`：259 测试文件 / 3751 例，失败 52 例（Windows-only 基线），基线 diff 空；typecheck 0。
   （止血波收官时是 `35aab54`：249 / 3594；09-26 的 W3-upd、W3-aumid、W3-updb 加了 4 个测试文件、39 例；
-  09-28 真机验证后的五步与六步审查修加了 3 个测试文件、37 例；09-29 的 W3-e2ef 在 `tests/e2e-m5-uninstall.test.ts` 里净加 9 例；10-02 的 W3-sec1…5 加 2 个测试文件、49 例。）
+  09-28 真机验证后的五步与六步审查修加了 3 个测试文件、37 例；09-29 的 W3-e2ef 在 `tests/e2e-m5-uninstall.test.ts` 里净加 9 例；10-02 的 W3-sec1…5 加 2 个测试文件、49 例，W3-sec6 加 1 个测试文件、23 例。）
 - 与 09-10 的 `761b862` 比：97 个提交，236 个文件，+34543 / −908 行；测试文件 170 → 256。
 - 版本 0.3.0；user_version 11；dependencies / devDependencies 零改动（scripts 加了 `verify:release`；链 S 加 `smoke:release`）；
   `package.json` 与锁根的 license 改为 Apache-2.0。
@@ -491,11 +494,12 @@ A1 与 A2 合完一起验，其余每次合流后都跑了 typecheck（退出码
    ③ 收尾 FAIL 按「登记已清 / 登记在、卸载程序在 / 登记在、卸载程序不在 / 查不了」分四种说法，写要删的临时目录，RELEASE §2 改成同一张表；
    ④ 脚本指向 RELEASE 的段名改正、加守卫（段名必须真有）；⑤ Ctrl+C 单列（直接在「应用和功能」里卸）、打印临时目录、两处注释。
    未上真机：只有「§6-1 收尾」FAIL 时才碰得到，正常路径与 W3-e2ed 相同。
-8. ~~2026-10-02 外部安全审计六条~~ 已做 W3-sec1…5（见 §4.5）。留下的：**第 2 条的加密通道**——配对密钥之上的 X25519 握手 + XChaCha20-Poly1305 逐帧加密与序号、
-   PASETO 从 URL 挪进首帧，零新依赖（已有 @noble/ciphers、@noble/curves），0.3.0 之后单独出设计稿；长连接按 PASETO 到期断开（审计「必要时」一项）没做。
+8. ~~2026-10-02 外部安全审计六条~~ 已做 W3-sec1…6（见 §4.5）。加密通道（W3-sec6）用户要求当场做了，没单独出设计稿，设计写在 `remote/channel.ts` 头注释与提交正文。
+   留下的：**配对那一步仍是明文交换公钥**（主动攻击者看得到配对码能插一脚，根治要 PAKE，排 W6 执行面加固）；长连接按 PASETO 到期断开没做（出站客户端本来每 60 秒重拨、重新握手）；
+   两台 Windows 机器之间的真机同步待验。
 
 **用户在 Windows 上做**（设计稿 §5；RELEASE.md §0 九步清单）：
-> 2026-09-28 已在 `d1c9a2f` 上做过一遍（报告见上），修完五步后要在 main `f8422f8` 上重做：`npm ci`、`npm test`（258 文件 / 3728 例应当全过，含原先在东八区失败的 nav-group 一例）、
+> 2026-09-28 已在 `d1c9a2f` 上做过一遍（报告见上），修完五步后要在 main `11fe405` 上重做：`npm ci`、`npm test`（259 文件 / 3751 例应当全过，含原先在东八区失败的 nav-group 一例）、
 > `npm run typecheck`、清空 dist 后 `npm run dist`、`e2e:m5`（这次末尾多一项「§6-1 收尾：静默卸载临时安装」，要 PASS；FAIL 就把那一行原文带回来，破折号后面写着是四种情形里的哪一种）、`verify:release`；
 > 手动冒烟里加一条：让 agent 用 `file_grep` 搜 `(a+)+$`（工作区里放一个 40 个 a 加 ! 的文件），应在 10 秒内返回、界面不卡（W3-sec2 的 worker 在打包版 utilityProcess 里只在 Linux 核过）；
 > 手动冒烟里重做定时任务（改间隔能建、编辑改间隔能存、编辑时清空助手与工作目录能存上）与权限卡（让 agent 跑 `npm view left-pad version` 能跑通）；
