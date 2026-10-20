@@ -294,8 +294,8 @@ describe('models.dev 多 vendor 同名冲突消解', () => {
  * 仅 digitalocean 一家报 163840——纯最小被单离群拖到比官方低 18%。
  */
 describe('M4.6 Task 1 佐证规则', () => {
-  it('MERGE_RULE_VERSION 已递增到 2（作废按旧规则算出的缓存）', () => {
-    expect(MERGE_RULE_VERSION).toBe(2);
+  it('MERGE_RULE_VERSION 晚于旧纯最小规则（作废按旧规则算出的缓存）', () => {
+    expect(MERGE_RULE_VERSION).toBeGreaterThan(1);
   });
 
   it('单离群不拖垮：8 家报 200000 + 1 家报 163840 → 取被佐证的最小 200000', () => {

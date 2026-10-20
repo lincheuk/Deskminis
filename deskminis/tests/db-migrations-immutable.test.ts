@@ -1,4 +1,4 @@
-/** W1a-8：钉住已发布的历史迁移 MIGRATIONS[0..10]。
+/** W1a-8：钉住已登记的迁移，含已发布的历史 MIGRATIONS[0..10]。
  *
  *  为什么要钉：迁移 runner 只对 user_version < N 的库跑 MIGRATIONS[0..N-1]。已发布的条目一旦被改，
  *  新装用户和老用户就会得到两种不同的表结构，而老用户的库永远拿不到这次改动——这种分叉不会让任何
@@ -27,15 +27,23 @@ const PINNED: readonly string[] = [
   '84885c752aa7a532e13d7528a07696331db933090cbc3ca4499b3df59b0283f6', // [8]  H1 注释
   'f779174c5ad42ffe73abb73b1b0de321e745802ddc4696359d747f9e3cd0905c', // [9]  J1 助手
   '6b12e4667a736149405f8197875b854ceb71483b99dfd8ec712af682d3db498d', // [10] K1 定时任务
+  '8fbf1c31256a681ff12f4b3de2dd50a4c0afb8432c682f97970b00bd3a575702', // [11] F11A 附件同步索引
+  '6ed38a98625b91cef87492547c2088528312edc1aa59851a9991f22bdfe17ba8', // [12] F05 运行状态与工具执行账本
+  '6a820f35f588c5a8755c11740e8620979a28e709557b78ef7aed6e0ec2c448d5', // [13] F11B 会话生命周期登记
+  '41517c10aa208e9dcdcca2dd07a44bfb5ad7dad51d228017279ad194381b9fe8', // [14] F08 文件检查点
+  '687b8ed2f1a167097db1c19f09df839652d1f7e121b8f3ff86cd44da30911291', // [15] F03 结构化压缩标记（compact_marker_meta）
+  '9dfc1373877e89158b1b1d5c02cc0133f0d4324bee3ce4f30380bf5b778e43b1', // [16] F09 进程树账本
+  '454804053ae72b027fe1d1341614d33828cee2d2f1a48e5d12c5acab5ad1dd51', // [17] F07 durable user inputs
+  'c370a13d280d4b8eb63a8ead1391e714e79f0f8c94c5a3d7dde2fe3003e157b5', // [18] C4 queue position
 ];
 
 const sha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 const RULE = '已发布的迁移一个字符都不能改（空白也不行）；只允许在 MIGRATIONS 尾部追加新迁移。';
 
 describe('历史迁移不可变（sha256 钉）', () => {
-  it('MIGRATIONS 已导出、冻结，且至少有 11 条', () => {
+  it('MIGRATIONS 已导出、冻结，且每条迁移都有哈希钉值', () => {
     expect(Array.isArray(MIGRATIONS), 'MIGRATIONS 必须 export 出来供守卫读取').toBe(true);
-    expect(MIGRATIONS.length).toBeGreaterThanOrEqual(PINNED.length);
+    expect(MIGRATIONS.length, '每条迁移必须有哈希钉值，新增迁移不得漏登记').toBe(PINNED.length);
     expect(Object.isFrozen(MIGRATIONS), '运行期冻结：任何代码都不能 push / 改写已发布的迁移').toBe(true);
     // 冻结是真冻结：严格模式（ESM）下写入冻结数组直接抛 TypeError
     expect(() => { (MIGRATIONS as string[])[0] = 'DROP TABLE sessions'; }).toThrow(TypeError);

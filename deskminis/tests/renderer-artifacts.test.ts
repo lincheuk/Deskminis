@@ -2,15 +2,23 @@
  *  数据源契约：历史 messages parts[].value = { name, input }（toolUse）；实时 toolCards 补 input（chat.ts 增量）。 */
 /* T6e-3 集体退场说明：本文件有若干例随实现退场。理由——
    产物面板内部实现（卡片列表内部锚、pendingFilePreview 清空时机、switchRightTab 注入）——新树里产物是 WorkspacePanel 的「改动」tab，点开走 emit('open') 交给外壳，没有跨面板注入。保留的是 lib/artifacts/collect 纯模块 5 例（那才是这条能力的内核）与 store 断言。 */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const { _rpcCall, _rpcOn, _handlers, _rpcLost, _rpcConnect } = vi.hoisted(() => {
+  const handlers = new Map<string, (params: any) => unknown>();
+  return { _rpcCall: vi.fn(), _rpcOn: vi.fn((method: string, handler: (params: any) => unknown) => { handlers.set(method, handler); }), _handlers: handlers, _rpcLost: vi.fn(), _rpcConnect: vi.fn(async () => {}) };
+});
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: _rpcCall, on: _rpcOn, onLost: _rpcLost, connect: _rpcConnect } }));
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { collectArtifacts } from '../src/renderer/src/lib/artifacts/collect';
+import { useChat } from '../src/renderer/src/stores/chat';
+import { resetStoreRpc, type Equal, type Chat, type ToolCard } from './renderer-store-fixture';
 
 const root = path.resolve(__dirname, '..');
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8');
 const artifactsPanel = fs.readFileSync(path.join(root, 'src/renderer/src/ui/WorkspacePanel.vue'), 'utf8');
-const chatTs = fs.readFileSync(path.join(root, 'src/renderer/src/stores/chat.ts'), 'utf8');
+
 const filesPanel = fs.readFileSync(path.join(root, 'src/renderer/src/ui/WorkspacePanel.vue'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'src/renderer/src/ui/AppShell.vue'), 'utf8');
 
@@ -28,6 +36,11 @@ const asst = (...parts: unknown[]) => ({ role: 'assistant', parts });
 const carrier = (...parts: unknown[]) => ({ role: 'user', parts });
 /** 做完了、结果成功的一步：toolUse 加它的结果载体。 */
 const okStep = (toolUseId: string, name: string, input: unknown) => [asst(use(toolUseId, name, input)), carrier(result(toolUseId, true))];
+
+const _probe = { call: _rpcCall, on: _rpcOn, handlers: _handlers, lost: _rpcLost, connect: _rpcConnect };
+// 每例使用新的真实 Pinia；RPC 桩只记调用与订阅，由用例放行应答。
+beforeEach(() => { resetStoreRpc(_probe); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('MU2b Task 3 产物 tab：lib/artifacts/collect 纯模块（5 例）', () => {
   it('空输入（空 messages + 空 toolCards）→ []', () => {
@@ -162,9 +175,23 @@ describe('W2b-11d：改动清单按工具结果判（与对话流给步骤定状
 });
 
 describe('MU2b Task 3 产物 tab：组件与接线守卫（4 例）', () => {
-  it('chat.ts 纯增量：state 追加 pendingFilePreview；toolCards 元素补 input（产物路径数据源）', () => {
-    expect(chatTs).toContain("pendingFilePreview: null as string | null");
-    expect(chatTs).toContain("input?: string");
+  it('chat.ts 纯增量：state 追加 pendingFilePreview；toolCards 元素补 input（产物路径数据源）', async () => {
+    // 可空预览与工具卡字段完整类型由 tsc 比较，不再读声明文本。
+    const previewType: true = true as Equal<Chat['pendingFilePreview'], string | null>;
+    const cardType: true = true as Equal<Chat['toolCards'], ToolCard[]>;
+    expect([previewType, cardType]).toEqual([true, true]);
+    const chat = useChat();
+    expect(chat.pendingFilePreview).toBeNull();
+    for (const value of ['file.txt', null]) {
+      chat.pendingFilePreview = value;
+      expect(chat.pendingFilePreview).toBe(value);
+    }
+    // toolStart 真事件提供产物输入，不在纯 collectArtifacts 用例上冒充 store 保证。
+    chat.onEvent({ kind: 'toolStart', toolUseId: 'T', name: 'file_write', title: 'write', input: '{"path":"file.txt"}' });
+    expect(chat.toolCards[0].input).toBe('{"path":"file.txt"}');
+    expect(chat.toolCards[0].toolUseId).toBe('T');
+    expect(chat.toolCards[0].name).toBe('file_write');
+    expect(_rpcCall.mock.calls).toEqual([]);
   });
 
   it('改动视图接进外壳（T6e-3 重指：三个面板合成 WorkspacePanel 的三个 tab）', () => {

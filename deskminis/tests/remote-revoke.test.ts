@@ -161,13 +161,21 @@ describe('⑥ 配对阶段的连接只走配对协议', () => {
   });
 });
 
-describe('接线：引擎给两处业务守卫都带上配对复查', () => {
-  it('src/minisd/index.ts 里每一处 guardBusinessMethod( 都传第三参 isPaired，且 isPaired 查的是 pairingService', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync(join(__dirname, '..', 'src', 'minisd', 'index.ts'), 'utf8');
-    const calls = [...src.matchAll(/guardBusinessMethod\(([^;\n]*)\)/g)].map(m => m[1]);
-    expect(calls.length, '没找到 guardBusinessMethod 调用').toBeGreaterThanOrEqual(2);
-    for (const args of calls) expect(args, `这一处没带配对复查：guardBusinessMethod(${args})`).toMatch(/,\s*isPaired\s*$/);
-    expect(src).toMatch(/const isPaired = \(fp: string\): boolean => pairingService\.get\(fp\) !== undefined;/);
-  });
+describe('接线：引擎每个实际业务方法都复查配对', () => {
+  it('配对记录消失后，全部业务组拒旧远端连接并请求关闭', async () => {
+    // Q20：方法表取自真实引擎（engine-assembly.ts），配对与取消配对都走真实的 remote.pair.* / remote.unpair
+    const { accessResult, probeConnection, startCapturedEngine } = await import('./engine-assembly');
+    const eng = await startCapturedEngine();
+    cleanups.push(() => eng.close());
+    expect(eng.businessNames.length).toBeGreaterThan(100);
+    const fp = await eng.pair();
+    // 配对记录还在时这条远端连接调得到业务（不然下面的「被拒」证明不了是撤销造成的）
+    expect(await eng.methods['chat.sessions.list']({}, probeConnection('remote', undefined, fp))).toEqual([]);
+    await eng.unpair(fp);
+    for (const name of eng.businessNames) {
+      let closes = 0;
+      expect(await accessResult(eng.methods[name], name, probeConnection('remote', () => { closes++; }, fp)), name).toEqual({ allowed: false, error: `${name} 被拒：这台设备已取消配对` });
+      expect(closes, name).toBe(1);
+    }
+  }, 60000);
 });

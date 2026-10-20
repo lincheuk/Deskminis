@@ -11,6 +11,9 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import type { BridgePermissionKind, PermissionGateway, PermissionRequest } from '../tools/types';
+import { denied, type PermissionDenyReason } from '../../shared/permission';
+import { decidePermission, reportDenied } from '../tools/permission-outcome';
+import { bridgeDenialMessage } from '../tools/permission-text';
 import type { MinisPaths } from '../paths';
 import { killTree, powershellPath, type ProcOpts } from '../proc/win-exec';
 
@@ -32,7 +35,8 @@ export interface BridgeEnvelope {
   tool: string;
   action: string;
   data?: unknown;
-  error?: { code: string; message: string };
+  /** reason（F13，可选）：code 为 PERMISSION_DENIED 时带上拒绝的原因（用户拒绝 / 超时 / 规则 / 取消 / 失效 / 未说明）。 */
+  error?: { code: string; message: string; reason?: PermissionDenyReason };
   timestamp: number; // epoch 秒（浮点）
 }
 
@@ -93,15 +97,15 @@ export function okEnvelope(tool: string, action: string, data: unknown): BridgeE
   return { ok: true, tool, action, data, timestamp: now() };
 }
 /** 错误信封（导出：服务端兜底使用）。 */
-export function errEnvelope(tool: string, action: string, code: string, message: string): BridgeEnvelope {
-  return { ok: false, tool, action, error: { code, message }, timestamp: now() };
+export function errEnvelope(tool: string, action: string, code: string, message: string, reason?: PermissionDenyReason): BridgeEnvelope {
+  return { ok: false, tool, action, error: reason === undefined ? { code, message } : { code, message, reason }, timestamp: now() };
 }
 
 function ok(req: BridgeRequest, data: unknown): BridgeEnvelope {
   return okEnvelope(req.tool, req.action, data);
 }
-function err(req: BridgeRequest, code: string, message: string): BridgeEnvelope {
-  return errEnvelope(req.tool, req.action, code, message);
+function err(req: BridgeRequest, code: string, message: string, reason?: PermissionDenyReason): BridgeEnvelope {
+  return errEnvelope(req.tool, req.action, code, message, reason);
 }
 
 // ---- 单个 handler：经权限网关后调 runPowerShell；载荷走 stdin JSON ----
@@ -217,9 +221,10 @@ const ROUTES: Record<string, { action: string; kind: BridgePermissionKind; toolT
   'windows-device|info': { action: 'info', kind: 'bridge-device', toolTitle: '设备信息', fn: device },
 };
 
-export function makeBridgeDispatcher(deps: BridgeDeps): (req: BridgeRequest) => Promise<BridgeEnvelope> {
+/** ctl.signal（F13）：请求方的取消信号——管道连接在应答之前断开时 abort，reason 为 'requester-gone'（BridgeServer 给）。 */
+export function makeBridgeDispatcher(deps: BridgeDeps): (req: BridgeRequest, ctl?: { signal?: AbortSignal }) => Promise<BridgeEnvelope> {
   const runPs: PsRunner = deps.runPs ?? runPowerShell;
-  return async (req: BridgeRequest): Promise<BridgeEnvelope> => {
+  return async (req: BridgeRequest, ctl?: { signal?: AbortSignal }): Promise<BridgeEnvelope> => {
     if (typeof req !== 'object' || req === null || typeof req.sessionId !== 'string' || !SESSION_ID_RE.test(req.sessionId)) {
       return err(req ?? { tool: '?', action: '?', args: {}, sessionId: '' }, 'INVALID_ARGS', '非法 sessionId');
     }
@@ -233,8 +238,20 @@ export function makeBridgeDispatcher(deps: BridgeDeps): (req: BridgeRequest) => 
       sessionId: req.sessionId,
       toolTitle: route.toolTitle,
     };
-    const decision = await deps.permissions.check(preq);
-    if (decision === 'deny') return err(req, 'PERMISSION_DENIED', `权限拒绝: ${preq.detail}`);
+    // F13：请求方（管道另一头的 bridge-cli）已经走了就不问、不执行。shell 命令超时被杀、终端里按了 Ctrl+C 之后，
+    // 以前卡还挂着，用户再点「允许」照常打开链接 / 写剪贴板 / 朗读——没有任何人在等这个结果。
+    const goneErr = (): BridgeEnvelope =>
+      err(req, 'PERMISSION_DENIED', bridgeDenialMessage(denied('cancelled', 'requester-gone'), preq), 'cancelled');
+    if (ctl?.signal?.aborted) return goneErr();
+    // signal 交给网关：请求方在等卡期间断开，卡片当场按 cancelled / requester-gone 了结，之后的答复无效
+    const o = await decidePermission(deps.permissions, preq, { origin: 'bridge', signal: ctl?.signal });
+    if (ctl?.signal?.aborted) {
+      // 批准之后再看请求方还在不在：免审的桥也一样，没人等结果就不执行。放行了却没执行，记一条
+      if (o.decision === 'allow') reportDenied(deps.permissions, preq, denied('cancelled', 'requester-gone', { requestId: o.requestId }), { origin: 'bridge' });
+      return goneErr();
+    }
+    // 按原因说话：error.code 恒为 PERMISSION_DENIED（bridge-cli 的退出码映射不变），另带 error.reason
+    if (o.decision !== 'allow') return err(req, 'PERMISSION_DENIED', bridgeDenialMessage(o, preq), o.reason);
     try {
       return await route.fn(req, { ...deps, runPs });
     } catch (e) {

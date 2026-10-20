@@ -27,13 +27,18 @@ import { officeWriteTool } from '../src/minisd/tools/office';
 import { fileGlobTool, fileGrepTool, fileListTool } from '../src/minisd/tools/search';
 import { PermissionGatewayImpl } from '../src/minisd/tools/permissions';
 import { MinisPaths, DATA_ROOT_LOCK_NAME, DATA_ROOT_LOCK_RECOVERY_NAME } from '../src/minisd/paths';
-import type { PermissionDecision, PermissionRequest, ToolContext } from '../src/minisd/tools/types';
+import type { PermissionDecision, PermissionOutcome, PermissionRequest, ToolContext } from '../src/minisd/tools/types';
 
 /** 记下每次询问的假网关：decision 决定放行与否。 */
 class RecordingGateway {
   asked: PermissionRequest[] = [];
   constructor(private decision: PermissionDecision) {}
   async check(r: PermissionRequest): Promise<PermissionDecision> { this.asked.push(r); return this.decision; }
+  /** F13：带原因的结果。这个替身的 'deny' 模拟的是用户在卡上点了拒绝（下面断言的就是「被用户拒绝」）；
+   *  只有 check 的网关会被读成「没有说明原因」。 */
+  async decide(r: PermissionRequest): Promise<PermissionOutcome> {
+    return (await this.check(r)) === 'allow' ? { decision: 'allow', via: 'user-once' } : { decision: 'deny', reason: 'user-denied' };
+  }
   hasBridgeGrant(): boolean { return false; }
 }
 

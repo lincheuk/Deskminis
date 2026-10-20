@@ -10,10 +10,12 @@ import { useLastTurnLive } from '../lib/steps/live';
 import { permsOf } from '../lib/perm/scope';
 import UiFileTree from './UiFileTree.vue';
 import TaskPanel from './TaskPanel.vue';
+import ChangeList from './ChangeList.vue';
 import UiIcon from './UiIcon.vue';
 
-const props = defineProps<{ selected: string | null }>();
-const emit = defineEmits<{ (e: 'open', path: string): void }>();
+// reviewing（F08）：正在审阅的检查点 id（高亮用）。review 事件：点了一条有检查点的改动，交给外壳打开审阅面板
+const props = defineProps<{ selected: string | null; reviewing?: string | null }>();
+const emit = defineEmits<{ (e: 'open', path: string): void; (e: 'review', id: string): void }>();
 const chat = useChat();
 
 // ---- T6b 工作区绑定。换壳时这块入口整个丢了：后端与 store 都通，ui/ 下零引用，
@@ -165,16 +167,11 @@ const permsHere = computed(() => permsOf(chat.pendingPerms, chat.activeId));
         />
       </template>
 
-      <template v-else-if="tab === 'changes'">
-        <div v-if="!changes.length" class="hint">本会话还没有文件改动</div>
-        <button v-for="c in changes" :key="c.path" type="button" class="chg" :class="{ on: props.selected === c.path }" @click="emit('open', c.path)">
-          <span class="tag" :class="c.kind">{{ c.kind === 'edit' ? '改' : '写' }}</span>
-          <span class="cpath">{{ c.path }}</span>
-          <span v-if="c.kind === 'edit' && (c.add || c.del)" class="cnum t-aux tnum">
-            <span class="a">+{{ c.add ?? 0 }}</span><span class="d">-{{ c.del ?? 0 }}</span>
-          </span>
-        </button>
-      </template>
+      <!-- F08：改动清单来自引擎里的检查点记录（按运行分组、可审阅、可恢复）；没有检查点的旧改动在它里面单列一节 -->
+      <ChangeList
+        v-else-if="tab === 'changes'" :selected="props.reviewing ?? props.selected"
+        @open="p => emit('open', p)" @review="id => emit('review', id)"
+      />
 
       <TaskPanel v-else />
     </div>
@@ -214,29 +211,7 @@ const permsHere = computed(() => permsOf(chat.pendingPerms, chat.activeId));
 .hint { padding: var(--sp-7) var(--sp-4); text-align: center; font-size: var(--t-aux-size); line-height: 1.7; color: var(--c-ink-3); }
 .hint.err { color: var(--c-err); }
 
-.chg {
-  display: flex; align-items: center; gap: var(--sp-3); width: 100%;
-  padding: var(--sp-2) var(--sp-3); border-radius: var(--r-s);
-  background: none; cursor: pointer; text-align: left; font-family: inherit;
-}
-.chg:hover { background: var(--c-bg-2); }
-.chg.on { background: var(--c-brand-soft); }
-.tag {
-  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 4px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: var(--w-md);
-  background: var(--c-ok-soft); color: var(--c-ok);
-}
-.tag.edit { background: var(--c-warn-soft); color: var(--c-warn); }
-.cpath {
-  flex: 1; min-width: 0; font-family: var(--f-mono); font-size: var(--t-aux-size);
-  color: var(--c-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
-}
-
-/* 编辑增删数：写是「新出现一份」，改是「动了几行」——后者的量级才需要数字 */
-.cnum { flex: 0 0 auto; display: inline-flex; gap: var(--sp-2); }
-.cnum .a { color: var(--c-ok); }
-.cnum .d { color: var(--c-err); }
+/* F08：改动清单的行样式搬进了 ChangeListView.vue（scoped 样式管不到子组件里面） */
 
 /* ---- T6b 工作区绑定行 ---- */
 .wsbar { flex: 0 0 auto; border-bottom: 1px solid var(--c-line); background: var(--c-bg-1); }

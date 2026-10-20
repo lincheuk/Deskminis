@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { lanExposureWarning } from '../src/minisd/index';
+import { runStandaloneBranch } from './standalone-branch';
 
 describe('lanExposureWarning', () => {
   it.each([undefined, '', '127.0.0.1', '127.0.0.5', 'localhost', '::1', 'LOCALHOST'])('%s：只监听本机，不警告', (host) => {
@@ -17,13 +18,33 @@ describe('lanExposureWarning', () => {
     expect(w).toMatch(/配对[\s\S]*不加密/);
     expect(w).toMatch(/可信/);
   });
-  it('standalone 启动分支在起引擎之前写这行警告（经 stderr 进按天日志）', () => {
-    const src = readFileSync(join(__dirname, '..', 'src', 'minisd', 'index.ts'), 'utf8');
-    const at = src.indexOf("if (process.env.DESKMINIS_STANDALONE === '1') {");
-    const branch = src.slice(at, src.indexOf('const starting = startMinisd(startOpts);', at));
-    expect(at).toBeGreaterThan(-1);
-    expect(branch).toMatch(/const lanWarning = lanExposureWarning\(process\.env\.MINISD_HOST\);\s*if \(lanWarning\) process\.stderr\.write\(/);
-  });
+  it('standalone 启动分支在起引擎之前写这行警告（经 stderr 进按天日志）', async () => {
+    // Q20：不读 index.ts 的文本，把 standalone 分支真的跑一遍（standalone-branch.ts），看它实际写了什么、谁先谁后
+    const run = await runStandaloneBranch({ host: '0.0.0.0' });
+    try {
+      await run.settled();
+      expect(run.warnings).toEqual([lanExposureWarning('0.0.0.0') + '\n']);
+      // 写在起引擎之前：这行出来时引擎还没拿数据根锁、没开始监听
+      const order = run.order();
+      expect(order.filter(name => ['lan.warning', 'lock.acquire', 'rpc.listen'].includes(name))).toEqual(['lan.warning', 'lock.acquire', 'rpc.listen']);
+      expect(order.indexOf('lan.warning')).toBeGreaterThanOrEqual(0);
+      expect(order.indexOf('lan.warning')).toBeLessThan(order.indexOf('lock.acquire'));
+      expect(order.indexOf('lan.warning')).toBeLessThan(order.indexOf('rpc.listen'));
+      // 提示里说的就是引擎真要监听的那个地址（测试里实际绑的是回环，见 standalone-branch.ts）
+      expect(run.listenHosts()).toEqual(['0.0.0.0']);
+    } finally {
+      await run.dispose();
+    }
+    // 只监听本机时不写
+    const quiet = await runStandaloneBranch();
+    try {
+      await quiet.settled();
+      expect(quiet.warnings).toEqual([]);
+      expect(quiet.listenHosts()).toEqual(['127.0.0.1']);
+    } finally {
+      await quiet.dispose();
+    }
+  }, 60_000);
 });
 
 describe('文档写明连接加密、配对那一步不加密', () => {

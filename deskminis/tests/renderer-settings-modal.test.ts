@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { sfcBlocks } from './sfc-blocks';
-import { classifyShellCommand } from '../src/minisd/tools/permissions';
+import { classifyShellCommand, MAX_UNANSWERED_STREAK } from '../src/minisd/tools/permissions';
 // T6e-3：主题读写纯模块（lib/settings/theme）退场：SecLook 把 localStorage 读写内联了（已测纯判据换成未测内联代码，这笔账记在 commit 里）
 
 const root = path.resolve(__dirname, '..');
@@ -101,6 +101,19 @@ describe('W1b-2g「完全访问」副标题如实：危险规则只按命令写�
     expect(askSub, '没从 TIERS 里认出 ask 档的 sub').not.toBe('');
     expect(askSub).toMatch(/只读/);
     expect(askSub).toMatch(/90 秒/);
+  });
+
+  it('「每次确认」档如实（F13）：连续两次没人回应后本轮不再询问、发下一条消息后恢复——不能只说「其余每次询问」', () => {
+    // 引擎在同一会话本轮连续 MAX_UNANSWERED_STREAK 段无人答复之后不再弹卡，直接按未批准处理；chat.prompt 清零。
+    // 副标题不说这一点的话，用户回到窗口只看到工具步骤失败、没有卡，对不上「其余每次询问，90 秒没回应按拒绝处理」。
+    const askSub = /tier:\s*'ask'[^}]*?\bsub:\s*'([^']*)'/.exec(script)?.[1] ?? '';
+    expect(askSub, '没从 TIERS 里认出 ask 档的 sub').not.toBe('');
+    expect(askSub).toMatch(/连续两次没人回应后不再询问/);
+    expect(askSub).toMatch(/发下一条消息后恢复/);
+    // 「两次」写死在文案里：上限的数值变了，这句话要跟着改
+    expect(MAX_UNANSWERED_STREAK, '副标题写的是「两次」').toBe(2);
+    // 原来的两半句还在同一句里：没回应会怎样（90 秒按拒绝处理）先说，例外后说
+    expect(askSub.indexOf('90 秒')).toBeLessThan(askSub.indexOf('连续两次'));
   });
 
   it('副标题举的例子真在危险表里：括号「（如 …）」里的每一个都交给 classifyShellCommand，必须判 danger', () => {

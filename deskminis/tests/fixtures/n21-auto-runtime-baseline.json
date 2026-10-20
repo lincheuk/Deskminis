@@ -1,0 +1,2468 @@
+{
+  "head": "c84135664a1e45e988c229fdec3a789807e8a2c9",
+  "resolverSha": "58e707c888360eb7eb745715854c0958085eaa6ea9c03ee7eb5af14ba308867c",
+  "now": 1792130000000,
+  "cases": [
+    {
+      "input": {
+        "kind": "anthropic",
+        "modelId": "claude-x"
+      },
+      "expected": {
+        "modelId": "claude-x",
+        "kind": "anthropic",
+        "protocol": "anthropic",
+        "endpoint": {
+          "class": "official",
+          "host": "api.anthropic.com",
+          "catalogProviderId": "anthropic"
+        },
+        "catalog": {
+          "record": "endpoint",
+          "name": "Claude X",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 200000,
+            "source": "endpoint",
+            "declared": 1000000,
+            "note": "官方端点 200K 以上的窗口需要长上下文 beta 头，DeskMinis 未发送，按 200K 计；确认可用时可在本配置手动填写窗口"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 64000,
+            "source": "endpoint"
+          }
+        },
+        "requestMaxTokens": 64000,
+        "input": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "模型支持PDF 输入，但DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "param": "budget",
+          "control": {
+            "budget": {
+              "min": 1024
+            },
+            "efforts": {
+              "__n21Undefined": true
+            }
+          }
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "anthropic",
+        "baseUrl": "https://api.anthropic.com/v1",
+        "modelId": "claude-opus-5-5"
+      },
+      "expected": {
+        "modelId": "claude-opus-5-5",
+        "kind": "anthropic",
+        "protocol": "anthropic",
+        "endpoint": {
+          "class": "official",
+          "host": "api.anthropic.com",
+          "catalogProviderId": "anthropic"
+        },
+        "catalog": {
+          "record": "endpoint",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 200000,
+            "source": "endpoint",
+            "declared": 1000000,
+            "note": "官方端点 200K 以上的窗口需要长上下文 beta 头，DeskMinis 未发送，按 200K 计；确认可用时可在本配置手动填写窗口"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 128000,
+            "source": "endpoint"
+          }
+        },
+        "requestMaxTokens": 128000,
+        "input": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "模型支持PDF 输入，但DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "param": "budget",
+          "control": {
+            "efforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "budget": {
+              "__n21Undefined": true
+            }
+          }
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "gemini",
+        "modelId": "gem-v"
+      },
+      "expected": {
+        "modelId": "gem-v",
+        "kind": "gemini",
+        "protocol": "gemini",
+        "endpoint": {
+          "class": "official",
+          "host": "generativelanguage.googleapis.com",
+          "catalogProviderId": "google"
+        },
+        "catalog": {
+          "record": "endpoint",
+          "name": "Gem V",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 1048576,
+            "source": "endpoint"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 65536,
+            "source": "endpoint"
+          }
+        },
+        "requestMaxTokens": 65536,
+        "input": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "模型支持音频输入，但DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "模型支持视频输入，但DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "模型支持PDF 输入，但DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "param": "budget",
+          "control": {
+            "efforts": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "budget": {
+              "__n21Undefined": true
+            }
+          }
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "https://api.openai.com/v1",
+        "modelId": "gpt-text"
+      },
+      "expected": {
+        "modelId": "gpt-text",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "official",
+          "host": "api.openai.com",
+          "catalogProviderId": "openai"
+        },
+        "catalog": {
+          "record": "endpoint",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 128000,
+            "source": "endpoint"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 16384,
+            "source": "endpoint"
+          }
+        },
+        "requestMaxTokens": 16384,
+        "input": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unsupported",
+          "catalog": {
+            "value": false,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "reason": "当前端点的目录记录标注不支持推理",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "A",
+        "name": "甲",
+        "kind": "openai-compat",
+        "baseUrl": "https://api.vendor-a.example/v1",
+        "modelId": "shared-model"
+      },
+      "expected": {
+        "instanceId": "A",
+        "instanceName": "甲",
+        "modelId": "shared-model",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "catalog",
+          "host": "api.vendor-a.example",
+          "catalogProviderId": "vendor-a"
+        },
+        "catalog": {
+          "record": "endpoint",
+          "name": "Shared Model",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 200000,
+            "source": "endpoint"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 32000,
+            "source": "endpoint"
+          }
+        },
+        "requestMaxTokens": 32000,
+        "input": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "param": "effort",
+          "control": {
+            "efforts": [
+              "low",
+              "high",
+              "max"
+            ],
+            "budget": {
+              "__n21Undefined": true
+            }
+          }
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "https://api.vendor-b.example/openai/v1/chat",
+        "modelId": "shared-model"
+      },
+      "expected": {
+        "modelId": "shared-model",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "catalog",
+          "host": "api.vendor-b.example",
+          "catalogProviderId": "vendor-b"
+        },
+        "catalog": {
+          "record": "endpoint",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 128000,
+            "source": "endpoint"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 8000,
+            "source": "endpoint"
+          }
+        },
+        "requestMaxTokens": 8000,
+        "input": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unsupported",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented",
+            "reason": "当前端点的目录记录标注不支持图片输入"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unsupported",
+          "catalog": {
+            "value": false,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "reason": "当前端点的目录记录标注不支持工具调用"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unsupported",
+          "catalog": {
+            "value": false,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "reason": "当前端点的目录记录标注不支持推理",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "https://opencode.ai/inference/go/v1",
+        "modelId": "cat-jam-free"
+      },
+      "expected": {
+        "modelId": "cat-jam-free",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "catalog",
+          "host": "opencode.ai",
+          "catalogProviderId": "opencode-go"
+        },
+        "catalog": {
+          "record": "endpoint",
+          "name": "Cat Jam",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 200000,
+            "source": "endpoint"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 32000,
+            "source": "endpoint"
+          }
+        },
+        "requestMaxTokens": 32000,
+        "price": {
+          "input": 0.2,
+          "output": 0.5
+        },
+        "input": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unsupported",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented",
+            "reason": "当前端点的目录记录标注不支持图片输入"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "supported",
+            "catalog": {
+              "value": true,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "implemented"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "endpoint"
+            },
+            "endpoint": "confirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "endpoint"
+          },
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "param": "effort",
+          "control": {
+            "efforts": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "budget": {
+              "__n21Undefined": true
+            }
+          }
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "https://opencode.ai/zen/go/v1",
+        "modelId": "cat-jam-free"
+      },
+      "expected": {
+        "modelId": "cat-jam-free",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "relay",
+          "host": "opencode.ai"
+        },
+        "catalog": {
+          "record": "aggregate",
+          "name": "Cat Jam",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 200000,
+            "source": "aggregate"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 32000,
+            "source": "aggregate"
+          }
+        },
+        "requestMaxTokens": 32000,
+        "input": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输入，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unknown",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总里只有 1 家服务商有这个型号的记录、都标注不支持图片输入，不足 3 家，不据此判定当前端点"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输出，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unknown",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "跨服务商汇总标注支持工具调用，但当前端点（中转、本机或未收录）未确认"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unknown",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "跨服务商汇总标注支持推理，但当前端点（中转、本机或未收录）未确认",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "https://relay.example/v1",
+        "modelId": "shared-model"
+      },
+      "expected": {
+        "modelId": "shared-model",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "relay",
+          "host": "relay.example"
+        },
+        "catalog": {
+          "record": "aggregate",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 128000,
+            "source": "aggregate"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 8000,
+            "source": "aggregate"
+          }
+        },
+        "requestMaxTokens": 8000,
+        "input": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输入，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unknown",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "目录没有图片输入的资料，当前端点未确认"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输出，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unknown",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "目录没有工具调用的资料，当前端点未确认"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unknown",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "跨服务商汇总标注支持推理，但当前端点（中转、本机或未收录）未确认",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "https://tie.example/v1",
+        "modelId": "tie-model"
+      },
+      "expected": {
+        "modelId": "tie-model",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "relay",
+          "host": "tie.example"
+        },
+        "catalog": {
+          "record": "aggregate",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 32000,
+            "source": "aggregate"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 2000,
+            "source": "aggregate"
+          }
+        },
+        "requestMaxTokens": 2000,
+        "input": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "目录没有文本输入的资料，当前端点未确认"
+          },
+          "image": {
+            "state": "unknown",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "目录没有图片输入的资料，当前端点未确认"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "目录没有文本输出的资料，当前端点未确认"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unknown",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "跨服务商汇总标注支持工具调用，但当前端点（中转、本机或未收录）未确认"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unknown",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "目录没有推理的资料，当前端点未确认",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "ollama",
+        "modelId": "cat-jam-free"
+      },
+      "expected": {
+        "modelId": "cat-jam-free",
+        "kind": "ollama",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "local",
+          "host": "localhost"
+        },
+        "catalog": {
+          "record": "aggregate",
+          "name": "Cat Jam",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 200000,
+            "source": "aggregate"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 32000,
+            "source": "aggregate"
+          }
+        },
+        "requestMaxTokens": 32000,
+        "input": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输入，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unknown",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总里只有 1 家服务商有这个型号的记录、都标注不支持图片输入，不足 3 家，不据此判定当前端点"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输出，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unknown",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "跨服务商汇总标注支持工具调用，但当前端点（中转、本机或未收录）未确认"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unavailable",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "protocol-missing",
+          "reason": "Ollama 接入不发送推理参数（其 OpenAI 兼容端点不认 reasoning_effort）",
+          "param": "none"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "modelId": "cat-jam-free"
+      },
+      "expected": {
+        "modelId": "cat-jam-free",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "local",
+          "host": "127.0.0.1"
+        },
+        "catalog": {
+          "record": "aggregate",
+          "name": "Cat Jam",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 200000,
+            "source": "aggregate"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 32000,
+            "source": "aggregate"
+          }
+        },
+        "requestMaxTokens": 32000,
+        "input": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输入，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unknown",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总里只有 1 家服务商有这个型号的记录、都标注不支持图片输入，不足 3 家，不据此判定当前端点"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输出，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unknown",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "跨服务商汇总标注支持工具调用，但当前端点（中转、本机或未收录）未确认"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unknown",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "跨服务商汇总标注支持推理，但当前端点（中转、本机或未收录）未确认",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "http://[::1]:8080/v1",
+        "modelId": "shared-model"
+      },
+      "expected": {
+        "modelId": "shared-model",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "local",
+          "host": "[::1]"
+        },
+        "catalog": {
+          "record": "aggregate",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 128000,
+            "source": "aggregate"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 8000,
+            "source": "aggregate"
+          }
+        },
+        "requestMaxTokens": 8000,
+        "input": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输入，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unknown",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "目录没有图片输入的资料，当前端点未确认"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输出，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unknown",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "目录没有工具调用的资料，当前端点未确认"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unknown",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "跨服务商汇总标注支持推理，但当前端点（中转、本机或未收录）未确认",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "not a url",
+        "modelId": "not-in-catalog"
+      },
+      "expected": {
+        "modelId": "not-in-catalog",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "relay"
+        },
+        "catalog": {
+          "record": "none",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "source": "none"
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "source": "none"
+          }
+        },
+        "requestMaxTokens": 8192,
+        "input": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "目录没有文本输入的资料，当前端点未确认"
+          },
+          "image": {
+            "state": "unknown",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "目录没有图片输入的资料，当前端点未确认"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "目录没有文本输出的资料，当前端点未确认"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "source": "none"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unknown",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "目录没有工具调用的资料，当前端点未确认"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "unknown",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "目录没有推理的资料，当前端点未确认",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": []
+        }
+      }
+    },
+    {
+      "input": {
+        "kind": "openai-compat",
+        "baseUrl": "https://relay.example/v1",
+        "modelId": "shared-model",
+        "contextWindow": 150000,
+        "maxOutputTokens": 12000,
+        "capabilityOverrides": {
+          "imageInput": false,
+          "reasoning": true
+        }
+      },
+      "expected": {
+        "modelId": "shared-model",
+        "kind": "openai-compat",
+        "protocol": "openai-chat",
+        "endpoint": {
+          "class": "relay",
+          "host": "relay.example"
+        },
+        "catalog": {
+          "record": "aggregate",
+          "fetchedAt": 1792130000000,
+          "stale": false
+        },
+        "limits": {
+          "contextWindow": {
+            "value": 150000,
+            "source": "manual",
+            "declared": 128000
+          },
+          "maxInputTokens": {
+            "source": "none"
+          },
+          "maxOutputTokens": {
+            "value": 12000,
+            "source": "manual",
+            "declared": 8000
+          }
+        },
+        "requestMaxTokens": 12000,
+        "input": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输入，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unsupported",
+            "catalog": {
+              "source": "none"
+            },
+            "manual": false,
+            "endpoint": "confirmed",
+            "transport": "implemented",
+            "reason": "本配置已手动标为不支持图片输入"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入音频上传（音视频适配见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入视频上传（音视频适配见 G03）"
+          },
+          "pdf": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "DeskMinis 尚未接入 PDF 原生输入；可用文件工具读取文本"
+          }
+        },
+        "output": {
+          "text": {
+            "state": "unknown",
+            "catalog": {
+              "value": true,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "implemented",
+            "reason": "跨服务商汇总标注支持文本输出，但当前端点（中转、本机或未收录）未确认"
+          },
+          "image": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "audio": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          },
+          "video": {
+            "state": "unavailable",
+            "catalog": {
+              "value": false,
+              "source": "aggregate"
+            },
+            "endpoint": "unconfirmed",
+            "transport": "app-missing",
+            "reason": "当前应用只接入文本输出，图片/音频/视频生成尚未实现（见 G03）"
+          }
+        },
+        "toolCall": {
+          "state": "unknown",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "implemented",
+          "reason": "目录没有工具调用的资料，当前端点未确认"
+        },
+        "structuredOutput": {
+          "state": "unavailable",
+          "catalog": {
+            "source": "none"
+          },
+          "endpoint": "unconfirmed",
+          "transport": "app-missing",
+          "reason": "DeskMinis 目前不发送结构化输出请求"
+        },
+        "reasoning": {
+          "state": "supported",
+          "catalog": {
+            "value": true,
+            "source": "aggregate"
+          },
+          "manual": true,
+          "endpoint": "confirmed",
+          "transport": "implemented",
+          "param": "effort"
+        },
+        "overrides": {
+          "invalid": [],
+          "contextWindow": 150000,
+          "maxOutputTokens": 12000,
+          "capabilityOverrides": {
+            "imageInput": false,
+            "reasoning": true
+          }
+        }
+      }
+    }
+  ]
+}

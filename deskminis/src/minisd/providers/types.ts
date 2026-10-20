@@ -1,12 +1,30 @@
 import type { AgentMessage, AgentStreamEvent, AgentToolDefinition, ThinkingLevel } from '../../shared/types';
 import { isContextOverflowMessage } from './overflow';
 
+/** adapter 对「输入、输出与窗口」的约束（F02）。出处写在各 adapter 的导出处；limitProfile 据此判约束形态，
+ *  不给所有 API 套同一条「输入 + 输出 ≤ 窗口」的公式。 */
+export interface AdapterBudgetRule { window: 'shared' | 'separate'; note: string }
+
+/** 系统提示的稳定段与动态段（F02）。全文 = dynamic 为空时的 stable，否则 `${stable}\n\n${dynamic}`。
+ *  稳定段是人设、纪律、助手规则、技能索引；动态段是运行中会变的记忆上下文。只分列，不删任何一段。 */
+export interface SystemPromptParts { stable: string; dynamic: string }
+
+/** 仅请求头使用的会话上下文；catalogProviderId取当前槽位解析结果。 */
+export interface RequestSession { id: string; catalogProviderId?: string }
+
 export interface StreamRequest {
+  session?: RequestSession;
   messages: AgentMessage[];
   systemPrompt?: string;
+  /** 可选（F02）。给了的话 systemPrompt 必须等于按上面的规则拼出的全文。只有 Anthropic 构建器看它（缓存断点打在稳定段末尾）；
+   *  不带时三个构建器的请求体与 F02 之前逐字节相同。 */
+  systemPromptParts?: SystemPromptParts;
   tools: AgentToolDefinition[];
   maxTokens: number;
   thinkingLevel: ThinkingLevel;
+  /** F01：运行时按当前槽位解析出的确切推理参数（thinkingLevel 非 off 时才看）。缺省时各构建器按档位表自算，
+   *  请求体与 F01 之前逐字节相同。effort → OpenAI 兼容的 reasoning_effort；budgetTokens → Anthropic / Gemini 的预算。 */
+  thinking?: { effort?: string; budgetTokens?: number };
 }
 
 export interface AgentProvider {

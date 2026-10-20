@@ -3,7 +3,10 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { openDb } from '../src/minisd/store/db';
+import { openDb, MIGRATIONS, runMigrations } from '../src/minisd/store/db';
+
+// 此版本固定对应历史库夹具，不随当前迁移数增长。
+const LEGACY_USER_VERSION = 4;
 
 // M6 决策点 2-3/2-6：MIGRATIONS 纯追加 [4]，新增 audit_logs + settings 两表。
 describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
@@ -32,9 +35,9 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
     db.close();
   });
 
-  it('user_version 演进到 9，既有表结构不被破坏', () => {
+  it('user_version 演进到当前迁移版本，既有表结构不被破坏', () => {
     const db = openDb(':memory:');
-    expect(db.pragma('user_version', { simple: true })).toBe(11); // 11 条迁移 [0..10]（[9] = J1 助手表；[10] = K1 定时任务表）
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
     // 既有 6 张表仍在
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
     for (const t of ['sessions', 'messages', 'compact_markers', 'skills', 'session_skill_overrides', 'sync_orphan_markers']) {
@@ -43,21 +46,17 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
     db.close();
   });
 
-  // 上面四条走的都是 openDb(':memory:')，即 user_version=0 的新建库一次跑完 [0..7]。
+  // 上面的新库用例走的都是 openDb(':memory:')，即 user_version=0 的新建库一次跑完全部迁移。
   // 但真实用户库停在 user_version=4（M3b 之后 / M6 之前），M6 首次启动才补跑 [4]——
   // 这才是「MIGRATIONS 纯追加」红线要保护的路径，必须单独覆盖。
-  it('已有 user_version=4 的库重开：补跑 [4]..[10] 到 11，既有数据不丢，且幂等', () => {
+  it('已有 user_version=4 的库重开：补跑 [4] 起的后续迁移到当前版本，既有数据不丢，且幂等', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dm-mig6-'));
     const file = join(dir, 'test.db');
+    let db: Database.Database | undefined;
     try {
-      // 造出「M6 之前」的真实库形态：跑满后删掉 M6 两表并把版本退回 4，再写入既有数据。
-      let db = openDb(file);
-      // 造老库要把**每一条**后续迁移的产物都撤掉，只撤最后一条不够：
-      // [4] 建的两张表 + [5] 加的 workspace_root 列 + [6] 建的 market_cache 表 + [7] 建的 market_installs 表。
-      // 漏撤列会在重开时报「duplicate column name」，漏撤表报「table already exists」。
-      db.exec('DROP TABLE IF EXISTS audit_logs; DROP TABLE IF EXISTS settings; DROP TABLE IF EXISTS market_cache; DROP TABLE IF EXISTS market_installs; DROP TABLE IF EXISTS annotations; DROP TABLE IF EXISTS assistants; DROP TABLE IF EXISTS cron_jobs;');
-      db.exec('ALTER TABLE sessions DROP COLUMN workspace_root;');
-      db.pragma('user_version = 4');
+      // 只执行旧版本已有的迁移，直接创建真实的 M6 之前的库。
+      db = new Database(file);
+      runMigrations(db, MIGRATIONS.slice(0, LEGACY_USER_VERSION));
       const now = Date.now() / 1000;
       db.prepare('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)')
         .run('S_OLD', '升级前的会话', now, now);
@@ -67,12 +66,12 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
       db.prepare(
         'INSERT INTO compact_markers (id, session_id, summary, last_compacted_message_id, created_at) VALUES (?,?,?,?,?)',
       ).run('CM_OLD', 'S_OLD', '升级前的摘要', 'M_OLD', now);
-      expect(db.pragma('user_version', { simple: true })).toBe(4);
+      expect(db.pragma('user_version', { simple: true })).toBe(LEGACY_USER_VERSION);
       db.close();
 
       // 关键动作：当前 openDb 重开该库
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(11);
+      expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
       const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[])
         .map(t => t.name);
       expect(tables).toEqual(expect.arrayContaining(['audit_logs', 'settings']));
@@ -96,11 +95,12 @@ describe('MIGRATIONS[4]（M6 审计 + 暂停标志）', () => {
 
       // 幂等：再开一次不重跑迁移、不清数据
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(11);
+      expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
       expect(db.prepare('SELECT id FROM audit_logs WHERE id=?').get('A_NEW')).toBeTruthy();
       expect((db.prepare('SELECT value FROM settings WHERE key=?').get('sync.paused') as { value: string }).value).toBe('1');
       db.close();
     } finally {
+      if (db?.open) db.close();
       try { rmSync(dir, { recursive: true, force: true }); } catch { /* 临时目录清理失败不影响断言 */ }
     }
   });

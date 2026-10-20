@@ -85,9 +85,10 @@ export async function runSetup<B>(
   file: string,
   props: Record<string, unknown>,
   scope: vue.EffectScope,
-  ctx: { emit?: (event: string, ...args: unknown[]) => void } = {},
+  ctx: { emit?: (event: string, ...args: unknown[]) => void; inlineTemplate?: boolean } = {},
 ): Promise<SetupRun<B>> {
-  const { component, hooks } = await loadSfc(file, false);
+  // inlineTemplate 返回实际渲染函数，可在同一 setup 中点 VNode 的处理器后重新渲染。
+  const { component, hooks } = await loadSfc(file, ctx.inlineTemplate ?? false);
   const setup = component.setup as (p: object, c: object) => B;
   const bindings = scope.run(() => setup(props, { expose: () => {}, emit: ctx.emit ?? (() => {}), attrs: {}, slots: {} }));
   if (!bindings) throw new Error(`${file} 的 setup 没有返回绑定`);

@@ -13,16 +13,25 @@
  *
  *  三份源码读进来就先去注释，之后所有正向匹配、位置搜索、blockAfter 都只看代码：
  *  代码回退了而注释里还留着旧调用的原文时，读原文的断言照样命中，测试不红（W1a-9 审查的 5 种「注释喂饱」变异）。 */
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripComments } from './strip-comments';
+import { tmpdir } from 'node:os';
+import { startMinisd } from '../src/minisd/index';
+import { InMemoryVault, keyringServiceFromEnv } from '../src/minisd/store/provider-store';
+import { watchEngine, restoreEngineBuiltins } from './engine-wiring';
 
 const repoRoot = join(__dirname, '..');
 const readSrc = (rel: string): string => readFileSync(join(repoRoot, rel), 'utf8').replace(/\r\n/g, '\n');
 const main = stripComments(readSrc('src/main/index.ts'));
-const minisd = stripComments(readSrc('src/minisd/index.ts'));
+
 const appDirs = stripComments(readSrc('src/main/app-dirs.ts'));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  restoreEngineBuiltins();
+});
 
 /** 从 anchor 之后的第一个 open 字符起做配对，取出块体（不含两端）。 */
 function blockAfter(src: string, anchor: string, open = '{', close = '}'): string {
@@ -125,9 +134,42 @@ describe('④ 不改写 process.env；minisd 按 env 选 keyring 服务名', () 
     expect(main).not.toMatch(/Object\.assign\(\s*process\.env/);
   });
 
-  it('minisd 用 `new KeyringVault(keyringServiceFromEnv(process.env))`，不再有无参构造', () => {
-    expect(minisd).toMatch(/new KeyringVault\(\s*keyringServiceFromEnv\(\s*process\.env\s*\)\s*\)/);
-    expect(minisd).not.toMatch(/new KeyringVault\(\s*\)/);
-    expect(minisd.match(/new KeyringVault\(/g) ?? [], 'KeyringVault 只在这一处构造').toHaveLength(1);
-  });
+  it('minisd 用 `new KeyringVault(keyringServiceFromEnv(process.env))`，不再有无参构造', async () => {
+    // 只让生产分支选择被替换的构造：返回临时根的内存库，真实凭据方法有抛错保险。
+    const root = mkdtempSync(join(tmpdir(), 'q20a-keyring-'));
+    const envKeys = ['DESKMINIS_TEST', 'DESKMINIS_E2E', 'DESKMINIS_KEYRING_SERVICE'] as const;
+    const saved = envKeys.map(k => [k, process.env[k]] as const);
+    const w = watchEngine();
+    const vault = InMemoryVault.forDataRoot(root);
+    w.spy('new KeyringVault').mockImplementation(() => vault);
+    const guarded = ['keyring.get', 'keyring.set', 'keyring.delete', 'keyring.entry'];
+    for (const name of guarded)
+      w.spy(name).mockImplementation(() => {
+        throw new Error('Q20A-BLOCKED-REAL-KEYRING:' + name);
+      });
+    delete process.env.DESKMINIS_TEST;
+    delete process.env.DESKMINIS_E2E;
+    process.env.DESKMINIS_KEYRING_SERVICE = '  Q20A_S2_ONLY_KEYRING_97CB0A6E  ';
+    let srv: Awaited<ReturnType<typeof startMinisd>> | undefined;
+    try {
+      const expected = keyringServiceFromEnv(process.env);
+      srv = await startMinisd({ dataDir: root, host: '127.0.0.1', port: 0 });
+      expect(w.count('new KeyringVault')).toBe(1);
+      expect(w.args('new KeyringVault')).toEqual([expected]);
+      expect(w.made('new KeyringVault')).toBe(vault);
+    } finally {
+      await srv?.close();
+      for (const [key, value] of saved) {
+        if (value === undefined)
+          delete process.env[key];
+        else
+          process.env[key] = value;
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+
+    // 原类的四个凭据入口一次都没触发，构造返回的确为内存库。
+    for (const name of guarded)
+      expect(w.count(name), name).toBe(0);
+  }, 30000);
 });

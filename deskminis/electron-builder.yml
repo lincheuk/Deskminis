@@ -6,6 +6,7 @@ productName: DeskMinis
 # 复用本地 node_modules/electron/dist 作为打包用 Electron 二进制，避免 electron-builder 从 GitHub 下载
 # （网络受限环境；本地 dist 即安装的 electron ^38，与 ABI 一致）。--dir 打包复制该目录即可。
 electronDist: node_modules/electron/dist
+electronLanguages: [zh-CN, en-US]
 
 # electron-vite 产物布局：out/main(out/main/index.js + minisd.js) / out/preload/index.cjs / out/renderer/
 files:
@@ -13,6 +14,17 @@ files:
   - 'package.json'
   # resources/tray.png 需进 asar（main/index.ts 用 ../../resources/tray.png 相对回溯加载）
   - 'resources/**'
+  # Q03：本机可能装有多个平台的可选二进制；Windows x64 包只带目标平台。
+  - '!node_modules/@napi-rs/keyring-{linux,darwin,freebsd}*/**'
+  - '!node_modules/@napi-rs/keyring-win32-{arm64,ia32}-msvc/**'
+  # Q04：运行时不使用依赖源码、映射、文档，以及已打进渲染包的 xterm 副本。
+  - '!node_modules/better-sqlite3/{deps,src}/**'
+  - '!node_modules/@xterm/**'
+  - '!node_modules/**/*.map'
+  - '!node_modules/@noble/*/src/**'
+  - '!node_modules/undici/docs/**'
+  # electron-updater 的三个入口均 require('js-yaml')，使用 index.js/lib，不走 ESM dist。
+  - '!node_modules/js-yaml/dist/**'
 
 # 桥 stub 与 .cmd 垫片放安装目录 resources/（不进 asar，供 resolveBridgeCliPath/resolveBridgeNode 用 dirname(process.execPath) 回溯）。
 # 注意 extraResources.to 相对 resources 目录，故不用 resources/ 前缀。

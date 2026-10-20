@@ -10,10 +10,11 @@ import { diffLines, countAddDel } from '../lib/diff/lcs';
 import type { StepStatus } from '../lib/steps/status';
 
 /** status 由调用方经 lib/steps/status 的 stepStatus 算好：ok / failed 看结果，interrupted 是回合已不在跑却没有结果，
- *  pending 是所在回合还在跑、结果没到——pending 照旧画成与成功同一个点（W2b-11a 只改不在跑的回合）。 */
+ *  pending 是所在回合还在跑、结果没到，用品牌色与成功区分。 */
 interface Step { name: string; title: string; status: StepStatus; output?: string | null; input?: string }
 const props = defineProps<{ steps: Step[]; live?: boolean }>();
 const open = ref(false);
+const statusLabel: Record<StepStatus, string> = { pending: '进行中', ok: '成功', failed: '失败', interrupted: '已中断 · 结果未知' };
 const failed = () => props.steps.filter(s => s.status === 'failed').length;
 /** W2b-11a：没等到结果、回合已经不在跑的步骤（引擎崩溃、强退时正在执行的那几步）。单独计数、单独画：
  *  它不是失败（工具可能已经做完了，只是结果没落库），更不是成功——以前它们一律画成成功的绿点。 */
@@ -39,6 +40,7 @@ const views = computed(() => (open.value ? props.steps : []).map(s => {
   <div class="grp" :class="{ live: props.live }">
     <button class="head" type="button" :aria-expanded="open" @click="open = !open">
       <UiIcon :name="open ? 'chevronDown' : 'chevronRight'" :size="14" />
+      <span v-if="props.live" class="dot pending" role="img" aria-label="进行中"></span>
       <span class="sum">
         <template v-if="props.live">正在执行…</template>
         <template v-else>已执行 {{ props.steps.length }} 步</template>
@@ -48,7 +50,7 @@ const views = computed(() => (open.value ? props.steps : []).map(s => {
     </button>
     <div v-if="open" class="body">
       <div v-for="(s, i) in props.steps" :key="i" class="step">
-        <span class="dot" :class="{ bad: s.status === 'failed', intr: s.status === 'interrupted' }"></span>
+        <span class="dot" :class="{ bad: s.status === 'failed', intr: s.status === 'interrupted', pending: s.status === 'pending' }" role="img" :aria-label="statusLabel[s.status]"></span>
         <span class="stitle">{{ s.title || s.name }}<span v-if="s.status === 'interrupted'" class="snote">已中断 · 结果未知</span></span>
         <!-- file_edit 载荷提得出来就渲差分（路径由 extractEditPair 相对化），提不出来回落参数区。
              一律走 ?. ——模板里的非空断言要靠编译器开 TS 插件才认，不值当赌这个。 -->
@@ -87,7 +89,9 @@ const views = computed(() => (open.value ? props.steps : []).map(s => {
 .bad { color: var(--c-err); font-size: var(--t-aux-size); flex: 0 0 auto; }
 .body { padding: 0 var(--sp-4) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
 .step { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-3); align-items: baseline; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-ok); }
+.dot { position: relative; width: 6px; height: 6px; border-radius: 50%; background: var(--c-ok); flex: 0 0 auto; }
+.dot.pending { background: var(--c-brand); }
+.dot.pending::after { content: ''; position: absolute; inset: -3px; border: 1px solid var(--c-brand); border-radius: 50%; animation: dm-step-pulse 1.2s ease-out infinite; }
 .dot.bad { background: var(--c-err); }
 /* W2b-11a 中断：空心的警示色圈——实心绿是成功、实心红是失败，悬空的那一步两样都不是 */
 .intr { color: var(--c-warn); font-size: var(--t-aux-size); flex: 0 0 auto; }

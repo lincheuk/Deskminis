@@ -4,7 +4,7 @@ import type { SkillStore } from '../skills/store';
 import type { ChatStore } from '../store/chat-store';
 import type { SettingsStore } from '../store/settings';
 
-/** J1 助手体系（设计稿 2026-08-20-assistants-design.md）。
+/** J1 助手体系：保存命名预设及其默认配置。
  *  助手 = 命名预设：规则（追加系统提示词）+ 默认技能快照 + 默认模型 + 示例 prompt。
  *  权限档不在此：全局态不劫持（设计稿 §0 裁定）。 */
 export interface AssistantMeta {

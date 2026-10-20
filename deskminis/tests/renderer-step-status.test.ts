@@ -141,3 +141,38 @@ describe('useLastTurnLive：最后一个回合是不是还可能在跑（StageCh
     scope.stop();
   });
 });
+
+describe('F05：结果未知的步骤（引擎在它执行期间停了，重启后补的结果）', () => {
+  it("有结果且 status 是 'unknown'：已中断，与回合是否在跑无关（不因为 success === false 画成失败）", () => {
+    expect(stepStatus({ success: false, status: 'unknown' }, false)).toBe('interrupted');
+    expect(stepStatus({ success: false, status: 'unknown' }, true)).toBe('interrupted');
+  });
+
+  it("status 是 'cancelled' / 'failed'：照旧按 success 判成失败；'success' 是成功", () => {
+    expect(stepStatus({ success: false, status: 'cancelled' }, false)).toBe('failed');
+    expect(stepStatus({ success: false, status: 'failed' }, true)).toBe('failed');
+    expect(stepStatus({ success: true, status: 'success' }, false)).toBe('ok');
+  });
+
+  it('没有 status 字段的旧结果、实时回合 toolEnd 带回来的结果：判定不变', () => {
+    expect(stepStatus({ success: false }, false)).toBe('failed');
+    expect(stepStatus({ success: true }, true)).toBe('ok');
+    expect(stepStatus({}, false)).toBe('ok');
+  });
+
+  it('toolResultsById 把库里的 status 带出来；库里没有这个字段时结果里也没有这个键', () => {
+    const results = toolResultsById([
+      { role: 'user', parts: [
+        { type: 'toolResult', value: { toolUseId: 'U', output: '[结果未知] …', success: false, status: 'unknown' } },
+        { type: 'toolResult', value: { toolUseId: 'C', output: '[已取消]', success: false, status: 'cancelled' } },
+        { type: 'toolResult', value: { toolUseId: 'OLD', output: '旧结果', success: true } },
+      ] },
+    ]);
+    expect(results.get('U')).toEqual({ success: false, output: '[结果未知] …', status: 'unknown' });
+    expect(results.get('C')).toEqual({ success: false, output: '[已取消]', status: 'cancelled' });
+    expect(results.get('OLD')).toEqual({ success: true, output: '旧结果' });
+    // 配到的结果交给 stepStatus：结果未知的一步在历史里显示为「已中断 · 结果未知」
+    expect(stepStatus(results.get('U'), false)).toBe('interrupted');
+    expect(stepStatus(results.get('C'), false)).toBe('failed');
+  });
+});

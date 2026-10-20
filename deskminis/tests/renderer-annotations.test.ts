@@ -1,6 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const { _rpcCall, _rpcOn, _handlers, _rpcLost, _rpcConnect } = vi.hoisted(() => {
+  const handlers = new Map<string, (params: any) => unknown>();
+  return { _rpcCall: vi.fn(), _rpcOn: vi.fn((method: string, handler: (params: any) => unknown) => { handlers.set(method, handler); }), _handlers: handlers, _rpcLost: vi.fn(), _rpcConnect: vi.fn(async () => {}) };
+});
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: _rpcCall, on: _rpcOn, onLost: _rpcLost, connect: _rpcConnect } }));
+
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { resetStoreRpc, initStore, settleStore, dispatchStore, deferred, openCalls, minimalReply } from './renderer-store-fixture';
 
 /** H2 文本选区注释——renderer 源码守卫（.vue 不在 typecheck 覆盖内，接线靠文本锚钉死）。 */
 
@@ -8,7 +16,11 @@ import { join } from 'node:path';
 // 宿主锚（data-anno-root / data-mid）仍看 StageChat，其余全部看 AnnoLayer。
 const chatView = readFileSync(join(__dirname, '../src/renderer/src/ui/StageChat.vue'), 'utf8');
 const anno = readFileSync(join(__dirname, '../src/renderer/src/ui/AnnoLayer.vue'), 'utf8');
-const store = readFileSync(join(__dirname, '../src/renderer/src/stores/chat.ts'), 'utf8');
+
+const _probe = { call: _rpcCall, on: _rpcOn, handlers: _handlers, lost: _rpcLost, connect: _rpcConnect };
+// 每例使用新的真实 Pinia；RPC 桩只记调用与订阅，由用例放行应答。
+beforeEach(() => { resetStoreRpc(_probe); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('ChatView 选区注释接线', () => {
   it('正文容器带锚：助手文本 part 与用户正文都有 data-anno-root + data-mid', () => {
@@ -67,15 +79,62 @@ describe('H3 注释气泡（点击高亮 → 查看/编辑笔记/删除）', () 
 });
 
 describe('chat store 注释面接线', () => {
-  it('四件 RPC 与 changed 订阅在位', () => {
-    expect(store).toMatch(/rpc\.call\('chat\.annotations\.list'/);
-    expect(store).toMatch(/rpc\.call\('chat\.annotations\.add'/);
-    expect(store).toMatch(/rpc\.call\('chat\.annotations\.update'/);
-    expect(store).toMatch(/rpc\.call\('chat\.annotations\.remove'/);
-    expect(store).toMatch(/rpc\.on\('chat\.annotations\.changed'/);
+  it('四件 RPC 与 changed 订阅在位', async () => {
+    // 四个动作的完整方法、参数与 state；写动作只经广播回流刷新。
+    const chat = await initStore(_probe);
+    chat.activeId = 'A';
+    const annotations = [{ id: 'N', messageId: 'M', exact: 'quote', prefix: 'pre', suffix: 'post', note: 'note', color: 'blue' }];
+    _rpcCall.mockResolvedValueOnce({ annotations });
+    await chat.refreshAnnotations();
+    expect(_rpcCall.mock.calls).toEqual([['chat.annotations.list', { sessionId: 'A' }]]);
+    expect(chat.annotations).toEqual(annotations);
+    _rpcCall.mockClear();
+    await chat.addAnnotation('M', { exact: 'quote', prefix: 'pre', suffix: 'post' });
+    await chat.updateAnnotationNote('N', 'changed note');
+    await chat.removeAnnotation('N');
+    expect(_rpcCall.mock.calls).toEqual([
+      ['chat.annotations.add', { sessionId: 'A', messageId: 'M', exact: 'quote', prefix: 'pre', suffix: 'post' }],
+      ['chat.annotations.update', { id: 'N', note: 'changed note' }], ['chat.annotations.remove', { id: 'N' }],
+    ]);
+    expect(chat.annotations).toEqual(annotations);
+
+    // 订阅数量恰一；当前会话 changed 重取，别会话及缺少会话不重取。
+    expect(_rpcOn.mock.calls.filter(c => c[0] === 'chat.annotations.changed')).toHaveLength(1);
+    _rpcCall.mockClear();
+    _rpcCall.mockResolvedValueOnce({ annotations: [] });
+    await dispatchStore(_probe, 'chat.annotations.changed', { sessionId: 'A' });
+    expect(_rpcCall.mock.calls).toEqual([['chat.annotations.list', { sessionId: 'A' }]]);
+    expect(chat.annotations).toEqual([]);
+    _rpcCall.mockClear();
+    for (const p of [{ sessionId: 'B' }, {}]) await dispatchStore(_probe, 'chat.annotations.changed', p);
+    expect(_rpcCall.mock.calls).toEqual([]);
   });
-  it('会话打开时装载注释（open 路径挂 refreshAnnotations）', () => {
-    expect(store).toMatch(/refreshAnnotations/);
-    expect(store.split('refreshAnnotations').length).toBeGreaterThanOrEqual(3);
+  it('会话打开时装载注释（open 路径挂 refreshAnnotations）', async () => {
+    // 定义、open、changed 三条本来想守的路径都真走；完整 open 次序和结果。
+    const chat = await initStore(_probe);
+    const annotations = [{ id: 'N', messageId: 'M', exact: 'x', prefix: '', suffix: '', note: 'n', color: 'blue' }];
+    _rpcCall.mockImplementation(method => method === 'chat.annotations.list' ? Promise.resolve({ annotations }) : minimalReply(method));
+    await chat.open('A');
+    await settleStore();
+    expect(_rpcCall.mock.calls).toEqual(openCalls('A'));
+    expect(chat.annotations).toEqual(annotations);
+    _rpcCall.mockClear();
+    await dispatchStore(_probe, 'chat.annotations.changed', { sessionId: 'A' });
+    expect(_rpcCall.mock.calls).toEqual([['chat.annotations.list', { sessionId: 'A' }]]);
+
+    // 无活动会话直接清表；应答在途切走则丢弃，不能串台。
+    chat.activeId = '';
+    _rpcCall.mockClear();
+    await chat.refreshAnnotations();
+    expect(chat.annotations).toEqual([]);
+    expect(_rpcCall.mock.calls).toEqual([]);
+    chat.activeId = 'A';
+    const pending = deferred();
+    _rpcCall.mockReturnValueOnce(pending.promise);
+    const fetch = chat.refreshAnnotations();
+    chat.activeId = 'B';
+    pending.resolve({ annotations });
+    await fetch;
+    expect(chat.annotations).toEqual([]);
   });
 });

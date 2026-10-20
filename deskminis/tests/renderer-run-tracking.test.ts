@@ -261,24 +261,20 @@ describe('W2b-1 切回仍在跑的会话：停止键可用 + midRun 占位', () 
 });
 
 describe('W2b-1 StageChat：midRun 时实时块只显示占位', () => {
-  const src = fs.readFileSync(path.join(root, 'src/renderer/src/ui/StageChat.vue'), 'utf8').replace(/\r\n/g, '\n');
-  // 交接 §2 第 10 条：断言不能被注释喂饱——模板先剥 HTML 注释再匹配
-  const tpl = src.slice(src.indexOf('<template>'), src.lastIndexOf('</template>')).replace(/<!--[\s\S]*?-->/g, '');
-  const live = /<section v-if="hasLive" class="turn" data-turn-id="live">([\s\S]*?)<\/section>/.exec(tpl)?.[1] ?? '';
-
-  it('实时块第一项是 midRun 占位，文案说清「仍在运行、切换前的输出回合结束后显示」', () => {
-    expect(live, '找不到实时回合块').not.toBe('');
-    expect(live).toMatch(/^\s*<div v-if="chat\.midRun"[^>]*>\s*仍在运行（切换前的输出在本回合结束后显示）\s*<\/div>\s*<template v-else>/);
+  it('实时块第一项是 midRun 占位，文案说清「仍在运行、切换前的输出回合结束后显示」', async () => {
+    const { q11ComponentProbe } = await import('./helpers/q11-probe-loader');
+    const p = await q11ComponentProbe();
+    expect(p.anchors.liveExists).toBe(true);
+    expect(p.midRun.text).toBe('仍在运行（切换前的输出在本回合结束后显示）' + p.midRun.elapsed);
+    expect(p.midRun.elapsed).toMatch(/^已用 (?:不到 1 秒|\d+ 秒|\d+ 分(?: \d+ 秒)?|\d+ 小时(?: \d+ 分)?)$/);
   });
 
-  it('半截的思考 / 步骤 / 正文 / 「正在思考」全部收在 v-else 里，midRun 时一样都不渲染', () => {
-    const m = /<template v-else>([\s\S]*?)<\/template>/.exec(live);
-    expect(m, 'midRun 占位之后缺 <template v-else>').not.toBeNull();
-    const inner = m![1];
-    const outer = live.replace(m![0], '');
-    for (const re of [/<ThinkBlock live :text="chat\.streamingThinking"/, /<StepGroup\s+live/, /:nodes="streamNodes"/, /正在思考…/]) {
-      expect(inner).toMatch(re);
-      expect(outer).not.toMatch(re);
-    }
+  it('半截的思考 / 步骤 / 正文 / 「正在思考」全部收在 v-else 里，midRun 时一样都不渲染', async () => {
+    const { q11ComponentProbe } = await import('./helpers/q11-probe-loader');
+    const p = await q11ComponentProbe();
+    expect(p.normal).toEqual({ body: true, thinking: true, steps: true });
+    expect(p.midRun).toEqual({ text: '仍在运行（切换前的输出在本回合结束后显示）' + p.midRun.elapsed, elapsed: expect.stringMatching(/^已用 (?:不到 1 秒|\d+ 秒|\d+ 分(?: \d+ 秒)?|\d+ 小时(?: \d+ 分)?)$/), body: false, thinking: false, steps: false });
+    expect(p.midRunEmpty).toBe('仍在运行（切换前的输出在本回合结束后显示）' + p.midRunEmptyElapsed);
+    expect(p.midRunEmptyElapsed).toMatch(/^已用 (?:不到 1 秒|\d+ 秒|\d+ 分(?: \d+ 秒)?|\d+ 小时(?: \d+ 分)?)$/);
   });
 });

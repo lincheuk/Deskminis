@@ -4,8 +4,11 @@
  *  条目来自 McpServersStore.list() 的浅拷贝，嵌套 args/env 与 store 共享引用——全程只读，绝不原地改。 */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { resolveEnvRefs } from './config';
-import { killTree, system32, type ProcOpts } from '../proc/win-exec';
+import { killTree, type ProcOpts } from '../proc/win-exec';
 import { childEnv } from '../proc/child-env';
+import { directCommand } from '../proc/win-cmdline';
+import { spawnCommandOwned, type OwnedTree, type ProcSupervisor } from '../proc/owned';
+import type { ProcStopCause } from '../../shared/proc';
 
 // 进程树回收挪到了 proc/win-exec.ts（W1b-1，shell 与终端共用）；这里接着导出，签名与原来兼容。
 export { killTree };
@@ -19,8 +22,11 @@ export interface McpStdioOptions {
   startupTimeoutSeconds?: number;
   /** 单次 tools 请求超时（毫秒，默认 60000）：超时只失败该次调用，不杀连接 */
   callTimeoutMs?: number;
-  /** 平台、spawn 与本进程环境的注入（测试用；配置里没有这一项，生产走缺省值） */
+  /** 平台、spawn 与本进程环境的注入（测试用；配置里没有这一项，生产走缺省值）。F09：proc.supervisor 随它来 */
   proc?: ProcOpts;
+  /** F09：这棵进程树归谁（服务器名原文、工具名前缀）。与 proc.supervisor 都在时，server 经 launcher 在作业里启动并登记进
+   *  进程账本；缺任何一个，启动与回收同 F09 之前，逐字不变。试连不带 toolPrefix（它不承载工具调用）。 */
+  tree?: { ownerRef: string; toolPrefix?: string };
 }
 
 export interface McpToolInfo {
@@ -44,6 +50,8 @@ const CALL_TIMEOUT_MS_DEFAULT = 60_000;
 const STDERR_TAIL_LIMIT = 8192;
 /** tools/list 翻页上限：防 server 侧 nextCursor 成环把客户端拖死 */
 const LIST_PAGE_LIMIT = 10;
+/** 单行含 CR、但不含 LF；超过 16 MiB 的响应不再保留，明确拒绝并回收连接。 */
+const STDOUT_LINE_LIMIT = 16 * 1024 * 1024;
 
 interface PendingEntry {
   resolve: (v: unknown) => void;
@@ -79,8 +87,8 @@ export function spawnMcpProcess(
   spawnImpl: typeof spawn = spawn,
   sysEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<ChildProcess> {
-  const bare = !command.includes('\\') && !command.includes('/');
-  const viaCmd = platform === 'win32' && bare;
+  // 裸名经 cmd.exe 包裹的那一句判断在 proc/win-cmdline.ts（F09 的 launcher 也要按同一个结果拼命令行）
+  const d = directCommand(command, args, platform, sysEnv);
   return new Promise((resolve, reject) => {
     let settled = false; // spawn 成功后的迟到 'error'（如 EPIPE）交给 exit 事件收口，不重复结算
     const fail = (err: unknown): void => {
@@ -96,9 +104,7 @@ export function spawnMcpProcess(
     let child: ChildProcess;
     try {
       // 包裹时也保持 shell:false——只是把命令行交给 cmd 解释，不经宿主 shell 二次展开
-      child = viaCmd
-        ? spawnImpl(system32('cmd.exe', sysEnv), ['/d', '/s', '/c', command, ...args], { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
-        : spawnImpl(command, args, { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      child = spawnImpl(d.file, d.args, { shell: false, cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     } catch (err) {
       // EINVAL 等同步 throw（批处理护栏），与 'error' 事件同路处理
       fail(err);
@@ -129,14 +135,21 @@ export class McpStdioClient {
   private readonly platform: string;
   private readonly spawnImpl: typeof spawn;
   private readonly sysEnv: NodeJS.ProcessEnv;
+  /** F09：两者都在才经 launcher 启动并登记；否则同 F09 之前。 */
+  private readonly supervisor: ProcSupervisor | undefined;
+  private readonly treeMeta: { ownerRef: string; toolPrefix?: string } | undefined;
+  /** 这条连接所在的进程树（launcher 托管的，或回退后直起的那一棵）。 */
+  private tree: OwnedTree | undefined;
   private proc: ChildProcess | null = null;
+  private spawning: Promise<{ child: ChildProcess; tree?: OwnedTree }> | undefined;
   private disposed = false;
   /** dispose 发起的回收落定的 promise（W1b-5d）：重复 dispose 拿到同一个 */
   private reaped: Promise<void> = Promise.resolve();
   private nextId = 0;
   private pending = new Map<number, PendingEntry>();
   /** stdout 半行缓冲：消息可能跨 chunk 断开，也可能一个 chunk 挤多条 */
-  private outBuf = '';
+  private outChunks: Buffer[] = [];
+  private outBytes = 0;
   private stderrTailBuf = '';
   private exitError: Error | null = null;
 
@@ -150,6 +163,8 @@ export class McpStdioClient {
     this.platform = opts.proc?.platform ?? process.platform;
     this.spawnImpl = opts.proc?.spawnImpl ?? spawn;
     this.sysEnv = opts.proc?.sysEnv ?? process.env;
+    this.supervisor = opts.proc?.supervisor;
+    this.treeMeta = opts.tree;
   }
 
   /** 子进程退出码（未退出/从未 spawn 为 null）。Windows 上被 kill 的进程 exitCode 恒为
@@ -168,33 +183,54 @@ export class McpStdioClient {
   }
 
   async connect(): Promise<void> {
+    if (this.disposed) throw new Error('MCP 连接已关闭');
     // $$VAR 只在连接此刻解析——改了环境重连即生效；解析结果只进子进程环境，绝不回写配置。
     // 解析失败让 connect 直接拒绝（此时尚未 spawn，无孤儿进程）；错误文案由 helper 保证
     // 只含 $$引用名、不含任何已解析值，这里不重新拼值。
     const resolved: Record<string, string> = {};
     for (const [k, v] of Object.entries(this.env)) resolved[k] = resolveEnvRefs(v);
-    const child = await spawnMcpProcess(this.command, this.args, {
-      cwd: this.cwd,
-      // 剥掉 DESKMINIS_*（§3 第 10 条，见 proc/child-env.ts）；配置里的 env 仍盖过继承值
-      env: childEnv(this.sysEnv, resolved),
-    }, this.platform, this.spawnImpl, this.sysEnv);
+    // 剥掉 DESKMINIS_*（§3 第 10 条，见 proc/child-env.ts）；配置里的 env 仍盖过继承值
+    const env = childEnv(this.sysEnv, resolved);
+    const direct = (): Promise<ChildProcess> => spawnMcpProcess(this.command, this.args, { cwd: this.cwd, env }, this.platform, this.spawnImpl, this.sysEnv);
+    let spawning: Promise<{ child: ChildProcess; tree?: OwnedTree }>;
+    if (this.supervisor && this.treeMeta) {
+      // F09：经 launcher 在作业里启动（proc/owned.ts）。托管不可用、或 launcher 路径上出了任何问题，它改调 direct()，
+      // 成功或拒绝原样作为结果——「命令不存在」「EINVAL」这些文案与直起时逐字相同
+      spawning = spawnCommandOwned({
+        meta: { kind: 'mcp', ownerRef: this.treeMeta.ownerRef, toolPrefix: this.treeMeta.toolPrefix },
+        command: this.command, args: this.args, cwd: this.cwd, env, direct, deadlineMs: this.startupTimeoutMs,
+      }, { platform: this.platform, spawnImpl: this.spawnImpl, sysEnv: this.sysEnv, supervisor: this.supervisor });
+    } else {
+      spawning = direct().then(child => ({ child }));
+    }
+    this.spawning = spawning;
+    const { child, tree } = await spawning;
     this.proc = child;
+    this.tree = tree;
+    // 起根 / launcher 等标记时就已 dispose：等同一次回收，拒绝握手，不能让迟到根绕过幂等标志。
+    if (this.disposed) { await this.reaped; throw new Error('MCP 连接已关闭'); }
     // 握手失败时回收整棵树：cmd.exe 包裹下真正的 server（npx 拉起的 node）是孙进程，
     // 只杀根会留孤儿（W1b-1）。超时回调与 catch 可能先后都来，只杀一次。
     let reaped = false;
     const reap = (): void => {
       if (reaped) return;
       reaped = true;
-      killTree(child, this.platform, this.spawnImpl, this.sysEnv);
+      if (tree) void tree.stop('startup-failed');
+      else killTree(child, this.platform, this.spawnImpl, this.sysEnv);
     };
     // 进程死后写 stdin 会抛 EPIPE——吞掉（生命周期统一由 exit 事件收口），否则未监听的 error 会崩宿主
     child.stdin?.on('error', () => {});
-    child.stdout?.setEncoding('utf8');
-    child.stdout?.on('data', (c: string) => this.feedStdout(c));
-    child.stderr?.setEncoding('utf8');
-    child.stderr?.on('data', (c: string) => {
-      this.stderrTailBuf = (this.stderrTailBuf + c).slice(-STDERR_TAIL_LIMIT);
-    });
+    // 保留原始字节：16 MiB 按管道字节计数，UTF-8 跨块或坏字节都不扭曲上限。
+    child.stdout?.on('data', (c: Buffer) => this.feedStdout(c));
+    if (tree) {
+      // F09：stderr 改从树那里取——归属的标记行已被摘掉，不进诊断尾巴
+      tree.onStderr((c: string) => { this.stderrTailBuf = (this.stderrTailBuf + c).slice(-STDERR_TAIL_LIMIT); });
+    } else {
+      child.stderr?.setEncoding('utf8');
+      child.stderr?.on('data', (c: string) => {
+        this.stderrTailBuf = (this.stderrTailBuf + c).slice(-STDERR_TAIL_LIMIT);
+      });
+    }
     child.on('exit', (code) => this.onExit(code));
     try {
       // 握手（等 initialize 应答 + 发 initialized）整体受启动超时约束
@@ -241,10 +277,14 @@ export class McpStdioClient {
    *  只 kill 直子会留孤儿——win32 下 taskkill /T 整树杀（D5）。幂等。
    *  返回回收落定的 Promise（见 killTree，从不拒绝），重复调用拿到同一个：关停第 6 步等它，
    *  forget、空闲驱逐、试连这些路径不等（W1b-5d）。 */
-  dispose(): Promise<void> {
+  dispose(cause: ProcStopCause = 'disposed'): Promise<void> {
     if (this.disposed) return this.reaped;
     this.disposed = true;
-    if (this.proc) this.reaped = killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv);
+    // F09：登记过的树经 tree.stop——先记下原因，再走同一个 killTree（实参相同）
+    const reap = ({ child, tree }: { child: ChildProcess; tree?: OwnedTree }): Promise<void> =>
+      tree ? tree.stop(cause) : killTree(child, this.platform, this.spawnImpl, this.sysEnv);
+    if (this.proc) this.reaped = reap({ child: this.proc, tree: this.tree });
+    else if (this.spawning) this.reaped = this.spawning.then(reap, () => undefined);
     return this.reaped;
   }
 
@@ -304,13 +344,36 @@ export class McpStdioClient {
     });
   }
 
-  private feedStdout(chunk: string): void {
-    this.outBuf += chunk;
-    let nl: number;
-    while ((nl = this.outBuf.indexOf('\n')) >= 0) {
-      const line = this.outBuf.slice(0, nl).replace(/\r$/, ''); // 容忍 CRLF
-      this.outBuf = this.outBuf.slice(nl + 1);
+  private feedStdout(chunk: Buffer): void {
+    if (this.closed) return;
+    let start = 0;
+    while (start < chunk.length) {
+      const nl = chunk.indexOf(10, start);
+      const end = nl < 0 ? chunk.length : nl;
+      const part = chunk.subarray(start, end);
+      const bytes = part.length;
+      if (this.outBytes + bytes > STDOUT_LINE_LIMIT) {
+        this.failOutput(new Error('MCP server 单行响应超过 16 MiB 上限，连接已断开'));
+        void this.dispose();
+        return;
+      }
+      // 64KB 分段复制，既不持有超大原 chunk，也不因每次只到一个字节而积累百万数组项。
+      let offset = 0;
+      while (offset < bytes) {
+        const used = this.outBytes % 65536;
+        if (used === 0) this.outChunks.push(Buffer.allocUnsafe(65536));
+        const take = Math.min(bytes - offset, 65536 - used);
+        part.copy(this.outChunks[this.outChunks.length - 1], used, offset, offset + take);
+        offset += take;
+        this.outBytes += take;
+      }
+      if (nl < 0) return;
+      const line = Buffer.concat(this.outChunks, this.outBytes).toString('utf8').replace(/\r$/, ''); // 容忍 CRLF
+      this.outChunks = [];
+      this.outBytes = 0;
       this.handleLine(line);
+      if (this.closed) return;
+      start = nl + 1;
     }
   }
 
@@ -359,8 +422,15 @@ export class McpStdioClient {
   }
 
   private onExit(code: number | null): void {
+    if (this.closed) return; // 保留超限的明确错误，不被稍后的进程退出覆盖。
+    this.failOutput(new Error(`MCP server 进程已退出（code ${code ?? '未知'}）`));
+  }
+
+  private failOutput(error: Error): void {
     this.closed = true;
-    this.exitError = new Error(`MCP server 进程已退出（code ${code ?? '未知'}）`);
+    this.exitError = error;
+    this.outChunks = [];
+    this.outBytes = 0;
     for (const entry of this.pending.values()) {
       entry.cleanup();
       entry.reject(this.exitError);

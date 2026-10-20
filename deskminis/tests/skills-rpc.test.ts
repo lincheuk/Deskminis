@@ -121,21 +121,24 @@ describe('skills RPC', () => {
     const { port, authToken, dataDir } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     const id = await importDemo(c, dataDir);
-    const s = (await c.call('chat.sessions.create', {})).result;
-    const script = `__tool__ file_read ${JSON.stringify({ path: `/var/minis/skills/${id}/SKILL.md`, tool_title: '读技能' })}`;
-    await c.call('chat.prompt', { sessionId: s.id, text: script, providerId: '__fake__' });
-    {
-      const deadline = Date.now() + 5000;
-      for (;;) {
-        const list = (await c.call('skills.list', {})).result;
-        if (list[0].useCount === 1) break;
-        if (Date.now() > deadline) throw new Error('等待 use_count 计数超时');
-        await new Promise(r => setTimeout(r, 20));
-      }
-    }
-    // 读技能目录里的其他文件不计数
-    await c.call('chat.prompt', { sessionId: s.id, text: `__tool__ file_read ${JSON.stringify({ path: '/var/minis/workspace/nope.txt', tool_title: '读别的' })}`, providerId: '__fake__' });
-    await new Promise(r => setTimeout(r, 300));
+    // 每次读取都开新会话并等这一轮跑完（turnEnd）：FakeProvider 只执行会话里第一条用户消息的 __tool__，
+    // 同一会话再发一条会重放第一条；等到 turnEnd 计数已落库，不靠固定延时，也不靠撞上「会话正在运行中」被拒。
+    const readOnce = async (path: string, title: string) => {
+      const s = (await c.call('chat.sessions.create', {})).result;
+      const events = () => c.notifications.filter(n => n.method === 'chat.event' && n.params?.sessionId === s.id).map(n => n.params.event);
+      const r = await c.call('chat.prompt', { sessionId: s.id, text: `__tool__ file_read ${JSON.stringify({ path, tool_title: title })}`, providerId: '__fake__' });
+      expect(r.error).toBeUndefined();
+      await waitFor(`${title}：这一轮结束`, () => events().some(e => e.kind === 'turnEnd' || e.kind === 'error'));
+      expect(events().filter(e => e.kind === 'error')).toEqual([]);
+      const calls = events().filter(e => e.kind === 'toolStart');
+      expect(calls.map(e => [e.name, JSON.parse(e.input).path])).toEqual([['file_read', path]]);
+      return events().find(e => e.kind === 'toolEnd' && e.toolUseId === calls[0].toolUseId);
+    };
+    expect((await readOnce(`/var/minis/skills/${id}/SKILL.md`, '读技能'))?.success).toBe(true);
+    expect((await c.call('skills.list', {})).result[0].useCount).toBe(1);
+    // 读技能目录里的其他文件不计数。得是读成功的文件：读失败本来就不计数（files-tools.test），说明不了只认 SKILL.md
+    writeFileSync(join(dataDir, 'skills', id, 'README.md'), '# 附注\n');
+    expect((await readOnce(`/var/minis/skills/${id}/README.md`, '读别的'))?.success).toBe(true);
     expect((await c.call('skills.list', {})).result[0].useCount).toBe(1);
     c.close();
   });

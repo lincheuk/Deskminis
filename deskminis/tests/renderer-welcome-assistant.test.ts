@@ -405,7 +405,7 @@ describe('applyStateOf 吃真 store：字段名与 stores/chat.ts 对得上', ()
 // ─────────── 源码守卫（.vue 不在 typecheck 覆盖内；脚本段先剥注释） ───────────
 describe('Composer / WorkspacePanel 接线', () => {
   const composer = script('ui/Composer.vue');
-  const sendBody = bodyOf(composer, 'async function send()');
+  const sendBody = bodyOf(composer, 'async function send(');
   const saveBody = bodyOf(composer, 'async function saveImages(');
 
   it('三个纯函数都从 lib/welcome/assistant 原名导入，组件里没有同名的本地定义把它们顶掉', () => {
@@ -425,15 +425,15 @@ describe('Composer / WorkspacePanel 接线', () => {
     // W2b-4b 审查补：上面只钉了 want 这一段的写法，没钉它在哪个分支里——`} else {` 改成 `} else if (false) {`，
     // 或把整段挪进「没有会话就建」的分支末尾（那里建会话前 activeId 是空的，新会话的绑定又已等于选择，永远不套用），
     // 都照样全绿，NavRail「新建会话」→ 点甲 → 发送又不套用。所以按花括号配对把分叉的结构钉死：
-    // send 的 try 体一开头就是 `if (!chat.activeId) {`，它配对的 `}` 后面紧跟不带条件的 `else {`，
+    // F07：原分支体保留，分支条件限定为空闲且没有追加输入；假条件、挪进死分支仍必须判红。
     // 而这个 else 的整个分支体恰好就是 want 这一段（空白压成一格后逐字比对）
     // W2b-4b 第二次审查补：从这条正则命中的那个 `{` 起配对。原来取的是第一个 `if (!chat.activeId) {`，try 前面放一段
     // 形状相同的 if (false) { … } 死代码，钉住的就成了死代码的分叉（审查沙箱变异 deadcode-decoy-before-try，实测全绿）
     const tryIf = /sending\.value = true;\s*try \{\s*if \(!chat\.activeId\) \{/.exec(sendBody);
     expect(tryIf, 'send 的 try 体一开头必须是 if (!chat.activeId) {').not.toBeNull();
     const ifClose = closeOf(sendBody, tryIf!.index + tryIf![0].length - 1);
-    const elseHead = /^\s*else \{/.exec(sendBody.slice(ifClose + 1));
-    expect(elseHead?.[0], '「没有会话就建」分支后面必须紧跟不带条件的 else').toBeDefined();
+    const elseHead = /^\s*else if \(!chat\.running && !hasInbox\.value\) \{/.exec(sendBody.slice(ifClose + 1));
+    expect(elseHead?.[0], '已有会话仅在空闲且没有未消费追加输入时套用助手').toBeDefined();
     const elseOpen = ifClose + elseHead![0].length;
     const elseBody = sendBody.slice(elseOpen + 1, closeOf(sendBody, elseOpen)).replace(/\s+/g, ' ').trim();
     expect(elseBody).toMatch(/^const want = assistantToApply\(applyStateOf\(chat\)\); if \(want !== null\) \{ try \{ await chat\.applyAssistantToSession\(chat\.activeId, want\); \} catch \(e\) \{ chat\.lastError = `套用助手失败：\$\{[^}]+\}`; return; \} \}$/);

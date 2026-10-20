@@ -16,7 +16,7 @@ export type MdInline =
 export type MdNode =
   | { type: 'paragraph'; children: MdInline[] }
   | { type: 'heading'; level: 2 | 3; children: MdInline[] }
-  | { type: 'codeBlock'; lang: string; code: string }
+  | { type: 'codeBlock'; lang: string; code: string; open?: true }
   | { type: 'ul'; items: MdNode[] }
   | { type: 'ol'; items: MdNode[]; start: number }
   | { type: 'li'; children: MdNode[] }
@@ -135,6 +135,12 @@ export function parseMarkdown(src: string): MdNode[] {
   return parseBlocks(src.replace(/\r\n/g, '\n').split('\n'));
 }
 
+/** 仅实时回合把延伸至全文末尾的围栏画成尚未完成的代码块。 */
+export function parseLiveMarkdown(src: string): MdNode[] {
+  if (src.trim() === '') return [];
+  return parseBlocks(src.replace(/\r\n/g, '\n').split('\n'), true);
+}
+
 function isTableDivider(line: string): boolean {
   const t = line.trim();
   if (!t.includes('-') || !t.includes('|')) return false;
@@ -156,14 +162,14 @@ function isBlockStart(lines: string[], i: number): boolean {
     || (line.includes('|') && i + 1 < lines.length && isTableDivider(lines[i + 1]));
 }
 
-function parseBlocks(lines: string[]): MdNode[] {
+function parseBlocks(lines: string[], liveTail = false): MdNode[] {
   const out: MdNode[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
     if (line.trim() === '') { i++; continue; }
 
-    // 围栏代码块（未闭合 → 围栏开始行回落为普通文本行，决策 3 兜底语义）
+    // 围栏代码块（历史未闭合回落文本；实时只接纳全文末尾）
     const fence = FENCE_RE.exec(line);
     if (fence) {
       const body: string[] = [];
@@ -176,6 +182,13 @@ function parseBlocks(lines: string[]): MdNode[] {
       if (closed) {
         out.push({ type: 'codeBlock', lang: fence[1] ?? '', code: body.join('\n') });
         i = j + 1;
+        continue;
+      }
+      if (liveTail) {
+        // 换行或结束围栏刚到一半时，不先撑高一行再缩回。
+        if (body.length && /^\s*`{0,2}\s*$/.test(body[body.length - 1])) body.pop();
+        out.push({ type: 'codeBlock', lang: fence[1] ?? '', code: body.join('\n'), open: true });
+        i = j;
         continue;
       }
       // 未闭合：不 continue，``` 行落入下方段落分支
@@ -208,13 +221,13 @@ function parseBlocks(lines: string[]): MdNode[] {
       while (i < lines.length && QUOTE_RE.test(lines[i])) {
         inner.push(QUOTE_RE.exec(lines[i])![1]); i++;
       }
-      out.push({ type: 'blockquote', children: parseBlocks(inner) });
+      out.push({ type: 'blockquote', children: parseBlocks(inner, liveTail && lines.slice(i).every(l => l.trim() === '')) });
       continue;
     }
 
     // 列表（含 2 空格缩进嵌套）
     if (UL_RE.test(line) || OL_RE.test(line)) {
-      const { node, next } = parseList(lines, i);
+      const { node, next } = parseList(lines, i, liveTail);
       out.push(node); i = next; continue;
     }
 
@@ -229,7 +242,7 @@ function parseBlocks(lines: string[]): MdNode[] {
   return out;
 }
 
-function parseList(lines: string[], start: number): { node: MdNode; next: number } {
+function parseList(lines: string[], start: number, liveTail: boolean): { node: MdNode; next: number } {
   const ordered = OL_RE.test(lines[start]);
   const first = (ordered ? OL_RE.exec(lines[start]) : UL_RE.exec(lines[start]))!;
   const baseIndent = first[1].length;
@@ -249,7 +262,7 @@ function parseList(lines: string[], start: number): { node: MdNode; next: number
       itemLines.push(lines[i].slice(Math.min(baseIndent + 2, ind)));
       i++;
     }
-    items.push({ type: 'li', children: parseBlocks(itemLines) });
+    items.push({ type: 'li', children: parseBlocks(itemLines, liveTail && lines.slice(i).every(l => l.trim() === '')) });
   }
   return {
     node: ordered ? { type: 'ol', items, start: startNum } : { type: 'ul', items },

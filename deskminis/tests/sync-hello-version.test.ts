@@ -98,9 +98,9 @@ async function waitOnline(client: OutboundClient, fp: string, ms = 3000): Promis
 }
 
 describe('① parseSyncHello / peerHasCap 纯函数', () => {
-  it('本端声明：协议版本 2，能力位为空且冻结', () => {
+  it('本端声明：协议版本 2，能力位只有 pairV2（F11C）且冻结', () => {
     expect(SYNC_PROTOCOL_VERSION).toBe(2);
-    expect(LOCAL_SYNC_CAPS).toEqual({});
+    expect(LOCAL_SYNC_CAPS).toEqual({ pairV2: true, attachments: true, tombstones: true });
     expect(Object.isFrozen(LOCAL_SYNC_CAPS)).toBe(true);
     expect(LEGACY_SYNC_PEER).toEqual(LEGACY);
   });
@@ -182,7 +182,7 @@ describe('② 应答端 sync.hello handler', () => {
     const conn = remoteConn();
     const r = await methods['sync.hello']!({ nonce: 'n1' }, conn) as any;
     expect(r.protocolVersion).toBe(SYNC_PROTOCOL_VERSION);
-    expect(r.caps).toEqual({});
+    expect(r.caps).toEqual({ pairV2: true, attachments: true, tombstones: true });
     expect(typeof r.caps).toBe('object');
     expect(r.listenPort).toBe(4321);
     expect(r.mac).toBe(macHex(authKey, 'n1'));
@@ -266,10 +266,10 @@ describe('③–⑤ 发起端 ↔ 应答端互通（真 WebSocket）', () => {
     client.dialNow(fpB);
     await waitOnline(client, fpB);
     expect(seenParams.protocolVersion).toBe(2);
-    expect(seenParams.caps).toEqual({});
+    expect(seenParams.caps).toEqual({ pairV2: true, attachments: true, tombstones: true });
     expect(typeof seenParams.nonce).toBe('string');
     expect(client.peerInfo(fpB)?.protocolVersion).toBe(2);
-    expect(client.peerInfo(fpB)).toEqual({ protocolVersion: 2, caps: {} });
+    expect(client.peerInfo(fpB)).toEqual({ protocolVersion: 2, caps: { pairV2: true, attachments: true, tombstones: true } });
     expect(seenConn?.syncPeer?.protocolVersion).toBe(2);
   });
 

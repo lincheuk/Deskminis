@@ -19,6 +19,9 @@ import { buildDisciplineBlock } from './agent/model-discipline';
 import { buildSkillsBlock } from './skills/prompt';
 import { resolveBridgeNode } from './bridge/server';
 import type { RpcConnection, RpcMethods } from './rpc/server';
+import { assertAuthMode } from './rpc/access';
+import type { RuntimeModel } from '../shared/runtime-model';
+import type { ProcOwnershipStatus } from '../shared/proc';
 
 export interface CheckResult {
   status: 'ready' | 'warning' | 'blocked';
@@ -51,6 +54,8 @@ export interface DryRunResult {
     pairing: Array<{ peerFingerprint: string; peerName: string; address?: string }>;
     /** M6 R2 本端同步暂停状态（决策点 2-6 补充：dry-run 诊断项，纯信息性，不参与 overall） */
     syncState: CheckResult;
+    /** F09 进程树托管状态（纯信息性，不参与 overall）：shell、终端、MCP 的子进程是否受作业对象托管 */
+    processOwnership: CheckResult;
   };
   promptPreview: string;
   estimatedTokens: number;
@@ -67,6 +72,11 @@ export interface DryRunDeps {
   config: PromptConfig;
   /** M6 R2：本端同步暂停状态读取器（懒读取，反映调用时状态；未注入视为未暂停） */
   syncPaused?: () => boolean;
+  /** F01：按配置实例解析运行时规格（与 chat.prompt 同一个 resolver）。注入时窗口检查按默认实例解析，
+   *  实例手动修正生效；未注入（旧调用方）退回按 modelId 查目录。 */
+  runtimeOf?: (instanceId: string) => RuntimeModel | undefined;
+  /** F09：进程树托管的当前状态（proc/owned.ts 的 ProcSupervisor.status） */
+  procOwnership?: () => ProcOwnershipStatus;
 }
 
 /**
@@ -139,7 +149,8 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
   // 4. model-catalog 窗口解析（未知模型 = warning，回退 FALLBACK_WINDOW 仍可运行但有两个后果）
   let modelCatalogCheck: CheckResult;
   if (defaultModelId) {
-    const window = catalog.getModelContextWindow(defaultModelId);
+    const runtime = defaultId && deps.runtimeOf ? deps.runtimeOf(defaultId) : undefined;
+    const window = runtime ? runtime.limits.contextWindow.value : catalog.getModelContextWindow(defaultModelId);
     if (window !== undefined) {
       modelCatalogCheck = { status: 'ready', detail: String(window) };
     } else {
@@ -148,6 +159,13 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
       modelCatalogCheck = {
         status: 'warning',
         detail: `未知模型 ${defaultModelId}，回退 128K 档（窗口可能低估，offload/compact 阈值偏低）+ thinking 被钳到 off。修法：在 providers.json 为该 provider 配 contextWindow 字段，或等待 models.dev 目录更新`
+      };
+    }
+    // F01：providers.json 里手改的非法修正值不生效（运行时忽略、不改文件），这里照实说出来
+    if (runtime && runtime.overrides.invalid.length > 0) {
+      modelCatalogCheck = {
+        status: 'warning',
+        detail: `${modelCatalogCheck.detail}；providers.json 中以下手动修正值不合法，已忽略：${runtime.overrides.invalid.join('，')}（窗口与输出上限须为正整数）`,
       };
     }
   } else {
@@ -206,6 +224,16 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
   });
   const estimatedTokens = Math.ceil(promptPreview.length / 4);
 
+  // 9. F09 进程树托管状态（纯信息性，不参与 overall）：停用了、或最近一棵树没托管成，给出原因
+  const own = deps.procOwnership?.();
+  const processOwnership: CheckResult = own === undefined
+    ? { status: 'ready', detail: '进程托管：未接入' }
+    : own.state === 'disabled'
+      ? { status: 'warning', detail: `进程托管已停用（${own.reason ?? '未知原因'}）：本次运行里 shell、终端与 MCP 启动的子进程不受作业对象托管，应用被强制结束时可能残留` }
+      : own.lastFailure !== undefined
+        ? { status: 'warning', detail: `进程托管：最近一棵进程树没有托管成（${own.lastFailure}）` }
+        : { status: 'ready', detail: own.state === 'active' ? '进程托管：作业对象已生效' : '进程托管：本次运行还没有启动过子进程' };
+
   // 计算 overall：blocked > warning > ready
   const allChecks: CheckResult[] = [
     providersCheck, defaultProviderCheck, fallbackCheck, modelCatalogCheck, bridgeNodeCheck, ...skillsChecks,
@@ -227,6 +255,7 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
       bridgeNode: bridgeNodeCheck,
       pairing,
       syncState,
+      processOwnership,
     },
     promptPreview,
     estimatedTokens,
@@ -241,9 +270,7 @@ export async function dryRun(deps: DryRunDeps): Promise<DryRunResult> {
 export function createDiagnosticsMethods(deps: DryRunDeps): RpcMethods {
   return {
     'diagnostics.dryRun': async (_p, conn: RpcConnection) => {
-      if (conn.authMode !== 'local') {
-        throw new Error(`diagnostics.dryRun 需要 authMode=local，当前=${conn.authMode}`);
-      }
+      assertAuthMode(conn, ['local'], 'diagnostics.dryRun');
       return dryRun(deps);
     },
   };

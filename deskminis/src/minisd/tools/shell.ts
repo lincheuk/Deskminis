@@ -1,27 +1,24 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { ToolContext, ToolExecutor } from './types';
-import { classifyShellCommand } from './permissions';
+import { askPermission } from './permission-outcome';
+import { permissionFailure } from './permission-text';
 import { killTree, powershellPath, type ProcOpts } from '../proc/win-exec';
 import { childEnv } from '../proc/child-env';
+import type { OwnedTree, ProcSupervisor, ProcTreeMeta } from '../proc/owned';
+import type { ProcStopCause } from '../../shared/proc';
+import { cancelCauseOf } from '../../shared/permission';
+import { ShellOutput, SHELL_OUTPUT_LIMIT } from './shell-output';
 
-const MAX_OUTPUT = 100 * 1024;
-
-/** 危险命令被规则拦下时回给模型的话（W1b-2g）。classifyShellCommand 判 danger 的命令在网关里是 notAllowed：
- *  不询问、三个档位都拒——没有哪个用户点过拒绝，设置里也调不开。照旧说「被用户拒绝（可在设置-权限中调整）」，
- *  模型会以为换个档位、再问一次就能过，或者向用户转述一个没发生过的拒绝。
- *  括号里只举危险表里真有的几类；「不要改写绕过」是因为规则按写法认，换个写法的命令会落到询问或（完全访问下）直接执行。 */
-const RULE_BLOCKED = '命令未执行：它命中了危险命令规则（删除、格式化、改注册表、结束进程、定义函数或别名等），由规则直接拦下，'
-  + '不是用户拒绝的，换任何权限档位也不会放行。请不要改写命令绕过规则；确实需要的话，把命令和理由告诉用户，由用户决定是否自己执行。'
-  // 危险规则按整段文本匹配，读 shutdown.ps1、搜 Stop-Process 字样这类无害的读和搜也会被拦（W1b-2g 审查）；
-  // 不给出路的话，听话的模型会把它们推给用户，而文件工具不走这条规则
-  + '如果只是要读的文件、要搜的文本里恰好含这些字样，改用 file_read / file_grep。';
+const MAX_OUTPUT = SHELL_OUTPUT_LIMIT;
 
 /** 超时/取消杀掉常驻驱动后，下一条命令必须带上这句——cd/环境变量已复位，
  *  模型若还按「跨命令持久」的假设继续，会拿着旧状态做错事。 */
 const RESET_HINT = '[提示：shell 已重启，工作目录与环境变量已复位到初始状态]';
 
-const DRIVER_PS = `
+/** 驱动脚本。hook 是 F09 的插入点：读到第一条命令、判过 EOF 之后，执行它之前的一行（归属，见 proc/own-script.ts）。
+ *  hook 为空串时与 F09 之前的脚本逐字相同。 */
+export const driverPs = (hook: string): string => `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 # 上一行只管 PowerShell 自身 .NET 输出的编码；原生 exe 按控制台代码页吐字节，
 # 中文 Windows 默认 936/GBK——chcp 把控制台代码页切到 UTF-8，多数原生 exe 会跟随
@@ -31,7 +28,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 while ($true) {
   $line = [Console]::In.ReadLine()
   if ($null -eq $line) { break }
-  $sp = $line.IndexOf(' ')
+${hook === '' ? '' : `  ${hook}\n`}  $sp = $line.IndexOf(' ')
   $marker = $line.Substring(0, $sp)
   $cmd = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($line.Substring($sp + 1)))
   $global:LASTEXITCODE = $null
@@ -42,6 +39,7 @@ while ($true) {
   [Console]::Out.WriteLine("__MINIS_DONE_" + $marker + "_EXIT_" + $ec + "__")
 }
 `;
+const DRIVER_PS = driverPs('');
 
 /** 宿主侧解码：驱动已把控制台切到 UTF-8，但仍拦不住硬编码 GBK 输出的老 exe。
  *  先按 UTF-8 解，无 U+FFFD 即直接用；含替换符说明字节不是合法 UTF-8（多半是 GBK），降级再解一次。
@@ -68,18 +66,28 @@ export class PersistentShell {
   private readonly platform: string;
   private readonly spawnImpl: typeof spawn;
   private readonly sysEnv: NodeJS.ProcessEnv;
+  /** F09：进程树的登记与托管。没有（或没给 meta）时启动形态与回收路径同 F09 之前，逐字不变。 */
+  private readonly supervisor: ProcSupervisor | undefined;
+  /** 当前驱动对应的那棵树（与 proc 同生共换）。 */
+  private tree: OwnedTree | undefined;
 
   /** env：会话级环境变量（MINIS_CHAT_SESSION_ID/桥管道等），在 shell 首次创建时捕获——长驻进程出生后无法改环境。
-   *  opts：平台、spawn 与本进程环境的注入，生产用缺省值（见 proc/win-exec.ts）。 */
-  constructor(private cwd: string, private env?: Record<string, string>, opts: ProcOpts = {}) {
+   *  opts：平台、spawn 与本进程环境的注入，生产用缺省值（见 proc/win-exec.ts）。
+   *  cwd 只读公开（F04）：驱动的出生目录，被杀后重建用的仍是它；ShellManager.cwdOf 读它来算锁范围。
+   *  meta（F09）：这棵进程树归谁；与 opts.supervisor 都在时，驱动带归属前导并登记进进程账本。 */
+  constructor(readonly cwd: string, private env?: Record<string, string>, opts: ProcOpts = {}, private readonly meta?: ProcTreeMeta) {
     this.platform = opts.platform ?? process.platform;
     this.spawnImpl = opts.spawnImpl ?? spawn;
     this.sysEnv = opts.sysEnv ?? process.env;
+    this.supervisor = opts.supervisor;
   }
 
   private ensure(): ChildProcessWithoutNullStreams {
     if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.proc;
-    const encoded = Buffer.from(DRIVER_PS, 'utf16le').toString('base64');
+    // F09：托管可用时驱动带归属前导——读到第一条命令之后、执行它之前，自己建作业并把自己放进去（proc/own-script.ts）。
+    // 托管不可用（非 win32、已停用、没有 supervisor）时用的就是原来的脚本
+    const armed = this.meta !== undefined && this.supervisor?.wants(this.platform) === true;
+    const encoded = Buffer.from(armed ? this.supervisor!.armedDriver(driverPs) : DRIVER_PS, 'utf16le').toString('base64');
     // win32 用 System32 下的绝对路径：cwd 是工作区（可能是克隆来的仓库），裸名会先在 cwd 里找同名 exe。
     // 非 win32 保留裸名，Linux 上 shell.test.ts 的失败与通过逐例不变。
     // windowsHide：打包后的 minisd 自己没有控制台（推断），控制台程序不加这一项会另开一个可见的控制台窗口。
@@ -102,8 +110,14 @@ export class PersistentShell {
     // 让 runNow 的 close/error 分支正常兜底。（同步 write 抛出仍由下方 try/catch 兜住，纵深防御。）
     proc.stdin.on('error', () => { /* 子进程已退出时写入的异步 EPIPE：吞掉，runNow 的 close/error 处理会兜底 */ });
     // 不 setEncoding('utf8')：那会「按 UTF-8 解码后再拼接」，GBK 字节被解成替换符后原始信息不可逆丢失
-    // （之后再也拿不回字节做兜底解码）。保持流吐 Buffer，由 runNow 收集后整体解码。
-    proc.stderr.resume(); // 驱动已 2>&1 并入 stdout；排空真实 stderr 管道避免写满阻塞
+    // （之后再也拿不回字节做兜底解码）。保持流吐 Buffer，流式保留两种解码的受限头部。
+    if (this.supervisor && this.meta) {
+      // F09：登记这棵树。adopt 自己在 stderr 上挂了 data 监听（从里面摘归属标记），等价于排空，不再 resume
+      this.tree = this.supervisor.adopt(proc, this.meta, { platform: this.platform, spawnImpl: this.spawnImpl, sysEnv: this.sysEnv }, { armed });
+    } else {
+      this.tree = undefined;
+      proc.stderr.resume(); // 驱动已 2>&1 并入 stdout；排空真实 stderr 管道避免写满阻塞
+    }
     this.proc = proc;
     return proc;
   }
@@ -126,22 +140,31 @@ export class PersistentShell {
     const sentinel = new RegExp(`__MINIS_DONE_${marker}_EXIT_(-?\\d+)__`);
     const started = Date.now();
     return new Promise(resolve => {
-      const chunks: Buffer[] = [];
+      const output = new ShellOutput();
       // latin1 视图上做哨兵匹配：latin1 每字节恰好映射一个字符，正则命中位置即字节偏移，
       // 可精确切出「本命令输出」的字节段再整体解码。前提是哨兵与退出码本身为纯 ASCII——
       // 在任何代码页下字节不变，latin1 视图不会失真（这是能按字节切割的根基）。
-      let out = '';
+      // 驱动哨兵（8 位 marker + Int32 退出码）不到 64 字节。仅保留待匹配尾部，
+      // 延后解码这些字节，保证跨块哨兵和同块的后续输出不会进入本条命令结果。
+      let tail = Buffer.alloc(0);
+      let receivedBytes = 0;
       const onData = (chunk: Buffer) => {
-        chunks.push(chunk);
-        out += chunk.toString('latin1');
-        const m = out.match(sentinel);
+        const window = Buffer.concat([tail, chunk]);
+        const m = sentinel.exec(window.toString('latin1'));
         if (m) {
           cleanup();
-          const bytes = Buffer.concat(chunks).subarray(0, out.indexOf(m[0]));
-          const output = resetNote + decodeShellOutput(bytes).replace(/\r\n/g, '\n').trimEnd();
-          resolve({ output, exitCode: Number(m[1]), durationMs: Date.now() - started });
+          // 全局偏移独立于受限的解码头部；丢弃中段后不拿头部长度定位哨兵。
+          const end = receivedBytes - tail.length + m.index;
+          output.append(window.subarray(0, end - output.bytes));
+          resolve({ output: resetNote + output.finish(true), exitCode: Number(m[1]), durationMs: Date.now() - started });
+        } else {
+          const end = Math.max(0, window.length - 64);
+          output.append(window.subarray(0, end));
+          tail = Buffer.from(window.subarray(end));
+          receivedBytes += chunk.length;
         }
       };
+      const unfinishedOutput = () => { output.append(tail); return output.finish(false); };
       // 子进程没能答复就死了：也必须 resolve，绝不悬挂、绝不抛。
       const onError = (err: Error) => {
         cleanup();
@@ -149,12 +172,12 @@ export class PersistentShell {
       };
       const onClose = () => {
         cleanup();
-        resolve({ output: decodeShellOutput(Buffer.concat(chunks)).replace(/\r\n/g, '\n') + '\n[shell 进程意外退出]', exitCode: 129, durationMs: Date.now() - started });
+        resolve({ output: unfinishedOutput() + '\n[shell 进程意外退出]', exitCode: 129, durationMs: Date.now() - started });
       };
       const timer = setTimeout(() => {
         cleanup();
-        this.interrupt(); // 杀掉整个常驻驱动（cd/env 会丢），并标记 wasReset 供下条命令提示
-        resolve({ output: decodeShellOutput(Buffer.concat(chunks)).replace(/\r\n/g, '\n') + '\n[命令超时被终止]', exitCode: 124, durationMs: Date.now() - started });
+        this.interrupt('timeout'); // 杀掉整个常驻驱动（cd/env 会丢），并标记 wasReset 供下条命令提示
+        resolve({ output: unfinishedOutput() + '\n[命令超时被终止]', exitCode: 124, durationMs: Date.now() - started });
       }, timeoutMs);
       const cleanup = () => {
         clearTimeout(timer);
@@ -167,6 +190,8 @@ export class PersistentShell {
       proc.on('close', onClose);
       try {
         proc.stdin.write(`${marker} ${Buffer.from(command, 'utf8').toString('base64')}\n`);
+        // F09：第一份输入已写出，驱动此后才归属；从这一刻起等它的标记（重复调用无效）
+        if (this.tree?.child === proc) this.tree.firstInput();
       } catch (e) {
         // 向已死的子进程写 stdin 会同步抛 EPIPE / ERR_STREAM_DESTROYED。
         cleanup();
@@ -178,24 +203,28 @@ export class PersistentShell {
   /** 取消/超时导致的进程中断：杀当前驱动但不释放会话（disposed 保持 false），
    *  下次 ensure() 重建；同时标记 wasReset，让下一条命令开头向模型说明状态已复位。
    *  与 dispose() 的语义差异正是关键：dispose 是会话不再需要 shell，interrupt 是状态丢了但会话还活着。 */
-  interrupt(): void {
-    void this.killProc(); // 不等收树：在途命令靠 'close' 或超时收口，下条命令重建驱动，与以前一样
+  interrupt(cause: ProcStopCause = 'cancel'): void {
+    void this.killProc(cause); // 不等收树：在途命令靠 'close' 或超时收口，下条命令重建驱动，与以前一样
     this.proc = undefined; // 让下次 ensure() 重建，而不是复用已死的进程
     this.wasReset = true;
   }
 
   /** 返回回收落定的 Promise（见 killTree，从不拒绝）：关停第 6 步等它，删除会话不等（W1b-5d）。 */
-  dispose(): Promise<void> {
+  dispose(cause: ProcStopCause = 'session-deleted'): Promise<void> {
     this.disposed = true;
-    const reaped = this.killProc();
+    const reaped = this.killProc(cause);
     this.proc = undefined;
     return reaped;
   }
 
   /** 杀整棵进程树（win32 走 taskkill /T，不同步先杀根，见 proc/win-exec.ts）：
-   *  命令里起的孙进程（ping -t、dev server 之类）要跟着驱动一起走，只杀驱动会留孤儿。 */
-  private killProc(): Promise<void> {
-    return this.proc ? killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv, 'SIGKILL') : Promise.resolve();
+   *  命令里起的孙进程（ping -t、dev server 之类）要跟着驱动一起走，只杀驱动会留孤儿。
+   *  F09：登记过的树经 tree.stop——先记下原因，再走同一个 killTree（实参相同）；根一结束，它自建的作业关闭，
+   *  taskkill /T 按父进程号找不到的后代也一并结束。 */
+  private killProc(cause: ProcStopCause): Promise<void> {
+    if (!this.proc) return Promise.resolve();
+    if (this.tree?.child === this.proc) return this.tree.stop(cause, 'SIGKILL');
+    return killTree(this.proc, this.platform, this.spawnImpl, this.sysEnv, 'SIGKILL');
   }
 }
 
@@ -207,24 +236,28 @@ export class ShellManager {
 
   getShell(sessionId: string, cwd: string, env?: Record<string, string>): PersistentShell {
     let s = this.shells.get(sessionId);
-    if (!s) { s = new PersistentShell(cwd, env, this.procOpts); this.shells.set(sessionId, s); }
+    if (!s) { s = new PersistentShell(cwd, env, this.procOpts, { kind: 'shell', sessionId }); this.shells.set(sessionId, s); }
     return s;
   }
+
+  /** F04：该会话常驻 shell 的出生目录（没建过返回 undefined）。只读，给调度器算锁范围用：
+   *  getShell 只在首次创建时用 cwd，会话中途改了工作区之后 shell 仍在旧目录里跑。 */
+  cwdOf(sessionId: string): string | undefined { return this.shells.get(sessionId)?.cwd; }
 
   run(sessionId: string, cwd: string, command: string, timeoutMs?: number, env?: Record<string, string>): Promise<{ output: string; exitCode: number; durationMs: number }> {
     return this.getShell(sessionId, cwd, env).run(command, timeoutMs);
   }
 
   /** 会话级中断（取消时由 shell 工具的 abort 监听触发）：杀该会话当前驱动，下条命令自动重建。 */
-  interrupt(sessionId: string): void {
-    this.shells.get(sessionId)?.interrupt();
+  interrupt(sessionId: string, cause?: ProcStopCause): void {
+    this.shells.get(sessionId)?.interrupt(cause);
   }
 
   /** 会话级释放（供删除会话调用，W1b-4 接线）：回收该会话驱动的整棵进程树并从表里摘掉。
    *  与 interrupt 的区别同 PersistentShell：这里是会话不再需要 shell。未知会话静默。
    *  返回回收落定的 Promise；删除会话不等它，行为照旧。 */
-  dispose(sessionId: string): Promise<void> {
-    const reaped = this.shells.get(sessionId)?.dispose() ?? Promise.resolve();
+  dispose(sessionId: string, cause: ProcStopCause = 'session-deleted'): Promise<void> {
+    const reaped = this.shells.get(sessionId)?.dispose(cause) ?? Promise.resolve();
     this.shells.delete(sessionId);
     return reaped;
   }
@@ -234,7 +267,7 @@ export class ShellManager {
   disposeAll(): Promise<void> {
     const reaped: Promise<void>[] = [];
     for (const [sessionId, s] of this.shells) {
-      try { reaped.push(s.dispose()); } catch (e) { console.warn(`释放 shell（会话 ${sessionId}）失败，继续其余会话:`, e); }
+      try { reaped.push(s.dispose('shutdown')); } catch (e) { console.warn(`释放 shell（会话 ${sessionId}）失败，继续其余会话:`, e); }
     }
     this.shells.clear();
     return Promise.allSettled(reaped).then(() => undefined);
@@ -250,36 +283,56 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       description: '在会话的长驻 PowerShell 中执行命令。cwd 初始为会话工作区，cd 与环境变量跨命令持久。stderr 并入输出。',
       parameters: {
         command: { type: 'string', description: 'PowerShell 命令，可多行' },
-        timeout_seconds: { type: 'integer', description: '超时秒数，默认 120' },
+        timeout_seconds: { type: 'integer', description: '超时秒数，范围 1–3600，默认 120；超出范围按边界执行，非有限数字按默认值执行' },
         tool_title: { type: 'string', description: '这次调用的 5-10 字中文摘要，用于 UI 卡片' },
       },
       required: ['command', 'tool_title'],
+    },
+    // F04：命令会动什么说不清，恒为 barrier——同批里它前面的调用先跑完，后面的等它跑完；不借 classifyShellCommand 放宽
+    // （那是权限分类器，读写目标解析不出来，cd / 环境变量还有跨命令状态）。
+    // 跨会话占两处的写锁：当前工作区（文件工具按它解析相对路径；shell 还没建时也在它里面出生），
+    // 以及常驻 shell 的出生目录——workspace.set / reset 不动已建的 shell，改过工作区后它仍在旧目录里跑。
+    // 命令里 cd 到别处、用绝对路径写到这两个目录之外，调度器看不见。
+    scheduling: {
+      readOnly: false, concurrencySafe: false, sideEffects: 'unknown',
+      resources: (_input, ctx) => {
+        const dirs = [ctx.paths.workspaceOf(ctx.sessionId)];
+        const born = manager.cwdOf(ctx.sessionId);
+        if (born !== undefined) dirs.push(born);
+        return dirs.map(path => ({ kind: 'path' as const, mode: 'write' as const, path }));
+      },
     },
     async execute(input, ctx) {
       // 已取消（用户点了停止）：立即收场，不再发起权限询问、不再启动命令
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
       const command = String(input.command);
-      const decision = await ctx.permissions.check({ kind: 'shell', detail: command, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) });
+      const req = { kind: 'shell' as const, detail: command, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) };
+      const o = await askPermission(ctx, req);
       // 权限等待可长达 90 秒；等待期间点了停止的话，已 abort 的 signal 之后挂监听不会再触发
       // （abort 事件不补发）——必须在闸后重查一次，否则「批准晚于取消」的命令会原样跑完。
-      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台按 deny 了结卡片并 abort，那不是用户拒绝的
+      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台了结卡片并 abort，那不是用户拒绝的
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-      if (decision === 'deny') {
-        // 网关对「规则拦下」与「用户拒绝」都只回 deny；危险命令不经询问、任何档位都拒，要分开说（W1b-2g，见 RULE_BLOCKED）
-        if (classifyShellCommand(command) === 'danger') return { output: RULE_BLOCKED, success: false };
-        return { output: '命令被用户拒绝（可在设置-权限中调整）', success: false };
-      }
+      // F13：原因来自网关——危险命令是规则拦下的（RULE_BLOCKED，W1b-2g），超时是没人答复，只有用户点了拒绝才说「被用户拒绝」
+      if (o.decision !== 'allow') return permissionFailure(o, req);
       const cwd = ctx.paths.workspaceOf(ctx.sessionId);
-      const timeoutMs = (typeof input.timeout_seconds === 'number' ? input.timeout_seconds : 120) * 1000;
+      const requested = input.timeout_seconds;
+      const seconds = typeof requested === 'number' && Number.isFinite(requested) ? Math.min(3600, Math.max(1, requested)) : 120;
+      const timeoutMs = seconds * 1000;
+      const timeoutNote = requested === undefined || requested === seconds ? ''
+        : 'timeout_seconds=' + String(requested) + ' 不在 1–3600 的有限数字范围内，已按 ' + seconds + ' 秒执行\n';
       // 执行期间监听取消：abort → 杀当前命令所在驱动。杀掉后会话积累的 cd/env 会丢，
       // 由 PersistentShell.wasReset 在下条命令开头给模型补说明。
-      const onAbort = () => manager.interrupt(ctx.sessionId);
+      // F09：把取消的来由带给进程账本——删会话、关停原样记，其余（用户点了停止、请求方没了）记 cancel
+      const onAbort = () => {
+        const why = cancelCauseOf(ctx.signal);
+        manager.interrupt(ctx.sessionId, why === 'session-deleted' || why === 'shutdown' ? why : 'cancel');
+      };
       ctx.signal?.addEventListener('abort', onAbort);
       try {
         const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx));
         let output = r.output;
         if (output.length > MAX_OUTPUT) output = output.slice(0, MAX_OUTPUT) + `\n[输出超过 100KB 被截断]`;
-        return { output: `${output}\n[exit=${r.exitCode}, ${r.durationMs}ms]`, success: r.exitCode === 0 };
+        return { output: `${timeoutNote}${output}\n[exit=${r.exitCode}, ${r.durationMs}ms]`, success: r.exitCode === 0 };
       } finally {
         // 清理监听器：signal 是会话级长生命周期对象，不摘会随每次工具调用累积
         ctx.signal?.removeEventListener('abort', onAbort);

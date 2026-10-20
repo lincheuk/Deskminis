@@ -1,4 +1,8 @@
+import { outboundFetch } from '../net/outbound-fetch';
 import type { ToolExecutor } from './types';
+import { denied } from '../../shared/permission';
+import { askPermission, reportDenied } from './permission-outcome';
+import { permissionFailure } from './permission-text';
 
 export type SearchProviderKind = 'brave' | 'tavily' | 'searxng';
 
@@ -58,7 +62,7 @@ function isUsable(conf: ResolvedSearchProvider | undefined): conf is ResolvedSea
  *  getConfig 返回 minisd 内部解析的配置（含密钥）；fetchImpl 构造注入（测试路由假 fetch，仓库惯例）。 */
 export function makeWebSearchTool(
   getConfig: () => ResolvedSearchProvider | undefined,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = outboundFetch,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): ToolExecutor {
   return {
@@ -72,6 +76,8 @@ export function makeWebSearchTool(
       },
       required: ['query', 'tool_title'],
     },
+    // F04：同 web_fetch——只向外发请求，可并行；权限照旧过卡
+    scheduling: { readOnly: true, concurrencySafe: true, sideEffects: 'network' },
     async execute(input, ctx) {
       // 已取消（用户点了停止）：立即收场，不再发配置检查、权限询问、网络请求
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
@@ -85,11 +91,20 @@ export function makeWebSearchTool(
       }
 
       // 查询串本身就是数据外泄通道（论证同 web-fetch 的 URL 查询串），默认档 askOnce 过卡
-      const decision = await ctx.permissions.check({ kind: 'web-search', detail: query, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) });
+      const req = { kind: 'web-search' as const, detail: query, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) };
+      const o = await askPermission(ctx, req);
       // 权限等待可长达 90 秒，已 abort 的 signal 不补发事件，闸后必须重查。
-      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台按 deny 了结卡片并 abort，那不是用户拒绝的
+      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台了结卡片并 abort，那不是用户拒绝的
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-      if (decision === 'deny') return { output: '搜索被用户拒绝（可在设置-权限中调整）', success: false };
+      if (o.decision !== 'allow') return permissionFailure(o, req);
+      // F13 闸后复查配置：权限卡最长挂 90 秒，这期间用户可能清掉或换掉搜索服务。批准是在旧配置下拿到的，
+      // 旧配置（含旧密钥）不再出网；也不改用新配置——与 MCP「配置刚被修改，本次调用未执行」同一口径，让模型重新发起
+      const current = getConfig();
+      if (!isUsable(current) || current.kind !== conf.kind || current.apiKey !== conf.apiKey || current.baseUrl !== conf.baseUrl) {
+        const d = denied('invalidated', 'search-config-changed', { requestId: o.requestId });
+        reportDenied(ctx.permissions, req, d);
+        return permissionFailure(d, req);
+      }
 
       const count = clampCount(input.count);
       let url: string;

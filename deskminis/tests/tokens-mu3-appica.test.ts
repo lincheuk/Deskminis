@@ -1,63 +1,9 @@
-/** MU3 新守卫：Appica 视觉语言移植保真度 + 别名映射防漂移（12 例）。
- *
- *  取值唯一来源（MU3 红线，E1/I1 换锚不换纪律）：docs/specs/2026-08-20-aionui-tokens-reference.css
- *    槽位结构承自 @appica/ui-react@1.0.0（MIT）；取值据 AionUi v2.1.59（Apache-2.0）色系移植，
- *    文本档为过 AA 的自研调整（设计稿 docs/specs/2026-08-20-ui-redo-aionui-design.md）
- *  禁止联网重取、禁止凭印象写值（xterm 兜底换算值除外，见例 9 白名单）。
- *
- *  转绿映射（MU3 计划 §4）：例 1-7 → Task 2（tokens.css 双层重构）；例 8 → Task 3（material 退场）；
- *  例 9/12 → Task 4（硬编码收编）；例 10 → Task 5（7 级 label 消费）；例 11 → Task 6（焦点环）。
- *  （计划文本估算「新守卫 +11 例」；实落 12 例——7 级 label 拆「别名定义」（例 4，Task 2 绿）与
- *   「组件消费清单」（例 10，Task 5 绿）两例，否则 Task 5 没有自己的先红→转绿目标。）
- */
+/** 补充14a：仅保留现行令牌归属和仍有效的组件纪律。旧raw/别名结构按裁定退场。 */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
-
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
-const tokens = R('../src/renderer/src/styles/tokens.css');
-const REF = R('../../docs/specs/2026-08-20-aionui-tokens-reference.css');
-
-/** 按选择器切片（与 tokens-evolution 相同的 6 个字面切片标记，红线：逐字保留） */
-function section(src: string, start: string, end?: string): string {
-  const i = src.indexOf(start);
-  if (i < 0) return '';
-  const j = end ? src.indexOf(end, i + start.length) : -1;
-  return src.slice(i, j < 0 ? src.length : j);
-}
-const rootLight = section(tokens, ':root {', '@media (prefers-color-scheme: dark)');
-const mediaDark = section(tokens, '@media (prefers-color-scheme: dark)', '/* 强制深色');
-const darkForced = section(tokens, ':root[data-theme="dark"]', ':root[data-theme="light"]');
-const lightForced = section(tokens, ':root[data-theme="light"]', '/* 基础复位');
-
-/** 提取花括号块正文（startMarker 之后第一个 { 到其后第一个行首 }） */
-function blockOf(src: string, startMarker: string): string {
-  const i = src.indexOf(startMarker);
-  if (i < 0) return '';
-  const open = src.indexOf('{', i);
-  const close = src.indexOf('\n}', open);
-  return open < 0 || close < 0 ? '' : src.slice(open + 1, close);
-}
-/** 提取自定义属性声明（跨行声明折叠单行、空白归一），保持源序——「逐行一致」做有序比对 */
-function decls(css: string): string[] {
-  return [...css.matchAll(/--[\w-]+\s*:[^;]+;/g)].map(m => m[0].replace(/\s+/g, ' ').trim());
-}
-/** tokens.css 段内 A 区（Appica raw 层）切片：A 区标记到 B 区标记之间 */
-function areaA(seg: string): string {
-  const i = seg.indexOf('/* ===== A 区');
-  const j = seg.indexOf('/* ===== B 区');
-  return i < 0 || j < 0 ? '' : seg.slice(i, j);
-}
-
-const refLight = decls(blockOf(REF, ':root,'));
-const refDark = decls(blockOf(REF, '.dark {'));
-/** 主题无关 raw（只在 :root 写一次，与参考文件一致；.dark 块本就不含这些族） */
-const THEME_INDEPENDENT = /^--(font-sans|font-mono|radius|border-width|opacity-disabled)/;
-/** A 区唯一申报偏离：--font-mono 在栈尾 monospace 泛型前补了 CJK 回退
- *  （等宽栈无中文字形，代码块/权限卡里的中文会掉进宋体）。raw 层同样被组件直接
- *  消费，只修 C 区别名修不干净，故两处都补、该键退出逐行一致比对，内容由例 13 单独守。 */
-const RAW_FONT_MONO_OVERRIDE = /^--font-mono\s*:/;
-
+const theme = R('../src/renderer/src/styles/theme.css');
 /** 递归收集 src/renderer/src 下全部 .vue（含 App.vue） */
 const RENDERER_SRC = resolve(__dirname, '../src/renderer/src');
 function walkVue(dir: string, out: string[] = []): string[] {
@@ -77,141 +23,16 @@ const rel = (p: string) => relative(RENDERER_SRC, p).replace(/\\/g, '/');
 // T6e-3 重指：组件树搬到 ui/（components/ 只剩 Icon / MarkdownInline / MarkdownView 三个活文件）
 const C = (n: string) => R(`../src/renderer/src/ui/${n}.vue`);
 
-describe('MU3 Appica 移植守卫（13 例）', () => {
-  it('1. tokens.css 头部归属四要素（结构来源 / 许可证 / 参考文件路径 / 唯一来源声明）', () => {
-    // I1 换锚：归属改「槽位结构承自 Appica（MIT）+ 取值据 AionUi（Apache-2.0）移植 + 自研 AA 调整」
-    expect(tokens).toContain('@appica/ui-react@1.0.0');
-    expect(tokens).toContain('MIT');
-    expect(tokens).toContain('AionUi');
-    expect(tokens).toContain('Apache-2.0');
-    expect(tokens).toContain('docs/specs/2026-08-20-aionui-tokens-reference.css');
-    expect(tokens).toContain('取值唯一来源');
-  });
 
-  it('2. A 区与参考文件逐行一致：四段 raw 层 == 参考 :root,.light / .dark 声明体（有序比对）', () => {
-    expect(refLight.length).toBeGreaterThan(0); // 提取器自检：空表会让 toEqual 假绿
-    expect(refDark.length).toBeGreaterThan(0);
-    expect(decls(areaA(rootLight)).filter(d => !RAW_FONT_MONO_OVERRIDE.test(d))).toEqual(refLight.filter(d => !RAW_FONT_MONO_OVERRIDE.test(d)));
-    expect(decls(areaA(mediaDark))).toEqual(refDark);
-    expect(decls(areaA(darkForced))).toEqual(refDark);
-    // 主题无关 raw（--font-*/--radius-*/--border-width/--opacity-disabled）只在 :root 写一次
-    expect(decls(areaA(lightForced))).toEqual(refLight.filter(d => !THEME_INDEPENDENT.test(d)));
+describe('MU3 保留归属与组件守卫（补充14a）', () => {
+  it('1. theme.css 保留值归属：AionUi、Apache-2.0、参考文件与取值唯一来源', () => {
+    expect(theme).toContain('AionUi');
+    expect(theme).toContain('Apache-2.0');
+    expect(theme).toContain('docs/specs/2026-08-20-aionui-tokens-reference.css');
+    expect(theme).toContain('取值唯一来源');
   });
-
-  it('3. 别名映射总表全量断言（§2-1 逐行 → :root 段；5 个分叉项另断暗段）', () => {
-    const light: Array<[string, string]> = [
-      ['--bg', 'var(--background-subtle)'], // 分叉：暗段 --background（Aurora §3 换挡：浅底微冷白，浮岛卡纯白）
-      ['--bg-secondary', 'var(--background-muted)'],
-      ['--bg-tertiary', 'var(--background)'], // 分叉：暗段 --background-strong
-      ['--grouped-bg', 'var(--background-muted)'], // 分叉：暗段 --background
-      ['--grouped-bg-secondary', 'var(--background)'], // 分叉：暗段 --background-muted
-      ['--grouped-bg-tertiary', 'var(--background-muted)'], // 分叉：暗段 --background-strong
-      ['--surface-0', 'var(--bg)'],
-      ['--surface-1', 'var(--grouped-bg-secondary)'],
-      ['--surface-2', 'var(--grouped-bg-tertiary)'],
-      ['--label', 'var(--foreground-strong)'], // MU3 收尾：正文提一档（base→strong），见 ui-design-v3 §8
-      ['--label-secondary', 'var(--foreground-muted)'],
-      ['--label-tertiary', 'var(--foreground-subtle)'],
-      ['--label-quaternary', 'var(--foreground-subtle)'], // 与 tertiary 视觉合并（Appica 弱级仅 2 档）
-      ['--label-strong', 'var(--foreground-emphasis)'], // 随正文连带上移，保住「正文 vs 标题」色差
-      ['--label-emphasis', 'var(--foreground-emphasis)'],
-      ['--label-intense', 'var(--foreground-intense)'],
-      ['--separator', 'var(--border-strong)'], // MU3 收尾：hairline 提一档（border→border-strong）
-      ['--separator-opaque', 'var(--border-strong)'],
-      ['--fill', 'var(--background-strong)'],
-      ['--fill-tertiary', 'var(--background-muted)'],
-      ['--fill-quaternary', 'var(--background-subtle)'],
-      ['--accent', 'var(--secondary-emphasis)'],
-      ['--action', 'var(--accent)'],
-      ['--on-action', 'var(--primary-foreground)'], // 分叉：暗段 --secondary-foreground（Aurora §3：亮青钮底配深字；浅段白字深青底不动）
-      ['--link', 'var(--secondary-emphasis)'], // 与 accent 收敛
-      ['--assistant-gradient', 'linear-gradient(135deg, var(--foreground-muted), var(--foreground-subtle))'],
-      ['--red', 'var(--error-emphasis)'],
-      ['--green', 'var(--success-emphasis)'],
-      ['--orange', 'var(--warning-emphasis)'],
-      ['--yellow', 'var(--warning-intense)'],
-      ['--blue', 'var(--info-emphasis)'],
-      ['--purple', 'var(--secondary-intense)'],
-      ['--cyan', 'var(--info-strong)'],
-      ['--state-ok', 'var(--success-emphasis)'],
-      ['--state-err', 'var(--error-emphasis)'],
-      ['--state-warn', 'var(--warning-emphasis)'],
-      ['--state-info', 'var(--info-emphasis)'],
-      ['--state-ok-bg', 'var(--success-subtle)'],
-      ['--state-ok-border', 'var(--success-soft)'],
-      ['--state-err-bg', 'var(--error-subtle)'],
-      ['--state-err-border', 'var(--error-soft)'],
-      ['--state-warn-bg', 'var(--warning-subtle)'],
-      ['--state-warn-border', 'var(--warning-soft)'],
-      ['--state-info-bg', 'var(--info-subtle)'],
-      ['--state-info-border', 'var(--info-soft)'],
-      ['--shadow-fab', '0 4px 8px var(--shadow-color)'],
-      ['--shadow-pop', '0 8px 24px var(--shadow-color)'],
-      ['--scrim', 'rgba(0,0,0,.4)'],
-      ['--r-control', 'var(--radius-2xs)'],
-      ['--r-md', 'var(--radius-sm)'], // S2 换挡：10→12px（同例 7）
-      ['--r-card', 'var(--radius-lg)'], // S2 换挡：12→16px，AionUi 大卡/弹窗实测档（同例 7）
-      ['--r-input', 'var(--radius-2xl)'], // I1 换挡：AionUi 输入大卡 24px（同例 7）
-      ['--r-bubble', 'var(--radius-xl)'],
-      ['--r-sheet', 'var(--radius-lg)'], // I1 换挡：AionUi 弹窗 16px（同例 7）
-      ['--r-pill', '999px'],
-      ['--ring', 'var(--focus-ring)'],
-      ['--ring-input', 'var(--focus-ring-input)'],
-      ['--ring-danger', 'var(--focus-ring-error)'],
-    ];
-    for (const [k, v] of light) expect(rootLight).toContain(`${k}: ${v};`);
-    const darkFork: Array<[string, string]> = [
-      ['--bg', 'var(--background)'], // Aurora §3：--bg 换挡仅浅段，暗段映射不动
-      ['--bg-tertiary', 'var(--background-strong)'],
-      ['--grouped-bg', 'var(--background)'],
-      ['--grouped-bg-secondary', 'var(--background-muted)'],
-      ['--grouped-bg-tertiary', 'var(--background-strong)'],
-      ['--on-action', 'var(--secondary-foreground)'], // Aurora §3：亮青钮底上白字仅 1.36:1，换青底深字 13.72:1
-    ];
-    for (const [k, v] of darkFork) expect(mediaDark).toContain(`${k}: ${v};`);
-  });
-
-  it('4. 7 级 label 别名定义：strong/emphasis/intense 指向 foreground 同名强级', () => {
-    expect(rootLight).toContain('--label-strong: var(--foreground-emphasis);');
-    expect(rootLight).toContain('--label-emphasis: var(--foreground-emphasis);');
-    expect(rootLight).toContain('--label-intense: var(--foreground-intense);');
-  });
-
-  it('5. color-mix 仅限玻璃块：其余全文清零（命门 3 选 B：状态色走 Appica 直给 alpha）', () => {
-    // MU3 命门 3 的论证是**针对状态色**的：Appica raw 层本就提供 -subtle 10% / -soft 20%，
-    // 再用 color-mix 派生既冗余、又绕开了「raw 值是唯一来源」的纪律。
-    // 该论证对玻璃材质不成立——Appica 没有 58%/78% 这两档，而玻璃又必须跟随明暗，
-    // 只能从语义令牌派生。故 2026-08-10（用户要求苹果磨砂风格）把本条收窄为
-    // 「玻璃块内放行、其余仍然清零」，而不是删掉它：状态色那条纪律一点没松。
-    const b = tokens.indexOf('glass:begin');
-    const e = tokens.indexOf('glass:end');
-    expect(b).toBeGreaterThan(-1);
-    expect(e).toBeGreaterThan(b);
-    const outsideGlass = tokens.slice(0, b) + tokens.slice(e);
-    expect(outsideGlass).not.toContain('color-mix');
-    // 玻璃块里的 color-mix 只许拿**语义令牌**当原料，不许直接写 raw 色值
-    const glass = tokens.slice(b, e);
-    expect(glass).not.toMatch(/color-mix\([^)]*oklch\(/);
-    expect(glass).not.toMatch(/color-mix\([^)]*#[0-9a-fA-F]{3,8}/);
-  });
-
-  it('6. material 清零：tokens.css 全文不含 --material（组件侧滤镜由例 8 守）', () => {
-    expect(tokens).not.toContain('--material');
-  });
-
-  it('7. 圆角别名：6 条映射 radius 派生阶 + --r-pill 字面值保留（§2-3）', () => {
-    expect(rootLight).toContain('--r-control: var(--radius-2xs);');
-    // S2 改锚（申报）：用户「UI 都没有圆角这种感觉」→ 圆润度上调。AionUi 源码实测档位为
-    // 8(主力)/12/16(大卡与弹窗)/20(会话输入)/24(首页输入)，我们 raw 阶梯本就覆盖，
-    // 故**不动 A 区基准**（那会破坏例 2 的逐行契约），只把语义别名上调一档：md 10→12、card 12→16。
-    expect(rootLight).toContain('--r-md: var(--radius-sm);');
-    expect(rootLight).toContain('--r-card: var(--radius-lg);');
-    expect(rootLight).toContain('--r-input: var(--radius-2xl);'); // I1：AionUi 输入大卡 24px
-    expect(rootLight).toContain('--r-bubble: var(--radius-xl);');
-    expect(rootLight).toContain('--r-sheet: var(--radius-lg);'); // I1：AionUi 弹窗 16px
-    expect(rootLight).toContain('--r-pill: 999px;');
-  });
-
+  it('5. theme.css 不含 color-mix', () => { expect(theme).not.toContain('color-mix'); });
+  it('6. theme.css 不含 --material', () => { expect(theme).not.toContain('--material'); });
   it('8. backdrop-filter 白名单制：仅登记组件可用，且带弹出层的组件一律禁止', () => {
     // MU3 原为「全部 .vue 零命中」。2026-08-10 用户要求苹果磨砂风格，本条由**一刀切**改为
     // **白名单**——但安全约束一点没松：backdrop-filter 会创建**层叠上下文**，
@@ -237,7 +58,6 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
     // 双保险：白名单将来被人随手加宽时，这条仍会把「给弹层宿主上滤镜」拦下
     expect(usedGlass.filter(n => POPUP_OWNERS.includes(n))).toEqual([]);
   });
-
   it('9. 组件零硬编码颜色：<style> 块无 hex/rgba；TerminalPanel xterm 兜底值登记白名单', () => {
     const COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g;
     const offenders: string[] = [];
@@ -255,28 +75,14 @@ describe('MU3 Appica 移植守卫（13 例）', () => {
     // T 波重写终端：selection 兜底从 #262626 改为 #333333（更亮一档，暗底上选区看得见）
     expect(found).toEqual(['#0e0e0e', '#e8eaee', '#333333'].sort());
   });
-
-  /* T6e-3 退场「10. 7 级 label 组件消费清单…」：--label-strong/emphasis/intense 那套 7 级文字层次是 MU3 的词汇，T 波换成 theme.css 的 --c-ink / --c-ink-2/3/4 四级；新组件不消费旧级，逐组件清单没有对应物。新词汇的对比度守卫在 tests/theme-contrast.test.ts */
-
-  /* T6e-3 退场「11. 焦点环：10 组件各含 :focus-visible…」：逐组件焦点环在 T6a 已被**全局焦点环**取代（theme.css 一处声明 + tests/renderer-focus-ring.test.ts 守「有 outline:none 必须配替代环、组件不各写各的」）——继续要求每个组件自带 :focus-visible 反而与新纪律相反 */
-
-  it('12. --scrim 收编：tokens.css 唯一声明；DevicesModal/SettingsModal 遮罩走 var(--scrim)', () => {
-    expect(tokens).toContain('--scrim: rgba(0,0,0,.4)');
-    expect(tokens.split('--scrim:').length - 1).toBe(1); // 唯一声明处
-    // 组件半场重指：新树唯一的遮罩宿主是 StageMarket，走 theme.css 的 --c-scrim（T6d 收编）
-    expect(C('StageMarket')).toContain('var(--c-scrim)');
-  });
-
-  it('13. mono 栈 CJK 回退：两处 --font-mono 均在 monospace 泛型前含 "Noto Sans SC"', () => {
-    const monoDecls = [...tokens.matchAll(/--font-mono\s*:[^;]+;/g)].map(m => m[0].replace(/\s+/g, ' '));
-    // 恰好两处：A 区 raw 一处 + C 区 DeskMinis 别名一处（见 RAW_FONT_MONO_OVERRIDE 申报）
-    expect(monoDecls).toHaveLength(2);
+  it('12. StageMarket 遮罩仍走 var(--c-scrim)', () => { expect(C('StageMarket')).toContain('var(--c-scrim)'); });
+  it('13. mono 栈 CJK 回退：唯一 --font-mono 在 monospace 前包含两种中文字体', () => {
+    const monoDecls = [...theme.matchAll(/--font-mono\s*:[^;]+;/g)].map(m => m[0].replace(/\s+/g, ' '));
+    expect(monoDecls).toHaveLength(1);
     for (const d of monoDecls) {
-      expect(d).toContain('"Noto Sans SC"');
-      expect(d).toContain('"Microsoft YaHei"');
-      // 必须排在栈尾 monospace 泛型之前，否则泛型兜底先命中、CJK 回退永不生效
-      // （用 'monospace;' 定位泛型——'ui-monospace' 不以分号结尾，不会误匹配）
+      expect(d).toContain('"Noto Sans SC"'); expect(d).toContain('"Microsoft YaHei"');
       expect(d.indexOf('"Noto Sans SC"')).toBeLessThan(d.indexOf('monospace;'));
+      expect(d.indexOf('"Microsoft YaHei"')).toBeLessThan(d.indexOf('monospace;'));
     }
   });
 });

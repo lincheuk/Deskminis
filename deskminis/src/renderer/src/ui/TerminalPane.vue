@@ -74,6 +74,9 @@ async function attach(sessionId: string): Promise<void> {
   }
 }
 watch(() => chat.activeId, id => { if (id && id !== attachedFor) void attach(id); });
+// F06：terminal.output 不入序、不续传——断线期间的输出补不回来。重连同步完成后重新挂接一次
+//（attach 自己会 reset 再写引擎那边的滚动缓冲）
+watch(() => chat.linkGeneration, () => { if (chat.activeId) void attach(chat.activeId); });
 
 onMounted(() => {
   term = new Terminal({

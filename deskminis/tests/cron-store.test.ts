@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { openDb } from '../src/minisd/store/db';
+import { openDb, MIGRATIONS } from '../src/minisd/store/db';
 import { CronStore } from '../src/minisd/cron/store';
 import type Database from 'better-sqlite3';
 
@@ -13,8 +13,8 @@ beforeEach(() => { db = openDb(':memory:'); store = new CronStore(db); });
 const FUTURE = () => String(Math.floor(Date.now() / 1000) + 3600);
 
 describe('迁移 [10] cron_jobs', () => {
-  it('新库 user_version=11 且 cron_jobs 表列全', () => {
-    expect(db.pragma('user_version', { simple: true })).toBe(11);
+  it('新库升级到当前迁移版本，且 cron_jobs 表列全', () => {
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
     const cols = (db.prepare('PRAGMA table_info(cron_jobs)').all() as { name: string }[]).map(c => c.name);
     expect(cols).toEqual(expect.arrayContaining([
       'id', 'name', 'prompt', 'schedule_kind', 'schedule_value', 'assistant_id', 'workspace_root',

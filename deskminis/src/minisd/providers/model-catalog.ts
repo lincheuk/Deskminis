@@ -1,17 +1,158 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import type { ThinkingLevel } from '../../shared/types';
+import type { ModelCatalogEntry, ModelCatalogStatus, ModelMetadata, ModelMetadataSource, ModelPrice, ReasoningControl } from '../../shared/model-metadata';
 import type { FetchLike } from './types';
 
-export interface ModelCatalogEntry {
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  thinking?: boolean;
+export type { ModelCatalogEntry } from '../../shared/model-metadata';
+
+/** 跨服务商的模态逐项资料（F01）：all = 每家都列了的，any = 至少一家列了的；没写模态的服务商不参与。
+ *  整组完全一致的共识（aggregateMetadata）太严：一家多列个 pdf，图片这一项也跟着变成「没资料」。
+ *  voters（F01R）：写了这组模态列表的服务商家数——「没有一家列出」背后是 1 家还是 5 家，结论的分量不同。 */
+export interface MediaConsensus { all: string[]; any: string[]; voters: number }
+
+/** 某项布尔能力的逐家表态（F01R）：明确写 true / false 的服务商家数，没写的不计。 */
+export interface BoolVotes { yes: number; no: number }
+
+/** 运行时解析（F01 resolveRuntimeModel）用的目录读取面：只读、无副作用，测试可用假对象替代。 */
+export interface RuntimeCatalog {
+  /** 某个 models.dev 服务商自己的记录（先按完整 id，再按 vendor/model 的末段）。 */
+  getEndpointRecord(providerId: string, modelId: string): ModelCatalogEntry | undefined;
+  /** 不限端点的资料：跨服务商汇总 → 备用目录 → 内置族表，按旧运行时的取值规则；汇总层另附模态的逐项资料。 */
+  getDeclaredRecord(modelId: string): {
+    entry: ModelCatalogEntry; tier: 'aggregate' | 'basellm' | 'builtin';
+    media?: { input?: MediaConsensus; output?: MediaConsensus };
+    /** 只有 models.dev 主源的汇总层才有；备用目录与内置族表没有逐家记录（F01R）。 */
+    votes?: { toolCall: BoolVotes; thinking: BoolVotes };
+  } | undefined;
+  /** models.dev 服务商的 API 地址（provider id → api），用于把配置的 base URL 认成目录里的服务商。 */
+  providerApiUrls(): Readonly<Record<string, string>>;
+  getStatus(): ModelCatalogStatus;
 }
 
-const API_URL = 'https://models.dev/api.json';
+// Include specialized models so image/audio/video output metadata is not omitted.
+const API_URL = 'https://models.dev/api.json?type=all';
 const BASELLM_URL = 'https://basellm.github.io/llm-metadata/api/newapi/models.json';
 const TTL_MS = 24 * 60 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 10_000;
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+}
+
+function tokenLimit(value: unknown, allowZero = false): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && (allowZero ? value >= 0 : value > 0)
+    ? value : undefined;
+}
+
+function modalities(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || !value.every(v => typeof v === 'string' && v.length > 0 && v.length <= 64)) return undefined;
+  return [...new Set(value as string[])].sort();
+}
+
+/** reasoning_options 归一：toggle / effort(values) / budget_tokens(min,max)。空数组 = 记录里没有可调参数（返回 {}），
+ *  不是数组 = 没说明（undefined）。认不出的项跳过——宁可少认一种，也不把别的形状当成可发送的参数。 */
+function reasoningControl(value: unknown): ReasoningControl | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const control: ReasoningControl = {};
+  for (const item of value) {
+    const option = record(item);
+    if (!option) continue;
+    if (option.type === 'toggle') control.toggle = true;
+    else if (option.type === 'effort') {
+      const values = Array.isArray(option.values)
+        ? option.values.filter((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 32) : [];
+      if (values.length > 0) control.efforts = [...new Set([...(control.efforts ?? []), ...values])];
+    } else if (option.type === 'budget_tokens') {
+      const min = tokenLimit(option.min, true);
+      const max = tokenLimit(option.max);
+      control.budget = { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) };
+    }
+  }
+  return control;
+}
+
+function parseModelsDevEntry(value: unknown): ModelCatalogEntry | undefined {
+  const model = record(value);
+  if (!model) return undefined;
+  const limit = record(model.limit);
+  const media = record(model.modalities);
+  const flag = (v: unknown) => typeof v === 'boolean' ? v : undefined;
+  const entry: ModelCatalogEntry = {
+    name: typeof model.name === 'string' ? model.name : undefined,
+    contextWindow: tokenLimit(limit?.context),
+    maxInputTokens: tokenLimit(limit?.input),
+    maxOutputTokens: tokenLimit(limit?.output, true),
+    thinking: flag(model.reasoning),
+    toolCall: flag(model.tool_call),
+    structuredOutput: flag(model.structured_output),
+    inputModalities: modalities(media?.input),
+    outputModalities: modalities(media?.output),
+    reasoningControl: reasoningControl(model.reasoning_options),
+  };
+  // 先按规格字段判定条目是否为空，再解析价格（F02）：只有 cost 而别的字段全空的条目照旧丢弃——它不成其为一条模型记录
+  if (!Object.values(entry).some(v => v !== undefined)) return undefined;
+  const price = modelPrice(model.cost);
+  if (price) entry.price = price;
+  return entry;
+}
+
+/** models.dev cost 归一（F02）：每百万 token 的美元价。input 与 output 都是有限非负数才算有价格；缓存读写价与推理价同样校验后可选带上。
+ *  cost.tiers 是非空数组或带 context_over_200k 对象：这个型号按上下文长度分档计价，标 tiered——按单一价格估算会出错，费用一律显示未知。
+ *  价格只留在服务商自己的记录上：跨服务商汇总只带列出的字段，不含它（中转不能借用同名模型在别家的价格）。 */
+function modelPrice(value: unknown): ModelPrice | undefined {
+  const cost = record(value);
+  if (!cost) return undefined;
+  const usd = (v: unknown): number | undefined => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
+  const input = usd(cost.input); const output = usd(cost.output);
+  if (input === undefined || output === undefined) return undefined;
+  const cacheRead = usd(cost.cache_read); const cacheWrite = usd(cost.cache_write); const reasoning = usd(cost.reasoning);
+  const tiered = (Array.isArray(cost.tiers) && cost.tiers.length > 0) || record(cost.context_over_200k) !== undefined;
+  return {
+    input, output,
+    ...(cacheRead !== undefined ? { cacheRead } : {}), ...(cacheWrite !== undefined ? { cacheWrite } : {}),
+    ...(reasoning !== undefined ? { reasoning } : {}), ...(tiered ? { tiered: true as const } : {}),
+  };
+}
+
+/** 对外交出的条目一律深拷贝：调用方改数组 / 推理控制不能回写进目录内存与缓存。 */
+function copyEntry(entry: ModelCatalogEntry): ModelCatalogEntry {
+  const control = entry.reasoningControl;
+  return {
+    ...entry,
+    inputModalities: entry.inputModalities?.slice(),
+    outputModalities: entry.outputModalities?.slice(),
+    ...(control ? { reasoningControl: { ...control, efforts: control.efforts?.slice(), budget: control.budget && { ...control.budget } } } : {}),
+    ...(entry.price ? { price: { ...entry.price } } : {}),
+  };
+}
+
+/** 服务商 API 地址只收 http(s) URL：之后拿它与配置的 base URL 做前缀比对。 */
+function apiUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 512) return undefined;
+  try {
+    const u = new URL(value);
+    return u.protocol === 'https:' || u.protocol === 'http:' ? value : undefined;
+  } catch { return undefined; }
+}
+
+/** When the endpoint is unknown, do not invent support by OR-ing vendor capabilities. */
+function aggregateMetadata(entries: ModelCatalogEntry[]): ModelCatalogEntry {
+  const result = resolveModelsDevConflict(entries);
+  const consensus = <K extends keyof ModelCatalogEntry>(key: K): ModelCatalogEntry[K] => {
+    const first = entries[0]?.[key];
+    return first !== undefined && entries.every(e => JSON.stringify(e[key]) === JSON.stringify(first)) ? first : undefined;
+  };
+  result.name = consensus('name');
+  result.maxInputTokens = consensus('maxInputTokens');
+  result.toolCall = consensus('toolCall');
+  result.structuredOutput = consensus('structuredOutput');
+  result.inputModalities = consensus('inputModalities');
+  result.outputModalities = consensus('outputModalities');
+  if (entries.every(e => e.thinking === undefined)) delete result.thinking;
+  return result;
+}
 
 /**
  * basellm 官方 vendor 映射（决策点 6 结论 B）：命中则优先取该 vendor 的值。
@@ -89,7 +230,7 @@ export function resolveBasellmConflict(entries: BasellmEntry[], modelName: strin
 }
 
 /**
- * M4.5 Task 1：构造走系统代理的 fetchImpl，**严格限定 ModelCatalog.refresh 这一个调用点**。
+ * M4.5 Task 1：目录在 CLI/单测中的代理环境变量出口；Electron 引擎由 outbound-fetch 走系统代理。
  *
  * 红线：禁止 setGlobalDispatcher 或任何全局改动——全局改会把中转站 ai.nodetect.com 的
  *   直连 80ms 变成走代理 466ms（实测，香港 CDN + 电信优化线路回国，tracert 有证）。
@@ -189,13 +330,17 @@ export function resolveModelsDevConflict(entries: ModelCatalogEntry[]): ModelCat
 /**
  * 合并规则版本。缓存里存的是「按当时规则算好的结果」而非原始响应，规则一变旧缓存就是错的。
  * 不作废的话，升级后最长要等满 24h TTL 修复才生效（期间窗口仍是高估值、被丢的推理位仍是关的）。
- * 规则再变时 +1。M4.6 Task 1：1 → 2（佐证规则引入，旧纯最小缓存作废）。
+ * 规则再变时 +1。3 加入服务商记录与模态元数据，重新获取旧的数字缓存。
  */
-export const MERGE_RULE_VERSION = 2;
+export const MERGE_RULE_VERSION = 3;
 
 interface CacheFile {
   fetchedAt: number;
   models: Record<string, ModelCatalogEntry>;
+  providers?: Record<string, Record<string, ModelCatalogEntry>>;
+  /** F01：models.dev 服务商的 API 地址。可选字段、不升合并规则版本——没有它的旧缓存照常可用，
+   *  只是在下一次成功刷新之前只认内置的官方端点（升版本会让离线用户丢掉整份缓存，代价更大）。 */
+  providerApis?: Record<string, string>;
   source?: 'models.dev' | 'basellm';
   mergeRule?: number;
 }
@@ -205,10 +350,14 @@ interface CacheFile {
  * models.dev API 拉取 + 磁盘缓存（24h TTL）+ 内置兜底表。
  * 任何一环失败都静默回退下一环——目录永远可用，只是可能不新鲜。
  */
-export class ModelCatalog {
+export class ModelCatalog implements RuntimeCatalog {
   private models: Record<string, ModelCatalogEntry> = {};
   private fetchedAt = 0;
   private fetchImpl: FetchLike;
+  private source: ModelMetadataSource = 'unknown';
+  private providerModels: Record<string, Record<string, ModelCatalogEntry>> = {};
+  private providerApis: Record<string, string> = {};
+  private refreshInFlight?: Promise<boolean>;
   /** M4.5 Task 3：手动 contextWindow 覆盖表（modelId → 窗口值）。查询优先级最高。 */
   private manualOverrides: Map<string, number> = new Map();
   /** maxOutput 手动覆盖表：与 manualOverrides 独立——窗口值≠输出上限，
@@ -223,7 +372,11 @@ export class ModelCatalog {
         // 规则版本不符 = 缓存是按旧合并规则算出来的，值不可信，按无缓存处理（下次 refresh 会重拉）
         if (c.mergeRule === MERGE_RULE_VERSION) {
           this.models = c.models ?? {};
-          this.fetchedAt = c.fetchedAt ?? 0;
+          this.providerModels = c.providers ?? {};
+          this.providerApis = Object.fromEntries(Object.entries(record(c.providerApis) ?? {})
+            .flatMap(([id, url]) => { const api = apiUrl(url); return api ? [[id, api]] : []; }));
+          this.source = c.source ?? 'unknown';
+          this.fetchedAt = typeof c.fetchedAt === 'number' && Number.isFinite(c.fetchedAt) ? c.fetchedAt : 0;
         }
       } catch { /* 缓存损坏按无缓存处理 */ }
     }
@@ -231,9 +384,17 @@ export class ModelCatalog {
 
   /** 拉取 models.dev；TTL 内新鲜缓存直接跳过。返回是否真的拉取并成功。 */
   async refresh(force = false): Promise<boolean> {
+    if (this.refreshInFlight) return this.refreshInFlight;
     if (!force && Date.now() - this.fetchedAt < TTL_MS) return false;
+    this.refreshInFlight = this.refreshSources().finally(() => { this.refreshInFlight = undefined; });
+    return this.refreshInFlight;
+  }
+
+  private async refreshSources(): Promise<boolean> {
     // 主源：models.dev（结构化数字字段，无歧义）
     if (await this.tryFetchModelsDev()) return true;
+    // An outage must not replace rich primary metadata with a less complete backup.
+    if (this.source === 'models.dev' && Object.keys(this.models).length > 0) return false;
     // 备源：basellm（models.dev 失败时回退；直连可达，无代理也能成）
     if (await this.tryFetchBasellm()) return true;
     return false; // 双源皆失败 → 静默降级磁盘缓存/BUILTIN（不抛错不阻塞启动）
@@ -242,27 +403,36 @@ export class ModelCatalog {
   /** 主源拉取 models.dev。成功写缓存（source='models.dev'），失败返回 false。 */
   private async tryFetchModelsDev(): Promise<boolean> {
     try {
-      const res = await this.fetchImpl(API_URL);
+      const res = await this.fetchImpl(API_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (!res.ok) return false;
-      const data = await res.json() as Record<string, { models?: Record<string, { limit?: { context?: number; output?: number }; reasoning?: boolean }> }>;
+      const data = record(await res.json());
+      if (!data) return false;
       // M4.6 Task 1：先收集同一 id 的全部 vendor 条目，再按佐证规则一次性消解。
       // 折叠式 `models[id] = merge(...)` 拿不到全局 vendor 计数，无法做 ≥2 佐证。
       const byId = new Map<string, ModelCatalogEntry[]>();
-      for (const vendor of Object.values(data)) {
-        for (const [id, m] of Object.entries(vendor.models ?? {})) {
-          const entry: ModelCatalogEntry = {
-            contextWindow: m.limit?.context,
-            maxOutputTokens: m.limit?.output,
-            thinking: m.reasoning === true,
-          };
+      const providerModels: Record<string, Record<string, ModelCatalogEntry>> = Object.create(null);
+      const providerApis: Record<string, string> = Object.create(null);
+      for (const [providerId, value] of Object.entries(data)) {
+        const vendor = record(value);
+        const vendorModels = record(vendor?.models);
+        if (!vendorModels) continue;
+        const api = apiUrl(vendor?.api);
+        if (api) providerApis[providerId] = api;
+        const parsed: Record<string, ModelCatalogEntry> = Object.create(null);
+        for (const [id, m] of Object.entries(vendorModels)) {
+          const entry = parseModelsDevEntry(m);
+          if (!entry) continue;
+          parsed[id] = entry;
           const arr = byId.get(id) ?? [];
           arr.push(entry);
           byId.set(id, arr);
         }
+        if (Object.keys(parsed).length > 0) providerModels[providerId] = parsed;
       }
-      const models: Record<string, ModelCatalogEntry> = {};
-      for (const [id, entries] of byId) models[id] = resolveModelsDevConflict(entries);
-      this.commitCache(models, 'models.dev');
+      if (byId.size === 0) return false;
+      const models: Record<string, ModelCatalogEntry> = Object.create(null);
+      for (const [id, entries] of byId) models[id] = aggregateMetadata(entries);
+      this.commitCache(models, 'models.dev', providerModels, providerApis);
       return true;
     } catch { return false; } // 离线/格式变化：静默回退备源
   }
@@ -270,7 +440,7 @@ export class ModelCatalog {
   /** 备源拉取 basellm。成功写缓存（source='basellm'），失败返回 false。 */
   private async tryFetchBasellm(): Promise<boolean> {
     try {
-      const res = await this.fetchImpl(BASELLM_URL);
+      const res = await this.fetchImpl(BASELLM_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (!res.ok) return false;
       const data = await res.json() as { success?: boolean; data?: BasellmEntry[] };
       if (data.success !== true || !Array.isArray(data.data)) return false;
@@ -287,43 +457,146 @@ export class ModelCatalog {
         const resolved = resolveBasellmConflict(entries, name);
         if (resolved) models[name] = resolved; // 无窗口的条目不入表
       }
+      if (Object.keys(models).length === 0) return false;
       this.commitCache(models, 'basellm');
       return true;
     } catch { return false; } // 静默降级 BUILTIN
   }
 
   /** 写入缓存并更新内存态。 */
-  private commitCache(models: Record<string, ModelCatalogEntry>, source: 'models.dev' | 'basellm'): void {
-    this.models = models;
-    this.fetchedAt = Date.now();
+  private commitCache(
+    models: Record<string, ModelCatalogEntry>, source: 'models.dev' | 'basellm',
+    providers: Record<string, Record<string, ModelCatalogEntry>> = {}, providerApis: Record<string, string> = {},
+  ): void {
+    const fetchedAt = Date.now();
     const tmp = this.cacheFile + '.tmp';
-    writeFileSync(tmp, JSON.stringify({ fetchedAt: this.fetchedAt, models, source, mergeRule: MERGE_RULE_VERSION } satisfies CacheFile), 'utf8');
+    writeFileSync(tmp, JSON.stringify({ fetchedAt, models, providers, providerApis, source, mergeRule: MERGE_RULE_VERSION } satisfies CacheFile), 'utf8');
     renameSync(tmp, this.cacheFile); // 原子写（对齐 providers.json 模式）
+    this.models = models;
+    this.providerModels = providers;
+    this.providerApis = providerApis;
+    this.source = source;
+    this.fetchedAt = fetchedAt;
+  }
+
+  getStatus(): ModelCatalogStatus {
+    return {
+      primarySource: 'models.dev', apiUrl: API_URL,
+      source: this.source === 'unknown' ? 'builtin' : this.source,
+      fetchedAt: this.fetchedAt || undefined,
+      stale: !this.fetchedAt || Date.now() - this.fetchedAt >= TTL_MS,
+      modelCount: Object.keys(this.models).length,
+    };
+  }
+
+  /** Specs only; a provider ID selects its own record without borrowing another vendor's capabilities. */
+  getModelMetadata(modelId: string, providerId?: string): ModelMetadata {
+    const slash = modelId.indexOf('/');
+    const prefix = slash >= 0 ? modelId.slice(0, slash) : undefined;
+    const vendorId = providerId ?? (prefix && Object.hasOwn(this.providerModels, prefix) ? prefix : undefined);
+    const tail = modelId.slice(modelId.lastIndexOf('/') + 1);
+    const copy = copyEntry;
+    if (vendorId) {
+      const vendor = Object.hasOwn(this.providerModels, vendorId) ? this.providerModels[vendorId] : undefined;
+      const entry = vendor && (Object.hasOwn(vendor, modelId) ? vendor[modelId] : Object.hasOwn(vendor, tail) ? vendor[tail] : undefined);
+      return entry
+        ? { ...copy(entry), source: 'models.dev', fetchedAt: this.fetchedAt, providerId: vendorId, match: 'provider' }
+        : { source: 'unknown', providerId: vendorId, match: 'unknown' };
+    }
+    const entry = Object.hasOwn(this.models, modelId) ? this.models[modelId] : Object.hasOwn(this.models, tail) ? this.models[tail] : undefined;
+    if (entry) {
+      const result = copy(entry);
+      if (this.source === 'models.dev') {
+        const id = Object.hasOwn(this.models, modelId) ? modelId : tail;
+        const entries = Object.values(this.providerModels).filter(v => Object.hasOwn(v, id)).map(v => v[id]);
+        const first = entries[0]?.thinking;
+        // Keep legacy runtime reasoning aggregation, but display disputes as unknown.
+        result.thinking = first !== undefined && entries.every(e => e.thinking === first) ? first : undefined;
+      }
+      return { ...result, source: this.source, fetchedAt: this.fetchedAt, match: 'aggregate' };
+    }
+    const builtin = this.lookup(modelId);
+    return builtin ? { ...copy(builtin), source: 'builtin', match: 'builtin' } : { source: 'unknown', match: 'unknown' };
   }
 
   private lookup(modelId: string): ModelCatalogEntry | undefined {
-    const direct = this.models[modelId];
-    if (direct) return direct;
+    return this.lookupTier(modelId)?.entry;
+  }
+
+  /** lookup 的分层版：同一取值顺序（缓存完整 id → 末段 → 内置族表），顺带说明命中的是哪一层、哪个键。 */
+  private lookupTier(modelId: string): { entry: ModelCatalogEntry; tier: 'aggregate' | 'basellm' | 'builtin'; key?: string } | undefined {
+    const tier = this.source === 'basellm' ? 'basellm' as const : 'aggregate' as const;
+    if (Object.hasOwn(this.models, modelId)) return { entry: this.models[modelId], tier, key: modelId };
     const slash = modelId.lastIndexOf('/');
     const tail = slash >= 0 ? modelId.slice(slash + 1) : modelId;
-    if (this.models[tail]) return this.models[tail];
-    for (const [re, entry] of BUILTIN) if (re.test(modelId) || re.test(tail)) return entry;
+    if (Object.hasOwn(this.models, tail)) return { entry: this.models[tail], tier, key: tail };
+    for (const [re, entry] of BUILTIN) if (re.test(modelId) || re.test(tail)) return { entry, tier: 'builtin' };
     return undefined;
   }
 
-  /** M4.5 Task 3：设置手动 contextWindow 覆盖（modelId → 窗口值；undefined 清除覆盖）。 */
+  /** 某个模型在各服务商记录里的模态逐项资料（只有 models.dev 主源才有逐家记录）。 */
+  private mediaConsensus(key: string, field: 'inputModalities' | 'outputModalities'): MediaConsensus | undefined {
+    const lists = Object.values(this.providerModels)
+      .flatMap(vendor => Object.hasOwn(vendor, key) && Array.isArray(vendor[key][field]) ? [vendor[key][field]!] : []);
+    if (lists.length === 0) return undefined;
+    const any = [...new Set(lists.flat())].sort();
+    return { all: any.filter(m => lists.every(l => l.includes(m))), any, voters: lists.length };
+  }
+
+  /** 某个模型的一项布尔能力在各服务商记录里的表态家数（F01R）。查询时从内存里的逐家记录现算，不进缓存文件：
+   *  离线重启后从缓存恢复的 providerModels 同样算得出，结论与在线时一致。 */
+  private boolVotes(key: string, field: 'toolCall' | 'thinking'): BoolVotes {
+    const votes: BoolVotes = { yes: 0, no: 0 };
+    for (const vendor of Object.values(this.providerModels)) {
+      if (!Object.hasOwn(vendor, key)) continue;
+      const v = vendor[key][field];
+      if (v === true) votes.yes++; else if (v === false) votes.no++;
+    }
+    return votes;
+  }
+
+  getEndpointRecord(providerId: string, modelId: string): ModelCatalogEntry | undefined {
+    const vendor = Object.hasOwn(this.providerModels, providerId) ? this.providerModels[providerId] : undefined;
+    if (!vendor) return undefined;
+    const tail = modelId.slice(modelId.lastIndexOf('/') + 1);
+    const entry = Object.hasOwn(vendor, modelId) ? vendor[modelId] : Object.hasOwn(vendor, tail) ? vendor[tail] : undefined;
+    return entry ? copyEntry(entry) : undefined;
+  }
+
+  /** 跨服务商汇总的推理位沿用旧运行时规则（任一服务商声明即为 true）：它只作「目录提示」，
+   *  中转端点据此仍是「未确认」，见 runtime-model.ts。 */
+  getDeclaredRecord(modelId: string): ReturnType<RuntimeCatalog['getDeclaredRecord']> {
+    const hit = this.lookupTier(modelId);
+    if (!hit) return undefined;
+    if (hit.tier !== 'aggregate' || !hit.key || this.source !== 'models.dev') return { entry: copyEntry(hit.entry), tier: hit.tier };
+    const input = this.mediaConsensus(hit.key, 'inputModalities');
+    const output = this.mediaConsensus(hit.key, 'outputModalities');
+    return {
+      entry: copyEntry(hit.entry), tier: hit.tier, media: { ...(input ? { input } : {}), ...(output ? { output } : {}) },
+      votes: { toolCall: this.boolVotes(hit.key, 'toolCall'), thinking: this.boolVotes(hit.key, 'thinking') },
+    };
+  }
+
+  providerApiUrls(): Readonly<Record<string, string>> {
+    return { ...this.providerApis };
+  }
+
+  // ── 以下四个按 modelId 的旧接口只为既有测试与外部脚本保留：运行时（chat.prompt / Agent 循环 / 水位条 / 诊断）
+  //    一律走 resolveRuntimeModel，按配置实例解析；手动覆盖不再按 modelId 全局生效（F01）。 ──
+
+  /** @deprecated 运行时用 resolveRuntimeModel。M4.5 Task 3：设置手动 contextWindow 覆盖（modelId → 窗口值；undefined 清除覆盖）。 */
   setManualOverride(modelId: string, window: number | undefined): void {
     if (window === undefined) this.manualOverrides.delete(modelId);
     else this.manualOverrides.set(modelId, window);
   }
 
-  /** 设置手动 maxOutput 覆盖（modelId → 输出上限；undefined 清除覆盖）。 */
+  /** @deprecated 运行时用 resolveRuntimeModel。设置手动 maxOutput 覆盖（modelId → 输出上限；undefined 清除覆盖）。 */
   setMaxOutputOverride(modelId: string, output: number | undefined): void {
     if (output === undefined) this.maxOutputOverrides.delete(modelId);
     else this.maxOutputOverrides.set(modelId, output);
   }
 
-  /** M2a ContextPolicy 的窗口查询入口；未知模型返回 undefined（M2a 回退其内置映射）。
+  /** @deprecated 运行时用 resolveRuntimeModel。M2a ContextPolicy 的窗口查询入口；未知模型返回 undefined（M2a 回退其内置映射）。
    *  M4.5 Task 3：优先级为「手动值 > models.dev 缓存/BUILTIN（lookup）> undefined」。 */
   getModelContextWindow(modelId: string): number | undefined {
     const manual = this.manualOverrides.get(modelId);
@@ -331,7 +604,8 @@ export class ModelCatalog {
     return this.lookup(modelId)?.contextWindow;
   }
 
-  /** 模型输出上限查询：优先级「手动 maxOutput 覆盖 > models.dev 缓存/BUILTIN（lookup）> undefined」。
+  /** @deprecated 运行时用 resolveRuntimeModel。
+   *  模型输出上限查询：优先级「手动 maxOutput 覆盖 > models.dev 缓存/BUILTIN（lookup）> undefined」。
    *  走与 getModelContextWindow 相同的三级结构；手动表独立（见 maxOutputOverrides 注释）。
    *  chat.prompt 拿不到值（undefined）时兜底 8192。 */
   getModelMaxOutput(modelId: string): number | undefined {
@@ -340,7 +614,8 @@ export class ModelCatalog {
     return this.lookup(modelId)?.maxOutputTokens;
   }
 
-  /** 按模型族钳制 thinking 档位：目录/内置表判定不支持推理的模型一律钳到 off（设计 §4.1）。
+  /** @deprecated 运行时用 resolveRuntimeModel + decideThinking（按每个槽位钳制）。
+   *  按模型族钳制 thinking 档位：目录/内置表判定不支持推理的模型一律钳到 off（设计 §4.1）。
    *  M4.5 Task 3 决策点 3：不查 manualOverrides——手动值只有窗口没有 thinking 标记，thinking 仍走 lookup。 */
   clampThinkingLevel(modelId: string, level: ThinkingLevel): ThinkingLevel {
     if (level === 'off') return 'off';

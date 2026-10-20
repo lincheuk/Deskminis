@@ -23,6 +23,9 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, cpSync, c
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {packagedProbeVerdict} from './windows-probe-verdict.mjs';
+import {readInstallations,mayInstall,mayUninstall} from './windows-install-safety.mjs';
+import { verifyPackageComposition } from './windows-package-composition.mjs';
 
 const CWD = process.cwd();
 const results = [];
@@ -119,6 +122,8 @@ function assertShimEquiv(label, shimPath, probe) {
 async function verifyUnpacked(root) {
   const resources = join(root, 'resources');
   const unpacked = join(resources, 'app.asar.unpacked');
+  const composition = verifyPackageComposition(resources, { installer: existsSync(SETUP) ? SETUP : undefined });
+  record('package composition and licenses', composition.ok, JSON.stringify({ sizes: composition.sizes, issues: composition.issues }));
 
   // 产物面：extraResources（硬阻塞 1/2）
   record('extraResources bridge-cli', existsSync(join(resources, 'bridge-cli.mjs')),
@@ -136,11 +141,26 @@ async function verifyUnpacked(root) {
     existsSync(join(unpacked, 'node_modules', '@napi-rs', 'keyring-win32-x64-msvc', 'keyring.win32-x64-msvc.node'))
       ? 'keyring.win32-x64-msvc.node 已解包' : '缺失');
 
+  const nativeCode="const r=require('module').createRequire(process.argv[1]);const D=r('better-sqlite3');const db=new D(':memory:');const row=db.prepare('select 1 as ok').get();db.close();r('@napi-rs/keyring');console.log(JSON.stringify({electron:process.versions.electron,node:process.version,abi:process.versions.modules,sqlite:row.ok,keyringLoaded:true}));";
+  const nativeResult=spawnSync(join(root,'DeskMinis.exe'),['-e',nativeCode,join(resources,'app.asar/package.json')],{cwd:CWD,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},encoding:'utf8',windowsHide:true,timeout:30000});
+  record('F12 packaged native ABI',nativeResult.status===0&&!nativeResult.error,JSON.stringify({exit:nativeResult.status,error:nativeResult.error?.message??null,stdout:nativeResult.stdout,stderr:nativeResult.stderr}));
+
   // §6-4 打包态 ELECTRON_RUN_AS_NODE 等价性
   const probe = writeProbe(root);
   const shim = join(resources, 'bridge-node.cmd');
   assertShimEquiv('§6-4 垫片 ELECTRON_RUN_AS_NODE 等价性', shim, probe);
   rmSync(probe, { force: true });
+
+  // F12: exercise the real installed/unpacked utilityProcess with isolated data and a loopback model.
+  if (process.env.DESKMINIS_M5_PROBE_DIR) {
+    const probeDir = join(resolve(process.env.DESKMINIS_M5_PROBE_DIR), createHash('sha256').update(root).digest('hex').slice(0,12));
+    const result = spawnSync(join(root,'DeskMinis.exe'), [join(CWD,'node_modules/vite-node/vite-node.mjs'),join(CWD,'tests/windows-packaged-probe.ts'),'--app',join(root,'DeskMinis.exe'),'--evidence',probeDir], {
+      cwd:CWD,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},encoding:'utf8',windowsHide:true,timeout:900000,maxBuffer:4*1024*1024,
+    });
+    let proof;try{proof=JSON.parse(readFileSync(join(probeDir,'probe.json'),'utf8'));}catch{}
+    const verdict=packagedProbeVerdict(result,proof,join(root,'DeskMinis.exe'));
+    record('F12 packaged utilityProcess behavior',verdict.ok,verdict.reason+' '+JSON.stringify({exit:result.status,signal:result.signal,error:result.error?.message??null})+' '+(result.stdout??'').trim()+' '+(result.stderr??'').trim()+' evidence='+probeDir);
+  }
 
   // §6-5 含空格安装路径下垫片可用：拷贝到含空格临时目录复测
   const spaced = mkdtempSync(join(tmpdir(), 'My Apps DeskMinis-'));
@@ -268,7 +288,7 @@ function installLocationState(guid, spawn = spawnSync) {
 
 /** 收尾真去查文件、拷文件、起进程、记结果的四样。可注入（W3-e2ef）：tests/e2e-m5-uninstall.test.ts 换成假的，把 uninstallTemp 的每一支真跑一遍
  *  ——以前只有源码守卫，副本落进安装目录、失败照样返回 true、reg 探测被跳过都能全绿。 */
-const REAL_IO = { exists: existsSync, copy: copyFileSync, spawn: spawnSync, record };
+const REAL_IO = { exists: existsSync, copy: copyFileSync, spawn: spawnSync, record, inspect: readInstallations };
 
 /** 把 §6-1 静默装进临时目录的那一份静默卸掉（W3-e2e）：卸载程序会删掉 HKCU 下的安装位置、「应用和功能」里的登记
  *  与开始菜单、桌面快捷方式。以前只删目录不卸载，这些都还指着已删的临时目录，之后照 RELEASE 重装会被静默装进那个 Temp 路径
@@ -287,6 +307,8 @@ export function uninstallTemp(installDir, workDir, io = REAL_IO) {
   if (!io.exists(un)) {
     return io.exists(join(installDir, 'DeskMinis.exe')) ? fail(`装上了却找不到卸载程序 ${un}`) : true;
   }
+  const ownership = mayUninstall((io.inspect ?? readInstallations)(guid), installDir);
+  if (!ownership.ok) return fail(ownership.reason);
   try {
     const copy = uninstallerCopyPath(workDir);
     io.copy(un, copy);
@@ -298,18 +320,33 @@ export function uninstallTemp(installDir, workDir, io = REAL_IO) {
       registry,
     });
     if (!v.pass) return fail(v.detail, registry);
-    io.record(UNINSTALL_STEP, true, v.detail);
+    const after=(io.inspect??readInstallations)(guid);
+    if(!mayInstall(after).ok)return fail('Post-uninstall registration or process state is not clean');
+    io.record(UNINSTALL_STEP, true, v.detail+'; all registry views and process inspection are clean');
     return true;
   } catch (e) {
     return fail(`卸载异常: ${e.message}`);
   }
 }
 
+/** The installer may uninstall a registered old version. Refuse before starting it. */
+export function startTemporaryInstall(setupExe, installDir, io = { inspect: readInstallations, spawn: spawnSync }) {
+  const guard = mayInstall(io.inspect(appGuid(APP_ID)));
+  if (!guard.ok) return { started: false, reason: guard.reason };
+  const result = io.spawn(setupExe, ['/S', `/D=${installDir}`], { encoding: 'utf8', timeout: 180000, windowsHide: true });
+  return { started: true, result };
+}
+
 async function installAndVerify(setupExe) {
+  const initial = mayInstall(readInstallations(appGuid(APP_ID)));
+  if (!initial.ok) { record('§6-1 NSIS 安全检查', false, initial.reason); return; }
   const target = mkdtempSync(join(tmpdir(), 'DeskMinis Install ')); // 含空格
   const installDir = join(target, 'Program Files', 'DeskMinis');
   try {
-    const r = spawnSync(setupExe, [`/S`, `/D=${installDir}`], { encoding: 'utf8', timeout: 180000, windowsHide: true });
+    const attempt = startTemporaryInstall(setupExe, installDir);
+    if (!attempt.started) { record('§6-1 NSIS 安全检查', false, attempt.reason); return; }
+    const r = attempt.result;
+    if(r.error||r.signal||r.status!==0){record('§6-1 NSIS 静默安装',false,`安装器退出异常: exit=${r.status}, error=${r.error?.message??''}`);return;}
     const waitMs = 60000;
     await sleep(waitMs); // NSIS /S 静默安装，等待落盘
     const exe = join(installDir, 'DeskMinis.exe');

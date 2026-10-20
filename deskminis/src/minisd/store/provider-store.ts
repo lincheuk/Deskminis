@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import type { AgentProvider, FetchLike } from '../providers/types';
+import type { CapabilityOverrides } from '../../shared/runtime-model';
 import { AnthropicProvider } from '../providers/anthropic';
 import { OpenAIProvider } from '../providers/openai';
 import { GeminiProvider } from '../providers/gemini';
@@ -96,8 +97,15 @@ export class FileVault implements SecretVault {
 export interface ProviderInstance {
   id: string; name: string; kind: 'anthropic' | 'openai-compat' | 'gemini' | 'ollama';
   baseUrl?: string; modelId: string;
-  /** M4.5 Task 3：手动 contextWindow（可选），查询优先级最高。用户修正目录错误值的终极兜底。 */
+  /** M4.5 Task 3：手动 contextWindow（可选），查询优先级最高。用户修正目录错误值的终极兜底。
+   *  F01 起只作用于本实例（运行时按实例解析，不再按 modelId 全局生效）；手改的非法值由 normalizeInstanceOverrides 忽略并报出。 */
   contextWindow?: number;
+  /** N21：本配置对应的 models.dev 服务商；只影响目录资料，不改变请求地址。 */
+  catalogProviderId?: string;
+  /** F01：手动输出上限（max_tokens），只作用于本实例。 */
+  maxOutputTokens?: number;
+  /** F01：手动能力修正，只作用于本实例；不能打开应用尚未实现的传输（音视频、PDF 原生输入、媒体生成）。 */
+  capabilityOverrides?: CapabilityOverrides;
 }
 
 export interface ModelGroup {
@@ -123,6 +131,12 @@ export class ProviderStore {
 
   list(): (ProviderInstance & { hasApiKey: boolean })[] {
     return this.cfg.providers.map(p => ({ ...p, hasApiKey: this.vault.get(`provider:${p.id}`) !== undefined }));
+  }
+
+  /** 单个实例的配置副本（不含密钥）；运行时解析模型规格用。 */
+  get(id: string): ProviderInstance | undefined {
+    const p = this.cfg.providers.find(x => x.id === id);
+    return p ? { ...p, ...(p.capabilityOverrides ? { capabilityOverrides: { ...p.capabilityOverrides } } : {}) } : undefined;
   }
 
   create(inst: Omit<ProviderInstance, 'id'>, apiKey?: string): ProviderInstance {

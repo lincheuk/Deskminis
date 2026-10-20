@@ -3,8 +3,10 @@ import electronUpdater from 'electron-updater';
 import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { writeFile } from 'node:fs/promises';
+import { markdownFileName } from './markdown-export';
 import { resolveAppDirs } from './app-dirs';
-import { attachmentPath, decodeImageDataUrl, extFromDataUrl } from './attachments';
+import { attachmentPath, contentTag, decodeImageDataUrl, extFromDataUrl } from './attachments';
 import { describeUpdateError, downloadedDialog, isPortableBuild, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog, updaterLogText, type UpdateState } from './update-status';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES, LineSplitter } from './child-output';
@@ -405,7 +407,9 @@ ipcMain.handle('update:check', async () => await checkUpdates(true));
 ipcMain.handle('minisd:port', () => minisdPort);
 // 新通道：端口 + per-run token。preload 的 minisdInfo() invoke 的就是这个通道——
 // 少了它，渲染层调用命中一个未注册的通道、静默失败、每个 WS 连接被 401，应用连不上 minisd。
-ipcMain.handle('minisd:info', () => ({ port: minisdPort, token: minisdToken }));
+// F06：多带一个 alive（引擎进程是否还在）。渲染端断线重连时每次都重新问这里；引擎已经退出就不必空转几十秒再出横幅。
+// 主进程不重启引擎（握手只认第一条），所以 alive 为假之后不会再变回真。
+ipcMain.handle('minisd:info', () => ({ port: minisdPort, token: minisdToken, alive: minisd !== undefined && minisdExit?.exited !== true }));
 
 // W2b-3 断线横幅的「重启应用」（设计稿 §3 第 7 条、§2「生命周期」）：重启整个应用，不单独重启引擎——
 // 渲染端的 rpc 不重连、没有代次（W6），只换引擎的话界面状态与新引擎对不上。
@@ -421,6 +425,20 @@ ipcMain.handle('app:relaunch', (e) => {
   quitting = true;
   app.relaunch(relaunchOptions(process.env, process.argv));
   app.quit();
+});
+
+// W10：只有主窗口能请求导出；渲染端没有路径参数，实际写入位置只取对话框结果。
+ipcMain.handle('dialog:saveMarkdown', async (e, defaultName: unknown, content: unknown) => {
+  if (mainWindow === undefined || e.sender !== mainWindow.webContents) throw new Error('只接受主窗口的导出请求');
+  if (typeof defaultName !== 'string' || typeof content !== 'string') throw new Error('导出文件名和内容必须是字符串');
+  if (Buffer.byteLength(content, 'utf8') > 50 * 1024 * 1024) throw new Error('导出内容不能超过 50 MB');
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: '导出为 Markdown', defaultPath: join(app.getPath('documents'), markdownFileName(defaultName)),
+    filters: [{ name: 'Markdown', extensions: ['md'] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  await writeFile(result.filePath, content, { encoding: 'utf8' });
+  return result.filePath;
 });
 
   // 工作区目录选择器（用户 2026-08-11 拍板「原生选择器 + 粘贴路径框两者都要」）。
@@ -439,15 +457,18 @@ ipcMain.handle('app:relaunch', (e) => {
 // MU2b Task 6：渲染端图片粘贴/拖拽 → 落盘会话附件目录（main/preload 白名单：本 Task 仅此一处 handler）。
 // sessionId 经 attachmentPath 内 UUID 正则校验防路径逃逸；dataUrl 非图片/坏 base64 拒绝。
 // F2a：扩展名随 dataUrl 的 mime（降采样后 jpeg 导出落 .jpg，防 mimeFromPath 与字节不符）。
-// 返回会话相对路径 attachments/paste-<ts>.<ext>，渲染端发送时以 attachments 参数带给模型。
+// 返回会话相对路径 attachments/paste-<ts>-<tag>.<ext>，渲染端发送时以 attachments 参数带给模型。
+// F11A：文件名带内容哈希前 8 位（tag）——附件同步按（会话，文件名）认身份，名字与内容绑在一起，两台设备不会各出一个同名异内容的文件。
 ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) => {
   if (typeof sessionId !== 'string' || typeof dataUrl !== 'string') throw new Error('非法参数');
   const ext = extFromDataUrl(dataUrl) ?? 'png';
   const ts = Date.now();
-  const abs = attachmentPath(dirs.dataRoot, sessionId, ts, ext);
+  const bytes = decodeImageDataUrl(dataUrl);
+  const tag = contentTag(bytes);
+  const abs = attachmentPath(dirs.dataRoot, sessionId, ts, ext, tag);
   mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, decodeImageDataUrl(dataUrl));
-  return `attachments/paste-${ts}.${ext}`;
+  writeFileSync(abs, bytes);
+  return `attachments/paste-${ts}-${tag}.${ext}`;
 });
 
 app.whenReady().then(async () => {

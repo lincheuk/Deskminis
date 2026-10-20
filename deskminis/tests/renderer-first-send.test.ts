@@ -7,30 +7,44 @@
  * ② 首条消息被同步拒绝（未配置模型 / 建会话失败）时欢迎页零交代——文字清了、多出一个幽灵会话、没有一句话。
  * 这条守卫钉死修法。断言认调用形态，不认散文（同文件注释里写得再多也喂不饱）。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const { _rpcCall, _rpcOn, _handlers, _rpcLost, _rpcConnect } = vi.hoisted(() => {
+  const handlers = new Map<string, (params: any) => unknown>();
+  return { _rpcCall: vi.fn(), _rpcOn: vi.fn((method: string, handler: (params: any) => unknown) => { handlers.set(method, handler); }), _handlers: handlers, _rpcLost: vi.fn(), _rpcConnect: vi.fn(async () => {}) };
+});
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: _rpcCall, on: _rpcOn, onLost: _rpcLost, connect: _rpcConnect } }));
+
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripComments } from './strip-comments';
+import { useChat } from '../src/renderer/src/stores/chat';
+import { resetStoreRpc, type Equal, type Chat } from './renderer-store-fixture';
 
 const SRC = join(__dirname, '../src/renderer/src/');
 const read = (p: string): string => readFileSync(join(SRC, p), 'utf8').replace(/\r\n/g, '\n');
 const composer = read('ui/Composer.vue');
 const stageChat = read('ui/StageChat.vue');
-const store = read('stores/chat.ts');
+
 /** send() 函数体（到下一个顶层函数声明为止）——闸与寄存都必须在它里面。 */
-const sendBody = composer.slice(composer.indexOf('async function send()'), composer.indexOf('\nfunction quote('));
+const sendBody = composer.slice(composer.indexOf('async function send('), composer.indexOf('\nfunction takeDraft('));
+
+const _probe = { call: _rpcCall, on: _rpcOn, handlers: _handlers, lost: _rpcLost, connect: _rpcConnect };
+// 每例使用新的真实 Pinia；RPC 桩只记调用与订阅，由用例放行应答。
+beforeEach(() => { resetStoreRpc(_probe); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('X1 — 首条消息建会话期间不许重入', () => {
   it('send() 有 sending 闸：入口早退、进入置位、finally 放开', () => {
     expect(composer).toMatch(/const sending = ref\(false\)/);
-    expect(sendBody).toMatch(/if \(\(!t && !paths\.length\) \|\| chat\.running \|\| sending\.value\) return;/);
+    expect(sendBody).toMatch(/if \(\(!t && !paths\.length\) \|\| sending\.value\) return;/);
+    expect(sendBody).toMatch(/if \(chat\.running && !chat\.inputsOn\) return;/);
     expect(sendBody).toMatch(/sending\.value = true;/);
     // 闸必须在 finally 块内放：任一 await 抛错后不放，输入卡就永久失能（块内可有注释，不锚「首句」）
     expect(sendBody).toMatch(/finally \{[^}]*sending\.value = false;[^}]*\}/);
   });
 
   it('发送键随闸变灰——建会话那几十毫秒就是「已经在发」的反馈', () => {
-    expect(composer).toMatch(/const canSend = computed\(\(\) =>[^;]*&& !chat\.running && !sending\.value\)/);
+    expect(composer).toMatch(/const canSend = computed\(\(\) =>[^;]*&& chat\.connection !== 'reconnecting' && chat\.connection !== 'lost' && !sending\.value\)/);
   });
 });
 
@@ -49,8 +63,20 @@ describe('X2 — 首条消息被同步拒绝时，界面必须交代', () => {
 });
 
 describe('X2b — 被拒的草稿交回输入框（跨实例：欢迎页换会话页再换回来，发它的实例已卸载）', () => {
-  it('store 有 draft 寄存字段', () => {
-    expect(store).toMatch(/draft: null as null \| \{ text: string; attachments: \{ path: string; dataUrl: string \}\[\] \}/);
+  it('store 有 draft 寄存字段', async () => {
+    // 草稿的可空联合及嵌套附件完整形状由精确类型比较把关；运行时逐个取值。
+    const draftType: true = true as Equal<Chat['draft'], null | { text: string; attachments: { path: string; dataUrl: string }[] }>;
+    expect(draftType).toBe(true);
+    const chat = useChat();
+    expect(chat.draft).toBeNull();
+    for (const attachments of [[], [{ path: 'attachments/a.png', dataUrl: 'data:test' }]]) {
+      const draft = { text: 'draft text', attachments };
+      chat.draft = draft;
+      expect(chat.draft).toEqual(draft);
+      chat.draft = null;
+      expect(chat.draft).toBeNull();
+    }
+    expect(_rpcCall.mock.calls).toEqual([]);
   });
 
   it('清空输入框之前先寄存；send 返回后被拒则取回、否则清寄存', () => {

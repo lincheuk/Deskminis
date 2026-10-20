@@ -95,6 +95,34 @@ async function execTool(reg: ToolRegistry, ctx: ToolContext, name: string, input
 
 // ── ensureForRun：并行连接与注册 ─────────────────────────────────────────
 
+describe('F09 在途列表遇到连接回收', () => {
+  it.each(['idle', 'server-error'] as const)('%s 回收后迟到列表不会重新注册失效连接', async reason => {
+    const store = mkStore(); seedStdio(store, 'a');
+    const mgr = mkManager(store); await mgr.ensureForRun();
+    const client = clients[0];
+    let finish!: (tools: McpToolInfo[]) => void;
+    client.listImpl = () => new Promise(resolve => { finish = resolve; });
+    client.onNotification?.({ method: 'tools/list_changed' });
+    const listing = mgr.ensureForRun();
+    await new Promise(resolve => setImmediate(resolve));
+    if (reason === 'idle') mgr.checkIdleEvictions(Date.now() + 11 * 60_000);
+    else {
+      client.closed = true;
+      client.callImpl = async () => { throw new Error('MCP server 进程已退出'); };
+      const result = await execTool(registry, mkCtx(chat.createSession().id), 'mcp__a__echo', { tool_title: 'x' });
+      expect(result.success).toBe(false);
+    }
+    expect(client.disposeCalls).toBe(1);
+    finish(toolsOf(['late'])); await listing;
+    expect(registry.definitions().map(d => d.name)).not.toContain('mcp__a__late');
+    expect(mgr.statuses()).toMatchObject([{ status: reason === 'idle' ? 'idle' : 'error', toolCount: 0 }]);
+    await mgr.ensureForRun();
+    expect(clients).toHaveLength(2);
+    expect(registry.definitions().map(d => d.name)).toContain('mcp__a__echo');
+    await mgr.disposeAll();
+  });
+});
+
 describe('McpManager ensureForRun（1-2）', () => {
   it('两台 enabled 并行连接，mcp__ 工具进 registry；disabled 台不连', async () => {
     const store = mkStore();
@@ -534,7 +562,7 @@ describe('W1a-6 即时生效：执行器现查全局启停 + forget', () => {
     expect(promptSpy.calls).toHaveLength(1);
     expect(r).toEqual({ output: '该 MCP server 配置刚被修改，本次调用未执行', success: false });
     expect(clients[0].callLog).toHaveLength(0);
-    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0 });
+    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0, limitSkipped: [], collisionSkipped: [] });
     await mgr.ensureForRun();
     expect(clients).toHaveLength(2);
     expect(mgr.statuses()[0].status).toBe('connected');
@@ -578,7 +606,7 @@ describe('W1a-6 即时生效：执行器现查全局启停 + forget', () => {
     mgr.forget('a');
     expect(clients[0].disposeCalls).toBe(1);
     expect(registry.definitions().some(d => d.name === 'mcp__a__echo')).toBe(false);
-    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0 });
+    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0, limitSkipped: [], collisionSkipped: [] });
     await mgr.ensureForRun();
     expect(clients).toHaveLength(2);
     expect(seen[1]).toMatchObject({ name: 'a', command: 'echo', args: ['--v2'], env: { K: '2' } });
@@ -596,7 +624,7 @@ describe('W1a-6 即时生效：执行器现查全局启停 + forget', () => {
     await mgr.ensureForRun();
     expect(mgr.statuses()[0].status).toBe('error');
     mgr.forget('bad');
-    expect(mgr.statuses()[0]).toEqual({ name: 'bad', status: 'idle', toolCount: 0, truncated: 0 });
+    expect(mgr.statuses()[0]).toEqual({ name: 'bad', status: 'idle', toolCount: 0, truncated: 0, limitSkipped: [], collisionSkipped: [] });
     expect(() => mgr.forget('ghost')).not.toThrow();
   });
 
@@ -712,7 +740,7 @@ describe('W1a-6 即时生效：执行器现查全局启停 + forget', () => {
     fail();
     await pending;
     // 设置页看到的是改后那份配置的状态：还没连过，就是 idle，不是旧配置的「启动超时」
-    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0 });
+    expect(mgr.statuses()[0]).toEqual({ name: 'a', status: 'idle', toolCount: 0, truncated: 0, limitSkipped: [], collisionSkipped: [] });
     await mgr.ensureForRun();
     expect(clients).toHaveLength(2);
     expect(mgr.statuses()[0].status).toBe('connected');
@@ -813,7 +841,7 @@ describe('RPC 集成：setMcpDisabled 往返 + mcp.servers.list 带 status', () 
     expect(sessions.find((x: any) => x.id === s.id)?.mcpDisabled).toEqual(['demo']);
     const list = (await c.call('mcp.servers.list', {})).result;
     expect(list.servers.map((x: any) => x.name)).toEqual(['demo']);
-    expect(list.statuses).toEqual([{ name: 'demo', status: 'idle', toolCount: 0, truncated: 0 }]);
+    expect(list.statuses).toEqual([{ name: 'demo', status: 'idle', toolCount: 0, truncated: 0, limitSkipped: [], collisionSkipped: [] }]);
     // 清空往返
     await c.call('chat.sessions.setMcpDisabled', { sessionId: s.id, servers: [] });
     const sessions2 = (await c.call('chat.sessions.list', {})).result;

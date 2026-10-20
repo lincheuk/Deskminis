@@ -7,16 +7,20 @@
  *
  *  逻辑全部复用既有纯模块：rowsFor（自适应行数）、histStep（↑↓ 输入历史）、
  *  atToken/atMatch/applyAt/collectFiles（@ 文件引用）。本组件只管形与接线。 */
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useChat } from '../stores/chat';
 import { rpc } from '../rpc';
 import { rowsFor } from '../lib/composer/autogrow';
 import { histStep } from '../lib/composer/history';
 import { atToken, atMatch, applyAt, collectFiles } from '../lib/composer/at-files';
 import { downsampleImageFile } from '../lib/attach/downsample';
-import { describeBinding } from '../lib/models/binding';
+import { describeBinding, normalizeBinding } from '../lib/models/binding';
+import type { RuntimeModel, ThinkingPreview } from '@shared/runtime-model';
+import type { ThinkingLevel } from '@shared/types';
 import { assistantToApply, applyStateOf, previewBinding } from '../lib/welcome/assistant';
 import UiIcon from './UiIcon.vue';
+import InputQueue from './InputQueue.vue';
+import type {InputMode} from '@shared/inputs';
 
 const props = withDefaults(defineProps<{ variant?: 'hero' | 'chat' }>(), { variant: 'chat' });
 const chat = useChat();
@@ -33,7 +37,9 @@ const sending = ref(false);
 // 只有附件没有文字也能发（「看看这张图」的常见开法）。
 // W2b-3：断线后发送键置灰——引擎已经收不到了（顶栏横幅在说）。按 Enter 仍会进 send()（入口早退行不看断线）：
 // chat.send 在动任何状态之前先判断线，原样退回来、只写一句「连接已断开」，send() 末尾见 lastError 就把字交回框里
-const canSend = computed(() => (text.value.trim().length > 0 || atts.value.length > 0) && chat.connection !== 'lost' && !chat.running && !sending.value);
+const canSend = computed(() => (text.value.trim().length > 0 || atts.value.length > 0) && chat.connection !== 'reconnecting' && chat.connection !== 'lost' && !sending.value);
+const canSteer = computed(() => canSend.value && !atts.value.length && !!chat.runOf[chat.activeId]?.runId && !chat.runOf[chat.activeId]?.ended);
+const hasInbox = computed(() => (chat.inputsBySession[chat.activeId] ?? []).some(i => ['pending','starting','held'].includes(i.state)));
 
 /** 欢迎页没有会话视图那条错误横幅：首条消息被同步拒绝（未配置模型、会话没建起来）只能在这张卡上说，
  *  不然就是「按了没反应」（drive-x1 noprov：文字清了、多出一个幽灵会话、零交代）。
@@ -49,10 +55,87 @@ const cardError = computed(() => (props.variant === 'hero' ? chat.lastError : ''
  *  （会话绑的助手、会话的绑定）谎就回来了，而 .vue 既不过 typecheck、守卫也只认得调用形态。 */
 const effectiveBinding = computed(() => previewBinding(applyStateOf(chat), chat.assistants));
 const modelView = computed(() => describeBinding(effectiveBinding.value, chat.providers, chat.modelGroups, chat.defaultProviderId));
-const PERM_TEXT: Record<string, string> = { ask: '每次确认', session: '本会话沿用', full: '完全访问' };
+/** 与模型胶囊使用同一绑定预览；模型组取首个仍存在的槽位，降级时由后台重新裁决。 */
+const thinkingProvider = computed(() => {
+  const b = normalizeBinding(effectiveBinding.value);
+  if (b.startsWith('group:')) {
+    const g = chat.modelGroups.find(g => g.id === b.slice(6));
+    return g?.memberIds.map(id => chat.providers.find(p => p.id === id)).find(p => p !== undefined);
+  }
+  if (b.startsWith('provider:')) return chat.providers.find(p => p.id === b.slice(9));
+  return chat.providers.find(p => p.id === chat.defaultProviderId) ?? chat.providers[0];
+});
+const thinkingRuntime = ref<RuntimeModel | null>(null);
+const thinkingAdaptive = ref(false);
+const thinkingPreview = ref<ThinkingPreview | null>(null);
+watch(thinkingProvider, async (provider, _old, cleanup) => {
+  let current = true;
+  cleanup(() => { current = false; });
+  thinkingRuntime.value = null; thinkingAdaptive.value = false; thinkingPreview.value = null;
+  if (!provider) return;
+  try {
+    const r = await chat.resolveRuntime({ id: provider.id });
+    if (current) { thinkingRuntime.value = r.runtime ?? null; thinkingAdaptive.value = r.thinkingServerAdaptive === true; thinkingPreview.value = r.thinkingPreview ?? null; }
+  } catch { /* 取不到能力时不挡选择，发出时仍由后台裁决。 */ }
+}, { immediate: true });
+const thinkingState = computed(() => thinkingRuntime.value?.reasoning?.state);
+const thinkingDisabled = computed(() => thinkingAdaptive.value || thinkingState.value === 'unsupported' || thinkingState.value === 'unavailable' || thinkingState.value === 'unknown');
+const thinkingShort = computed(() => thinkingAdaptive.value ? '模型自适应' : thinkingState.value === 'unsupported' ? '不支持推理' : thinkingState.value === 'unavailable' ? '当前接口不可用' : '推理未确认');
+const thinkingReason = computed(() => {
+  if (thinkingAdaptive.value) return '该模型由服务端自适应思考，档位不影响请求';
+  const why = thinkingRuntime.value?.reasoning?.reason;
+  if (thinkingState.value === 'unknown') return (why || '推理能力未确认') + '；可到「设置 → 模型 → 编辑 → 手动修正」把推理标为支持';
+  if (thinkingDisabled.value) return why || thinkingShort.value;
+  return '全局思考档位，跨重启保留；发送时由后台按当前槽位的能力处理' + (extendedThinkingReason.value ? '；' + extendedThinkingReason.value : '');
+});
+const THINKING_LEVELS: { value: ThinkingLevel; label: string }[] = [{ value: 'off', label: '关' }, { value: 'low', label: '低' }, { value: 'medium', label: '中' }, { value: 'high', label: '高' }, { value: 'xhigh', label: '超高' }, { value: 'max', label: '最高' }];
+function thinkingOptionReason(level: ThinkingLevel): string {
+  if (level !== 'xhigh' && level !== 'max') return '';
+  const preview = thinkingPreview.value?.[level];
+  if (!preview) return '能力未取得';
+  return preview.level === level ? '' : preview.note || '当前接入没有声明这一档';
+}
+const extendedThinkingReason = computed(() => [...new Set(['xhigh', 'max'].map(level => thinkingOptionReason(level as ThinkingLevel)).filter(Boolean))].join('；'));
+/** 展示引擎的预告；换槽位不改全局选择，降级槽位仍由后台独立裁决。 */
+const thinkingFallback = computed(() => {
+  const level = chat.thinkingLevel;
+  if ((level !== 'xhigh' && level !== 'max') || thinkingAdaptive.value) return '';
+  const preview = thinkingPreview.value?.[level];
+  if (!preview || preview.level === level) return '';
+  const label = THINKING_LEVELS.find(l => l.value === preview.level)?.label ?? preview.level;
+  return '本轮按' + label + '发送';
+});
+function changeThinking(event: Event): void { chat.setThinkingLevel((event.target as HTMLSelectElement).value as ThinkingLevel); }
+const PERM_TEXT = { ask: '每次确认', session: '本会话沿用', plan: '只读计划', full: '完全访问' };
 const permLabel = computed(() => PERM_TEXT[chat.permTier] ?? '每次确认');
+const permChoice = ref(chat.permTier);
+const fullConfirm = ref(false);
+const permBusy = ref(false);
+const permError = ref('');
+const permControl = ref<HTMLElement | null>(null);
+const permConfirm = ref<HTMLElement | null>(null);
+watch(() => chat.permTier, tier => { permChoice.value = tier; fullConfirm.value = false; });
+function cancelFull(): void { fullConfirm.value = false; permChoice.value = chat.permTier; }
+async function applyPerm(tier: keyof typeof PERM_TEXT): Promise<void> {
+  permBusy.value = true; permError.value = ''; fullConfirm.value = false;
+  try { await chat.setPermTier(tier); }
+  catch (e) { permError.value = e instanceof Error ? e.message : String(e); }
+  finally { permChoice.value = chat.permTier; permBusy.value = false; }
+}
+async function changePerm(event: Event): Promise<void> {
+  const tier = (event.target as HTMLSelectElement).value as keyof typeof PERM_TEXT;
+  permChoice.value = tier; permError.value = '';
+  if (tier === 'full' && chat.permTier !== 'full') { fullConfirm.value = true; return; }
+  await applyPerm(tier);
+}
+function dismissFull(event: Event): void {
+  if (!permControl.value?.contains(event.target as Node) && !permConfirm.value?.contains(event.target as Node)) cancelFull();
+}
+onMounted(() => { if (typeof document !== 'undefined') document.addEventListener('pointerdown', dismissFull); });
+onBeforeUnmount(() => { if (typeof document !== 'undefined') document.removeEventListener('pointerdown', dismissFull); });
 
 const placeholder = computed(() => {
+  if (chat.running && chat.inputsOn) return atts.value.length ? '带图片的消息将排队，等当前运行结束后发送' : 'Enter 补充指示 · Ctrl+Enter 排队 · Shift+Enter 换行';
   const a = chat.assistants.find(x => x.id === chat.welcomeAssistantId);
   return a ? `让 ${a.name} 做点什么…` : '让 DeskMinis 做点什么…';
 });
@@ -66,7 +149,10 @@ const slashItems = computed(() => {
   return (n === '' ? chat.skills : chat.skills.filter(s =>
     s.name.toLowerCase().includes(n) || s.id.toLowerCase().includes(n))).slice(0, 8);
 });
-const slashOpen = computed(() => slashItems.value.length > 0);
+const dismissedSlash = ref<string | null>(null);
+const dismissedAt = ref<string | null>(null);
+watch(text, () => { dismissedSlash.value = null; dismissedAt.value = null; }, { flush: 'sync' });
+const slashOpen = computed(() => slashItems.value.length > 0 && dismissedSlash.value !== text.value);
 
 // ---- @ 文件菜单：光标处 token 语义（与斜杠互斥，斜杠优先）----
 const atQuery = ref<string | null>(null);
@@ -96,7 +182,11 @@ function syncAt(): void {
   const el = field.value;
   const t = el ? el.value : text.value;
   const caret = el?.selectionStart ?? t.length;
-  atQuery.value = atToken(t.slice(0, caret));
+  const q = atToken(t.slice(0, caret));
+  const token = JSON.stringify([t, caret - (q?.length ?? 0) - 1, q]);
+  if (dismissedAt.value === token) { atQuery.value = null; return; }
+  dismissedAt.value = null;
+  atQuery.value = q;
   if (atQuery.value !== null && atFiles.value === null && !atLoading && chat.activeId) void loadAtFiles();
 }
 
@@ -125,23 +215,45 @@ function pickAt(p: string): void {
   void nextTick(() => { el?.focus(); el?.setSelectionRange(r.caret, r.caret); });
 }
 
+function composing(e: KeyboardEvent): boolean { return e.isComposing || e.keyCode === 229; }
 function onNav(delta: -1 | 1, e: KeyboardEvent): void {
+  if (composing(e)) return;
   // 优先级：斜杠菜单 > @ 菜单 > 输入历史 > 光标本职
   if (slashOpen.value) { e.preventDefault(); menuIndex.value = (menuIndex.value + delta + slashItems.value.length) % slashItems.value.length; return; }
   if (atOpen.value) { e.preventDefault(); menuIndex.value = (menuIndex.value + delta + atItems.value.length) % atItems.value.length; return; }
   const r = histStep(userTexts.value, text.value, histCursor.value, delta);
   if (r) { e.preventDefault(); text.value = r.text; histCursor.value = r.cursor; }
 }
-function onEnter(): void {
+function onEnter(e: KeyboardEvent): void {
+  if (composing(e)) return;
+  e.preventDefault();
   if (slashOpen.value) { pickSlash(slashItems.value[menuIndex.value].name); return; }
   if (atOpen.value) { pickAt(atItems.value[menuIndex.value]); return; }
   void send();
 }
+function onQueueKey(e: KeyboardEvent): void {
+  if (composing(e)) return;
+  e.preventDefault();
+  if (slashOpen.value || atOpen.value) {onEnter(e);return;}
+  void send('queue');
+}
 function onTab(e: KeyboardEvent): void {
+  if (composing(e)) return;
   if (slashOpen.value) { e.preventDefault(); pickSlash(slashItems.value[menuIndex.value].name); return; }
   if (atOpen.value) { e.preventDefault(); pickAt(atItems.value[menuIndex.value]); }
 }
-function closeMenus(): void { atQuery.value = null; }
+function closeMenus(e: KeyboardEvent): void {
+  if (composing(e) || (!slashOpen.value && !atOpen.value)) return;
+  e.preventDefault(); e.stopPropagation();
+  if (slashOpen.value) dismissedSlash.value = text.value;
+  if (atOpen.value) {
+    const t = field.value?.value ?? text.value;
+    const caret = field.value?.selectionStart ?? t.length;
+    const q = atToken(t.slice(0, caret));
+    dismissedAt.value = JSON.stringify([t, caret - (q?.length ?? 0) - 1, q]);
+  }
+  atQuery.value = null;
+}
 
 // ---- Y2：会话级禁用 MCP（L5 立、T 波换壳丢，从旧 ChatView 搬回；D5 后端全通，这里是唯一 renderer 入口）----
 const mcpOpen = ref(false);
@@ -221,11 +333,14 @@ function onPick(e: Event): void {
 }
 function dropAtt(i: number): void { atts.value.splice(i, 1); }
 
-async function send(): Promise<void> {
+async function send(requestedMode?: InputMode): Promise<void> {
   const t = text.value.trim();
   const paths = atts.value.map(a => a.path);
   // 只有附件没有文字也算一条消息（「看看这张图」的常见开法）
-  if ((!t && !paths.length) || chat.running || sending.value) return;
+  if ((!t && !paths.length) || sending.value) return;
+  if (chat.running && !chat.inputsOn) return;
+  const mode: InputMode | undefined = requestedMode ?? (chat.running ? (paths.length ? 'queue' : 'steer') : hasInbox.value ? 'queue' : undefined);
+  if (mode === 'steer' && !canSteer.value) return;
   sending.value = true;
   try {
     if (!chat.activeId) {
@@ -237,7 +352,7 @@ async function send(): Promise<void> {
         chat.lastError = `新建会话失败：${e instanceof Error ? e.message : String(e)}`;
         return;
       }
-    } else {
+    } else if (!chat.running && !hasInbox.value) {
       // W2b-4：已有会话但还是空的（欢迎页）——欢迎页承诺「直接输入即以该预设开始」，发送前让会话的助手与选择对齐：
       // 选了没绑的就套用，改选了就替换，取消了选择就解绑。放在寄存草稿之前：套用失败时文字还在框里，原样留给用户
       const want = assistantToApply(applyStateOf(chat));
@@ -257,7 +372,8 @@ async function send(): Promise<void> {
     histCursor.value = -1;
     atQuery.value = null;
     atts.value = [];
-    await chat.send(t, paths.length ? paths : undefined);
+    if (mode) await chat.sendInput(mode, t, paths);
+    else await chat.send(t, paths.length ? paths : undefined);
     // 等待期间换了会话（W1b-4：先切到 B 再删 A 或停掉 A，A 的 prompt 要等 MCP 连接超时才被拒）：
     // store 已把这次拒绝丢掉，这里也丢掉草稿——会话视图换会话不重建输入卡，交回的话 A 的话会塞进 B 的输入框。
     // 丢的是被删或被停掉的那条；只停不删时用户回到 A 要重敲，是有意的取舍
@@ -281,6 +397,15 @@ function takeDraft(): void {
 }
 // 上一个实例被拒回的草稿：欢迎页换成会话页再换回来时，新建的这个实例靠这行拿回（见 store draft 注释）
 takeDraft();
+function restoreInputDraft(index: number): void {
+  const sid = chat.activeId, drafts = chat.failedInputDrafts[sid] ?? [], draft = drafts[index];
+  if (!draft) return;
+  chat.inputRetryBySession = {...chat.inputRetryBySession,[sid]:draft};
+  text.value = text.value.trim() ? draft.text + '\n' + text.value : draft.text;
+  atts.value = [...draft.attachments?.map(path => ({path,dataUrl:''})) ?? [], ...atts.value];
+  chat.failedInputDrafts = {...chat.failedInputDrafts,[sid]:drafts.filter((_,i)=>i!==index)};
+  void nextTick(() => field.value?.focus());
+}
 // W2a-6「新建会话接力」的草稿：新会话是空的，欢迎页的输入卡随之新挂载，在这里取（见 store relayDraft 注释）
 takeRelay();
 
@@ -311,6 +436,7 @@ defineExpose({
 
 <template>
   <div class="wrap" :class="props.variant">
+    <InputQueue v-if="chat.inputsOn && chat.activeId" @restore="restoreInputDraft" />
     <div class="card">
       <!-- 菜单置于卡内顶部、向上弹：.ctools 裁浮层的老坑不再有（卡本身不设 overflow） -->
       <div v-if="slashOpen" class="menu">
@@ -348,7 +474,8 @@ defineExpose({
       <textarea
         ref="field" v-model="text" class="field" :rows="rowsFor(text)" :placeholder="placeholder"
         @paste="onPaste" @drop="onDrop" @dragover.prevent
-        @keydown.enter.exact.prevent="onEnter"
+        @keydown.enter.exact="onEnter($event)"
+        @keydown.ctrl.enter.exact="onQueueKey($event)"
         @keydown.up="onNav(-1, $event)"
         @keydown.down="onNav(1, $event)"
         @keydown.tab="onTab"
@@ -364,25 +491,42 @@ defineExpose({
         <button class="tb" type="button" title="引用工作区文件：在输入框里打 @" @click="() => { text += (text && !text.endsWith(' ') ? ' @' : '@'); field?.focus(); syncAt(); }">
           <UiIcon name="at" :size="16" />
         </button>
-        <!-- Y2 MCP 胶囊：可点（.cap 那两枚是只读展示）——只在有会话且存在已启用 server 时出现 -->
+        <!-- Y2 MCP 胶囊：可点（模型胶囊只读，思考与权限胶囊可切换）——只在有会话且存在已启用 server 时出现 -->
         <button
           v-if="mcpPillVisible" class="mcpbtn" type="button" :class="{ on: mcpOpen, dis: mcpDisabledCount > 0 }"
-          :aria-expanded="mcpOpen" title="本会话可用的 MCP 服务器：点开可逐台禁用" @click="mcpOpen = !mcpOpen"
+          :aria-expanded="mcpOpen" :title="mcpLabel + '；本会话可用的 MCP 服务器：点开可逐台禁用'" :aria-label="mcpLabel + '；本会话可用的 MCP 服务器：点开可逐台禁用'" @click="mcpOpen = !mcpOpen"
         >
-          <UiIcon name="puzzle" :size="13" /><span>{{ mcpLabel }}</span>
+          <UiIcon name="puzzle" :size="13" /><span class="pill-text">{{ mcpLabel }}</span><span v-if="mcpDisabledCount" class="mcp-count" aria-hidden="true">{{ mcpDisabledCount }}</span>
         </button>
         <span class="grow"></span>
         <!-- 原图底行右侧是 模型 + 权限 两枚胶囊，再接圆形发送键 -->
-        <span class="cap" :class="{ bad: modelView.missing }" :title="modelView.title"><UiIcon :name="modelView.kind === 'group' ? 'link' : 'robot'" :size="13" /><span>{{ modelView.label }}</span></span>
-        <span class="cap" :title="`权限档：${permLabel}`"><UiIcon name="shield" :size="13" /><span>{{ permLabel }}</span></span>
-        <button v-if="!chat.running" class="go" type="button" :disabled="!canSend" title="发送" @click="send">
+        <span class="cap" role="img" :class="{ bad: modelView.missing }" :title="modelView.label + '；' + modelView.title" :aria-label="modelView.label + '；' + modelView.title"><UiIcon :name="modelView.kind === 'group' ? 'link' : 'robot'" :size="13" /><span class="pill-text">{{ modelView.label }}</span></span>
+        <select class="cap thinking-select" :value="chat.thinkingLevel" :disabled="thinkingDisabled" :title="thinkingReason + (thinkingFallback ? '；' + thinkingFallback : '')" aria-label="思考档位" @change="changeThinking">
+          <option v-for="level in THINKING_LEVELS" :key="level.value" :value="level.value" :disabled="!!thinkingOptionReason(level.value)" :title="thinkingOptionReason(level.value)">{{ thinkingDisabled ? '思考：' + thinkingShort : '思考：' + level.label }}</option>
+        </select>
+        <span v-if="thinkingFallback" class="thinking-note t-aux" :title="thinkingReason">{{ thinkingFallback }}</span>
+        <span ref="permControl" class="perm-control">
+          <UiIcon class="perm-icon" name="shield" :size="13" />
+          <select class="cap perm-select" :value="permChoice" :disabled="permBusy" :title="`权限档：${permLabel}`" aria-label="权限档" @change="changePerm" @keydown.esc="cancelFull">
+            <option v-for="(label, tier) in PERM_TEXT" :key="tier" :value="tier">{{ label }}</option>
+          </select>
+        </span>
+        <button v-if="!chat.running" class="go" type="button" :disabled="!canSend" title="发送" @click="send()">
           <UiIcon name="send" :size="17" />
         </button>
-        <button v-else class="go stop" type="button" title="停止" @click="chat.cancel()">
+        <button v-if="chat.running && chat.inputsOn" class="tb input-action" type="button" :disabled="!canSteer" title="补充指示：等下一次安全边界进入本轮" @click="send('steer')">补充</button>
+        <button v-if="chat.inputsOn" class="tb input-action" type="button" :disabled="!canSend" title="排队：当前运行结束后启动新一轮（Ctrl+Enter）" @click="send('queue')">排队</button>
+        <button v-if="chat.running" class="go stop" type="button" title="停止" @click="chat.cancel()">
           <UiIcon name="stop" :size="16" />
         </button>
       </div>
 
+      <div v-if="fullConfirm" ref="permConfirm" class="perm-confirm" @keydown.esc="cancelFull">
+        <p class="t-aux">完全访问下 agent 会直接改文件、跑命令，不再逐条问你。</p>
+        <button type="button" class="f-btn danger" @click="applyPerm('full')">开启完全访问</button>
+        <button type="button" class="f-btn" @click="cancelFull">取消</button>
+      </div>
+      <p v-if="permError" class="cerr t-aux" role="alert">{{ permError }}</p>
       <!-- Y2 行内面板（不浮层）：逐台勾「本会话禁用」 -->
       <div v-if="mcpOpen" class="mcpanel">
         <label v-for="s in enabledMcpServers" :key="s.name" class="mrow">
@@ -407,6 +551,7 @@ defineExpose({
 
 .card {
   position: relative;
+  container-type: inline-size;
   display: flex; flex-direction: column; gap: var(--sp-3);
   padding: var(--sp-5);
   background: var(--c-bg);
@@ -427,8 +572,12 @@ defineExpose({
 }
 .field::placeholder { color: var(--c-ink-3); }
 
-.tools { display: flex; align-items: center; gap: var(--sp-2); }
+.input-action { width: auto !important; padding: 0 8px !important; white-space: nowrap; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .grow { flex: 1; }
+.tools > .tb, .tools > .go { flex: 0 0 auto; white-space: nowrap; }
+.thinking-note { flex: 0 0 auto; white-space: nowrap; }
+.mcp-count { display: none; }
 .tb {
   width: var(--h-ctl); height: var(--h-ctl); border-radius: var(--r-s);
   display: inline-flex; align-items: center; justify-content: center;
@@ -445,6 +594,13 @@ defineExpose({
 .cap :deep(svg) { color: var(--c-ink-3); flex: 0 0 auto; }
 .cap > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Z5：绑定对象已删——发送会报错，胶囊必须变色，不能照常显示 */
+.perm-control { display: inline-flex; position: relative; }
+.perm-icon { display: none; }
+.perm-select { border: 0; font-family: inherit; cursor: pointer; }
+.perm-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding-top: var(--sp-3); border-top: 1px solid var(--c-line); }
+.perm-confirm p { flex-basis: 100%; margin: 0; color: var(--c-warn); }
+.thinking-select { border: 0; font-family: inherit; cursor: pointer; min-width: 78px; }
+.thinking-select:disabled { opacity: 0.55; cursor: default; }
 .cap.bad { background: var(--c-warn-soft); color: var(--c-warn); }
 .cap.bad :deep(svg) { color: var(--c-warn); }
 /* Y2 MCP 胶囊：形似 .cap，但它是入口 */
@@ -499,6 +655,23 @@ defineExpose({
 .mdesc { color: var(--c-ink-3); font-size: var(--t-aux-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mpath { font-family: var(--f-mono); font-size: var(--t-aux-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mtail { padding: var(--sp-1) var(--sp-4); font-size: var(--t-aux-size); color: var(--c-ink-3); }
+
+/* 按卡的内容宽度收缩；宽态保留原有文字、间距与内边距。 */
+@container (max-width: 560px) {
+  .cap > .pill-text, .mcpbtn > .pill-text {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+  .perm-select { width: 32px; min-width: 32px; padding: 0; color: transparent; appearance: none; }
+  .perm-icon { display: block; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--c-ink-3); }
+  .perm-select option { color: var(--c-ink); }
+  .thinking-note { display: none; }
+  .mcp-count { display: inline; }
+}
+@container (max-width: 300px) {
+  .tools { gap: var(--sp-1); }
+  .cap, .mcpbtn { padding-left: var(--sp-2); padding-right: var(--sp-2); }
+}
 
 /* ---- V6 附件缩略条 ---- */
 .atts { display: flex; gap: var(--sp-3); flex-wrap: wrap; padding: 0 var(--sp-2) var(--sp-3); }

@@ -1,6 +1,6 @@
 // 生成 build/icon.ico（256×256 单条目，PNG-in-ICO）：应用/安装器图标。
 // motif 与 resources/tray.png 同源（识别连续性）：品牌蓝圆角方块 + 三条白「对话行」，
-// 品牌色 = tokens.css 浅色 --accent（AionUi 蓝，I 波换肤后 Aurora 暖灰褐退场）。
+// 品牌色 = 原 tokens.css 的 --accent（该文件已删除）（AionUi 蓝，I 波换肤后 Aurora 暖灰褐退场）。
 // 不引任何依赖：PNG 容器 + zlib（node 内置）+ ICO 目录头手写——图标进 git 且可复现
 //（gen-tray-icon 成例）。ICO 容器原生支持 256 条目内嵌 PNG，electron-builder 最低要求 256。
 // 用法：npm run gen:app-icon

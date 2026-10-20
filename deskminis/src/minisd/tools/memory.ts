@@ -1,6 +1,8 @@
-import type { ToolExecutor } from './types';
+import type { ResourceClaim, ResourceMode, ToolExecutor, ToolPlanContext } from './types';
 import { MemoryStore, type MemoryEntry } from '../store/memory-store';
 import { join } from 'node:path';
+import { planWriteDenial } from './permission-outcome';
+import { permissionFailure } from './permission-text';
 
 const MAX_ENTRIES = 60;
 const MAX_OUTPUT_BYTES = 30 * 1024;
@@ -12,6 +14,13 @@ export const MEMORY_TOOL_NAMES = ['memory_write', 'memory_get'] as const;
 /** 构造工具时需要传入 MemoryStore（由 index.ts 在启动时创建）。 */
 function makeStore(ctx: { paths: { root: string } }): MemoryStore {
   return new MemoryStore(join(ctx.paths.root, MEMORY_DIR_REL));
+}
+
+/** F04：记忆工具的资源 = 整个记忆目录（与 makeStore 同一个 join 表达式）。目录是所有会话共用的。
+ *  锁目录而不是当日文件：memory_write 在执行时才取「今天」，解析与执行跨零点会对不上。 */
+function memoryDirClaims(mode: ResourceMode) {
+  return (_input: Record<string, unknown>, ctx: ToolPlanContext): ResourceClaim[] =>
+    [{ kind: 'path', mode, path: join(ctx.paths.root, MEMORY_DIR_REL) }];
 }
 
 /** 分词：英文数字按词（≥2 连续），中文按滑动二字组（bigram）。
@@ -63,12 +72,17 @@ export const memoryWriteTool: ToolExecutor = {
     },
     required: ['markdown', 'tool_title'],
   },
+  // F04：日志追加是「读、拼、tmp + rename」，两个会话同时写会丢一条——跨会话写-写要排队
+  scheduling: { readOnly: false, concurrencySafe: true, sideEffects: 'local-files', resources: memoryDirClaims('write') },
   async execute(input, ctx) {
     // 已取消：记忆写入会落盘进日志，取消后再写只留一条无人消费的记录
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     const markdown = String(input.markdown ?? '').trim();
     if (!markdown) return { output: '记忆内容不能为空', success: false };
     const date = String(input.date ?? '').trim() || todayDate();
+    const req = { kind: 'file-write' as const, detail: join(ctx.paths.root, MEMORY_DIR_REL), sessionId: ctx.sessionId, toolTitle: String(input.tool_title ?? '') };
+    const blocked = planWriteDenial(ctx.permissions, req);
+    if (blocked) return permissionFailure(blocked, req);
     const store = makeStore(ctx);
     store.appendDailyLog(date, markdown);
     return { output: `已写入 ${date} 日志`, success: true };
@@ -86,6 +100,7 @@ export const memoryGetTool: ToolExecutor = {
     },
     required: ['query', 'tool_title'],
   },
+  scheduling: { readOnly: true, concurrencySafe: true, sideEffects: 'none', resources: memoryDirClaims('read') },
   async execute(input, ctx) {
     // 已取消：检索本身无害，但取消后模型已不打算用这个结果，别再做无谓的读盘
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };

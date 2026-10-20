@@ -1,11 +1,23 @@
+import { sessionHeaders } from './session-headers';
+import { outboundFetch } from '../net/outbound-fetch';
 import type { AgentStreamEvent, ContentPart, StopReason } from '../../shared/types';
 import {
-  ProviderError, isThinkingBindingMessage, thinkingBindingMessage, type AgentProvider, type FetchLike, type StreamRequest,
+  ProviderError, isThinkingBindingMessage, thinkingBindingMessage, type AdapterBudgetRule, type AgentProvider, type FetchLike, type StreamRequest,
 } from './types';
 import { parseSse } from './sse';
+import { AnthropicUsageAcc } from './usage';
+
+/** F02：Messages API 的窗口约束。出处：platform.claude.com 的 context-windows 文档（2026-10-03 读取）——
+ *  上下文窗口容纳对话历史加新生成的输出；input_tokens、cache_read_input_tokens、cache_creation_input_tokens 都计入窗口。 */
+export const ANTHROPIC_BUDGET_RULE: AdapterBudgetRule = {
+  window: 'shared',
+  note: 'Anthropic context-windows 文档',
+};
 
 const CACHE = { type: 'ephemeral' } as const;
-const BUDGETS = { low: 8192, medium: 32768, high: 65536 } as const;
+/** 档位 → budget_tokens。导出给运行时解析（F01）按同一张表核算槽位的推理预算是否合法。 */
+export const ANTHROPIC_THINKING_BUDGETS = { low: 8192, medium: 32768, high: 65536 } as const;
+const BUDGETS = ANTHROPIC_THINKING_BUDGETS;
 
 /**
  * 思考块绑定到对话前缀的三个模型（W2a-3 · 设计稿 §2「新一代 Claude 缓解」）。按官方 model-migration 文档：
@@ -66,7 +78,11 @@ export function buildAnthropicBody(req: StreamRequest, modelId: string, opts: { 
   })) as Record<string, unknown>[];
   if (tools.length > 0) tools[tools.length - 1] = { ...tools[tools.length - 1], cache_control: CACHE };
   const body: Record<string, unknown> = { model: modelId, max_tokens: req.maxTokens, stream: true, messages, tools };
-  if (req.systemPrompt) body.system = [{ type: 'text', text: req.systemPrompt, cache_control: CACHE }];
+  // F02：系统提示分了稳定段与动态段时发两块，缓存断点打在稳定段末尾——动态段（运行中会变的记忆上下文）变了也不让
+  // 稳定段的缓存失效。断点总数仍是 4（工具 1、稳定段 1、消息 2）。任一段为空、或没给分段时维持单块，请求体与以前逐字节相同
+  const sp = req.systemPromptParts;
+  if (sp && sp.stable && sp.dynamic) body.system = [{ type: 'text', text: sp.stable, cache_control: CACHE }, { type: 'text', text: sp.dynamic }];
+  else if (req.systemPrompt) body.system = [{ type: 'text', text: req.systemPrompt, cache_control: CACHE }];
   if (BINDING_MODELS.has(modelId)) {
     // 这三个模型不看 thinkingLevel、也不走下面「旧数据关思考」的分支：enabled+budget_tokens 与 disabled 都是 400。
     // 不写 thinking 就是 adaptive。官方端点显式写 drop_block：前缀对不上时服务端丢掉失效的思考块继续答，
@@ -85,7 +101,8 @@ export function buildAnthropicBody(req: StreamRequest, modelId: string, opts: { 
       && lastAssistant.parts.some(p => p.type === 'toolUse')
       && !lastAssistant.parts.some(isReplayableThinking);
     if (!staleToolUse) {
-      body.thinking = { type: 'enabled', budget_tokens: Math.min(BUDGETS[req.thinkingLevel], req.maxTokens - 1) };
+      // F01：运行时按当前槽位核算过的预算（目录声明的区间、≥1024、< max_tokens）优先；没给时沿用档位表
+      body.thinking = { type: 'enabled', budget_tokens: req.thinking?.budgetTokens ?? Math.min(BUDGETS[req.thinkingLevel === 'xhigh' || req.thinkingLevel === 'max' ? 'high' : req.thinkingLevel], req.maxTokens - 1) };
     }
   }
   return body;
@@ -163,7 +180,7 @@ export class AnthropicProvider implements AgentProvider {
   constructor(opts: { apiKey: string; modelId: string; baseUrl?: string; fetchImpl?: FetchLike }) {
     this.apiKey = opts.apiKey; this.modelId = opts.modelId;
     this.baseUrl = (opts.baseUrl ?? 'https://api.anthropic.com').replace(/\/$/, '');
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.fetchImpl = opts.fetchImpl ?? outboundFetch;
   }
 
   private post(headers: Record<string, string>, body: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
@@ -173,7 +190,7 @@ export class AnthropicProvider implements AgentProvider {
 
   async *streamAgentMessage(req: StreamRequest, signal?: AbortSignal): AsyncIterable<AgentStreamEvent> {
     const binding = anthropicBindingControls(this.baseUrl, this.modelId);
-    const headers: Record<string, string> = { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' };
+    const headers: Record<string, string> = { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01', ...sessionHeaders(this.baseUrl, req.session) };
     if (binding) headers['anthropic-beta'] = mergeBetas([BINDING_BETA]);
     let res = await this.post(headers, buildAnthropicBody(req, this.modelId, { bindingControls: binding }), signal);
     if (!res.ok || !res.body) {
@@ -191,11 +208,13 @@ export class AnthropicProvider implements AgentProvider {
     }
 
     const blocks = new Map<number, { type: string; id?: string; name?: string; json: string; thinking: string; signature: string; redactedData: string }>();
-    let inputTokens = 0; let outputTokens = 0; let stopReason: StopReason = 'endTurn';
+    // F02：用量按官方定义归一化（总输入含缓存读写、推理是输出的子集），message_start 与每个 message_delta 都看，从不相加
+    const acc = new AnthropicUsageAcc();
+    let stopReason: StopReason = 'endTurn';
     for await (const frame of parseSse(res.body)) {
       const ev = JSON.parse(frame.data) as Record<string, any>;
       switch (ev.type) {
-        case 'message_start': inputTokens = ev.message?.usage?.input_tokens ?? 0; break;
+        case 'message_start': acc.observe(ev.message?.usage); break;
         case 'content_block_start':
           // redacted_thinking 的脱敏串在 start 里一次性给出（无 delta），先存下供 stop 时回放
           blocks.set(ev.index, {
@@ -228,12 +247,15 @@ export class AnthropicProvider implements AgentProvider {
         }
         case 'message_delta':
           if (ev.delta?.stop_reason) stopReason = STOP_MAP[ev.delta.stop_reason] ?? 'endTurn';
-          outputTokens = ev.usage?.output_tokens ?? outputTokens;
+          acc.observe(ev.usage);
           break;
-        case 'message_stop':
-          yield { kind: 'usage', usage: { inputTokens, outputTokens } };
+        case 'message_stop': {
+          // 服务商一个总数都没报时不发 usage 事件：0/0 会被当成真实用量落库
+          const usage = acc.result();
+          if (usage) yield { kind: 'usage', usage };
           yield { kind: 'done', stopReason };
           return;
+        }
       }
     }
     throw new ProviderError('SSE 流提前结束', { retryable: true });

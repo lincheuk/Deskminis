@@ -20,26 +20,32 @@
  * taskkill 失败时必有兜底，所以不会悬挂。
  *
  * 为什么关停要等 taskkill 跑完（W1b-5d 订正；依据是 libuv 源码 src/win/process.c 的 uv__init_global_job_handle
- * 与 uv_spawn，没有在 Windows 真机上验证过）：libuv 把非 detached 的子进程放进一个全局作业对象，作业带
+ * 与 uv_spawn；F09 在 Windows 11 真机上实测过，现象与下面的说法相符）：libuv 把非 detached 的子进程放进一个全局作业对象，作业带
  * JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE，minisd 一退，作业句柄关闭，作业里的进程被系统一并结束。但作业同时带
  * JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK（源码注释原话：only the processes that we explicitly add are affected,
  * and *their* subprocesses are not），只收 minisd 亲手起的直接子进程——cmd.exe、powershell.exe，还有 taskkill 自己；
- * 它们再起的孙进程（npx 拉起的 node、终端里的 dev server、shell 里的 ping -t）不在作业里，minisd 退了照样活着。
- * 这里原先写的「minisd 一退出整棵树由系统回收」不成立。孙进程只有 taskkill /T 收得到，而 taskkill 自己在作业里：
- * 不等它跑完就退出，它会被一并结束，孙进程留成孤儿。所以 killTree 返回 taskkill 退出（或兜底杀根）之后才落定的
- * Promise，关停第 6 步等它（上限 REAP_WAIT_MS，见 index.ts 的 shutdown）。
+ * 它们再起的孙进程（npx 拉起的 node、终端里的 dev server、shell 里的 ping -t）不在这个作业里，光靠它，minisd 退了它们照样活着
+ * （真机实测：只结束引擎时根随之结束、后代全部留下）。taskkill 自己在这个作业里：不等它跑完就退出，它会被一并结束。
+ * 所以 killTree 返回 taskkill 退出（或兜底杀根）之后才落定的 Promise，关停第 6 步等它（上限 REAP_WAIT_MS，见 index.ts 的 shutdown）。
  *
  * 为什么 taskkill 仍不设 detached：关停已经等它跑完，正常关停用不着它活过 minisd。设了的话，libuv 以
  * DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP 起它、不放进作业：另开一个进程组，脱离 minisd 的生命周期；
  * minisd 退了之后没人再握着根进程的句柄，根的 pid 可以被系统复用，迟到的 taskkill /pid 会落到无关的进程树上
  * （下面 killTree 开头跳过已退出的根，防的是同一件事）。
  *
- * 已知边界：引擎崩溃或被主进程强杀时根本来不及起 taskkill——直接子进程随作业被结束，它们起的孙进程留下；
- * 关停时等待超过上限，还没跑完的 taskkill 同样随作业被结束，没收到的孙进程留下。
- * 根治要自建不带 breakaway 的作业对象，把子进程和它们再起的进程都收进去（排在 W6）。
+ * 引擎崩溃、被强杀、关停超时的时候来不及起 taskkill，taskkill /T 也找不到父链已断的后代——这两个缺口由 F09 的
+ * 作业对象托管补上（owned.ts、own-script.ts）：每棵树的根（shell 与终端的 PowerShell 驱动、MCP 的启动器）在执行任何
+ * 用户指定的程序之前，自己建一个不许脱离、带 KILL_ON_JOB_CLOSE 的作业并把自己放进去，同时握着引擎进程的句柄。
+ * 根一结束（被这里的 taskkill 结束、自己退出、随上面那个全局作业被结束）作业就关闭，引擎一结束根里的监视线程就终止作业，
+ * 整棵树由系统结束。killTree 因此一字没改：作业是多出来的一层，回收的入口、顺序与等待语义照旧；托管建不起来的机器上
+ * 就只剩 killTree，行为与以前相同（状态如实，见 ProcSupervisor）。
+ *
+ * 仍然收不到的：经系统服务或代理创建的进程（提权、WMI、计划任务、COM 进程外激活）、WSL / Docker 里的进程、
+ * 托管不可用时父链已断的后代、引擎挂死（没有退出）时的全部后代。
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { win32 } from 'node:path';
+import type { ProcSupervisor } from './owned';
 
 /** 构造注入：生产全用缺省值；测试在 Linux 上把 platform 设成 'win32'，断言交给 spawn 的命令与选项。 */
 export interface ProcOpts {
@@ -47,6 +53,8 @@ export interface ProcOpts {
   spawnImpl?: typeof spawn;
   /** 本进程的环境：既用来找 SystemRoot，也是子进程环境的底子（见 child-env.ts）。缺省 process.env。 */
   sysEnv?: NodeJS.ProcessEnv;
+  /** F09：进程树的登记与托管（见 owned.ts）。生产由 index.ts 传入；不传时三种入口的启动形态与回收路径同 F09 之前，逐字不变。 */
+  supervisor?: ProcSupervisor;
 }
 
 const DEFAULT_SYSTEM_ROOT = 'C:\\Windows';

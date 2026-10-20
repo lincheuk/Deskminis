@@ -1,11 +1,15 @@
 /** G2 安装登记表迁移例（迁移纪律：只追加，不动既有表）：MIGRATIONS[7] 新增 market_installs。
- *  新库建表成功；带旧数据（user_version=7）的库升级后 user_version=11（J1 追加 [9]、K1 追加 [10]）、既有表无损、幂等。
+ *  新库建表成功；带旧数据（user_version=7）的库升级后 user_version 等于当前迁移条数、既有表无损、幂等。
  *  照 market-cache-migration.test.ts 成例。 */
 import { describe, it, expect } from 'vitest';
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { openDb } from '../src/minisd/store/db';
+import { openDb, MIGRATIONS, runMigrations } from '../src/minisd/store/db';
+
+// 此版本固定对应历史库夹具，不随当前迁移数增长。
+const LEGACY_USER_VERSION = 7;
 
 describe('MIGRATIONS[7]（G2 市场安装登记表）', () => {
   it('openDb 建出 market_installs 表，列结构符合设计（item_id 主键 / kind / local_ref / content_hash / installed_at）', () => {
@@ -21,9 +25,9 @@ describe('MIGRATIONS[7]（G2 市场安装登记表）', () => {
     db.close();
   });
 
-  it('user_version 演进到 11，既有表结构不被破坏', () => {
+  it('user_version 演进到当前迁移版本，既有表结构不被破坏', () => {
     const db = openDb(':memory:');
-    expect(db.pragma('user_version', { simple: true })).toBe(11); // 9 条迁移 [0..8]
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
     for (const t of ['sessions', 'messages', 'skills', 'audit_logs', 'settings', 'market_cache', 'market_installs']) {
       expect(tables.some(x => x.name === t)).toBe(true);
@@ -31,25 +35,25 @@ describe('MIGRATIONS[7]（G2 市场安装登记表）', () => {
     db.close();
   });
 
-  it('已有 user_version=7 的库重开：补跑 [7]..[10] 到 11，既有数据不丢，且幂等', () => {
+  it('已有 user_version=7 的库重开：补跑 [7] 起的后续迁移到当前版本，既有数据不丢，且幂等', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dm-mig8-'));
     const file = join(dir, 'test.db');
+    let db: Database.Database | undefined;
     try {
-      // 造「G2 之前」的库形态：跑满后撤掉 [7] 的产物并退回版本 7，再写入既有数据
-      let db = openDb(file);
-      db.exec('DROP TABLE IF EXISTS market_installs; DROP TABLE IF EXISTS annotations; DROP TABLE IF EXISTS assistants; DROP TABLE IF EXISTS cron_jobs;');
-      db.pragma('user_version = 7');
+      // 只执行旧版本已有的迁移，直接创建 G2 之前的库。
+      db = new Database(file);
+      runMigrations(db, MIGRATIONS.slice(0, LEGACY_USER_VERSION));
       const now = Date.now() / 1000;
       db.prepare('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)')
         .run('S_OLD', '升级前的会话', now, now);
       db.prepare("INSERT INTO market_cache (key, etag, body, fetched_at) VALUES (?,?,?,?)")
         .run('clawhub:probe', 'W/"e"', '{}', Date.now());
-      expect(db.pragma('user_version', { simple: true })).toBe(7);
+      expect(db.pragma('user_version', { simple: true })).toBe(LEGACY_USER_VERSION);
       db.close();
 
       // 关键动作：当前 openDb 重开该库 → 补跑 [7]
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(11);
+      expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
       expect((db.prepare('SELECT title FROM sessions WHERE id=?').get('S_OLD') as { title: string }).title)
         .toBe('升级前的会话');
       expect(db.prepare('SELECT key FROM market_cache WHERE key=?').get('clawhub:probe')).toBeTruthy();
@@ -69,10 +73,11 @@ describe('MIGRATIONS[7]（G2 市场安装登记表）', () => {
 
       // 幂等：再开一次不重跑迁移、不清数据
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(11);
+      expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
       expect(db.prepare('SELECT item_id FROM market_installs WHERE item_id=?').get('clawhub:o/s')).toBeTruthy();
       db.close();
     } finally {
+      if (db?.open) db.close();
       try { rmSync(dir, { recursive: true, force: true }); } catch { /* 临时目录清理失败不影响断言 */ }
     }
   });

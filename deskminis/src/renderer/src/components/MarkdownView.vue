@@ -31,10 +31,13 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
       <div v-else-if="n.type === 'codeBlock'" class="md-code">
         <div class="md-codebar">
           <span class="md-lang">{{ n.lang || 'text' }}</span>
-          <button type="button" class="md-copy" @click="copyCode(n.code, i)">
+          <button v-if="!n.open" type="button" class="md-copy" @click="copyCode(n.code, i)">
             <Icon :name="copiedKey === i ? 'check' : 'copy'" :size="13" />
             <span>{{ copiedKey === i ? '已复制' : '复制' }}</span>
           </button>
+          <span v-else class="md-copy md-copy-placeholder" aria-hidden="true">
+            <Icon name="copy" :size="13" /><span>复制</span>
+          </span>
         </div>
         <pre class="md-pre"><code>{{ n.code }}</code></pre>
       </div>
@@ -80,6 +83,7 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
   background: none; border: none; border-radius: var(--r-control); cursor: pointer;
   color: var(--label-secondary); font-family: var(--font-ui); font-size: var(--fs-micro);
 }
+.md-copy-placeholder { visibility: hidden; line-height: normal; }
 .md-copy:hover { background: var(--fill-tertiary); color: var(--label); }
 .md-pre {
   margin: 0; padding: 10px 12px; overflow: auto;

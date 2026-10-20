@@ -262,8 +262,8 @@ describe('remote.pair.join + 端口体系', () => {
     }
   });
 
-  // 4. remote.pair.join：配对码错误/过期 → 失败返回
-  it('remote.pair.join：配对码错误 → 失败返回', async () => {
+  // 4. remote.pair.join：配对码格式不对 → 本地拒绝（F11C 起不再发网络请求；「错码 → 对端 401」由 tests/pair-policy.test.ts 的 8 位错码用例覆盖）
+  it('remote.pair.join：配对码格式不对（9 位）→ 本地拒绝', async () => {
     const serverA = await bootServer({ dataDir: dirA });
     const serverB = await bootServer({ dataDir: dirB });
 

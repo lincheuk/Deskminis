@@ -13,6 +13,8 @@ import { parseMarkdown } from '../lib/markdown/parse';
 import MarkdownView from '../components/MarkdownView.vue';
 import OfficeView from './OfficeView.vue';
 import type { OfficeDoc } from '../../../minisd/office/parse';
+import { ATTACHMENT_GUEST_PREFIX, type AttachmentReadResult } from '@shared/attachments';
+import { decodeAttachmentText } from '../lib/attach/status';
 import UiIcon from './UiIcon.vue';
 
 const props = defineProps<{ path: string | null }>();
@@ -50,13 +52,34 @@ function fmtSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** F11A：消息里的附件（路径以 /var/minis/attachments/ 开头）在会话附件桶里，不在工作区——
+ *  files.read 只许工作区内路径，图片的 file:// 地址在开发态页面里也被拦，所以附件另走 attachments.read（回 base64）。 */
+const attName = computed(() => (props.path ?? '').startsWith(ATTACHMENT_GUEST_PREFIX) ? (props.path ?? '').slice(ATTACHMENT_GUEST_PREFIX.length) : '');
+const attImgSrc = ref('');
+const attLocalPath = ref('');
+const attTooBig = ref(false);
+
 async function load(): Promise<void> {
   data.value = null; officeDoc.value = null; failed.value = ''; officeFailed.value = '';
+  attImgSrc.value = ''; attLocalPath.value = ''; attTooBig.value = false;
   if (!props.path || !chat.activeId) return;
   loading.value = true; mode.value = 'render';
   try {
     if (isOoxml.value) {
+      // 附件的 guest 路径原样传：引擎把它解析到会话附件桶
       officeDoc.value = await rpc.call('office.read', { sessionId: chat.activeId, path: props.path });
+    } else if (attName.value) {
+      // 老版 Office 与 PDF 仍是「请用系统应用打开」的卡片，不读内容
+      if (!isLegacy.value) {
+        const r: AttachmentReadResult = await rpc.call('attachments.read', { sessionId: chat.activeId, name: attName.value });
+        attLocalPath.value = r.localPath;
+        if (r.base64 === undefined) attTooBig.value = true;
+        else if (isImg.value) attImgSrc.value = `data:${r.mimeType};base64,${r.base64}`;
+        else {
+          const t = decodeAttachmentText(r.base64);
+          data.value = { path: props.path, size: r.size, content: t.content, truncated: false, binary: t.binary };
+        }
+      }
     } else if (!isLegacy.value) {
       data.value = await rpc.call('files.read', { sessionId: chat.activeId, path: props.path });
     }
@@ -71,7 +94,11 @@ watch(() => props.path, load, { immediate: true });
 watch(() => chat.running, (now, prev) => { if (prev && !now) void load(); });
 
 async function copyPath(): Promise<void> {
-  const abs = `${chat.workspaceRoot || ''}/${props.path ?? ''}`.replace(/\/+/g, '/');
+  // 附件的完整路径是本机附件桶里的那一份（状态表里有；读过的话用读回来的）
+  const attPath = attName.value
+    ? (attLocalPath.value || Object.values(chat.attachmentViews).find(v => v.name === attName.value)?.localPath || '')
+    : '';
+  const abs = attName.value ? attPath : `${chat.workspaceRoot || ''}/${props.path ?? ''}`.replace(/\/+/g, '/');
   try { await navigator.clipboard.writeText(abs); copied.value = true; setTimeout(() => (copied.value = false), 1400); }
   catch { /* 剪贴板不可用：静默 */ }
 }
@@ -122,6 +149,9 @@ async function copyPath(): Promise<void> {
         <button class="btn" type="button" @click="copyPath">{{ copied ? '路径已复制' : '复制完整路径' }}</button>
       </div>
 
+      <!-- F11A：附件超过应用内预览上限时不带内容 -->
+      <div v-else-if="attTooBig" class="hint t-body">文件较大，不在应用内预览；可复制完整路径后用系统应用打开</div>
+      <div v-else-if="isImg && attName" class="imgwrap"><img v-if="attImgSrc" :src="attImgSrc" :alt="attName" /></div>
       <div v-else-if="isImg" class="imgwrap"><img :src="`file://${chat.workspaceRoot}/${props.path}`" :alt="props.path ?? ''" /></div>
       <div v-else-if="data?.binary" class="hint t-body">二进制文件不可预览</div>
 

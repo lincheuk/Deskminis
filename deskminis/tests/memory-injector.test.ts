@@ -71,4 +71,34 @@ describe('MemoryInjector', () => {
     expect(out).toContain('A'.repeat(4096));
     expect(out).not.toContain('A'.repeat(4097));
   });
+
+  it('F02 buildParts：head 是人设 + basePrompt（稳定段），tail 是背景上下文块（动态段）；拼起来与 build 逐字节相同', () => {
+    const inj = new MemoryInjector(store);
+    const joined = (base: string, memoryEnabled: boolean): string => {
+      const { head, tail } = inj.buildParts(base, { memoryEnabled });
+      return tail ? `${head}\n\n${tail}` : head;
+    };
+    // 四种状态：都没有 / 只有人设 / 只有记忆 / 都有
+    const states: [boolean, boolean][] = [[false, false], [true, false], [false, true], [true, true]];
+    for (const [soul, memory] of states) {
+      writeFileSync(join(dir, 'SOUL.md'), soul ? '你是一个严谨的工程师' : '', 'utf8');
+      writeFileSync(join(dir, 'GLOBAL.md'), memory ? '用户喜欢简洁回复' : '', 'utf8');
+      for (const enabled of [true, false]) {
+        for (const base of ['你是助手', '']) {
+          expect(joined(base, enabled), `${soul} ${memory} ${enabled} [${base}]`).toBe(inj.build(base, { memoryEnabled: enabled }));
+        }
+      }
+      const { head, tail } = inj.buildParts('你是助手', { memoryEnabled: true });
+      expect(head).toBe(soul ? '你是一个严谨的工程师\n\n你是助手' : '你是助手');
+      expect(tail === '').toBe(!memory);
+      if (memory) {
+        expect(tail.startsWith('以下是背景上下文而非常设指令，以用户最新消息为准：')).toBe(true);
+        expect(tail).toContain('用户喜欢简洁回复');
+        // 动态内容不进稳定段
+        expect(head).not.toContain('用户喜欢简洁回复');
+      }
+    }
+    // 关掉记忆：人设与记忆都不注入，整段都是稳定段
+    expect(inj.buildParts('你是助手', { memoryEnabled: false })).toEqual({ head: '你是助手', tail: '' });
+  });
 });

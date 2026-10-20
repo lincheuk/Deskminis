@@ -98,3 +98,41 @@ export function isContextOverflowMessage(message: string, status?: number): bool
   if (NON_OVERFLOW_PATTERNS.some(p => p.test(message))) return false;
   return OVERFLOW_PATTERNS.some(p => p.test(message));
 }
+
+/**
+ * 端点在超窗报文里自己报的数字（F03）。limit = 它的上限，actual = 它数出来的这次请求；
+ * basis：报的是输入（input），还是输入加输出（total）。
+ * 只当提示用：循环采用前还要过合理性检查（与本机估算差几倍的不用），采用后仍受「比被拒那次至少小 1,024」约束；
+ * 取不出数字不影响正确性，只是上限按步长猜、收敛慢一些。
+ */
+export interface OverflowHint { limit: number; actual: number; basis: 'input' | 'total' }
+
+/** 模式与上面报文样例里带两个数的各条一一对应（数字允许带千分位逗号）；order：两个捕获组里哪个是 actual。
+ *  上面两张判定用的模式表不动。 */
+const HINT_PATTERNS: readonly { re: RegExp; order: 'actual-limit' | 'limit-actual'; basis: OverflowHint['basis'] }[] = [
+  { re: /([\d,]+) tokens? > ([\d,]+) maximum/i, order: 'actual-limit', basis: 'input' }, // Anthropic
+  { re: /maximum context length is ([\d,]+) tokens[\s\S]{0,200}?requested (?:about )?([\d,]+) tokens/i, order: 'limit-actual', basis: 'total' }, // OpenAI / OpenRouter / DeepSeek
+  { re: /token limit: ([\d,]+) \(requested: ([\d,]+)\)/i, order: 'limit-actual', basis: 'total' }, // Kimi
+  { re: /input token count \(([\d,]+)\) exceeds the maximum number of tokens allowed \(([\d,]+)\)/i, order: 'actual-limit', basis: 'input' }, // Gemini
+  { re: /input length \(([\d,]+)\) exceeds[\s\S]{0,80}?maximum context length \(([\d,]+)\)/i, order: 'actual-limit', basis: 'input' }, // OpenAI 兼容
+  { re: /input length ([\d,]+) exceeds the maximum allowed input length of ([\d,]+)/i, order: 'actual-limit', basis: 'input' }, // OpenRouter / Poolside
+  { re: /maximum prompt length is ([\d,]+) but the request contains ([\d,]+) tokens/i, order: 'limit-actual', basis: 'input' }, // xAI
+  { re: /input \(([\d,]+) tokens\) is longer than the model'?s context length \(([\d,]+) tokens\)/i, order: 'actual-limit', basis: 'input' }, // Together
+  { re: /prompt has ([\d,]+) tokens?, but the configured context size is ([\d,]+)/i, order: 'actual-limit', basis: 'input' }, // DS4
+  { re: /prompt token count of ([\d,]+) exceeds the limit of ([\d,]+)/i, order: 'actual-limit', basis: 'input' }, // Copilot
+];
+
+/** 从超窗报文里取端点自己报的数字。取不出两个数、actual ≤ limit（数字颠倒）、limit < 1024 时返回 undefined。 */
+export function overflowHint(message: string): OverflowHint | undefined {
+  const num = (s: string): number => Number(s.replace(/,/g, ''));
+  for (const p of HINT_PATTERNS) {
+    const m = p.re.exec(message);
+    if (!m) continue;
+    const a = num(m[1]); const b = num(m[2]);
+    const actual = p.order === 'actual-limit' ? a : b;
+    const limit = p.order === 'actual-limit' ? b : a;
+    if (!Number.isFinite(actual) || !Number.isFinite(limit) || limit < 1024 || actual <= limit) return undefined;
+    return { limit, actual, basis: p.basis };
+  }
+  return undefined;
+}

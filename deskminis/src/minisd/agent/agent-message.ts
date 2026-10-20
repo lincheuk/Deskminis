@@ -1,5 +1,6 @@
 import type { AgentMessage, RawMessage } from '../../shared/types';
 import { sanitizeMultiline } from './sanitize';
+import { userPartWithOrigin } from './input-provenance';
 
 /**
  * 一条持久化消息 → Provider 入参消息（W2a-4）。toAgentMessages（loop.ts，无压缩引擎时）与
@@ -13,12 +14,12 @@ import { sanitizeMultiline } from './sanitize';
  * 其余持久化字段（id、时间戳、tokenUsage、同步字段……）一律不带。
  */
 export function toAgentMessage(m: RawMessage): AgentMessage {
-  const parts = m.parts.map(p => {
+  const parts = m.parts.map((p, index) => {
     if (p.type === 'toolResult') {
-      const v = p.value as { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' };
+      const v = p.value as { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' | 'unknown' };
       return { type: 'toolResult' as const, value: { ...v, output: sanitizeMultiline(v.output) } };
     }
-    return p;
+    return m.role === 'user' ? userPartWithOrigin(m, index) : p;
   });
   return m.role === 'assistant' && m.reasoningContent !== undefined
     ? { role: m.role, parts, reasoningContent: m.reasoningContent }

@@ -47,6 +47,7 @@ vi.mock('../src/renderer/src/rpc', () => ({
 import { createPinia, setActivePinia } from 'pinia';
 // eslint-disable-next-line import/first
 import { useChat } from '../src/renderer/src/stores/chat';
+import { deferred } from './renderer-store-fixture';
 
 const root = path.resolve(__dirname, '..');
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n');
@@ -319,22 +320,52 @@ describe('W2b-3 TopBar：标题栏下方独立一行的断线横幅', () => {
 });
 
 describe('W2b-3 Composer：断线后不能发送', () => {
-  it('canSend 带断线条件，插在尾锚 `&& !chat.running && !sending.value)` 之前', () => {
+  it('canSend 保留断线与重入条件，运行中输入由 F07 特性闸控制', () => {
     const { script } = sfcBlocks(read('src/renderer/src/ui/Composer.vue'), 'Composer.vue');
-    expect(script).toMatch(/const canSend = computed\(\(\) =>[^;]*&& chat\.connection !== 'lost' && !chat\.running && !sending\.value\);/);
+    expect(script).toMatch(/const canSend = computed\(\(\) =>[^;]*&& chat\.connection !== 'lost' && !sending\.value\);/);
   });
 });
 
 describe('W2b-3 store 与 rpc 的接线（源码）', () => {
-  const store = stripComments(read('src/renderer/src/stores/chat.ts'));
+
   const rpcSrc = stripComments(read('src/renderer/src/rpc.ts'));
 
-  it('store：init() 里 rpc.onLost(() => this.markConnectionLost()) 写在 await rpc.connect() 之前', () => {
-    const init = store.slice(store.indexOf('async init() {'));
-    const iLost = init.search(/rpc\.onLost\(\(\) => this\.markConnectionLost\(\)\);/);
-    const iConnect = init.indexOf('await rpc.connect();');
-    expect(iLost, '找不到 rpc.onLost(() => this.markConnectionLost());').toBeGreaterThan(-1);
-    expect(iConnect).toBeGreaterThan(iLost);
+  it('store：init() 里 rpc.onLost(() => this.markConnectionLost()) 写在 await rpc.connect() 之前', async () => {
+
+    // 未等 connect 应答就真的派发 lost；无论运行来源，清理都发生在拒绝之前。
+    for (const midRun of [false, true]) {
+      setActivePinia(createPinia());
+      order.length = 0;
+      stubRpc();
+      const chat = useChat();
+      chat.running = true;
+      chat.midRun = midRun;
+      chat.runningSessions = ['A'];
+      chat.pendingPerms = [{ requestId: 'R', sessionId: 'A', detail: 'd', kind: 'file', toolTitle: 't' }];
+      chat.streamingText = 'old text';
+      chat.streamingThinking = 'old thinking';
+      chat.retryNote = 'old retry';
+      chat.lastError = 'keep error';
+      chat.toolCards = [{ toolUseId: 'T', name: 'read', title: 'old tool' }];
+      chat.syncState = 'syncing';
+      const gate = deferred<void>();
+      connectImpl.fn = () => gate.promise;
+      const initializing = chat.init();
+      expect(order).toEqual(['onLost', 'connect']);
+      expect(lost.h).toBeTypeOf('function');
+      fireLost();
+      expect(chat.connection).toBe('lost');
+      expect([chat.running, chat.midRun]).toEqual([false, false]);
+      expect([chat.runningSessions, chat.pendingPerms, chat.toolCards]).toEqual([[], [], []]);
+      expect([chat.streamingText, chat.streamingThinking, chat.retryNote]).toEqual([midRun ? '' : 'old text', '', '']);
+      expect(chat.lastError).toBe('keep error');
+      expect(chat.syncState).toBe('offline');
+      gate.reject(new Error('connect failed'));
+      await expect(initializing).rejects.toThrow('connect failed');
+      expect(order).toEqual(['onLost', 'connect']);
+      expect(rpcCallMock.mock.calls).toEqual([]);
+    }
+
   });
 
   it('rpc.ts：connect 里紧跟 new WebSocket(url) 挂 this.ws.onclose = …，sendNow 第一句判断线', () => {

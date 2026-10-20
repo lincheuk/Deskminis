@@ -1,3 +1,4 @@
+import { outboundFetch } from '../net/outbound-fetch';
 /** G1 市场客户端 fetch 封装（设计稿 §2/§7 安全锚点）：
  *  - 域名白名单是**运行时闸**（assertWhitelisted）：闸在 fetchImpl 之前，白名单外直接 throw，
  *    注入的 fetch 实现绝不被调用——比源码扫描硬，是「URL 查询串即外泄通道」纪律的执行点；
@@ -5,7 +6,7 @@
  *    （不先整读再截断）、并发 ≤2（简单信号量）；
  *  - 请求卫生：头只带 accept 与条件 if-none-match，无任何本机标识/密钥/telemetry；
  *    URL 查询串由适配器构造、只含功能参数。
- *  零新依赖：Node 22 全局 fetch。 */
+ *  零新依赖：经统一出口跟随系统代理，CLI 保留 Node fetch。 */
 import { createHash } from 'node:crypto';
 
 /** 三源实抓（2026-08-20，g1-probe-run.txt）裁定的域名集合——编译期常量。
@@ -83,7 +84,7 @@ export class MarketClient {
 
   constructor(fetchImpl?: typeof fetch, opts?: { timeoutMs?: number }) {
     this.defaultTimeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const base = fetchImpl ?? fetch;
+    const base = fetchImpl ?? outboundFetch;
     // 测试注入口：把白名单域名的请求重写到本地 node:http fixture。
     // 闸已经在 fetch 之前校验过生产 URL——注入只重写网络层路由，不绕闸。
     const fixture = process.env.DESKMINIS_MARKET_FIXTURE_URL;

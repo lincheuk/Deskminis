@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { openDb } from '../src/minisd/store/db';
+import { openDb, MIGRATIONS } from '../src/minisd/store/db';
 import { ChatStore } from '../src/minisd/store/chat-store';
 import type Database from 'better-sqlite3';
 
@@ -11,8 +11,8 @@ let db: Database.Database; let store: ChatStore;
 beforeEach(() => { db = openDb(':memory:'); store = new ChatStore(db); });
 
 describe('迁移 [8] annotations', () => {
-  it('新库 user_version=11 且 annotations 表与会话索引就位（K1 追加 [10] 后最新版是 11）', () => {
-    expect(db.pragma('user_version', { simple: true })).toBe(11);
+  it('新库升级到当前迁移版本，且 annotations 表与会话索引就位', () => {
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
     const t = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='annotations'").get();
     expect(t).toBeTruthy();
     const i = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_annotations_session'").get();

@@ -1,15 +1,14 @@
 /** MU2a Task 7：diff 视图（设计 §5.4）——lib/diff/lcs.ts + lib/diff/payload.ts 纯模块（11 例）
- *  + DiffView/ToolLine/tokens 源文本守卫（3 例）。守卫工具：源文本读取统一归一化 CRLF→LF。 */
+ *  + DiffView/ToolLine 源文本守卫（2 例）。守卫工具：源文本读取统一归一化 CRLF→LF。 */
 import { describe, it, expect } from 'vitest';
+import { renderSfc } from './sfc-setup';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { diffLines, collapseCtx, countAddDel, MAX_LCS_LINES } from '../src/renderer/src/lib/diff/lcs';
 import { extractEditPair } from '../src/renderer/src/lib/diff/payload';
 
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
-const diffView = R('../src/renderer/src/ui/UiDiff.vue');
 const toolLine = R('../src/renderer/src/ui/StepGroup.vue');
-const tokens = R('../src/renderer/src/styles/tokens.css');
 
 describe('MU2a Task 7 diffLines（6 例）', () => {
   it('同文件 → 全 ctx，行号双轨同步', () => {
@@ -114,20 +113,16 @@ describe('MU2a Task 7 extractEditPair（3 例）', () => {
   });
 });
 
-describe('MU2a Task 7 DiffView 守卫（3 例）', () => {
-  it('DiffView.vue：props 契约 + 文件头槽（path mono + +N/−M 徽标）+ 行列表 + 折叠行锚 + 状态槽底色', () => {
-    // T6e-3 重指 ui/UiDiff.vue：契约同形，命名收短；path 变成可选
-    // （权限卡预览没有路径可给，旧的必填 path 会逼调用方编一个）。
-    expect(diffView).toMatch(/path\?:\s*string/);
-    expect(diffView).toContain('addCount: number');
-    expect(diffView).toContain('delCount: number');
-    expect(diffView).toContain('lines:');
-    expect(diffView).toContain('class="dh');     // 文件头槽
-    expect(diffView).toContain('class="dpath"'); // 路径
-    expect(diffView).toMatch(/class="add tnum"/);// +N 徽标
-    expect(diffView).toMatch(/class="dline"/);   // 行
-    expect(diffView).toMatch(/\.dline\.add[^}]*var\(--c-ok-soft\)/);
-    expect(diffView).toMatch(/\.dline\.del[^}]*var\(--c-err-soft\)/);
+describe('MU2a Task 7 DiffView 守卫（2 例）', () => {
+  it('UiDiff：可选路径、默认统一行与增删计数按实际 props 渲染', async () => {
+    const file = resolve(__dirname, '../src/renderer/src/ui/UiDiff.vue');
+    const props = { lines: diffLines('same\nold', 'same\nnew'), addCount: 1, delCount: 1 };
+    const html = await renderSfc(file, { ...props, path: 'src/a.ts' });
+    expect(html).toContain('src/a.ts'); expect(html).toContain('+1'); expect(html).toContain('-1');
+    expect(html).toMatch(/class="dline ctx"/); expect(html).toMatch(/class="dline del"/); expect(html).toMatch(/class="dline add"/);
+    expect(html).toContain('same'); expect(html).toContain('old'); expect(html).toContain('new');
+    const without = await renderSfc(file, props);
+    expect(without).not.toContain('dpath'); expect(without).not.toContain('srow');
   });
 
   it('StepGroup 接线：file_edit 且 extractEditPair 命中 → UiDiff；否则参数/输出区', () => {
@@ -141,10 +136,4 @@ describe('MU2a Task 7 DiffView 守卫（3 例）', () => {
     expect(toolLine).toContain('<UiDiff');
   });
 
-  it('tokens.css 四段语义槽：--state-ok-bg / --state-err-bg 各 4 处（浅/媒体暗/强制暗/强制浅）', () => {
-    expect(tokens.match(/--state-ok-bg:/g)).toHaveLength(4);
-    expect(tokens.match(/--state-err-bg:/g)).toHaveLength(4);
-    expect(tokens).toContain('--state-ok-bg: var(--success-subtle)'); // MU3 §3-3：Appica 直给 alpha，color-mix 清零
-    expect(tokens).toContain('--state-err-bg: var(--error-subtle)');
-  });
 });

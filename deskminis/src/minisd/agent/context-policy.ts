@@ -1,26 +1,17 @@
 import type { AgentMessage } from '../../shared/types';
+import { FALLBACK_CONTEXT_WINDOW } from '../../shared/runtime-model';
+import { estimateTextTokens } from '../../shared/token-estimate';
 
 export type ContextAction = 'none' | 'offload' | 'compact';
 
 /** 模型窗口未知时的保守回退窗口。M4.5：32K → 128K（避免落入「只 offload 不 compact」陷阱档，2026 年主流模型 ≥128K）。
- *  W2a-1 起导出：压缩预算与溢出降级都要按同一个窗口判定，各抄一份常量迟早对不上。 */
-export const FALLBACK_WINDOW = 128_000;
+ *  W2a-1 起导出：压缩预算与溢出降级都要按同一个窗口判定，各抄一份常量迟早对不上。
+ *  F01R：值挪到 shared/runtime-model.ts（解析器判输出上限也要用它），这里按原名引用。 */
+export const FALLBACK_WINDOW = FALLBACK_CONTEXT_WINDOW;
 
-/** CJK 范围沿用 tools/memory.ts 的 [\u4e00-\u9fa5]。 */
-const CJK = /[\u4e00-\u9fa5]/g;
-
-/** 粗估一段文本的 token 数：CJK 字符按 /1.6，其余字符按 /4，向上取整。
- *  换算依据：英文约 4 字符/token，中文约 1.5–2 字符/token。
- *  旧实现整体 /4，把中文按英文密度折算，得真实值的一半（低估）→ 水位显示偏低、
- *  压缩触发过晚，中文密集的长会话会直接撞上下文上限；故 CJK 必须用更小的除数
- *  （1.6）单独折算，使其贴近真实值。
- *  W2a-1 抽成导出函数：压缩要给「摘要请求本身」算预算，那是一段纯文本而不是 parts 数组；
- *  与水位估算共用同一公式，两边的口径才一致。字符数与 CJK 数对拼接可加，
- *  所以分段估算再相加只会比整体估算略大（每段向上取整），用来卡预算是偏保守的一侧。 */
-export function estimateTextTokens(s: string): number {
-  const cjk = (s.match(CJK) ?? []).length;
-  return Math.ceil(cjk / 1.6 + (s.length - cjk) / 4);
-}
+/** 文本 token 粗估（CJK ÷1.6、其余 ÷4）。F02：实现挪到 shared/token-estimate.ts——providers 层的请求度量也要用它，
+ *  不能反向依赖 agent 层；这里按原名再导出，compact.ts 与测试的导入不变。 */
+export { estimateTextTokens };
 
 /**
  * 上下文水位检查（设计 §4.2「上下文水位检查」段）。
@@ -29,8 +20,9 @@ export function estimateTextTokens(s: string): number {
  * 注意：estimateTokens 的入参是 AgentMessage[]（不是 RawMessage[]）——
  * 水位检查在 loop.ts 里发生在 buildEffectiveHistory 之后，估算只算 parts JSON 的字符数。
  * W2a-4 起 assistant 的 reasoningContent 也进了 AgentMessage（DeepSeek V4 要回放），但这里仍然不数它：
- * 有意保留——它只对 v4 族真的发出去，对别的模型数进去反而高估；代价是 v4 会话的水位偏低，
- * W5 改为以真实 usage 为锚时一并解决。
+ * 有意保留——它只对 v4 族真的发出去，对别的模型数进去反而高估。
+ * F02：带 runtime 的槽位不再用这个估算判水位——运行循环改按「实际将发送的请求」算预算（agent/request-budget.ts），
+ * 系统提示、工具定义、回放推理与图片都计入；这里只剩没有 runtime 的旧调用方与预算算不出来时的回退在用。
  */
 export class ContextPolicy {
   constructor(private catalog: { getModelContextWindow(modelId: string): number | undefined }) {}
@@ -52,7 +44,12 @@ export class ContextPolicy {
    *  档位边界：32K/64K/128K。128K 归入「64-128K」档（语义段以范围表述，
    *  测试「128K 窗口：超 50% offload，超 70% compact」锚定此归属）。 */
   decide(modelId: string, tokenCount: number): ContextAction {
-    const window = this.windowOf(modelId);
+    return this.decideWindow(this.windowOf(modelId), tokenCount);
+  }
+
+  /** 按给定窗口分层决策（F01）：运行循环传入当前槽位按配置实例解析出的窗口，不再按 modelId 查目录——
+   *  同名模型在不同接入上的窗口与手动修正各不相同。 */
+  decideWindow(window: number, tokenCount: number): ContextAction {
     const ratio = tokenCount / window;
 
     if (window > 128_000) {

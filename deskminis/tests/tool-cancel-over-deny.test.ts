@@ -4,7 +4,10 @@
  * 否则落库的 toolResult 写「写入被用户拒绝（可在设置-权限中调整）」，重开会话时界面与模型都以为是用户拒绝的。
  * MCP 调用（mcp/manager.ts）一直是先查取消再看拒绝；本文件把文件、抓网页、搜索、shell 四处拉齐。
  *
- * 网关替身：check 里先 abort 再回 deny，时序与 minisd 了结权限卡时一致（工具的续体在两者之后才跑）。
+ * 网关替身：询问到来时先 abort 再回拒绝，时序与 minisd 了结权限卡时一致（工具的续体在两者之后才跑）。
+ * F13：替身交回的原因两种情形都是 user-denied——「[已取消]」必须由「signal 已取消」得出，不能由网关自报；
+ * 替身自报 cancelled 的话，文案表直接给出 [已取消]，这组用例就测不出「先看取消、再看拒绝」了（网关自报取消的一列在
+ * permission-callers 的 C1 矩阵里）。
  * 路径用 /var/minis/skills 与数据根内的 minis.db（W1b-2 之后走卡），不用 POSIX 绝对路径（Linux 上走不到网关）。
  */
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -17,7 +20,7 @@ import { makeWebFetchTool } from '../src/minisd/tools/web';
 import { makeWebSearchTool } from '../src/minisd/tools/web-search';
 import { makeShellTool, ShellManager } from '../src/minisd/tools/shell';
 import { MinisPaths } from '../src/minisd/paths';
-import type { PermissionDecision, PermissionRequest, ToolContext } from '../src/minisd/tools/types';
+import type { PermissionDecision, PermissionOutcome, PermissionRequest, ToolContext } from '../src/minisd/tools/types';
 
 /** 模拟后台了结：询问到来时先中止会话，再回 deny。abortFirst=false 时只回 deny（用户真的点了拒绝）。 */
 class SystemDenyGateway {
@@ -27,6 +30,13 @@ class SystemDenyGateway {
     this.asked.push(r);
     if (this.abortFirst) this.controller.abort('shutdown');
     return 'deny';
+  }
+  /** F13：带原因的结果。二值的 'deny' 已经说不出「是谁拒的」（只有 check 的网关会被读成「没有说明原因」），
+   *  所以替身要给原因。两种情形给的都是 user-denied，区别只在 check 里有没有先 abort：
+   *  后台了结 = 先 abort、网关的答复仍是拒绝。这样 abortFirst 的用例钉的才是「拒绝 + 已取消 → 落 [已取消]」这个先后。 */
+  async decide(r: PermissionRequest): Promise<PermissionOutcome> {
+    await this.check(r);
+    return { decision: 'deny', reason: 'user-denied' };
   }
   hasBridgeGrant(): boolean { return false; }
 }

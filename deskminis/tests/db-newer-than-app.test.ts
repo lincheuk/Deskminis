@@ -98,11 +98,12 @@ describe('降级守卫：库比应用新时拒绝打开且一个字节都不写'
 
   it('runMigrations 自己也判新旧：直接对「更新」的连接调用同样抛 DB_NEWER_THAN_APP', () => {
     const db = new Database(':memory:');
-    db.pragma('user_version = 3');
+    const newerVersion = 3;
+    db.pragma(`user_version = ${newerVersion}`);
     expect(() => runMigrations(db, [MIGRATIONS[0]])).toThrow(expect.objectContaining({
-      code: 'DB_NEWER_THAN_APP', dbVersion: 3, appVersion: 1,
+      code: 'DB_NEWER_THAN_APP', dbVersion: newerVersion, appVersion: 1,
     }));
-    expect(userVersion(db)).toBe(3);
+    expect(userVersion(db)).toBe(newerVersion);
     db.close();
   });
 });
@@ -111,11 +112,12 @@ describe('迁移事务：失败整条回滚，连接上不留悬挂事务', () =
   it('第二条迁移中途失败：同一连接上 inTransaction=false、t_ok 不存在、user_version 停在 1', () => {
     const db = new Database(':memory:');
     // 第二条前半句合法、后半句语法错——旧写法会把 t_ok 留在一个永不结束的事务里
-    expect(() => runMigrations(db, [MIGRATIONS[0], 'CREATE TABLE t_ok(x); CREATE TABLE t_bad('])).toThrow();
+    const successfulMigrations = [MIGRATIONS[0]];
+    expect(() => runMigrations(db, [...successfulMigrations, 'CREATE TABLE t_ok(x); CREATE TABLE t_bad('])).toThrow();
     expect(db.inTransaction, '失败的迁移必须回滚，不能把事务挂在连接上').toBe(false);
     expect(tableNames(db)).not.toContain('t_ok');
     expect(tableNames(db), '第一条迁移已提交，不受第二条失败影响').toContain('sessions');
-    expect(userVersion(db)).toBe(1);
+    expect(userVersion(db)).toBe(successfulMigrations.length);
     db.close();
   });
 
@@ -123,17 +125,18 @@ describe('迁移事务：失败整条回滚，连接上不留悬挂事务', () =
     const file = tmpDb();
     // 造一个「停在 10、但 [10] 要建的表已经在了」的库：补跑 MIGRATIONS[10] 必撞「表已存在」
     const raw = new Database(file);
+    const collisionVersion = 10; // 固定的历史库夹具：下一条迁移会撞上已存在的表。
     raw.pragma('journal_mode = WAL');
-    for (let i = 0; i < 10; i++) raw.exec(MIGRATIONS[i]);
-    raw.exec(MIGRATIONS[10]);
-    raw.pragma('user_version = 10');
+    for (let i = 0; i < collisionVersion; i++) raw.exec(MIGRATIONS[i]);
+    raw.exec(MIGRATIONS[collisionVersion]);
+    raw.pragma(`user_version = ${collisionVersion}`);
     raw.close();
 
     expect(() => openDb(file)).toThrow(/already exists/);
     expect(existsSync(`${file}-wal`) || existsSync(`${file}-shm`),
       '迁移失败时 openDb 必须先 close 再抛——否则连接泄漏、Windows 上库文件一直被锁').toBe(false);
     const check = new Database(file, { readonly: true });
-    expect(userVersion(check)).toBe(10);
+    expect(userVersion(check)).toBe(collisionVersion);
     check.close();
   });
 

@@ -1,5 +1,11 @@
 # DeskMinis — 桌面端 Agent 应用（基于 OpenMinis 理念）项目笔记
 
+> **历史存档（2026-10-08 标记）**：以下正文保留早期设计与阶段记录，最新记录日期为 2026-08-19。
+> 其中的进度、测试数、验收步骤及本地参考目录属于当时的状态，部分脚本和设计稿路径已不存在。
+> 当前使用与构建说明见 [README](README.md)，功能变化见 [CHANGELOG](CHANGELOG.md)，
+> 测试环境与分档见 [测试说明](docs/TESTING.md)，发布步骤见 [发布检查单](docs/RELEASE.md)，
+> 各 e2e 入口见 [脚本说明](deskminis/scripts/README.md)。
+
 > 本项目**独立于 bitapi/onerelay**，所有工作只在 `<repo>\` 下进行。
 > 建议在本目录单独打开 Claude Code 会话继续此项目。
 

@@ -22,14 +22,54 @@
  * 纯逻辑（超时 kill、幂等、退出记录）的行为测试在 tests/minisd-stop.test.ts。
  * 源码先剥注释再匹配：注释里写着旧调用也不能喂饱断言（handoff §2.10）。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripComments } from './strip-comments';
+import { expectSame, callMark } from './engine-trace';
+import type { EngineWatch } from './engine-wiring';
+import { probeConnection, startCapturedEngine, type CapturedEngine } from './engine-assembly';
+import { runStandaloneBranch } from './standalone-branch';
+import type { StartMinisdOpts } from '../src/minisd/index';
 
 const read = (rel: string) => stripComments(readFileSync(join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n'));
 const main = read('src/main/index.ts');
-const minisd = read('src/minisd/index.ts');
+const engines: CapturedEngine[] = [];
+const savedFake = process.env.DESKMINIS_FAKE_PROVIDER;
+const CLOSE = ['sync.stop', 'broker.settleWhere', 'terminals.disposeAll', 'shells.disposeAll', 'mcp.disposeAll', 'bridge.close', 'rpc.close', 'inputQueue.close', 'ledger.close', 'procLedger.close', 'db.close', 'lock.release'];
+afterEach(async () => {
+  for (const e of engines.splice(0).reverse()) {
+    try { await e.close(); } catch { /* 变异失败后的收尾尽力 */ }
+  }
+  vi.restoreAllMocks();
+  if (savedFake === undefined) delete process.env.DESKMINIS_FAKE_PROVIDER;
+  else process.env.DESKMINIS_FAKE_PROVIDER = savedFake;
+});
+
+async function watchCurrentEngine(): Promise<EngineWatch> {
+  return (await import('./engine-wiring')).watchEngine();
+}
+async function engine(opts: StartMinisdOpts = {}): Promise<CapturedEngine> {
+  process.env.DESKMINIS_FAKE_PROVIDER = '1';
+  const e = await startCapturedEngine(opts);
+  engines.push(e);
+  return e;
+}
+async function until(what: string, test: () => boolean): Promise<void> {
+  const deadline = Date.now() + 10000;
+  while (!test()) {
+    if (Date.now() > deadline) throw new Error('等待超时: ' + what);
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+}
+async function pendingRun(w: EngineWatch, e: CapturedEngine): Promise<{ sid: string; release(): void; result: Promise<unknown> }> {
+  let release!: () => void;
+  w.spy('mcp.ensureForRun').mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+  const { id } = await e.methods['chat.sessions.create']({}, probeConnection('local')) as { id: string };
+  const result = Promise.resolve(e.methods['chat.prompt']({ sessionId: id, providerId: '__fake__', text: 'Q20A SHUTDOWN' }, probeConnection('local'))).catch(error => error);
+  await until('起跑挂在MCP', () => typeof release === 'function');
+  return { sid: id, release, result };
+}
 
 /** 从 anchor 命中处之后的第一个 { 起，按括号配对取出块体（不含外层花括号）；找不到返回 ''。 */
 function blockAfter(src: string, anchor: RegExp): string {
@@ -155,84 +195,202 @@ describe('主进程：握手前启动失败仍直接 kill', () => {
 });
 
 describe('minisd：standalone 分支接 shutdown 消息', () => {
-  const standalone = blockAfter(minisd, /if \(process\.env\.DESKMINIS_STANDALONE === '1'\) \{/);
-  const handler = blockAfter(standalone, /process\.parentPort\?\.on\(\s*'message'\s*,\s*\(\s*\w+\s*\)\s*=>\s*\{/);
 
-  it('parentPort 的 message 监听只认 type === \'shutdown\'，交给 closeThenExit(starting, code => process.exit(code))', () => {
-    expect(handler).not.toBe('');
-    expect(handler).toMatch(/\.type\s*!==\s*'shutdown'\)\s*return;/);
-    expect(handler).toMatch(/\bvoid closeThenExit\(starting,\s*\(?code\)?\s*=>\s*process\.exit\(code\)\);/);
-  });
+  it('parentPort 的 message 监听只认 type === \'shutdown\'，交给 closeThenExit(starting, code => process.exit(code))', async () => {
+    // message 是同步分发：监听已执行，后续微任务也经过，再确认其它类型没有开始关停。
+    const run = await runStandaloneBranch();
+    try {
+      await run.settled();
+      expect(run.spies['parentPort.on'].mock.calls.filter(args => args[0] === 'message')).toHaveLength(1);
+      run.post({ type: 'other' });
+      run.post(undefined);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(run.spies['sync.stop'].mock.calls).toHaveLength(0);
+      expect(run.spies.exit.mock.calls).toHaveLength(0);
+      // 真正的shutdown消息经过实际close，锁已释放才退出，退出码只有0。
+      run.post({ type: 'shutdown' });
+      expect(await run.exited()).toBe(0);
+      expect(run.order().filter(name => ['sync.stop', 'lock.release', 'exit'].includes(name))).toEqual(['sync.stop', 'lock.release', 'exit']);
+      expect(run.spies.exit.mock.calls).toEqual([[0]]);
+    } finally {
+      await run.dispose();
+    }
+  }, 60000);
 
-  it('分支里 process.exit( 只有交给 closeThenExit 的那一处：不在 close 做完之前另退', () => {
-    // 审查实测：`void inst.close(…); process.exit(0);`（库还没关就退）只认「有 close、有 exit(0)」的守卫照样绿
-    expect(standalone.match(/process\.exit\(/g) ?? []).toHaveLength(1);
-    expect(standalone).not.toMatch(/\.close\(/);
-  });
+  it('分支里 process.exit( 只有交给 closeThenExit 的那一处：不在 close 做完之前另退', async () => {
+    // 实际RPC关闭尚未完成时不能提前exit，完成之后恰好一次exit(0)。
+    let release!: () => void;
+    const closeGate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const run = await runStandaloneBranch({ closeGate });
+    try {
+      await run.settled();
+      run.post({ type: 'shutdown' });
+      await until('RPC关闭已经开始且挂在闸上', () => run.spies['rpc.close'].mock.calls.length === 1);
+      expect(run.spies.exit.mock.calls).toHaveLength(0);
+      expect(run.spies['lock.release'].mock.calls).toHaveLength(0);
+      release();
+      expect(await run.exited()).toBe(0);
+      expect(run.order().filter(name => ['rpc.close', 'lock.release', 'exit'].includes(name))).toEqual(['rpc.close', 'lock.release', 'exit']);
+      expect(run.spies.exit.mock.calls).toEqual([[0]]);
+    } finally {
+      release();
+      await run.dispose();
+    }
+  }, 60000);
 });
 
 describe('minisd：shutdown 的每一步各自兜住，关库放锁在 finally', () => {
-  const body = blockAfter(minisd, /async function shutdown\(graceMs: number\): Promise<void> \{/);
 
-  it('closing = true 之后紧跟 try，这个 try 的 finally 是函数的最后一段：关库，再放锁', () => {
-    // 审查实测：try 只包住第 6 步时，第 3 步审计写入抛错就跳过关库放锁，同一进程里这个根再也打不开
-    const head = /^\s*closing = true;\s*try \{/;
-    expect(body).toMatch(head);
-    const tryBody = blockAfter(body, head);
-    const rest = body.slice(body.indexOf(tryBody) + tryBody.length + 1).replace(/\s+/g, ' ').trim();
-    expect(rest).toBe('finally { try { db.close(); } finally { lock.release(); } }');
-  });
+  it('closing = true 之后紧跟 try，这个 try 的 finally 是函数的最后一段：关库，再放锁', async () => {
+    // 关停开始后拒绝新运行，某一步出错仍按全序关库并释放锁。
+    const w = await watchCurrentEngine();
+    const e = await engine();
+    const pending = await pendingRun(w, e);
+    const original = w.spy('sync.stop').getMockImplementation()!;
+    w.spy('sync.stop').mockImplementationOnce(function(this: unknown, ...args: unknown[]) {
+      original.apply(this, args);
+      throw new Error('Q20A-SYNC-STOP-FAIL');
+    });
+    const from = callMark();
+    const closing = e.handle.close({ graceMs: 137 });
+    await expect(e.methods['chat.prompt']({ sessionId: pending.sid, text: 'late' }, probeConnection('local'))).rejects.toThrow('后台正在关闭');
+    pending.release();
+    await pending.result;
+    await expect(closing).resolves.toBeUndefined();
+    const steps = [...CLOSE.slice(0, 2), 'broker.settleWhere', 'run.end', ...CLOSE.slice(2)];
+    expect(w.seq([...CLOSE, 'run.end'], from)).toEqual(steps);
+    expect(w.count('lock.release', from)).toBe(1);
+    expect(w.args('inputQueue.holdSession')).toEqual([pending.sid, 'shutdown']);
+    expect(w.args('abort')).toEqual(['shutdown']);
+    expect(w.spy('run.end').mock.calls.at(-1)![1]).toMatchObject({ state: 'cancelled', reason: 'shutdown' });
+    const stopTimers = w.spy('timers.setTimeout').mock.calls.filter((_, i) => w.spy('timers.setTimeout').mock.invocationCallOrder[i] > from).map(args => args[1]);
+    expect(stopTimers.filter(ms => ms === 137)).toHaveLength(1);
+    expect(w.spy('lock.release').mock.contexts.at(-1)).toBe(w.made('lock.acquire'));
+  }, 60000);
 
-  it('同步的步骤都包在 shutdownStep(…) 里：一步抛错只记一笔，后面的 abort、销毁子进程照做', () => {
-    // W1b-5d 有意重指：三个 disposeAll 原来也在这张表里（各自一句同步的 shutdownStep）。它们现在返回回收落定的 Promise，
-    // 改由下一条的 shutdownReap 各自兜住地发起、一起限时等待；这里只留仍是同步一步的两项
-    for (const call of ['syncCoordinator.stop()', "denyPendingPerms('all', 'shutdown')"]) {
-      const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      expect(body.match(new RegExp(esc, 'g')) ?? [], call).toHaveLength(1);
-      expect(body, call).toMatch(new RegExp(`\\bshutdownStep\\('[^']+',\\s*\\(\\)\\s*=>\\s*${esc}\\);`));
+  it('同步的步骤都包在 shutdownStep(…) 里：一步抛错只记一笔，后面的 abort、销毁子进程照做', async () => {
+    // 每个同步或异步步骤抛错，其余步骤仍各走一次；错误后资源确实收尾。
+    for (const failure of ['sync.stop', 'broker.settleWhere', 'bridge.close', 'rpc.close']) {
+      vi.restoreAllMocks();
+      const w = await watchCurrentEngine();
+      const e = await engine();
+      const spy = w.spy(failure);
+      const original = spy.getMockImplementation()!;
+      if (failure === 'bridge.close' || failure === 'rpc.close') {
+        spy.mockImplementationOnce(async function(this: unknown, ...args: unknown[]) {
+          await original.apply(this, args);
+          throw new Error('Q20A-STEP-FAIL:' + failure);
+        });
+      }
+      else {
+        spy.mockImplementationOnce(function(this: unknown, ...args: unknown[]) {
+          original.apply(this, args);
+          throw new Error('Q20A-STEP-FAIL:' + failure);
+        });
+      }
+      const from = callMark();
+      await expect(e.close()).resolves.toBeUndefined();
+      expect(w.seq(CLOSE, from), failure).toEqual(CLOSE);
+      const [all, how] = w.args('broker.settleWhere');
+      expect(how).toEqual({ reason: 'cancelled', cause: 'shutdown' });
+      for (const sessionId of ['Q20A-ONE', 'Q20A-OTHER', '']) expect(all({ req: { sessionId } })).toBe(true);
+      expectSame(w.spy('broker.settleWhere').mock.contexts.at(-1), w.made('new PermissionBroker'));
+      for (const name of CLOSE)
+        expect(w.count(name, from), name).toBe(1);
     }
-    for (const call of ['bridge?.close()', 'rpc.close()']) {
-      const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      expect(body.match(new RegExp(esc, 'g')) ?? [], call).toHaveLength(1);
-      expect(body, call).toMatch(new RegExp(`\\bawait shutdownStepAsync\\('[^']+',\\s*\\(\\)\\s*=>\\s*${esc}\\);`));
-    }
-  });
+  }, 60000);
 
-  it('第 6 步（W1b-5d）：三个 disposeAll 各是 await shutdownReap([…], reapWaitMs) 的一步；等完才关桥与 rpc', () => {
-    // 审查要防的回退：退回同步的三句 shutdownStep（起了 taskkill 不等就关库退出，孙进程成孤儿）、
-    // 只把其中一两个交给等待、或者等待挪到关桥 / 关 rpc 之后。等的行为（落定前不关库、上限、一步抛错其余照做）
-    // 由 tests/shutdown-reap.test.ts 按行为钉住
-    const head = /\bawait shutdownReap\(/;
-    const at = body.search(head);
-    expect(at, 'shutdown 里要 await shutdownReap(…)').toBeGreaterThan(-1);
-    // 等回收要排在等 run 收尾之后（W1b-5e，W1b-5d 审查变异 R1：整句挪到 stopRun 之前，原有断言照绿）：先 abort 在跑的工具、
-    // 等它们落下 [已取消]，再收子进程；反过来的话，在跑的 shell / MCP 工具看到的是进程没了，记成执行失败
-    const stopRuns = body.search(/await Promise\.all\(\[\.\.\.runs\.keys\(\)\]\.map\(/);
-    expect(stopRuns, '等 run 收尾那一句要在').toBeGreaterThan(-1);
-    expect(at, '等回收要排在等 run 收尾之后').toBeGreaterThan(stopRuns);
-    expect(body.match(/\bshutdownReap\(/g) ?? [], '只调一次').toHaveLength(1);
-    // 取出这次调用的实参（按圆括号配对）
-    const open = body.indexOf('(', at);
-    let depth = 1; let i = open + 1;
-    for (; i < body.length && depth > 0; i++) {
-      if (body[i] === '(') depth++;
-      else if (body[i] === ')') depth--;
-    }
-    const args = body.slice(open + 1, i - 1);
-    for (const call of ['terminals.disposeAll()', 'shells.disposeAll()', 'mcpManager.disposeAll()']) {
-      const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      expect(body.match(new RegExp(esc, 'g')) ?? [], `${call} 在 shutdown 里只出现一次`).toHaveLength(1);
-      expect(args, `${call} 是 shutdownReap 的一步 ['名字', () => …]`).toMatch(new RegExp(`\\[\\s*'[^']+',\\s*\\(\\)\\s*=>\\s*${esc}\\s*\\]`));
-    }
-    expect(args, '上限是 reapWaitMs（注入值，缺省 REAP_WAIT_MS）').toMatch(/\],?\s*\],\s*reapWaitMs\s*$/);
-    for (const call of ['bridge?.close()', 'rpc.close()']) {
-      const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      expect(body.search(new RegExp(`await shutdownStepAsync\\('[^']+',\\s*\\(\\)\\s*=>\\s*${esc}\\)`)), `${call} 要排在等回收之后`)
-        .toBeGreaterThan(at);
-    }
-  });
+  it('第 6 步（W1b-5d）：三个 disposeAll 各是 await shutdownReap([…], reapWaitMs) 的一步；等完才关桥与 rpc', async () => {
+    // run先收尾，三种回收都发起并等实际闸落定，之后才关桥、RPC、账本和库。
+    const w = await watchCurrentEngine();
+    const e = await engine({ reapWaitMs: 3000 });
+    const pending = await pendingRun(w, e);
+    let reap!: () => void;
+    w.spy('terminals.disposeAll').mockImplementationOnce(() => new Promise<void>(resolve => {
+      reap = resolve;
+    }));
+    const from = callMark();
+    const closing = e.handle.close({ graceMs: 321 });
+    pending.release();
+    await pending.result;
+    await until('回收map已经同步走过', () => ['terminals.disposeAll', 'shells.disposeAll', 'mcp.disposeAll'].some(name => w.count(name, from) > 0));
+    expect(w.seq(['terminals.disposeAll', 'shells.disposeAll', 'mcp.disposeAll'], from)).toEqual(['terminals.disposeAll', 'shells.disposeAll', 'mcp.disposeAll']);
+    expect(w.count('bridge.close', from)).toBe(0);
+    expect(w.count('rpc.close', from)).toBe(0);
+    expect(w.count('db.close', from)).toBe(0);
+    const timerDurations = w.spy('timers.setTimeout').mock.calls.filter((_, i) => w.spy('timers.setTimeout').mock.invocationCallOrder[i] > from).map(args => args[1]);
+    expect(timerDurations.filter(ms => ms === 3000)).toHaveLength(1);
+    expect(timerDurations).not.toContain(1000);
+    reap();
+    await expect(closing).resolves.toBeUndefined();
+    expect(w.seq(['run.end', ...CLOSE.slice(2)], from)).toEqual(['run.end', ...CLOSE.slice(2)]);
 
-  it('了结全部权限卡之后、没有 await 就逐个 stopRun（先看取消才落得下 [已取消]）；单个会话停失败不拖垮 Promise.all', () => {
-    expect(body).toMatch(/shutdownStep\('[^']+',\s*\(\)\s*=>\s*denyPendingPerms\('all', 'shutdown'\)\);\s*await Promise\.all\(\[\.\.\.runs\.keys\(\)\]\.map\(\s*sessionId\s*=>\s*stopRun\(sessionId,\s*graceMs,\s*'shutdown'\)\.catch\(/);
-  });
+    // 注入50ms上限：永不落定的回收也不能把关停拖到默认1000ms。
+    vi.restoreAllMocks();
+    const timed = await watchCurrentEngine();
+    const second = await engine({ reapWaitMs: 50 });
+    timed.spy('terminals.disposeAll').mockImplementationOnce(() => new Promise<void>(() => {
+    }));
+    const timerMark = callMark();
+    await second.close();
+    const scheduled = timed.spy('timers.setTimeout').mock.calls.filter((_, i) => timed.spy('timers.setTimeout').mock.invocationCallOrder[i] > timerMark).map(args => args[1]);
+    expect(scheduled.filter(ms => ms === 50)).toHaveLength(1);
+    expect(scheduled).not.toContain(1000);
+    for (const name of CLOSE.slice(2)) expect(timed.count(name), name).toBe(1);
+
+    // 每个回收入口单独出错，仍须由 shutdownReap 当场兜住，继续其余回收和全部关闭。
+    for (const failure of ['terminals.disposeAll', 'shells.disposeAll', 'mcp.disposeAll']) {
+      vi.restoreAllMocks();
+      const fault = await watchCurrentEngine();
+      const faulty = await engine({ reapWaitMs: 50 });
+      const original = fault.spy(failure).getMockImplementation()!;
+      fault.spy(failure).mockImplementationOnce(function(this: unknown, ...args: unknown[]) {
+        original.apply(this, args);
+        throw new Error('Q20A-REAP-FAIL:' + failure);
+      });
+      const mark = callMark();
+      await expect(faulty.close()).resolves.toBeUndefined();
+      expect(fault.seq(CLOSE, mark), failure).toEqual(CLOSE);
+      for (const name of CLOSE) expect(fault.count(name, mark), name).toBe(1);
+    }
+  }, 60000);
+
+  it('了结全部权限卡之后、没有 await 就逐个 stopRun（先看取消才落得下 [已取消]）；单个会话停失败不拖垮 Promise.all', async () => {
+    // 两个run的中止同步发生在权限收口之后，第一条中止抛错也必须继续等第二条。
+    const w = await watchCurrentEngine();
+    const e = await engine();
+    const a = await pendingRun(w, e);
+    const b = await pendingRun(w, e);
+    const { yieldProbe } = await import('./engine-trace');
+    // stopRun自身还会了结一次卡片；单看最后一次settle→abort会漏掉全体收口后的让步。
+    const entryGaps = yieldProbe(w.spy('broker.settleWhere'), w.spy('inputQueue.holdSession'));
+    const gaps = yieldProbe(w.spy('broker.settleWhere'), w.spy('abort'));
+    const abort = w.spy('abort').getMockImplementation()!;
+    w.spy('abort').mockImplementationOnce(function(this: unknown, ...args: unknown[]) {
+      abort.apply(this, args);
+      throw new Error('Q20A-FIRST-STOP-FAIL');
+    });
+    const from = callMark();
+    const closing = e.handle.close();
+    await until('两个中止都已发起', () => w.count('abort', from) === 2);
+    expect(w.seq(['broker.settleWhere', 'abort'], from)).toEqual(['broker.settleWhere', 'broker.settleWhere', 'abort', 'broker.settleWhere', 'abort']);
+    expect(w.seq(['broker.settleWhere', 'inputQueue.holdSession', 'abort'], from)).toEqual([
+      'broker.settleWhere', 'inputQueue.holdSession', 'broker.settleWhere', 'abort',
+      'inputQueue.holdSession', 'broker.settleWhere', 'abort',
+    ]);
+    expect(entryGaps).toEqual([false, false]);
+    expect(gaps).toEqual([false, false]);
+    expect(w.count('terminals.disposeAll', from)).toBe(0);
+    expect(w.count('db.close', from)).toBe(0);
+    a.release();
+    b.release();
+    await expect(Promise.all([a.result, b.result, closing])).resolves.toHaveLength(3);
+    expect(w.count('run.end', from)).toBe(2);
+    expect(w.spy('inputQueue.holdSession').mock.calls.filter((_, i) => w.spy('inputQueue.holdSession').mock.invocationCallOrder[i] > from)).toEqual([[a.sid, 'shutdown'], [b.sid, 'shutdown']]);
+    expect(w.spy('abort').mock.calls.filter((_, i) => w.spy('abort').mock.invocationCallOrder[i] > from)).toEqual([['shutdown'], ['shutdown']]);
+    for (const args of w.spy('broker.settleWhere').mock.calls.filter((_, i) => w.spy('broker.settleWhere').mock.invocationCallOrder[i] > from)) expect(args[1]).toEqual({ reason: 'cancelled', cause: 'shutdown' });
+    expect(w.count('db.close', from)).toBe(1);
+  }, 60000);
 });

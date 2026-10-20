@@ -1,4 +1,4 @@
-/** J1 助手规则注入块（设计稿 2026-08-20-assistants-design.md §4）。
+/** J1 助手规则注入块：把当前预设的名称与规则追加到系统提示词。
  *  注入位：chat.prompt 的 promptFactory，base = stable + assistantBlock + skillsBlock。
  *  规则是用户自己写的配置（同 SKILL.md 信任级），不包 untrusted 壳；
  *  名称进 name 属性做提示词内自指认（「你正以 XX 预设工作」的语义由包裹块承担）。 */

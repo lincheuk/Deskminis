@@ -2,10 +2,12 @@
  *
  *  接棒退役的 tokens-aurora-contrast：那份锚的是旧 oklch 令牌体系，随旧 UI 一同作废。
  *  锚的意图不变且更严——**文字必须可读**，逐对算 WCAG 对比度，浅深双主题各一遍。
- *  新色板是 hex，不必再解析 oklch，直接算。 */
+ *  现行色阶保留hex算法；补充14a另补Markdown的OKLCH及半透明底色配对。 */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import postcss from 'postcss';
+import { MODES, themeTokens, MARKDOWN_PAIRS, pairKey, expectedMarkdownPairs, contrastOf, colorLuminance } from './theme-token-fixture';
 
 const css = fs.readFileSync(
   path.join(path.resolve(__dirname, '..'), 'src/renderer/src/styles/theme.css'), 'utf8');
@@ -107,69 +109,55 @@ describe('T1 设计系统立系原则（锚意图，不锚具体值）', () => {
   });
 });
 
-describe('T6d — 两套令牌文件的同名令牌必须同值', () => {
-  /** `main.ts` 先引 theme.css 再引 tokens.css，**后加载的赢**。
-   *  两边有九个同名令牌，其中七个值不同——整套间距标尺被旧文件顶高一档，
-   *  297 处引用一直渲染的是旧值，theme.css 写的那套从未生效过。
-   *
-   *  已按「让声明追上像素」对齐（T 波界面正是在旧标尺下审过并被接受的，
-   *  反过来改要重新目视 297 处）。这道守卫钉住此后任一边都不许再漂：
-   *  一旦漂了，theme.css 就又变成一份「写了不算数」的文件，
-   *  而它自称是新设计系统的唯一真相源。
-   *
-   *  tokens.css 目前不能删——MarkdownView / MarkdownInline 还消费它 18 个变量。
-   *  但对齐之后哪天删掉它，视觉零变化。 */
-  const tokensCss = fs.readFileSync(
-    path.join(path.resolve(__dirname, '..'), 'src/renderer/src/styles/tokens.css'), 'utf8');
-
-  /** 抓一份文件里所有 `--name: value` 的**首次**声明（同名多作用域取第一处，即浅色态）。 */
-  function declaredIn(src: string): Map<string, string> {
-    const out = new Map<string, string>();
-    for (const m of src.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
-      if (!out.has(m[1])) out.set(m[1], m[2].trim());
-    }
-    return out;
+describe('T6d — 渲染端唯一令牌表与作用域声明', () => {
+  // 令牌装配只能整目录静态检查：浏览器接受重复声明并悄悄覆盖，不会报错。
+  const root = path.join(path.resolve(__dirname, '..'), 'src/renderer');
+  const walk = (p: string): string[] => fs.readdirSync(p, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(p, e.name)) : [path.join(p, e.name)]);
+  const declarations: { file: string; scope: string; name: string }[] = [];
+  for (const file of walk(root).filter(p => /\.(css|vue)$/.test(p))) {
+    const source = fs.readFileSync(file, 'utf8');
+    const styles = file.endsWith('.css') ? [source] : [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]);
+    for (const style of styles) postcss.parse(style, { from: file }).walkDecls(d => {
+      if (!d.prop.startsWith('--')) return;
+      const scopes: string[] = [];
+      for (let p = d.parent; p && p.type !== 'root'; p = p.parent) {
+        if (p.type === 'rule') scopes.unshift(p.selector.replace(/\s+/g, ' ').trim());
+        else if (p.type === 'atrule') scopes.unshift(`@${p.name} ${p.params.replace(/\s+/g, ' ').trim()}`);
+      }
+      declarations.push({ file: path.relative(root, file).replace(/\\/g, '/'), scope: scopes.join(' > '), name: d.prop });
+    });
   }
-
-  /** 解析成 px 数值再比：tokens.css 那边多是 `var(--radius-2xl)` 这类间接引用，
-   *  逐字比会把「值相同、写法不同」误判成漂移。解析不了就抛——
-   *  出现新写法要被看见，不能悄悄跳过（跳过等于守卫失效）。 */
-  function resolvePx(raw: string, table: Map<string, string>, depth = 0): number {
-    const v = raw.trim();
-    if (depth > 8) throw new Error(`令牌解析层数过深：${raw}`);
-    let m = /^(-?[\d.]+)px$/.exec(v);
-    if (m) return Number(m[1]);
-    // rem 按浏览器默认根字号 16px 折算——项目没有改 html 的 font-size
-    m = /^(-?[\d.]+)rem$/.exec(v);
-    if (m) return Number(m[1]) * 16;
-    m = /^var\((--[\w-]+)\)$/.exec(v);
-    if (m) {
-      const next = table.get(m[1]);
-      if (next === undefined) throw new Error(`引用了不存在的令牌：${m[1]}`);
-      return resolvePx(next, table, depth + 1);
-    }
-    // 只认实际用到的这一种 calc 形态：calc(var(x) * a / b)
-    m = /^calc\(\s*var\((--[\w-]+)\)\s*\*\s*([\d.]+)\s*\/\s*([\d.]+)\s*\)$/.exec(v);
-    if (m) {
-      const base = table.get(m[1]);
-      if (base === undefined) throw new Error(`calc 引用了不存在的令牌：${m[1]}`);
-      return resolvePx(base, table, depth + 1) * Number(m[2]) / Number(m[3]);
-    }
-    throw new Error(`无法解析成 px 的令牌值：${raw}（守卫需要补一条解析规则）`);
-  }
-
-  it('同名令牌解析后逐个同值（不同值 = theme.css 那份写了不算数）', () => {
-    const a = declaredIn(css);
-    const b = declaredIn(tokensCss);
-    const clash = [...a.keys()].filter(k => b.has(k)).sort();
-    // 碰撞本身是允许的（两文件并存期），值不一样才是问题
-    expect(clash.length, '两文件不再有同名令牌了？那这条守卫该退场').toBeGreaterThan(0);
-    const mismatch: string[] = [];
-    for (const k of clash) {
-      const av = resolvePx(a.get(k)!, a);
-      const bv = resolvePx(b.get(k)!, b);
-      if (av !== bv) mismatch.push(`${k}: theme.css=${a.get(k)}(${av}px) vs tokens.css=${b.get(k)}(${bv}px)`);
-    }
-    expect(mismatch).toEqual([]);
+  it('只有 theme.css 声明设计令牌，旧文件与第二份令牌表不能回来', () => {
+    expect([...new Set(declarations.map(d => d.file))].sort()).toEqual(['src/styles/theme.css']);
+    expect(fs.existsSync(path.join(root, 'src/styles/tokens.css'))).toBe(false);
   });
+  it('同一变量在同一作用域只声明一次，包括拆开的同名规则', () => {
+    const seen = new Set<string>(), duplicates: typeof declarations = [];
+    for (const d of declarations) {
+      const key = `${d.scope}\n${d.name}`;
+      if (seen.has(key)) duplicates.push(d);
+      seen.add(key);
+    }
+    expect(duplicates).toEqual([]);
+  });
+});
+
+describe('N14a Markdown 实际对比度', () => {
+  it('配对表覆盖全部实际文字与底色，不能漏掉一对', () => {
+    const keys = MARKDOWN_PAIRS.map(pairKey);
+    expect(keys.length).toBe(new Set(keys).size);
+    expect([...keys].sort()).toEqual(expectedMarkdownPairs());
+  });
+  for (const mode of MODES) {
+    const tokens = themeTokens(mode);
+    for (const [fg, bg, underlay, source] of MARKDOWN_PAIRS) {
+      it(`${mode} ${fg} on ${bg}${underlay ? ' over ' + underlay : ''} ≥ 4.5:1（${source}）`, () => {
+        expect(contrastOf(tokens, fg, bg, underlay)).toBeGreaterThanOrEqual(4.5);
+      });
+    }
+    it(`${mode} 正文色与次级色的亮度比 ≥ 1.25`, () => {
+      const a = colorLuminance(tokens['--c-ink']), b = colorLuminance(tokens['--label-secondary']);
+      expect(Math.max(a, b) / Math.min(a, b)).toBeGreaterThanOrEqual(1.25);
+    });
+  }
 });

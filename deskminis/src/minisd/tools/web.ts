@@ -1,4 +1,7 @@
+import { outboundFetch } from '../net/outbound-fetch';
 import type { ToolExecutor } from './types';
+import { askPermission } from './permission-outcome';
+import { permissionFailure } from './permission-text';
 
 /** 与 files.ts MAX_READ 同值：单次抓取的 body 字节上限（无界内存红线，到限即断开）。 */
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -93,7 +96,7 @@ async function readBodyCapped(body: ReadableStream<Uint8Array> | null, capBytes:
 }
 
 /** web_fetch 工具：抓取 http(s) URL，HTML 转纯文本。fetchImpl 构造注入（测试路由假 fetch，仓库惯例）。 */
-export function makeWebFetchTool(fetchImpl: typeof fetch = fetch): ToolExecutor {
+export function makeWebFetchTool(fetchImpl: typeof fetch = outboundFetch): ToolExecutor {
   return {
     definition: {
       name: 'web_fetch',
@@ -104,6 +107,9 @@ export function makeWebFetchTool(fetchImpl: typeof fetch = fetch): ToolExecutor 
       },
       required: ['url', 'tool_title'],
     },
+    // F04：只向外发请求、不碰本地资源，可与任何不是 barrier 的调用并行。不声明就退化成 barrier，同批的多次抓取会变串行。
+    // 这里只管排队：权限照旧在下面过卡，不因「只读」免审
+    scheduling: { readOnly: true, concurrencySafe: true, sideEffects: 'network' },
     async execute(input, ctx) {
       // 已取消（用户点了停止）：立即收场，不再发起权限询问、不再连网
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
@@ -114,11 +120,12 @@ export function makeWebFetchTool(fetchImpl: typeof fetch = fetch): ToolExecutor 
         return { output: `仅支持 http/https URL: ${url.href}`, success: false };
       }
       // 无「内网豁免」：URL 本身可携带外传数据（查询串即外泄通道），一律按档位过卡
-      const decision = await ctx.permissions.check({ kind: 'web-fetch', detail: url.href, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) });
+      const req = { kind: 'web-fetch' as const, detail: url.href, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) };
+      const o = await askPermission(ctx, req);
       // 同 shell：权限等待可长达 90 秒，已 abort 的 signal 不补发事件，闸后必须重查。
-      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台按 deny 了结卡片并 abort，那不是用户拒绝的
+      // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台了结卡片并 abort，那不是用户拒绝的
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-      if (decision === 'deny') return { output: '抓取被用户拒绝（可在设置-权限中调整）', success: false };
+      if (o.decision !== 'allow') return permissionFailure(o, req);
 
       const signals = [AbortSignal.timeout(TIMEOUT_MS), ctx.signal].filter((s): s is AbortSignal => Boolean(s));
       let res: Response;

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/minisd/store/db';
 import { ChatStore } from '../src/minisd/store/chat-store';
+import { ContextPolicy } from '../src/minisd/agent/context-policy';
 
 let stop: (() => Promise<void>) | undefined;
 afterEach(async () => { await stop?.(); stop = undefined; });
@@ -108,4 +109,33 @@ describe('chat.contextInfo RPC（#7 水位条所需；M2a 红线：buildEffectiv
     expect(after.usedTokens).toBeLessThan(before.usedTokens);
     c.close();
   }, 90000);
+
+  it('例 3（F02）：会话绑定到一个配置时，usedTokens 是完整请求的估计——含系统提示与工具定义，大于只数历史 parts 的旧估算', async () => {
+    const { port, authToken, dataDir } = await boot();
+    const c = rpcClient(port, authToken); await c.ready;
+    const s = (await c.call('chat.sessions.create', {})).result;
+    await c.call('chat.sessions.setModelBinding', { sessionId: s.id, binding: 'provider:__fake__' });
+    await promptTurn(c, s.id, '回合一：你好');
+    await promptTurn(c, s.id, '回合二：继续');
+    const info = (await c.call('chat.contextInfo', { sessionId: s.id })).result;
+    // 旧口径：只把有效历史各条 parts 的 JSON 拼起来估
+    const db2 = openDb(join(dataDir, 'minis.db'));
+    let historyOnly: number;
+    try {
+      const history = new ChatStore(db2).listMessages(s.id);
+      historyOnly = new ContextPolicy({ getModelContextWindow: () => undefined }).estimateTokens(history.map(m => ({ role: m.role, parts: m.parts })));
+    } finally { db2.close(); }
+    expect(historyOnly).toBeGreaterThan(0);
+    expect(info.budget.input.components.system).toBeGreaterThan(0);
+    expect(info.budget.input.components.tools).toBeGreaterThan(0);
+    expect(info.usedTokens).toBe(info.budget.input.tokens);
+    expect(info.usedTokens).toBeGreaterThan(historyOnly);
+    expect(info.usedTokens).toBeGreaterThanOrEqual(info.budget.input.components.system + info.budget.input.components.tools);
+    // 旧三项的语义不变：窗口没有资料按 128K，remaining 按窗口算
+    expect(info.windowTokens).toBe(128_000);
+    expect(info.remaining).toBe(Math.max(0, info.windowTokens - info.usedTokens));
+    expect(info.live).toBe(false);
+    expect(info.budget.limits.windowKnown).toBe(false);
+    c.close();
+  }, 60000);
 });

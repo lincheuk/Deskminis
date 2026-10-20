@@ -1,3 +1,4 @@
+import { outboundFetch } from '../net/outbound-fetch';
 /**
  * 技能导入器（设计 §5.1）：GitHub URL（Contents API 同级文件递归、部分成功报告）、
  * ZIP（容忍一层包装目录）、本地文件夹、agent 直写目录孤儿回收。
@@ -159,7 +160,7 @@ export class SkillImporter {
   constructor(
     private skillsRoot: string,
     private store: SkillStore,
-    private fetchImpl: typeof fetch = fetch,
+    private fetchImpl: typeof fetch = outboundFetch,
     private onProgress?: (t: ImportProgress) => void,
   ) {
     mkdirSync(this.skillsRoot, { recursive: true });

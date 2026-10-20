@@ -1,3 +1,4 @@
+import { outboundFetch } from '../net/outbound-fetch';
 import { ProviderError, type FetchLike } from './types';
 
 export interface FetchModelListOpts {
@@ -25,7 +26,7 @@ const MAX_MODELS = 2000;
 export async function fetchModelList(opts: FetchModelListOpts): Promise<string[]> {
   const base = (opts.baseUrl || DEFAULT_BASE[opts.kind]).replace(/\/$/, '');
   const apiKey = opts.apiKey ?? '';
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? outboundFetch;
 
   let url: string;
   let headers: Record<string, string>;

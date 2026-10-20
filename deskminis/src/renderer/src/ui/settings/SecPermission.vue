@@ -5,13 +5,16 @@ import { useChat } from '../../stores/chat';
 import UiIcon from '../UiIcon.vue';
 
 const chat = useChat();
-type Tier = 'ask' | 'session' | 'full';
+type Tier = 'ask' | 'session' | 'plan' | 'full';
 const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: boolean }[] = [
   // T6e-3 补搬：旧设置页写明了「90 秒未响应自动拒绝」，换壳时丢了。用户不知道这一点，
   // 就会以为离开一会儿回来任务还等着——其实已经按拒绝跑完了。
   // W1b-2g 审查：旧副标题只说「工作区内文件直接放行」，可只读的本地命令（dir、Get-Content、rg、git log 等）同样不问
-  { tier: 'ask', icon: 'shield', title: '每次确认', sub: '工作区内的文件与只读的本地命令直接放行；其余每次询问，90 秒没回应按拒绝处理' },
+  // F13：同一会话本轮连续两次询问没人回应之后，引擎不再弹卡、直接按未批准处理（minisd/tools/permissions.ts 的
+  // MAX_UNANSWERED_STREAK），发下一条消息才恢复。只写「其余每次询问」的话，用户回来看到工具失败却没有卡，对不上这句话
+  { tier: 'ask', icon: 'shield', title: '每次确认', sub: '工作区内的文件与普通只读本地命令直接放行；上级目录、用户目录、短名与目录通配等写法仍需询问；其余每次询问，90 秒没回应按拒绝处理；同一轮连续两次没人回应后不再询问，发下一条消息后恢复' },
   { tier: 'session', icon: 'clock', title: '本会话沿用', sub: '批准过的命令原样重复时不再询问' },
+  { tier: 'plan', icon: 'shield', title: '只读 / 计划', sub: '可以读文件、跑只读命令，联网会问你；写文件、会改动的命令、MCP 和通知、打开、朗读、写剪贴板一律直接拒绝，适合先让它出方案' },
   // W1b-2g：旧副标题许诺「不可逆的系统操作仍拦截」，言过其实。危险规则是 minisd/tools/permissions.ts 的两张表
   // （DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），按命令写法匹配：完全访问下，换个写法的删除（[IO.File]::Delete）、
   // 表里没有的 Format-Volume 照样会执行。举的例子必须真在表里（tests/renderer-settings-modal.test.ts 逐个交给分类器判）
@@ -41,7 +44,7 @@ const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: bo
 </template>
 
 <style scoped>
-.tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
+.tiers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
 @media (max-width: 760px) { .tiers { grid-template-columns: minmax(0, 1fr); } }
 .tier {
   display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2);

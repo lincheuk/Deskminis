@@ -5,7 +5,8 @@
  *    terminal.ts 自己的注释也写着「与工具 shell 独立实例」；终端只是同样起在本会话的工作区目录。
  *  - 设备：StageDevices 说「会话与设置在两边同步」「会话与记忆……自动同步」。实情按 sync/wire.ts 与 chat-store 的
  *    mergeRemoteSession：同步的是会话（消息、压缩摘要，以及标题、记忆开关、模型绑定、置顶这几项会话属性），
- *    设置（模型与密钥、MCP、技能、助手、定时、权限档位）一样都不同步，记忆文件与附件文件也不传；
+ *    设置（模型与密钥、MCP、技能、助手、定时、权限档位）一样都不同步，记忆文件也不传
+ *    （F11A 订正：消息里引用的附件自那以后经同一条加密连接同步，见 tests/renderer-attach-status.test.ts）；
  *    minisd 缺省只听 127.0.0.1（index.ts 的 listenHost），跨机器要先设 MINISD_HOST。
  *  定时任务那一处（「它不是后台服务」）钉在 renderer-cron.test.ts 的同一条运行边界断言里。
  *

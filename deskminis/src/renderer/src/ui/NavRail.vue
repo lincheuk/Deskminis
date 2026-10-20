@@ -2,8 +2,11 @@
 /** T 波：左导航。与旧 SessionList 的实质差别（设计稿 §3）——
  *  它是**分组导航**（会话/定时/助手三区 + 底部入口），不是一条会话列表加底部按钮。
  *  会话按自然日分组（lib/nav/group 纯模块），行高 34、圆角 8、选中用主色浅底。 */
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
+import { rpc } from '../rpc';
+import { sessionMarkdown } from '../lib/session-markdown';
+import { DELETE_SCOPE_TEXT, deleteScope, type DeviceListState } from '../lib/devices/delete-scope';
 import { groupSessions } from '../lib/nav/group';
 import { normalizeBinding, describeBinding } from '../lib/models/binding';
 import { waitingSessionIds } from '../lib/perm/scope';
@@ -46,6 +49,47 @@ type S = (typeof chat.sessions)[number];
  *  吃过一次「点了没反应」的亏，旧 SessionList 从一开始就绕开，这里照搬；顺带避开层级槽位的不变量。 */
 const menuFor = ref('');
 const confirmDelete = ref('');
+/** F11B：删除确认里说明这次删除会影响到哪里。每次进确认态都重新确认一遍已配对设备与暂停状态——
+ *  手里的设备列表可能还是初值（没开过设备页），或是上一次确认时的（期间可能在别处配了对）。
+ *  刷新失败不当成「没有已配对设备」：那会把范围说小。不因为还在确认就禁用「删除」，文案已按可能传播来说。 */
+const deviceList = ref<DeviceListState>('checking');
+watch(confirmDelete, id => {
+  if (!id) return;
+  deviceList.value = 'checking';
+  // 暂停态读不回来时沿用启动时读到的值
+  void chat.refreshSyncPaused().catch(() => { /* 见上 */ });
+  // 比较 id：这一行的刷新回来时用户可能已经在看另一行的确认
+  chat.refreshDevices().then(
+    () => { if (confirmDelete.value === id) deviceList.value = chat.devicesLoaded ? 'fresh' : 'failed'; },
+    () => { if (confirmDelete.value === id) deviceList.value = 'failed'; },
+  );
+});
+const deleteScopeNote = computed(() => DELETE_SCOPE_TEXT[deleteScope(chat.devices.length, chat.syncPaused, deviceList.value)]);
+const pinErrs = ref<Record<string, string>>({});
+async function onPin(s: S): Promise<void> {
+  delete pinErrs.value[s.id];
+  try { await chat.setSessionPinned(s.id, !s.pinnedAt); }
+  catch (e) { pinErrs.value[s.id] = e instanceof Error ? e.message : String(e); }
+}
+const exportingIds = ref(new Set<string>());
+const exportPaths = ref<Record<string, string>>({});
+const exportErrs = ref<Record<string, string>>({});
+async function onExport(s: S): Promise<void> {
+  if (exportingIds.value.has(s.id)) return;
+  exportingIds.value.add(s.id);
+  delete exportPaths.value[s.id]; delete exportErrs.value[s.id];
+  const exportedAt = new Date();
+  try {
+    // 不带have：导出这一行的全部落库消息，与当前打开的会话和增量缓存无关。
+    const messages = await rpc.call('chat.messages.list', { sessionId: s.id });
+    if (!Array.isArray(messages)) throw new Error('会话消息读取失败');
+    const bridge = (window as any).deskminis;
+    if (typeof bridge?.exportMarkdown !== 'function') throw new Error('当前环境不支持导出 Markdown');
+    const path = await bridge.exportMarkdown(s.title || '新会话', sessionMarkdown(messages, s.title, exportedAt));
+    if (path !== null) exportPaths.value[s.id] = path;
+  } catch (e) { exportErrs.value[s.id] = e instanceof Error ? e.message : String(e); }
+  finally { exportingIds.value.delete(s.id); }
+}
 const renameFor = ref('');
 const renameText = ref('');
 const renameErr = ref('');
@@ -153,6 +197,8 @@ function bindingView(s: S) { return describeBinding(s.modelBinding, chat.provide
             <button type="button" class="smore" :title="`${s.title || '新会话'} 的更多操作`" :aria-expanded="menuFor === s.id" @click.stop="toggleMenu(s.id)">⋮</button>
           </div>
           <div v-if="menuFor === s.id" class="smenu">
+            <button class="mi" type="button" @click="onPin(s)">{{ s.pinnedAt ? '取消置顶' : '置顶' }}</button>
+            <div v-if="pinErrs[s.id]" class="smenu-err">{{ pinErrs[s.id] }}</div>
             <button class="mi" type="button" @click="chat.setSessionMemory(s.id, s.memoryEnabled === false)">
               记忆<span class="mv">{{ s.memoryEnabled === false ? '已关闭' : '已开启' }}</span>
             </button>
@@ -185,9 +231,14 @@ function bindingView(s: S) { return describeBinding(s.modelBinding, chat.provide
               </div>
               <div v-if="renameErr" class="smenu-err">{{ renameErr }}</div>
             </template>
+            <button class="mi" type="button" :disabled="exportingIds.has(s.id)" @click.stop="onExport(s)">{{ exportingIds.has(s.id) ? '导出中…' : '导出为 Markdown' }}</button>
+            <div v-if="exportPaths[s.id]" class="smenu-note t-aux">已导出到 {{ exportPaths[s.id] }}</div>
+            <div v-if="exportErrs[s.id]" class="smenu-err">{{ exportErrs[s.id] }}</div>
             <button v-if="confirmDelete !== s.id" class="mi danger" type="button" @click.stop="confirmDelete = s.id">删除会话</button>
             <template v-else>
               <div class="mask t-aux">确认删除？此操作不可撤销。</div>
+              <!-- F11B：这次删除只影响这台设备，还是已配对的设备也会删 -->
+              <div class="mask t-aux">{{ deleteScopeNote }}</div>
               <div class="mrow">
                 <button class="mi" type="button" :disabled="deletingIds.has(s.id)" @click.stop="cancelDelete(s.id)">取消</button>
                 <button class="mi danger" type="button" :disabled="deletingIds.has(s.id)" @click.stop="onDelete(s.id)">{{ deletingIds.has(s.id) ? '删除中…' : '删除' }}</button>
@@ -206,8 +257,10 @@ function bindingView(s: S) { return describeBinding(s.modelBinding, chat.provide
       <button class="navit" type="button" :class="{ on: props.view === 'settings' }" @click="emit('view', 'settings')">
         <UiIcon name="gear" :size="16" /><span v-if="!props.compact">设置</span>
       </button>
-      <button class="navit" type="button" :class="{ on: props.view === 'devices' }" @click="emit('view', 'devices')">
+      <button class="navit" type="button" :class="{ on: props.view === 'devices' }" :title="chat.retainedSessions.length ? '有会话已在其他设备删除，本机保留了对方没见过的内容' : ''" @click="emit('view', 'devices')">
         <UiIcon name="device" :size="16" /><span v-if="!props.compact">设备</span>
+        <!-- F11B：有保留副本等着处理（恢复或彻底删除）时给个数 -->
+        <span v-if="!props.compact && chat.retainedSessions.length" class="cnt tnum">{{ chat.retainedSessions.length }}</span>
       </button>
     </div>
   </nav>
@@ -317,6 +370,7 @@ function bindingView(s: S) { return describeBinding(s.modelBinding, chat.provide
 .mrow .mok { flex: 0 0 auto; }
 .minput { flex: 1; min-width: 0; height: var(--h-mini); padding: 0 var(--sp-2); font-size: var(--t-aux-size); }
 .mask { padding: var(--sp-1) var(--sp-3); color: var(--c-ink-2); }
+.smenu-note { padding: var(--sp-2) var(--sp-3); color: var(--c-ink-3); word-break: break-all; }
 .smenu-err { padding: var(--sp-1) var(--sp-3); font-size: var(--t-aux-size); color: var(--c-err); }
 .semo {
   flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px;

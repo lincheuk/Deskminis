@@ -1,32 +1,45 @@
 <script setup lang="ts">
-/** V2：事件提示条。降级 / 压缩 / 卸载 / 修剪 / 重试 / 出错 / 同步 / 压缩失败八类一套语法：
+/** V2：事件提示条。降级 / 压缩 / 卸载 / 修剪 / 重试 / 出错 / 同步 / 压缩失败 / 能力兼容（F01）九类一套语法：
  *  `[图标] 短句 · 详情[›] [重试 | 新建会话接力]`。
  *
  *  为什么必须有：出错时没有重试入口，用户只能重新打一遍问题；
  *  降级到备选模型时不告知，用户拿着次一档模型的输出以为是主模型给的。
  *  文案与语调走 lib/eventnote/copy（纯函数，已有单测），这里只负责渲染。 */
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
 import { eventCopy } from '../lib/eventnote/copy';
 import UiIcon from './UiIcon.vue';
 
 const chat = useChat();
+const nowMs = ref(Date.now());
+const tick = setInterval(() => { nowMs.value = Date.now(); }, 1000);
+onUnmounted(() => clearInterval(tick));
+const activeRetry = computed(() => chat.retryNote ? [...chat.eventNotes].reverse().find(n => n.retry) : undefined);
+watch(activeRetry, () => { nowMs.value = Date.now(); }, { flush: 'sync' });
 
 /** copy 层给的是旧 Icon.vue 的名字，新图标集没有 info：统一在这里落地映射，
  *  漏掉的一律退回 alert（宁可图标不精确，也不要一个透明的空位）。 */
 const ICONS: Record<string, string> = {
   fallback: 'alert', compacted: 'refresh', offloaded: 'folder',
   pruned: 'trash', retry: 'clock', error: 'alert', synced: 'check',
-  compactFailed: 'alert',
+  compactFailed: 'alert', capability: 'alert', contextRecovery: 'refresh',
 };
-// compactFailed 走 warn：没压成只是没减压，回合照常进行；漏登会退回 info，警告看起来像普通提示
+// compactFailed 走 warn：没压成只是没减压，回合照常进行；漏登会退回 info，警告看起来像普通提示。
+// F01 capability 同理：回合照常进行，但发出去的内容与用户以为的不一样（跳过模型、图片/工具改文字），要醒目
 const TONES: Record<string, string> = {
   fallback: 'warn', compacted: 'info', offloaded: 'info',
   pruned: 'info', retry: 'warn', error: 'err', synced: 'ok',
-  compactFailed: 'warn',
+  // F03 contextRecovery 走 warn：请求被端点拒绝过一次，发出去的内容因此被调低输出 / 修剪 / 裁剪 / 压缩过，要醒目
+  compactFailed: 'warn', capability: 'warn', contextRecovery: 'warn',
 };
 /** W2a-6：store 按事件的 code / cause 定好的短句优先（设计稿 §3 第 5 条）——带分类码的错误不能再对原始报文
  *  跑状态码正则（绑定错误的响应体里一个独立的 5xx 就会被说成「服务暂时不可用」）；没有才按 kind 现算。 */
-function shortOf(n: { kind: string; detail?: string; short?: string }): string {
+function shortOf(n: (typeof chat.eventNotes)[number]): string {
+  if (n.retry) {
+    if (n !== activeRetry.value) return '重试记录（第 ' + n.retry.attempt + ' 次）';
+    const seconds = Math.max(0, Math.ceil((n.ts + n.retry.delayMs - nowMs.value) / 1000));
+    return seconds > 0 ? seconds + ' 秒后重试（第 ' + n.retry.attempt + ' 次）' : '正在重试（第 ' + n.retry.attempt + ' 次）';
+  }
   if (n.short) return n.short;
   if (n.kind === 'synced') return '已与其他设备同步';
   return eventCopy(n.kind, n.detail).short || n.detail || '';

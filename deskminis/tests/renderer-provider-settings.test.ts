@@ -1,13 +1,25 @@
 /** renderer 源码守卫（.vue 不在 typecheck 覆盖内，照抄 renderer-settings-modal.test.ts 的纯文本守卫）：
  *  ProviderSettings「获取列表」按钮 + modelId datalist 下拉 + kind 补 gemini/ollama option，
  *  接线经 stores/chat.ts 的 fetchProviderModels → RPC provider.models.fetch。 */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const { _rpcCall, _rpcOn, _handlers, _rpcLost, _rpcConnect } = vi.hoisted(() => {
+  const handlers = new Map<string, (params: any) => unknown>();
+  return { _rpcCall: vi.fn(), _rpcOn: vi.fn((method: string, handler: (params: any) => unknown) => { handlers.set(method, handler); }), _handlers: handlers, _rpcLost: vi.fn(), _rpcConnect: vi.fn(async () => {}) };
+});
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: _rpcCall, on: _rpcOn, onLost: _rpcLost, connect: _rpcConnect } }));
+
 import fs from 'node:fs';
 import path from 'node:path';
+import { useChat } from '../src/renderer/src/stores/chat';
+import { resetStoreRpc } from './renderer-store-fixture';
 
 const root = path.resolve(__dirname, '..');
 const vue = fs.readFileSync(path.join(root, 'src/renderer/src/ui/settings/SecModels.vue'), 'utf8');
-const chatStore = fs.readFileSync(path.join(root, 'src/renderer/src/stores/chat.ts'), 'utf8');
+
+const _probe = { call: _rpcCall, on: _rpcOn, handlers: _handlers, lost: _rpcLost, connect: _rpcConnect };
+// 每例使用新的真实 Pinia；RPC 桩只记调用与订阅，由用例放行应答。
+beforeEach(() => { resetStoreRpc(_probe); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('ProviderSettings 获取模型列表（renderer 源码守卫）', () => {
   it('ProviderSettings.vue：modelId 挂 datalist + 获取列表按钮走 provider.models.fetch + kind 四 option', () => {
@@ -31,8 +43,18 @@ describe('ProviderSettings 获取模型列表（renderer 源码守卫）', () =>
     expect(vue).toContain('modelOptions.value = []'); // 失败清空选项，手输回退是一等路径
   });
 
-  it('stores/chat.ts：fetchProviderModels action 一行式 rpc.call', () => {
-    expect(chatStore).toContain('fetchProviderModels');
-    expect(chatStore).toContain('provider.models.fetch');
+  it('stores/chat.ts：fetchProviderModels action 一行式 rpc.call', async () => {
+    // 已存实例与未保存表单两种参数逐个透传；完整应答与错误都原样返回。
+    const chat = useChat();
+    for (const params of [{ id: 'P' }, { kind: 'openai', baseUrl: 'https://invalid.example/v1', apiKey: 'test-only' }]) {
+      _rpcCall.mockClear();
+      _rpcCall.mockResolvedValueOnce({ models: ['m1', 'm2'] });
+      expect(await chat.fetchProviderModels(params)).toEqual({ models: ['m1', 'm2'] });
+      expect(_rpcCall.mock.calls).toEqual([['provider.models.fetch', params]]);
+    }
+    _rpcCall.mockClear();
+    _rpcCall.mockRejectedValueOnce(new Error('provider failed'));
+    await expect(chat.fetchProviderModels({ id: 'P' })).rejects.toThrow('provider failed');
+    expect(_rpcCall.mock.calls).toEqual([['provider.models.fetch', { id: 'P' }]]);
   });
 });

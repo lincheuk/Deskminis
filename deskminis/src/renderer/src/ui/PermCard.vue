@@ -11,7 +11,7 @@
  *     组件自判会与后端广播打架；
  *  ③ shell 卡遇到桥命令要**双段告知**：一次批准同时放行 shell 与桥类目，
  *     不说清楚就是静默扩权。 */
-import { computed, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useChat } from '../stores/chat';
 import { permTitle, permTriggerLabel } from '../lib/perm/copy';
 import { remainSeconds, countdownTone } from '../lib/perm/countdown';
@@ -29,6 +29,22 @@ const props = defineProps<{
 }>();
 const chat = useChat();
 
+const card = ref<HTMLElement | null>(null);
+const titleId = computed(() => 'perm-' + encodeURIComponent(props.perm.requestId) + '-title');
+const detailId = computed(() => 'perm-' + encodeURIComponent(props.perm.requestId) + '-detail');
+const announcement = ref('');
+onMounted(async () => {
+  await nextTick();
+  announcement.value = '需要你的批准：' + title.value;
+  const active = document.activeElement as HTMLElement | null;
+  if (active?.matches('input, textarea, select') || active?.isContentEditable || active?.closest('[role="textbox"]')) return;
+  card.value?.focus();
+});
+function onEscape(e: KeyboardEvent): void {
+  if (e.isComposing || e.keyCode === 229 || chat.connection !== 'ok' || !card.value?.contains(document.activeElement)) return;
+  e.preventDefault(); e.stopPropagation();
+  void chat.respondPerm(props.perm.requestId, 'deny');
+}
 const title = computed(() => permTitle(props.perm.kind));
 const keyLabel = computed(() => (props.perm.kind === 'shell' ? '命令' : '路径'));
 const isDanger = computed(() => props.perm.riskClass === 'danger');
@@ -38,29 +54,33 @@ const tick = setInterval(() => { nowMs.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(tick));
 const remain = computed(() => remainSeconds(props.perm.deadlineMs ?? nowMs.value, nowMs.value));
 const tone = computed(() => countdownTone(remain.value));
+const spokenRemain = computed(() => remain.value > 0 ? '剩余约 ' + (Math.ceil(remain.value / 10) * 10) + ' 秒' : '等待后台处理超时');
 
-/** 档位预选：每次确认 → 高亮「允许」；沿用/完全 → 高亮「本会话允许」。 */
+/** 档位预选：只有本会话沿用高亮「本会话允许」，其它档高亮「允许」。 */
 const preselect = computed<'allow-once' | 'allow-session'>(() =>
-  chat.permTier === 'ask' ? 'allow-once' : 'allow-session');
+  chat.permTier === 'session' ? 'allow-session' : 'allow-once');
 
 const lines = computed(() => (props.perm.preview ? diffLines(props.perm.preview.oldText, props.perm.preview.newText) : []));
 const counts = computed(() => countAddDel(lines.value));
 </script>
 
 <template>
-  <div class="perm" :class="{ danger: isDanger }">
+  <div ref="card" class="perm" :class="{ danger: isDanger }" role="region" tabindex="-1"
+       :aria-labelledby="titleId" :aria-describedby="detailId" @keydown.esc="onEscape">
+    <span class="sr-only" aria-live="polite">{{ announcement }}</span>
     <header class="h">
       <span class="shield" :class="{ danger: isDanger }"><UiIcon name="shield" :size="18" /></span>
       <span class="htext">
-        <span class="title">{{ title }}</span>
+        <span :id="titleId" class="title">{{ title }}</span>
         <span class="sub t-aux">{{ isDanger ? '高风险操作' : '需要你的批准' }}</span>
       </span>
-      <span class="cd tnum t-aux" :class="tone">{{ remain }}s</span>
+      <span class="cd tnum t-aux" :class="tone" aria-hidden="true">{{ remain }}s</span>
+      <span class="sr-only" role="timer" aria-live="polite">{{ spokenRemain }}</span>
     </header>
 
     <div v-if="perm.toolTitle" class="why t-aux">{{ perm.toolTitle }}</div>
 
-    <div class="args">
+    <div :id="detailId" class="args">
       <div class="k t-aux">{{ keyLabel }}</div>
       <div class="v">{{ perm.detail }}</div>
     </div>
@@ -80,16 +100,19 @@ const counts = computed(() => countAddDel(lines.value));
     </div>
 
     <div class="btns">
-      <button class="pb primary" :class="{ pre: preselect === 'allow-once' }" type="button"
-              @click="chat.respondPerm(perm.requestId, 'allow-once')">允许</button>
-      <button class="pb" :class="{ pre: preselect === 'allow-session' }" type="button"
-              @click="chat.respondPerm(perm.requestId, 'allow-session')">本会话允许</button>
-      <button class="pb deny" type="button" @click="chat.respondPerm(perm.requestId, 'deny')">拒绝</button>
+      <!-- F06：重连期间不批——答复发不出去，发出去结果也未知。卡留着，连上之后再选 -->
+      <button class="pb primary" :class="{ pre: preselect === 'allow-once' }" type="button" :disabled="chat.connection !== 'ok'"
+              :aria-label="'允许：' + title" :aria-describedby="detailId" @click="chat.respondPerm(perm.requestId, 'allow-once')">允许</button>
+      <button class="pb" :class="{ pre: preselect === 'allow-session' }" type="button" :disabled="chat.connection !== 'ok'"
+              :aria-label="'本会话允许：' + title" :aria-describedby="detailId" @click="chat.respondPerm(perm.requestId, 'allow-session')">本会话允许</button>
+      <button class="pb deny" type="button" :disabled="chat.connection !== 'ok'" :aria-label="'拒绝：' + title" :aria-describedby="detailId" @click="chat.respondPerm(perm.requestId, 'deny')">拒绝</button>
     </div>
+    <div v-if="chat.connection !== 'ok'" class="wait t-aux">正在重新连接，连上后再选择</div>
   </div>
 </template>
 
 <style scoped>
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .perm {
   display: flex; flex-direction: column; gap: var(--sp-4);
   padding: var(--sp-5); background: var(--c-bg);
@@ -158,6 +181,8 @@ const counts = computed(() => countAddDel(lines.value));
 .pb.deny { background: none; color: var(--c-err); }
 .pb.deny:hover { background: var(--c-err-soft); }
 /* 档位预选：不替用户按，只把「按这里多半对」标出来 */
+.pb:disabled { opacity: .5; cursor: not-allowed; }
+.wait { color: var(--c-ink-3); }
 .pb.pre { box-shadow: 0 0 0 2px var(--c-brand); }
 .pb.primary.pre { box-shadow: 0 0 0 2px var(--c-brand-line); }
 </style>

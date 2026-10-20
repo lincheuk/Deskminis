@@ -1,8 +1,11 @@
-import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
-import { dirname } from 'node:path';
-import type { PermissionRequest, PermPreview, ReadRange, ToolExecutor } from './types';
+import { readFileSync, statSync } from 'node:fs';
+import type { PermissionRequest, PermPreview, ReadRange, ResourceClaim, ResourceMode, ToolExecutor, ToolPlanContext } from './types';
 import { describeEditFailure, editUtf8Bytes } from './edit-text';
 import { dataGate, type DataGateScope } from './data-gate';
+import { denied } from '../../shared/permission';
+import { askPermission, reportDenied, planWriteDenial } from './permission-outcome';
+import { denialText } from './permission-text';
+import { commitFileWrite } from '../checkpoints/commit';
 
 const MAX_READ = 1024 * 1024; // 1MB
 
@@ -31,6 +34,20 @@ function previewClamp(text: string): string {
 
 const TOOL_TITLE = { type: 'string' as const, description: '这次调用的 5-10 字中文摘要，用于 UI 卡片' };
 
+/** F04：文件类工具的资源解析（office / search 复用）。必须与各工具 execute 里解析路径的表达式逐字一致：
+ *  同一个表达式在入队（算锁）与执行两个时刻各求值一次，表达式不同，锁的路径和实际动的路径就分家。
+ *  表达式相同也不够——相对路径与 /var/minis/workspace/... 跟着会话工作区走，而工作区在排队等锁期间可能被用户改掉
+ *  （workspace.set / reset 不看会话是否在跑）。这段窗口由调度器兜住：拿到锁后按当前状态再调一次这里，
+ *  与入队时的结果不同就不执行（scheduler.ts 的 recheck）；各工具 execute 进门后、第一个 await 之前就把路径解析定下。
+ *  fallback 只给 path 可选的工具（file_glob / file_grep 传 '.'）。
+ *  resolveGuestPath 抛错（未知命名空间、路径穿越）时由调度器按 barrier 排队，execute 随后给出原有的错误文案。 */
+export function guestPathClaims(mode: ResourceMode, fallback?: string) {
+  return (input: Record<string, unknown>, ctx: ToolPlanContext): ResourceClaim[] => [{
+    kind: 'path', mode,
+    path: ctx.paths.resolveGuestPath(ctx.sessionId, fallback === undefined ? String(input.path) : String(input.path ?? fallback)),
+  }];
+}
+
 type GuardCtx = Parameters<ToolExecutor['execute']>[1];
 
 /** dataGate 的判定范围：数据根、会话、该会话的实际工作目录（认每会话覆盖值）。 */
@@ -45,17 +62,24 @@ function gateScope(ctx: GuardCtx): DataGateScope {
  *  只在确认要弹权限卡时才求值。 */
 export async function guardWrite(absPath: string, ctx: GuardCtx, toolTitle: string, buildPreview?: () => PermPreview): Promise<string | undefined> {
   const gate = dataGate(absPath, gateScope(ctx), 'write');
-  if (gate.verdict === 'deny') return gate.reason;
+  if (gate.verdict === 'deny') {
+    // F13：核心数据由规则直接拦下、不进网关——以前不留任何痕迹，现在报一条审计（不询问，不改变判定）
+    reportDenied(ctx.permissions, { kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle }, denied('rule-blocked', 'core-data'));
+    return gate.reason;
+  }
+  const planReq: PermissionRequest = { kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle };
+  const planDenied = planWriteDenial(ctx.permissions, planReq);
+  if (planDenied) return denialText(planDenied, planReq);
   if (gate.verdict === 'free') return undefined;
   const req: PermissionRequest = { kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle, preview: buildPreview?.() };
   // note 只在有说明时才带：数据根外的普通走卡请求与以前逐字段一致，广播与审计里不多出一个空的 note 键
   if (gate.note !== undefined) req.note = gate.note;
-  const d = await ctx.permissions.check(req);
-  // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台先按 deny 了结卡片、紧接着 abort，那不是用户拒绝的；
+  const o = await askPermission(ctx, req);
+  // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台先了结卡片、紧接着 abort，那不是用户拒绝的；
   // 写成「被用户拒绝」的话，重开会话时界面与模型都以为是用户点了拒绝。MCP 调用一直是这个顺序
   if (ctx.signal?.aborted) return '[已取消]';
-  if (d === 'deny') return `写入被用户拒绝: ${absPath}（可在设置-权限中调整）`;
-  return undefined;
+  // F13：按真实原因说话（超时、规则拦截、失效各有各的句子），只有用户真的点了拒绝才说「被用户拒绝」
+  return o.decision === 'allow' ? undefined : denialText(o, req);
 }
 
 /**
@@ -69,15 +93,17 @@ export async function guardWrite(absPath: string, ctx: GuardCtx, toolTitle: stri
 export async function guardRead(absPath: string, ctx: GuardCtx, toolTitle: string): Promise<string | undefined> {
   const gate = dataGate(absPath, gateScope(ctx), 'read');
   // 读取没有硬拒类（dataGate 只对写入给 deny），这里照样接住，判定表以后加了也不会漏成放行
-  if (gate.verdict === 'deny') return gate.reason;
+  if (gate.verdict === 'deny') {
+    reportDenied(ctx.permissions, { kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle }, denied('rule-blocked', 'core-data'));
+    return gate.reason;
+  }
   if (gate.verdict === 'free') return undefined;
   const req: PermissionRequest = { kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle };
   if (gate.note !== undefined) req.note = gate.note;
-  const d = await ctx.permissions.check(req);
+  const o = await askPermission(ctx, req);
   // 先看取消、再看拒绝：理由同 guardWrite
   if (ctx.signal?.aborted) return '[已取消]';
-  if (d === 'deny') return `读取被用户拒绝: ${absPath}（可在设置-权限中调整）`;
-  return undefined;
+  return o.decision === 'allow' ? undefined : denialText(o, req);
 }
 
 /** 分段参数：undefined 表示没带。null 也当没带——与 registry 必填检查同一口径，
@@ -157,6 +183,8 @@ export const fileReadTool: ToolExecutor = {
     },
     required: ['path', 'tool_title'],
   },
+  // F04：只读、可与不冲突的调用并行；与同会话里写同一路径的调用按顺序排
+  scheduling: { readOnly: true, concurrencySafe: true, sideEffects: 'none', resources: guestPathClaims('read') },
   async execute(input, ctx) {
     // 已取消（用户点了停止）：文件操作多为一次性动作，abort 后再去读/写会产出没人消费的副作用
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
@@ -199,6 +227,8 @@ export const fileWriteTool: ToolExecutor = {
     parameters: { path: { type: 'string', description: '文件路径' }, content: { type: 'string', description: '完整文件内容' }, tool_title: TOOL_TITLE },
     required: ['path', 'content', 'tool_title'],
   },
+  // F04：写这一路径（含它之下的子树）。同会话里碰同一路径的读写、别的会话对同一路径的写都要排队
+  scheduling: { readOnly: false, concurrencySafe: true, sideEffects: 'local-files', resources: guestPathClaims('write') },
   async execute(input, ctx) {
     // 已取消：写入会真落盘，取消后再写只会留下无人消费的脏文件
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
@@ -213,8 +243,9 @@ export const fileWriteTool: ToolExecutor = {
     if (denied) return { output: denied, success: false };
     // 同 file_read：权限闸后重查取消（已 abort 的 signal 不补发事件），防「批准晚于取消」仍写盘
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, String(input.content), 'utf8');
+    // F08：只经写入事务入口落盘——写前检查点、原子替换、替换前复核都在里面；失败时文件一个字节不动（或明说没能确认）
+    const r = commitFileWrite(ctx, { path: abs, produce: () => Buffer.from(String(input.content), 'utf8') });
+    if (!r.ok) return { output: r.message, success: false };
     return { output: `已写入 ${abs}`, success: true };
   },
 };
@@ -225,6 +256,7 @@ export const fileEditTool: ToolExecutor = {
     parameters: { path: { type: 'string', description: '文件路径' }, old_string: { type: 'string', description: '被替换的原文' }, new_string: { type: 'string', description: '替换后的文本，可为空串' }, tool_title: TOOL_TITLE },
     required: ['path', 'old_string', 'tool_title'],
   },
+  scheduling: { readOnly: false, concurrencySafe: true, sideEffects: 'local-files', resources: guestPathClaims('write') },
   async execute(input, ctx) {
     // 已取消：编辑同样会落盘，取消后再改只留下没人消费的脏文件
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
@@ -239,9 +271,16 @@ export const fileEditTool: ToolExecutor = {
     if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
     // 按原字节读：非 UTF-8 要在写回之前拒掉，按 utf8 读成字符串那一刻坏字节就已经变成 U+FFFD 了。
     // 匹配、行尾、BOM、唯一性全在 edit-text.ts 的纯函数里；失败时文件一个字节都不写。
-    const r = editUtf8Bytes(readFileSync(abs), String(input.old_string), String(input.new_string ?? ''));
-    if (!r.ok) return { output: describeEditFailure(r.failure, abs), success: false };
-    writeFileSync(abs, r.text, 'utf8');
+    // F08：原字节由写入事务入口读一次——检查点里存的「写入前」与这里算新内容用的是同一份字节。
+    // 文件不存在时入口原样抛出读文件的错（由 registry.run 兜成「工具执行异常」，与以前逐字相同）
+    const r = commitFileWrite(ctx, {
+      path: abs, requireExisting: true, createParents: false,
+      produce: before => {
+        const e = editUtf8Bytes(before.exists ? before.bytes : Buffer.alloc(0), String(input.old_string), String(input.new_string ?? ''));
+        return e.ok ? Buffer.from(e.text, 'utf8') : { abort: describeEditFailure(e.failure, abs) };
+      },
+    });
+    if (!r.ok) return { output: r.message, success: false };
     return { output: `已编辑 ${abs}`, success: true };
   },
 };

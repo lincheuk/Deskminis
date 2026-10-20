@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { q11ComponentProbe } from './helpers/q11-probe-loader';
 import { histStep } from '../src/renderer/src/lib/composer/history';
 
 const root = path.resolve(__dirname, '..');
@@ -69,13 +70,13 @@ describe('L2 接线：ChatView @ 文件菜单（slashmenu 同款、独立状态�
 describe('L3 接线：消息锚点导航轨（≥3 回合显示，welcome 隐藏，点击平滑滚动）', () => {
   /* T6e-3 曾退场「turn 节补 data-turn-id；右缘 .trail 原生按钮点」（L3 能力在新树零命中）；
      Y5（2026-09-10）在 ui/StageChat.vue 上补回，本例复位、重指新树。 */
-  it('turn 节补 data-turn-id；右缘 .trail 原生按钮点；≥3 回合显示；scrollIntoView 平滑跳（Y5 复位）', () => {
+  it('turn 节补 data-turn-id；右缘 .trail 原生按钮点；≥3 回合显示；scrollIntoView 平滑跳（Y5 复位）', async () => {
     const cv = read('src/renderer/src/ui/StageChat.vue');
     expect(cv).toContain(':data-turn-id="t.id"');
     expect(cv).toMatch(/<nav v-if="railVisible" class="trail"/);
     expect(cv).toMatch(/<button[^>]*class="tdot"/);
     expect(cv).toMatch(/turns\.value\.length >= 3/);
-    expect(cv).toMatch(/scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+    expect((await q11ComponentProbe()).anchors.navigationOptions[0]).toEqual({ behavior: 'smooth', block: 'start' });
   });
 
 

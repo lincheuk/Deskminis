@@ -13,26 +13,56 @@
  *
  *  用户 2026-08-11 两处拍板：作用范围 = **每会话各自设**（新会话继承上次用过的）；
  *  选目录 = **原生选择器 + 可粘贴路径框，两者都要**。 */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { openDb } from '../src/minisd/store/db';
+import { openDb, MIGRATIONS, runMigrations } from '../src/minisd/store/db';
 import { MinisPaths } from '../src/minisd/paths';
+import { join } from 'node:path';
+import { watchEngine } from './engine-wiring';
+import { onCall } from './engine-trace';
+import { startCapturedEngine, probeConnection, type CapturedEngine } from './engine-assembly';
+import type { StartMinisdOpts } from '../src/minisd/index';
+
+const qEngines: CapturedEngine[] = [];
+
+const qSavedFake = process.env.DESKMINIS_FAKE_PROVIDER;
+
+afterEach(async () => {
+  for (const e of qEngines.splice(0).reverse()) await e.close();
+  vi.restoreAllMocks();
+  if (qSavedFake === undefined) delete process.env.DESKMINIS_FAKE_PROVIDER;
+  else process.env.DESKMINIS_FAKE_PROVIDER = qSavedFake;
+});
+
+async function qStart(opts: StartMinisdOpts = {}): Promise<CapturedEngine> {
+  process.env.DESKMINIS_FAKE_PROVIDER = '1';
+  const e = await startCapturedEngine(opts);
+  qEngines.push(e);
+  return e;
+}
+
+async function qRpc(e: CapturedEngine, name: string, p: any = {}, conn = probeConnection('local')): Promise<any> {
+  return await e.methods[name](p, conn);
+}
+
+// 此版本固定对应历史库夹具，不随当前迁移数增长。
+const LEGACY_USER_VERSION = 5;
 
 const root = path.resolve(__dirname, '..');
 const read = (p: string): string => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n');
 
 const db = read('src/minisd/store/db.ts');
 const paths = read('src/minisd/paths.ts');
-const minisd = read('src/minisd/index.ts');
+
 const chatStore = read('src/minisd/store/chat-store.ts');
 const shell = read('src/minisd/tools/shell.ts');
 const terminal = read('src/minisd/terminal.ts');
 const main = read('src/main/index.ts');
 const preload = read('src/preload/index.ts');
-const store = read('src/renderer/src/stores/chat.ts');
 
 describe('工作区可选 · 存储层（3 例）', () => {
   it('迁移追加为新条目，绝不改动已发布的 MIGRATIONS[0..4]', () => {
@@ -46,21 +76,37 @@ describe('工作区可选 · 存储层（3 例）', () => {
     expect(before).toContain('CREATE TABLE settings'); // [4] 仍在它前面
   });
 
-  it('SessionMeta 带出 workspaceRoot；新建会话继承 settings 里「上次用过的」', () => {
+  it('SessionMeta 带出 workspaceRoot；新建会话继承 settings 里「上次用过的」', async () => {
     expect(chatStore).toContain('workspaceRoot');
     expect(chatStore).toMatch(/workspace_root/);
-    // 新会话继承：createSession 时读全局「上次用过的」，没有则留空（= 回落沙箱桶）
-    expect(minisd).toContain('workspace.lastUsed');
-  });
+    // 实际set把上次工作区保存，下一新会话继承同一个真实目录。
+    const w = watchEngine();
+    const e = await qStart();
+    const db = w.made('db.open');
+    db.prepare('INSERT OR REPLACE INTO settings(key,value,updated_at) VALUES (?,?,0)').run('workspace.lastUsed', e.root);
+    const a = await qRpc(e, 'chat.sessions.create');
+    expect(a.workspaceRoot).toBe(e.root);
+    const folder = join(e.root, 'checkpoints');
+    await qRpc(e, 'workspace.set', { sessionId: a.id, root: folder });
+    expect(db.prepare('SELECT value FROM settings WHERE key=?').get('workspace.lastUsed').value).toBe(folder);
+    const b = await qRpc(e, 'chat.sessions.create');
+    expect(b.workspaceRoot).toBe(folder);
+    expect((await qRpc(e, 'workspace.get', { sessionId: b.id })).custom).toBe(folder);
+  }, 60000);
 
-  it('三个 RPC 注册齐全，且 set 会校验目录真实存在', () => {
-    expect(minisd).toMatch(/'workspace\.get':/);
-    expect(minisd).toMatch(/'workspace\.set':/);
-    expect(minisd).toMatch(/'workspace\.reset':/);
-    // 命门：目录不存在时必须抛错而不是静默存下——否则 shell 会在一个不存在的 cwd 里起，
-    // 报错形态是「命令莫名其妙失败」，比「设置时就告诉你路径不对」难查十倍。
-    expect(minisd).toMatch(/workspace\.set[\s\S]{0,600}?(existsSync|statSync)/);
-  });
+  it('三个 RPC 注册齐全，且 set 会校验目录真实存在', async () => {
+    // 真实装配的三个处理器齐全；不存在目录和普通文件都不能作为工作区。
+    const e = await qStart();
+    for (const name of ['workspace.get', 'workspace.set', 'workspace.reset'])
+      expect(typeof e.methods[name], name).toBe('function');
+    const s = await qRpc(e, 'chat.sessions.create');
+    await expect(qRpc(e, 'workspace.set', { sessionId: s.id, root: join(e.root, 'Q20A-NOT-EXISTS') })).rejects.toThrow('目录不存在');
+    await expect(qRpc(e, 'workspace.set', { sessionId: s.id, root: join(e.root, 'minis.db') })).rejects.toThrow('不是目录');
+    expect((await qRpc(e, 'workspace.get', { sessionId: s.id })).isDefault).toBe(true);
+    expect(await qRpc(e, 'workspace.set', { sessionId: s.id, root: e.root })).toEqual({ root: e.root, isDefault: false });
+    const fallback = (await qRpc(e, 'workspace.get', { sessionId: s.id })).fallback;
+    expect(await qRpc(e, 'workspace.reset', { sessionId: s.id })).toEqual({ root: fallback, isDefault: true });
+  }, 60000);
 });
 
 describe('工作区可选 · 消费点（2 例）', () => {
@@ -107,7 +153,7 @@ describe('工作区可选 · 原生目录选择器（2 例）', () => {
 describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
   it('新建库：sessions 带 workspace_root，默认 NULL（= 回落沙箱桶）', () => {
     const db = openDb(':memory:');
-    expect(db.pragma('user_version', { simple: true })).toBe(11); // K1 追加 [10] 后最新版是 11
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
     const cols = (db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(c => c.name);
     expect(cols).toContain('workspace_root');
     const now = Date.now() / 1000;
@@ -117,27 +163,23 @@ describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
     db.close();
   });
 
-  it('**M6 用户的库停在 v5**：重开只补跑 [5]..[10] 到 11，存量会话不丢、且幂等', () => {
+  it('**M6 用户的库停在 v5**：重开只补跑 [5] 起的后续迁移到当前版本，存量会话不丢、且幂等', () => {
     // 这条是这次真正的新增路径。上面那个 v4 用例覆盖的是更老的库；
     // 现网绝大多数库是 v5（M6 之后），它们首次启动才补跑 [5]——不单独覆盖等于没测。
     const dir = mkdtempSync(path.join(tmpdir(), 'dm-ws-mig-'));
     const file = path.join(dir, 'test.db');
+    let db: Database.Database | undefined;
     try {
-      let db = openDb(file);
-      // 造出「工作区之前」的库形态：撤掉 [5] 的列与 [6]/[7] 的表并把版本退回 5
-      // （G1 加了 MIGRATIONS[6] market_cache、G2 加了 [7] market_installs，
-      //  回退老库必须连它们一起撤，否则重开报 already exists）
-      db.exec('ALTER TABLE sessions DROP COLUMN workspace_root;');
-      db.exec('DROP TABLE IF EXISTS market_cache;');
-      db.exec('DROP TABLE IF EXISTS market_installs; DROP TABLE IF EXISTS annotations; DROP TABLE IF EXISTS assistants; DROP TABLE IF EXISTS cron_jobs;');
-      db.pragma('user_version = 5');
+      // 只执行旧版本已有的迁移，直接创建尚无 workspace_root 的库。
+      db = new Database(file);
+      runMigrations(db, MIGRATIONS.slice(0, LEGACY_USER_VERSION));
       const now = Date.now() / 1000;
       db.prepare('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)')
         .run('S_OLD', '升级前的会话', now, now);
       db.close();
 
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(11);
+      expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
       const cols = (db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(c => c.name);
       expect(cols).toContain('workspace_root');
       // 存量会话完好，且新列对老行是 NULL —— 老会话升级后仍用沙箱桶，行为一字不变
@@ -149,11 +191,12 @@ describe('工作区可选 · 迁移 [5] 真实升级路径（2 例）', () => {
 
       // 幂等：再开一次不重跑（重跑会报 duplicate column name）
       db = openDb(file);
-      expect(db.pragma('user_version', { simple: true })).toBe(11);
+      expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
       expect((db.prepare('SELECT title FROM sessions WHERE id=?').get('S_OLD') as { title: string }).title)
         .toBe('升级前的会话');
       db.close();
     } finally {
+      if (db?.open) db.close();
       rmSync(dir, { recursive: true, force: true });
     }
   });

@@ -103,3 +103,61 @@ describe('U1 边界：agent 会拿它读任意文件，解析器不许炸', () =
     await expect(parseOffice('old.doc', Buffer.from('x'))).rejects.toThrow(/不支持/);
   });
 });
+
+/** F10A 追加：生成器开始写列表、段内换行与制表符，解析器必须读得回来——
+ *  否则自己生成的文档读回会丢结构，内容核验也比不了。 */
+describe('F10A docx 往返：列表、段内换行、制表符', () => {
+  it('有序 / 无序 / 两级列表：读回有序与否、级别与序号', async () => {
+    const doc = await parseOffice('l.docx', buildDocx({
+      blocks: [
+        { kind: 'list', ordered: true, items: ['第一', { text: '第一之一', level: 1 }, { text: '第一之二', level: 1 }, '第二'] },
+        { kind: 'para', text: '中间一段' },
+        { kind: 'list', items: ['圆点', { text: '二级圆点', level: 1 }] },
+        { kind: 'list', ordered: true, items: ['重新从一开始'] },
+      ],
+    }));
+    expect(doc.blocks).toEqual([
+      { kind: 'para', text: '第一', list: { ordered: true, level: 0, index: 1 } },
+      { kind: 'para', text: '第一之一', list: { ordered: true, level: 1, index: 1 } },
+      { kind: 'para', text: '第一之二', list: { ordered: true, level: 1, index: 2 } },
+      { kind: 'para', text: '第二', list: { ordered: true, level: 0, index: 2 } },
+      { kind: 'para', text: '中间一段' },
+      { kind: 'para', text: '圆点', list: { ordered: false, level: 0, index: 1 } },
+      { kind: 'para', text: '二级圆点', list: { ordered: false, level: 1, index: 1 } },
+      { kind: 'para', text: '重新从一开始', list: { ordered: true, level: 0, index: 1 } },
+    ]);
+  });
+
+  it('段内换行与制表符原样读回；单元格里的换行也在', async () => {
+    const doc = await parseOffice('n.docx', buildDocx({
+      blocks: [
+        { kind: 'para', text: '第一行\n第二行\t制表之后' },
+        { kind: 'table', rows: [['上\n下', '左\t右'], ['a', 'b']] },
+      ],
+    }));
+    expect(doc.blocks[0]).toEqual({ kind: 'para', text: '第一行\n第二行\t制表之后' });
+    expect(doc.blocks[1]).toEqual({ kind: 'table', rows: [['上\n下', '左\t右'], ['a', 'b']] });
+  });
+
+  it('分页符与间隔段落不算内容：读回只有前后两段', async () => {
+    const doc = await parseOffice('b.docx', buildDocx({ blocks: [{ kind: 'para', text: '前' }, { kind: 'pageBreak' }, { kind: 'para', text: '后' }, { kind: 'table', rows: [['末']] }] }));
+    expect(doc.blocks).toEqual([{ kind: 'para', text: '前' }, { kind: 'para', text: '后' }, { kind: 'table', rows: [['末']] }]);
+  });
+
+  it('别的程序写的包：自闭合的空段落不吞掉下一段；单元格里多个段落用换行连接；没有 numbering 的 numPr 当普通段落', async () => {
+    const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+    const xml = `<?xml version="1.0"?><w:document ${W}><w:body>` +
+      `<w:p w:rsidR="00A1"/><w:p><w:r><w:t>甲</w:t></w:r></w:p>` +
+      `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>编号查不到</w:t></w:r></w:p>` +
+      `<w:tbl><w:tr><w:tc><w:p><w:r><w:t>一</w:t></w:r></w:p><w:p><w:r><w:t>二</w:t></w:r></w:p></w:tc></w:tr></w:tbl>` +
+      `<w:p><w:r><w:t>软</w:t><w:br/><w:t>回车</w:t></w:r><w:r><w:br w:type="page"/></w:r></w:p>` +
+      `</w:body></w:document>`;
+    const doc = await parseOffice('f.docx', writeZip([{ path: 'word/document.xml', data: Buffer.from(xml, 'utf8') }]));
+    expect(doc.blocks).toEqual([
+      { kind: 'para', text: '甲' },
+      { kind: 'para', text: '编号查不到' },
+      { kind: 'table', rows: [['一\n二']] },
+      { kind: 'para', text: '软\n回车' },
+    ]);
+  });
+});

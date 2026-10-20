@@ -1,10 +1,13 @@
+import type { TokenUsage } from './usage';
+import type { CompactMeta } from './compaction';
+
 export type Role = 'user' | 'assistant';
 
 /** 标签联合，对齐 OpenMinis parts_json（设计 §3.2）。未知 type 用 unknown 分支透传。 */
 export type ContentPart =
   | { type: 'text'; value: string }
   | { type: 'toolUse'; value: { toolUseId: string; name: string; input: string; description?: string; thoughtSignature?: string } }
-  | { type: 'toolResult'; value: { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' } }
+  | { type: 'toolResult'; value: { toolUseId: string; output: string; success: boolean; status: 'success' | 'failed' | 'cancelled' | 'unknown' } }
   | { type: 'mediaRef'; value: { id: string; relativePath: string; mimeType: string; originalFileName?: string; linuxPath?: string } }
   // 仅请求侧合成、绝不落库：loop 在构建 provider 请求时把 user 消息里的 mediaRef 就地替换成
   // 本形态（读附件桶文件 → base64）。落库它会把图片字节冗余进 parts_json，同步/导出全量放大。
@@ -14,7 +17,9 @@ export type ContentPart =
   | { type: 'thinking'; value: { text: string; signature?: string; redactedData?: string } }
   | { type: string; value: unknown };
 
-export interface TokenUsage { inputTokens: number; outputTokens: number }
+// F02：TokenUsage 挪到 shared/usage.ts（多了缓存 / 推理维度、来源、估计与费用）。文件开头引入、这里原名导出：
+// 本文件的 RawMessage.tokenUsage 与 usage 事件都要用这个名字，只写 export … from 不会在本模块里引入它。
+export type { TokenUsage };
 
 export interface RawMessage {
   id: string;               // UUID 大写
@@ -33,6 +38,13 @@ export interface RawMessage {
   createdLocallyAt?: number;    // 端内单调时钟（epoch 秒）；缺省=createdAt
 }
 
+/** Q14：chat.messages.list 的可选参数 have。调用方手里已有这个会话按列表顺序的前 count 条，其中最后一条是 lastId
+ *  （count 为 0 时不给 lastId）。 */
+export interface MessagesHave { count: number; lastId?: string }
+/** Q14：chat.messages.list 带 have 时的应答。接得上：只给排在 lastId 之后的消息（append，可以为空）。
+ *  接不上：完整列表，与不带 have 时相同。旧引擎不认 have，给的也是完整列表。 */
+export type MessagesListResult = RawMessage[] | { append: RawMessage[] };
+
 export interface SessionMeta {
   id: string; title: string; modelBinding?: string;
   memoryEnabled?: boolean;       // 会话级记忆开关，默认 true（db.ts memory_enabled DEFAULT 1）
@@ -42,7 +54,38 @@ export interface SessionMeta {
   createdAt: number; updatedAt: number; pinnedAt?: number;
 }
 
-export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high';
+/** F11B：已在其他设备删除、本机因为有对方没见过的内容而保留的会话（设备页「已在其他设备删除」）。 */
+export interface RetainedSession {
+  id: string; title: string;
+  /** 发起删除的设备指纹（登记的 originDeviceId） */
+  deletedBy: string;
+  /** 发起端墙钟，仅展示 */
+  deletedAt: number;
+  /** 本机应用墓碑的时刻（sessions.remote_tombstoned_at） */
+  retainedAt: number;
+  messageCount: number;
+  /** null = 无法判断（墓碑已压实且本机副本与删除方当时的不完全相同） */
+  unseenCount: number | null;
+  /** 本机标注条数（标注不同步，删除方不可能见过） */
+  annotationCount: number;
+}
+
+/** F11B：广播 chat.sessions.lifecycle 的载荷。不含标题与任何消息内容。 */
+export interface SessionLifecycleNotice {
+  sessionId: string;
+  kind: 'deleted' | 'tombstone-applied' | 'retained-released' | 'restored' | 'restore-applied' | 'purged';
+  /** 这次变化之后的登记版本：奇数 = 已删除，偶数 = 已恢复 */
+  v: number;
+  origin: 'local' | 'remote';
+  /** 做出这次删除或恢复的设备指纹 */
+  byDevice: string;
+  /** remote：本机是从哪台已配对设备得知的 */
+  viaPeer?: string;
+  retained?: boolean;
+  unseenCount?: number | null;
+}
+
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type StopReason = 'endTurn' | 'toolUse' | 'maxTokens' | 'refusal';
 
 export type AgentStreamEvent =
@@ -85,4 +128,7 @@ export interface CompactMarker {
   summary: string;
   lastCompactedMessageId: string;
   createdAt: number;
+  /** F03：结构化标记（覆盖区间、模型写的各小节、程序根据落库消息生成的记录）。只有本机按 v2 写下、且 summary 与锚点
+   *  没被同步合并改写过的 marker 才有；没有值时对象上不带这个键（旧版本写的、同步来的都没有）。读的一方必须容忍缺省。 */
+  meta?: CompactMeta;
 }

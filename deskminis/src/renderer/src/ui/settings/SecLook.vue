@@ -1,30 +1,12 @@
 <script setup lang="ts">
-/** T5：外观。主题三态——跟随系统 / 浅 / 深。
- *  存 localStorage 而不是后端：它是**这台机器这个窗口**的偏好，
- *  跟着账号同步过去反而会在另一台机器上给出错误的亮度。 */
-import { onMounted, ref } from 'vue';
+/** 本机主题偏好；与标题栏共用当前选择和持久化路径。 */
+import { themeMode as mode, setTheme as apply, type ThemeMode } from '../../lib/theme';
 import UiIcon from '../UiIcon.vue';
-
-type Mode = 'system' | 'light' | 'dark';
-const mode = ref<Mode>('system');
-const MODES: { v: Mode; icon: string; label: string }[] = [
+const MODES: { v: ThemeMode; icon: string; label: string }[] = [
   { v: 'system', icon: 'device', label: '跟随系统' },
   { v: 'light', icon: 'sun', label: '浅色' },
   { v: 'dark', icon: 'moon', label: '深色' },
 ];
-
-function apply(m: Mode): void {
-  mode.value = m;
-  const el = document.documentElement;
-  if (m === 'system') delete el.dataset.theme; else el.dataset.theme = m;
-  try { localStorage.setItem('deskminis.theme', m); } catch { /* 隐私模式下不可写：忽略 */ }
-}
-onMounted(() => {
-  try {
-    const saved = localStorage.getItem('deskminis.theme');
-    if (saved === 'light' || saved === 'dark' || saved === 'system') apply(saved);
-  } catch { /* 同上 */ }
-});
 </script>
 
 <template>

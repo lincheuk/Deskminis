@@ -9,12 +9,21 @@
  *  等权限卡期间被 forget 的调用不执行。
  *  卫生：lastError 只放 client 层错误文案（不含 $$ 解析值/headers/env——client 层已保证）。 */
 import { createHash } from 'node:crypto';
+import { sanitizeLiteral } from '../agent/sanitize';
 import type { McpServerEntry, McpServersStore } from './config';
 import { McpStdioClient, type McpNotification, type McpToolInfo } from './stdio';
 import { McpHttpClient } from './http';
 import type { ToolRegistry } from '../tools/registry';
 import type { ToolExecutor, ToolOutcome } from '../tools/types';
+import { denied } from '../../shared/permission';
+import { askPermission, reportDenied } from '../tools/permission-outcome';
+import { permissionFailure } from '../tools/permission-text';
 import type { ChatStore } from '../store/chat-store';
+import type { ProcSupervisor } from '../proc/owned';
+import type { ProcStopCause } from '../../shared/proc';
+
+/** F13：MCP 调用被「前提不在了」拒掉时的细分原因（PermissionDenied 的 invalidated 一类）。 */
+type McpRefusalCause = 'mcp-disabled' | 'mcp-session-disabled' | 'mcp-config-changed' | 'mcp-removed' | 'mcp-config-unreadable';
 
 /** 与 McpStdioClient/McpHttpClient 同形的最小客户端面——测试注入假 client 用 */
 export interface McpClientLike {
@@ -23,7 +32,7 @@ export interface McpClientLike {
   callTool(name: string, args?: Record<string, unknown>, opts?: { signal?: AbortSignal }): Promise<unknown>;
   /** 断开并回收（stdio 收进程树、http 发告别）。返回 Promise 的，关停时 disposeAll 等它落定（W1b-5d）；别处不等，
    *  所以实现必须从不拒绝——forget、空闲驱逐、出错下线这些调用点不接返回值，拒绝会变成未处理的拒绝（W1b-5e） */
-  dispose(): void | Promise<void>;
+  dispose(cause?: ProcStopCause): void | Promise<void>;
   onNotification: ((n: McpNotification) => void) | undefined;
   closed: boolean;
 }
@@ -34,6 +43,8 @@ export interface McpManagerOptions {
   registry: ToolRegistry;
   /** 缺省真 client（按 transport 分派 stdio/http）；测试注入假 client */
   factories?: (entry: McpServerEntry) => McpClientLike;
+  /** F09：进程树的登记与托管，只交给缺省工厂起的 stdio client（见 defaultClientFactory）。不传则同 F09 之前。 */
+  supervisor?: ProcSupervisor;
 }
 
 export interface McpServerStatus {
@@ -42,6 +53,8 @@ export interface McpServerStatus {
   lastError?: string;
   toolCount: number;
   truncated: number;
+  limitSkipped: string[];
+  collisionSkipped: string[];
 }
 
 interface ServerRuntime {
@@ -54,9 +67,14 @@ interface ServerRuntime {
   /** 该台当前在 registry 里的工具名（崩溃/驱逐/重列时整批摘除；也是 excludedToolNames 的数据源） */
   registeredNames: string[];
   truncated: number;
+  limitSkipped: string[];
+  collisionSkipped: string[];
   /** forget 时递增（W1a-6）。ensureForRun 连接 / 列工具是异步的，途中配置被改或删，
    *  回来时代次对不上：按旧配置连上的 client 当场作废，结果不注册、不改状态 */
   gen: number;
+  /** F09：这一台在途的那次连接（记着发起时的代次）。几个会话的 run 同时起跑时各调一次 ensureForRun，
+   *  同一代配置下后到的等它落定、共用结果，不再各起一个进程（见 ensureForRun）。done 从不拒绝。 */
+  connecting?: { gen: number; done: Promise<void>; client: McpClientLike };
 }
 
 /** 空闲驱逐阈值：10 分钟无调用即 dispose（下次 ensureForRun 重连） */
@@ -114,7 +132,7 @@ export class McpManager {
   private runtime = new Map<string, ServerRuntime>();
 
   constructor(private readonly opts: McpManagerOptions) {
-    this.factories = opts.factories ?? defaultClientFactory;
+    this.factories = opts.factories ?? (entry => defaultClientFactory(entry, opts.supervisor));
     // 每分钟巡检空闲驱逐；unref：minisd 退出不被这个定时器拖住
     const timer = setInterval(() => this.checkIdleEvictions(), 60_000);
     timer.unref?.();
@@ -130,12 +148,24 @@ export class McpManager {
       const rt = this.runtimeOf(entry.name);
       const gen = rt.gen;
       if (rt.client && rt.status === 'connected' && !rt.stale) return { entry, tools: null, rt, gen };
+      // F09：同一台、同一代配置已有在途的连接（另一个会话的 run 同时起跑）：等它落定，不再起第二个进程。
+      // 以前各连各的，后落定的那个顶掉先落定的 rt.client，先落定的 server 进程从此没人管——不会被驱逐、改配置、
+      // 关停回收，要等引擎退出才没（真机批量用例里 10 个会话同时起跑，每台 stdio 服务器被起了 10 份）。
+      // 落定之后按现状往下走：连上了就共用那个 client 列工具；没连上（或途中被 forget）这一次就不注册，状态由发起方记过了
+      const inflight = rt.connecting;
+      if (!rt.client && inflight && inflight.gen === gen) {
+        await inflight.done;
+        if (rt.gen !== gen || !rt.client) return { entry, tools: null, rt, gen };
+      }
       if (!rt.client) {
         const client = this.factories(entry);
         client.onNotification = n => {
           // server 侧工具表变了：置 stale，下次 ensureForRun 重 list + 重注册
           if (n.method === 'tools/list_changed') rt.stale = true;
         };
+        let settled!: () => void;
+        const mine = { gen, client, done: new Promise<void>(resolve => { settled = resolve; }) };
+        rt.connecting = mine;
         try {
           await client.connect();
         } catch (e) {
@@ -144,10 +174,14 @@ export class McpManager {
           rt.lastError = e instanceof Error ? e.message : String(e);
           this.unregisterServer(entry.name);
           return { entry, tools: null, rt, gen };
+        } finally {
+          // 等着的那几个在下一个微任务才醒：这之后到 rt.client 赋值之间没有 await，它们醒来时看到的是落定后的状态
+          if (rt.connecting === mine) rt.connecting = undefined;
+          settled();
         }
         if (rt.gen !== gen) {
           // 连接途中被 forget：这个 client 是按旧配置起的，runtime 已经不认它——不当场关掉就成了孤儿进程
-          client.dispose();
+          client.dispose('config-changed');
           return { entry, tools: null, rt, gen };
         }
         rt.client = client;
@@ -161,9 +195,11 @@ export class McpManager {
         // 列工具途中被 forget：client 已由 forget 关掉，状态归新配置，这里什么都不动
         if (rt.gen !== gen) return { entry, tools: null, rt, gen };
         // list 失败（超时/中途退出）：连接作废，下次 ensureForRun 整台重来
+        // 同一连接可能有多个在途的列表。失效后递增代次：旧列表迟到也不能注册或覆盖下一次连接。
+        rt.gen++;
         rt.status = 'error';
         rt.lastError = e instanceof Error ? e.message : String(e);
-        client.dispose();
+        client.dispose('server-error');
         rt.client = null;
         rt.stale = false;
         this.unregisterServer(entry.name);
@@ -180,12 +216,34 @@ export class McpManager {
   statuses(): McpServerStatus[] {
     return this.opts.store.list().map(e => {
       const rt = this.runtime.get(e.name);
-      if (!rt || rt.status === 'idle') return { name: e.name, status: 'idle' as const, toolCount: 0, truncated: 0 };
+      if (!rt || rt.status === 'idle') return { name: e.name, status: 'idle' as const, toolCount: 0, truncated: 0, limitSkipped: [], collisionSkipped: [] };
       if (rt.status === 'error') {
-        return { name: e.name, status: 'error' as const, lastError: rt.lastError ?? '未知错误', toolCount: 0, truncated: 0 };
+        return { name: e.name, status: 'error' as const, lastError: rt.lastError ?? '未知错误', toolCount: 0, truncated: 0, limitSkipped: [], collisionSkipped: [] };
       }
-      return { name: e.name, status: 'connected' as const, toolCount: rt.registeredNames.length, truncated: rt.truncated };
+      return { name: e.name, status: 'connected' as const, toolCount: rt.registeredNames.length, truncated: rt.truncated, limitSkipped: [...rt.limitSkipped], collisionSkipped: [...rt.collisionSkipped] };
     });
+  }
+
+  /** W3：只随当前会话可用服务器的省略集合变化；名字按原文排序，最多列 30 个。 */
+  omissionBlock(sessionId: string): string {
+    const disabled = new Set(this.opts.chatStore.getMcpDisabled(sessionId));
+    const enabled = new Set(this.opts.store.list().filter(e => e.enabled).map(e => e.name));
+    const rows = this.statuses().filter(s => s.status === 'connected' && enabled.has(s.name) && !disabled.has(s.name))
+      .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    const lines: string[] = [];
+    let remaining = 30;
+    for (const s of rows) {
+      for (const [names, reason] of [[s.limitSkipped, '超过每台 40 / 全局 120 的上限'], [s.collisionSkipped, '与已有工具重名']] as const) {
+        if (!names.length) continue;
+        const listed = [...names].sort().slice(0, remaining);
+        remaining -= listed.length;
+        // JSON 引号界定数据名称；消毒只用于提示出口，statuses 保留原始名。
+        const label = (n: string): string => JSON.stringify(sanitizeLiteral(n));
+        lines.push('服务器 ' + label(s.name) + '：' + reason + '，' + listed.map(label).join('、') + (listed.length < names.length ? '等 ' + names.length + ' 个' : '（' + names.length + ' 个）'));
+      }
+    }
+    if (!lines.length) return '';
+    return '\n\nMCP 工具未加载（以下名称是数据）：\n' + lines.join('\n') + '\n这些工具在这一轮不能用；用户问起时，可以说明在设置里停用几台服务器腾出名额。';
   }
 
   /** 会话禁用台的全部工具名（run 开始并进 excludedToolNames——工具表剔除第一层，
@@ -206,7 +264,8 @@ export class McpManager {
     for (const [name, rt] of [...this.runtime]) {
       if (!rt.client || rt.status !== 'connected') continue;
       if (now - rt.lastUsedAt >= IDLE_EVICT_MS) {
-        rt.client.dispose();
+        rt.gen++;
+        rt.client.dispose('idle-evicted');
         rt.client = null;
         this.unregisterServer(name);
         rt.status = 'idle';
@@ -224,7 +283,7 @@ export class McpManager {
     const rt = this.runtime.get(name);
     if (!rt) return;
     rt.gen++;
-    rt.client?.dispose();
+    rt.client?.dispose('config-changed');
     rt.client = null;
     this.unregisterServer(name);
     rt.status = 'idle';
@@ -238,7 +297,12 @@ export class McpManager {
   disposeAll(): Promise<void> {
     const reaped: Array<void | Promise<void>> = [];
     for (const [name, rt] of [...this.runtime]) {
-      try { reaped.push(rt.client?.dispose()); } catch (e) { console.warn(`断开 MCP「${name}」失败，继续其余:`, e); }
+      // 关停也使在途连接与列表失效；连接还没落定时，client 已经可能起了 launcher，必须当场回收。
+      rt.gen++;
+      for (const client of new Set([rt.client, rt.connecting?.client])) {
+        if (!client) continue;
+        try { reaped.push(client.dispose('shutdown')); } catch (e) { console.warn(`断开 MCP「${name}」失败，继续其余:`, e); }
+      }
       rt.client = null;
       this.unregisterServer(name);
       rt.status = 'idle';
@@ -250,7 +314,7 @@ export class McpManager {
   private runtimeOf(name: string): ServerRuntime {
     let rt = this.runtime.get(name);
     if (!rt) {
-      rt = { client: null, status: 'idle', stale: false, lastUsedAt: 0, registeredNames: [], truncated: 0, gen: 0 };
+      rt = { client: null, status: 'idle', stale: false, lastUsedAt: 0, registeredNames: [], truncated: 0, limitSkipped: [], collisionSkipped: [], gen: 0 };
       this.runtime.set(name, rt);
     }
     return rt;
@@ -269,18 +333,21 @@ export class McpManager {
     let mcpCount = 0;
     for (const r of this.runtime.values()) mcpCount += r.registeredNames.length;
     const registered: string[] = [];
-    let truncated = 0;
+    const limitSkipped: string[] = [];
+    const collisionSkipped: string[] = [];
     for (const t of tools) {
-      if (registered.length >= PER_SERVER_TOOL_LIMIT || mcpCount >= GLOBAL_TOOL_LIMIT) { truncated++; continue; }
       const name = toolFullName(server, t.name);
-      if (existing.has(name)) { truncated++; continue; } // 规范化撞名：注册者跳过
+      if (existing.has(name)) { collisionSkipped.push(t.name); continue; } // 原始名供界面与提示说明
+      if (registered.length >= PER_SERVER_TOOL_LIMIT || mcpCount >= GLOBAL_TOOL_LIMIT) { limitSkipped.push(t.name); continue; }
       existing.add(name);
       this.opts.registry.register(this.mkExecutor(server, t, name));
       registered.push(name);
       mcpCount++;
     }
     rt.registeredNames = registered;
-    rt.truncated = truncated;
+    rt.limitSkipped = limitSkipped;
+    rt.collisionSkipped = collisionSkipped;
+    rt.truncated = limitSkipped.length + collisionSkipped.length;
     rt.stale = false;
   }
 
@@ -291,13 +358,16 @@ export class McpManager {
     for (const n of rt.registeredNames) this.opts.registry.unregister(n);
     rt.registeredNames = [];
     rt.truncated = 0;
+    rt.limitSkipped = [];
+    rt.collisionSkipped = [];
   }
 
   /** 调用中发现该台已废（崩溃/关闭）：error + 摘工具 + dispose，下次 ensureForRun 重连 */
   private markServerError(name: string, msg: string): void {
     const rt = this.runtime.get(name);
     if (!rt) return;
-    rt.client?.dispose();
+    rt.gen++;
+    rt.client?.dispose('server-error');
     rt.client = null;
     rt.status = 'error';
     rt.lastError = msg;
@@ -305,19 +375,38 @@ export class McpManager {
     this.unregisterServer(name);
   }
 
-  /** 调用前现查配置（W1a-6）：停用了、或配置里已经没有这台（手改文件删掉、还没人 forget 它），就拒绝这次调用 */
-  private configRefusal(server: string): ToolOutcome | undefined {
+  /** 调用前现查（W1a-6）：停用了、配置里已经没有这台（手改文件删掉、还没人 forget 它）、或在本会话被禁用，就拒绝这次调用。
+   *  F13：每种拒绝带上细分原因（进审计）。顺序固定：先全局配置，再会话禁用。句子都是原有的。 */
+  private refusalNow(server: string, sessionId: string): { outcome: ToolOutcome; cause: McpRefusalCause } | undefined {
     // 文件读坏时 store 按空配置加载，这台其实还在文件里——说「已不在配置中」是假话。
     // 仍然拒绝：它是否还启用已经无从确认，不能当成启用放行。
     if (this.opts.store.loadErrorKind) {
       // 先对比磁盘重读一次（只读，与设置页拉列表同一个动作；只在读坏状态下才读盘）：
       // 文件已经修好时，不能因为用户没回设置页就还说「读不出来」
       this.opts.store.refresh();
-      if (this.opts.store.loadErrorKind) return { output: CONFIG_UNREADABLE_REFUSAL, success: false };
+      if (this.opts.store.loadErrorKind) return { outcome: { output: CONFIG_UNREADABLE_REFUSAL, success: false }, cause: 'mcp-config-unreadable' };
     }
     const cfg = this.opts.store.list().find(e => e.name === server);
-    if (!cfg) return { output: '该 MCP server 已不在配置中', success: false };
-    if (!cfg.enabled) return { output: '该 MCP server 已停用', success: false };
+    if (!cfg) return { outcome: { output: '该 MCP server 已不在配置中', success: false }, cause: 'mcp-removed' };
+    if (!cfg.enabled) return { outcome: { output: '该 MCP server 已停用', success: false }, cause: 'mcp-disabled' };
+    // 会话禁用硬执行：现查而非 run 快照——run 开始后用户仍可关掉这台（§5.2 修坑点）
+    if (this.opts.chatStore.getMcpDisabled(sessionId).includes(server)) {
+      return { outcome: { output: '该 MCP server 已在本会话禁用', success: false }, cause: 'mcp-session-disabled' };
+    }
+    return undefined;
+  }
+
+  /** 闸后复查：refusalNow 的四种，再加代次——等卡期间配置被改过（upsert / 市场更新之后 forget）。
+   *  F13：以前闸后只复查全局配置与代次，等卡期间在会话里禁用这台、批准后照常调用。 */
+  private staleNow(server: string, sessionId: string, genAtStart: number | undefined): { outcome: ToolOutcome; cause: McpRefusalCause } | undefined {
+    const refused = this.refusalNow(server, sessionId);
+    if (refused) return refused;
+    const rt = this.runtime.get(server);
+    // forget 刚把它重置成 idle、无错误，这里不能走 markServerError 把用户刚存好的服务器打成出错；
+    // 别的回合已按新配置连上时也不转发——这次批准是在旧配置下拿到的
+    if (rt && rt.gen !== genAtStart) {
+      return { outcome: { output: '该 MCP server 配置刚被修改，本次调用未执行', success: false }, cause: 'mcp-config-changed' };
+    }
     return undefined;
   }
 
@@ -334,34 +423,41 @@ export class McpManager {
         required: ['tool_title'], // MCP 侧真实必填由 rawInputSchema.required 表达
         rawInputSchema: info.inputSchema,
       },
+      // F04：调度声明是这里的常量，不读 info 的任何字段——服务器自报的只读提示之类不能作为放宽排队的依据，
+      // 更不是授予权限的证据（权限照旧在下面按台过卡）。工具语义未知：会话内按 barrier 排，同一台跨会话串行。
+      // MCP 是独立进程，副作用不绑在会话工作区上，所以只锁这一台，不锁工作区。
+      scheduling: {
+        readOnly: false, concurrencySafe: false, sideEffects: 'unknown',
+        resources: () => [{ kind: 'named', name: `mcp:${server}`, mode: 'write' }],
+      },
       execute: async (input, ctx): Promise<ToolOutcome> => {
         if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-        // 全局启停同样现查（W1a-6）：设置页关掉一台已连上的服务器，工具还在表里（不摘，免得动前缀），
-        // 连接也还在（重新启用不用重连），但调用当场拒绝——不问权限、不发调用。
-        const refused = this.configRefusal(server);
-        if (refused) return refused;
-        // 会话禁用硬执行：现查而非 run 快照——run 开始后用户仍可关掉这台（§5.2 修坑点）
-        if (this.opts.chatStore.getMcpDisabled(ctx.sessionId).includes(server)) {
-          return { output: '该 MCP server 已在本会话禁用', success: false };
+        const req = { kind: 'mcp' as const, detail: server, sessionId: ctx.sessionId, toolTitle: String(input.tool_title ?? '') };
+        // 全局启停与会话禁用都现查（W1a-6）：设置页关掉一台已连上的服务器，工具还在表里（不摘，免得动前缀），
+        // 连接也还在（重新启用不用重连），但调用当场拒绝——不问权限、不发调用。F13：这类没弹卡的拒绝报一条审计
+        const pre = this.refusalNow(server, ctx.sessionId);
+        if (pre) {
+          reportDenied(ctx.permissions, req, denied('invalidated', pre.cause));
+          return pre.outcome;
         }
         // 记下闸前的代次：等权限卡期间配置可能被改并 forget（与闸后重查启停同一个起因）
         const genAtStart = this.runtime.get(server)?.gen;
-        const decision = await ctx.permissions.check({
-          kind: 'mcp', detail: server, sessionId: ctx.sessionId, toolTitle: String(input.tool_title ?? ''),
-        });
+        const o = await askPermission(ctx, req);
         // 闸后重查取消（A 波语义）：等审批期间用户可能点了停止
         if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
-        if (decision === 'deny') return { output: 'MCP 调用被用户拒绝（可在设置-权限中调整）', success: false };
-        // 闸后重查全局启停：权限卡最长挂 90 秒，这期间用户可能去设置页把它停了
-        const refusedAfterGate = this.configRefusal(server);
-        if (refusedAfterGate) return refusedAfterGate;
-        const rt = this.runtime.get(server);
-        // 代次变了：等卡期间配置被改过（upsert / 市场更新之后 forget）。forget 刚把它重置成 idle、无错误，
-        // 这里不能走下面的 markServerError 把用户刚存好的服务器打成出错；
-        // 别的回合已按新配置连上时也不转发——这次批准是在旧配置下拿到的
-        if (rt && rt.gen !== genAtStart) {
-          return { output: '该 MCP server 配置刚被修改，本次调用未执行', success: false };
+        if (o.decision !== 'allow') {
+          // 卡片因停用 / 改配置被作废：给出现查到的那句原话；查不出来（刚停又启）给兜底句
+          if (o.reason === 'invalidated') return this.staleNow(server, ctx.sessionId, genAtStart)?.outcome ?? permissionFailure(o, req);
+          return permissionFailure(o, req);
         }
+        // 闸后复查：权限卡最长挂 90 秒，这期间用户可能去设置页把它停了、在会话里禁用了、或改了配置。
+        // 批准是在旧状态下拿到的：不执行，并记一条（弹过卡的带那张卡的 requestId）
+        const stale = this.staleNow(server, ctx.sessionId, genAtStart);
+        if (stale) {
+          reportDenied(ctx.permissions, req, denied('invalidated', stale.cause, { requestId: o.requestId }));
+          return stale.outcome;
+        }
+        const rt = this.runtime.get(server);
         if (!rt?.client) {
           // 工具已在表里但连接先没了（驱逐竞态）：按已废处理，下一次调用前 ensureForRun 会重建
           this.markServerError(server, 'MCP server 连接已不可用');
@@ -389,8 +485,11 @@ export class McpManager {
   }
 }
 
-/** 缺省工厂：按 transport 分派真 client（stdio 子进程 / streamable-http） */
-function defaultClientFactory(entry: McpServerEntry): McpClientLike {
+/** 缺省工厂：按 transport 分派真 client（stdio 子进程 / streamable-http）。
+ *  F09：给了 supervisor 时，stdio 的 server 经 launcher 在作业里启动并登记成一棵进程树——ownerRef 是服务器名原文
+ *  （与资源声明 `mcp:<服务器名>` 里的是同一个字符串），toolPrefix 是这台服务器工具全名的前缀；启动恢复靠这两样把
+ *  「结果未知」的调用对到它所在的树。不给时与 F09 之前逐字相同。 */
+function defaultClientFactory(entry: McpServerEntry, supervisor?: ProcSupervisor): McpClientLike {
   if (entry.transport === 'stdio') {
     return new McpStdioClient({
       command: entry.command ?? '',
@@ -398,6 +497,7 @@ function defaultClientFactory(entry: McpServerEntry): McpClientLike {
       env: entry.env,
       cwd: entry.cwd,
       startupTimeoutSeconds: entry.startupTimeoutSeconds,
+      ...(supervisor ? { proc: { supervisor }, tree: { ownerRef: entry.name, toolPrefix: `mcp__${sanitizeSegment(entry.name)}__` } } : {}),
     });
   }
   return new McpHttpClient({

@@ -7,6 +7,7 @@
  * 能力入口的存在性由 tests/mu6-capability-wiring.test.ts 的清单管，这里不重复。
  */
 import { describe, it, expect } from 'vitest';
+import { q11ComponentProbe } from './helpers/q11-probe-loader';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -116,17 +117,19 @@ describe('Y4 — 助手 ↔ 技能绑定（StageAssistants）', () => {
 });
 
 describe('Y5 — 消息锚点导航轨（StageChat）', () => {
-  it('turn 节带 data-turn-id，实时回合是 live', () => {
+  it('turn 节带 data-turn-id，实时回合是 live', async () => {
     expect(chatv).toMatch(/<section v-for="t in turns" :key="t\.id" class="turn" :data-turn-id="t\.id">/);
-    expect(chatv).toMatch(/<section v-if="hasLive" class="turn" data-turn-id="live">/);
+    const p = await q11ComponentProbe();
+    expect(p.anchors.historyIds).toEqual(Array.from({ length: 12 }, (_,i) => 'U' + i));
+    expect(p.anchors.liveExists).toBe(true);expect(p.anchors.hiddenWhenIdle).toBe(true);
   });
 
-  it('≥3 回合才显示；每回合一个原生按钮点，title 是首 24 字；点击平滑滚到块首', () => {
+  it('≥3 回合才显示；每回合一个原生按钮点，title 是首 24 字；点击平滑滚到块首', async () => {
     expect(chatv).toMatch(/const railVisible = computed\(\(\) => turns\.value\.length >= 3\)/);
     expect(chatv).toMatch(/<nav v-if="railVisible" class="trail" aria-label="回合导航">/);
     expect(chatv).toMatch(/<button\s+v-for="t in turns" :key="t\.id" type="button" class="tdot"\s+:title="railTitle\(t\)" :aria-label="railTitle\(t\)"\s+@click="jumpTurn\(t\.id\)"/);
     expect(chatv).toMatch(/\.slice\(0, 24\)/);
-    expect(chatv).toMatch(/scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+    expect((await q11ComponentProbe()).anchors.navigationOptions[0]).toEqual({ behavior: 'smooth', block: 'start' });
     expect(chatv).toMatch(/<button\s+v-if="hasLive" type="button" class="tdot live"/);
   });
 

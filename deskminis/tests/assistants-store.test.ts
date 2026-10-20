@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { openDb } from '../src/minisd/store/db';
+import { openDb, MIGRATIONS } from '../src/minisd/store/db';
 import { ChatStore } from '../src/minisd/store/chat-store';
 import { SkillStore } from '../src/minisd/skills/store';
 import { SettingsStore } from '../src/minisd/store/settings';
@@ -21,8 +21,8 @@ beforeEach(() => {
 });
 
 describe('迁移 [9] assistants', () => {
-  it('新库 user_version=11 且 assistants 表就位、列全（K1 追加 [10] 后最新版是 11）', () => {
-    expect(db.pragma('user_version', { simple: true })).toBe(11);
+  it('新库升级到当前迁移版本，且 assistants 表就位、列全', () => {
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
     const cols = db.prepare('PRAGMA table_info(assistants)').all() as { name: string }[];
     expect(cols.map(c => c.name)).toEqual(expect.arrayContaining(
       ['id', 'name', 'avatar', 'rules', 'model_binding', 'skill_ids_json', 'prompts_json', 'sort_order', 'created_at', 'updated_at'],

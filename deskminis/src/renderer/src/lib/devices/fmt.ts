@@ -7,13 +7,16 @@ export function fmtFingerprint(fp: string): string {
   return (hex.match(/.{1,2}/g) ?? []).join(' ');
 }
 
-/** 8 字配对码展示：XXXX-XXXX（不足 5 字原样返回）。 */
+/** 配对码展示：每 4 个字符一组用 - 连接。8 位旧码是 XXXX-XXXX，12 位认证配对码（F11C）是 0XXX-XXXX-XXXX；
+ *  不超过 4 个字符原样返回。 */
 export function fmtPairingCode(code: string): string {
   const c = code.trim();
-  return c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c;
+  return c.length > 4 ? (c.match(/.{1,4}/g) ?? []).join('-') : c;
 }
 
-/** 配对码输入归一化：大写化、剥非字母数字、限 8 位（输入框 @input 即时归一）。 */
+/** 配对码输入归一化：大写化、剥非字母数字、限 12 位（输入框 @input 即时归一）。
+ *  F11C：上限从 8 改成 12（认证配对码 12 位）。这里只管输入框里的即时整理，不判断码的种类——
+ *  种类由引擎的 classifyPairingCode 判断，格式不对的码在本机就被拒，不发任何网络请求。 */
 export function codeInputNormalize(raw: string): string {
-  return raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
 }

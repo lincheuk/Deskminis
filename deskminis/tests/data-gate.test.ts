@@ -6,7 +6,7 @@
  * 需要模拟 8.3 短名、junction 时注入一个查表的假 realpath。
  */
 import { describe, it, expect } from 'vitest';
-import { dataGate, dataRootSkipper, type DataGateScope } from '../src/minisd/tools/data-gate';
+import { dataGate, dataRootSkipper, pathIdentity, pathKeyOf, realPathOf, type DataGateScope } from '../src/minisd/tools/data-gate';
 
 const W: DataGateScope = { root: 'C:\\X\\DeskMinis', sessionId: 'AAAA-1', workspace: 'C:\\X\\DeskMinis\\sessions\\AAAA-1\\workspace' };
 const win = (abs: string, op: 'read' | 'write' = 'write', scope: DataGateScope = W, realpath?: (p: string) => string) =>
@@ -184,5 +184,46 @@ describe('dataRootSkipper：搜索跳过数据根子树', () => {
     expect(dataRootSkipper('/r', '/r', o)).toBeUndefined();
     expect(dataRootSkipper('/elsewhere', '/r', o)).toBeUndefined();
     expect(dataRootSkipper('/', '/r', o)!('r')).toBe(true);
+  });
+});
+
+describe('F08：检查点目录硬拒；realPathOf / pathKeyOf 与 pathIdentity 同一套规范化', () => {
+  const P: DataGateScope = { root: '/r', sessionId: 'S1', workspace: '/r/sessions/S1/workspace' };
+  const lin = { platform: 'linux' as const, realpath: (p: string) => p };
+
+  it('写 <数据根>/checkpoints/ 下任何路径都是 deny（含目录本身与大小写、尾点写法）；读取落「其余」走卡', () => {
+    const w = dataGate('/r/checkpoints/blobs/ab/x', P, 'write', lin);
+    expect(w.verdict).toBe('deny');
+    if (w.verdict === 'deny') expect(w.reason).toContain('文件检查点');
+    expect(dataGate('/r/checkpoints', P, 'write', lin).verdict).toBe('deny');
+    expect(win('C:\\X\\DeskMinis\\CheckPoints.\\blobs\\ab\\x').verdict).toBe('deny');
+    expect(dataGate('/r/checkpoints/blobs/ab/x', P, 'read', lin)).toEqual({ verdict: 'ask', note: '将读取 DeskMinis 的应用数据' });
+    // 近似名不误伤
+    expect(dataGate('/r/checkpoints-old/x', P, 'write', lin)).toEqual({ verdict: 'ask', note: '将修改 DeskMinis 的应用数据' });
+  });
+
+  it('pathKeyOf：大小写、尾点、经 junction 的别名得到同一个键，等于 pathIdentity 的 root + segs；realPathOf 保留真实大小写', () => {
+    // 假 realpath：D:\link 是指向 C:\Real 的 junction；C:\Real\Sub\A.txt 存在（磁盘上的大小写如此）
+    const table: Record<string, string> = {
+      'd:\\link': 'C:\\Real', 'c:\\real': 'C:\\Real', 'c:\\real\\sub': 'C:\\Real\\Sub', 'd:\\link\\sub': 'C:\\Real\\Sub',
+      'c:\\real\\sub\\a.txt': 'C:\\Real\\Sub\\A.txt', 'd:\\link\\sub\\a.txt': 'C:\\Real\\Sub\\A.txt',
+    };
+    const realpath = (p: string): string => {
+      const hit = table[p.toLowerCase()];
+      if (hit === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return hit;
+    };
+    const o = { platform: 'win32' as const, realpath };
+    const key = pathKeyOf('C:\\Real\\Sub\\A.txt', o);
+    expect(key).toBe('c:\\real/sub/a.txt');
+    expect(pathKeyOf('c:\\real\\SUB\\a.TXT', o)).toBe(key);
+    expect(pathKeyOf('D:\\link\\sub\\a.txt', o)).toBe(key);
+    const id = pathIdentity('D:\\link\\sub\\a.txt', o);
+    expect(id.root + id.segs.join('/')).toBe(key);
+    // 真实路径：经别名、换大小写去问，得到的都是磁盘上的那个写法
+    expect(realPathOf('d:\\LINK\\sub\\a.txt', o)).toBe('C:\\Real\\Sub\\A.txt');
+    // 文件还不存在：最近存在的祖先取真实路径，尾段原样拼回
+    expect(realPathOf('D:\\link\\sub\\New.txt', o)).toBe('C:\\Real\\Sub\\New.txt');
+    expect(pathKeyOf('D:\\link\\sub\\New.txt', o)).toBe('c:\\real/sub/new.txt');
   });
 });

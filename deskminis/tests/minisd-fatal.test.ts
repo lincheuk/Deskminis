@@ -15,7 +15,7 @@
  *
  *  本文件不 import src/main/index.ts（那要给 electron 打桩，ipc-contract.test.ts 已有一份，不再复制第二份）；
  *  主进程的接线用源码守卫核对调用形态，被调的纯函数在这里单测。 */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseMinisdFatal, fatalDialogOptions, MinisdFatalError, withStderrTail } from '../src/main/minisd-fatal';
@@ -24,6 +24,9 @@ import {
 } from '../src/minisd/fatal';
 import { DbNewerThanAppError } from '../src/minisd/store/db';
 import { DATA_ROOT_LOCK_NAME } from '../src/minisd/paths';
+import { runStandaloneBranch } from './standalone-branch';
+
+afterEach(() => vi.restoreAllMocks());
 
 const repoRoot = join(__dirname, '..');
 const readSrc = (rel: string): string => readFileSync(join(repoRoot, rel), 'utf8').replace(/\r\n/g, '\n');
@@ -221,7 +224,6 @@ describe('withStderrTail（通用失败框附 stderr 末尾）', () => {
 
 describe('接线（源码守卫：认调用形态）', () => {
   const main = readSrc('src/main/index.ts');
-  const minisd = readSrc('src/minisd/index.ts');
 
   it('主进程 whenReady 的 catch 分支：致命错误走 showMessageBoxSync(fatalDialogOptions(…))，其余走 showErrorBox 并附 stderr 末尾', () => {
     const ready = main.indexOf('app.whenReady().then(');
@@ -252,8 +254,22 @@ describe('接线（源码守卫：认调用形态）', () => {
     expect(main.match(/new TailBuffer\(/g) ?? [], '环形缓冲只建一个').toHaveLength(1);
   });
 
-  it('minisd standalone 的 catch 调 reportStartupFailure(e, dataRoot())', () => {
-    const standalone = minisd.slice(minisd.indexOf("if (process.env.DESKMINIS_STANDALONE === '1')"));
-    expect(standalone).toMatch(/\.catch\(\s*e\s*=>\s*reportStartupFailure\(\s*e\s*,\s*dataRoot\(\)\s*\)\s*\)/);
-  });
+  it('minisd standalone 的 catch 调 reportStartupFailure(e, dataRoot())', async () => {
+    // 占住临时根上的真实锁，让 standalone 启动失败；接到致命上报的是同一个原始错误和根。
+    const run = await runStandaloneBranch({ lockHeld: true });
+    try {
+      await run.settled();
+      expect(run.spies['fatal.report'].mock.calls).toHaveLength(1);
+      const [error, root] = run.spies['fatal.report'].mock.calls[0];
+      // standalone清过模块缓存，类型取它刚用的那份模块；并核对抛出的就是同一个错误。
+      const { DataRootLockedError } = await import('../src/minisd/store/data-root-lock');
+      expect(error).toBeInstanceOf(DataRootLockedError);
+      expect(error).toBe(run.spies['lock.acquire'].mock.results[0].value);
+      expect(error).toMatchObject({ code: 'DATA_ROOT_LOCKED', dataRoot: run.root, pid: process.pid });
+      expect(root).toBe(run.root);
+      expect(run.handshake()).toBeUndefined();
+    } finally {
+      await run.dispose();
+    }
+  }, 30000);
 });

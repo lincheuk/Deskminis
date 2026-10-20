@@ -1,16 +1,28 @@
 /** D6 渲染端守卫：McpSettings.vue 设置页 + SettingsModal 'mcp' section 接入 + chat store 五 action。
  *  .vue 不在 typecheck 覆盖内——读源文本锚点断言即源码守卫
  *  （MU6 血案：v-for 挂带 scoped 类名元素引发 renderList 抛错；MU5：scoped 类名撞车）。 */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const { _rpcCall, _rpcOn, _handlers, _rpcLost, _rpcConnect } = vi.hoisted(() => {
+  const handlers = new Map<string, (params: any) => unknown>();
+  return { _rpcCall: vi.fn(), _rpcOn: vi.fn((method: string, handler: (params: any) => unknown) => { handlers.set(method, handler); }), _handlers: handlers, _rpcLost: vi.fn(), _rpcConnect: vi.fn(async () => {}) };
+});
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: _rpcCall, on: _rpcOn, onLost: _rpcLost, connect: _rpcConnect } }));
+
 import fs from 'node:fs';
 import path from 'node:path';
+import { useChat } from '../src/renderer/src/stores/chat';
+import { resetStoreRpc, type Equal, type Chat } from './renderer-store-fixture';
 
 const root = path.resolve(__dirname, '..');
 const modal = fs.readFileSync(path.join(root, 'src/renderer/src/ui/StageSettings.vue'), 'utf8');
 // 新组件尚不存在时给空串：让断言失败（红）而不是文件加载崩掉整组用例
 const mcpPath = path.join(root, 'src/renderer/src/ui/settings/SecMcp.vue');
 const mcp = fs.existsSync(mcpPath) ? fs.readFileSync(mcpPath, 'utf8') : '';
-const chat = fs.readFileSync(path.join(root, 'src/renderer/src/stores/chat.ts'), 'utf8');
+
+const _probe = { call: _rpcCall, on: _rpcOn, handlers: _handlers, lost: _rpcLost, connect: _rpcConnect };
+// 每例使用新的真实 Pinia；RPC 桩只记调用与订阅，由用例放行应答。
+beforeEach(() => { resetStoreRpc(_probe); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('D6 SettingsModal：mcp section 行级接入', () => {
   it("NAV 增 'mcp'（标题「MCP」）且排在技能之后；import 与 v-else-if 接线，其余 section 不动", () => {
@@ -80,18 +92,39 @@ describe('D6 McpSettings.vue 守卫', () => {
 });
 
 describe('D6 chat store：MCP state 与五 action', () => {
-  it('state.mcpServers 含 servers / statuses / configError', () => {
-    expect(chat).toContain('mcpServers');
-    expect(chat).toContain('statuses');
-    expect(chat).toContain('configError');
+  it('state.mcpServers 含 servers / statuses / configError', async () => {
+    // state 初值与远端完整字段被真实 fetch 更新，三种连接状态都能进入状态。
+    const chat = useChat();
+    expect(chat.mcpServers).toEqual({ servers: [], statuses: [], configError: false });
+    const reply = { servers: [{ name: 'm', transport: 'stdio', enabled: true, command: 'node' }], statuses: [{ name: 'm', status: 'connected', toolCount: 3, lastError: 'none' }], configError: true, configErrorKind: 'read' };
+    _rpcCall.mockResolvedValueOnce(reply);
+    await chat.fetchMcpServers();
+    expect(_rpcCall.mock.calls).toEqual([['mcp.servers.list']]);
+    expect(chat.mcpServers).toEqual(reply);
   });
 
-  it('五 action 对应五个 RPC 名', () => {
-    for (const a of ['fetchMcpServers', 'upsertMcpServer', 'removeMcpServer', 'toggleMcpServer', 'testMcpServer']) {
-      expect(chat).toContain(a);
+  it('五 action 对应五个 RPC 名', async () => {
+    // 五个动作逐个实际调用；每个 RPC 名、参数、返回值与写后刷新都核对。
+    const chat = useChat();
+    const entry = { name: 'm', transport: 'stdio', enabled: false, command: 'node', args: ['-v'], env: { A: 'value' } };
+    await chat.fetchMcpServers();
+    expect(_rpcCall.mock.calls).toEqual([['mcp.servers.list']]);
+    _rpcCall.mockClear();
+    await chat.upsertMcpServer(entry);
+    expect(_rpcCall.mock.calls).toEqual([['mcp.servers.upsert', entry], ['mcp.servers.list']]);
+    _rpcCall.mockClear();
+    await chat.removeMcpServer('m');
+    expect(_rpcCall.mock.calls).toEqual([['mcp.servers.remove', { name: 'm' }], ['mcp.servers.list']]);
+    for (const enabled of [true, false]) {
+      _rpcCall.mockClear();
+      await chat.toggleMcpServer('m', enabled);
+      expect(_rpcCall.mock.calls).toEqual([['mcp.servers.toggle', { name: 'm', enabled }], ['mcp.servers.list']]);
     }
-    for (const r of ['mcp.servers.list', 'mcp.servers.upsert', 'mcp.servers.remove', 'mcp.servers.toggle', 'mcp.servers.test']) {
-      expect(chat).toContain(`'${r}'`);
+    for (const params of [{ name: 'm' }, entry]) {
+      _rpcCall.mockClear();
+      _rpcCall.mockResolvedValueOnce({ ok: false, error: 'connect failed' });
+      expect(await chat.testMcpServer(params)).toEqual({ ok: false, error: 'connect failed' });
+      expect(_rpcCall.mock.calls).toEqual([['mcp.servers.test', params]]);
     }
   });
 });
@@ -134,9 +167,20 @@ describe('W1a 配置损坏', () => {
     expect(beforeForm).toMatch(/<p v-if="err[^"]*" class="errline"[^>]*>\{\{ err \}\}<\/p>/);
   });
 
-  it('store 透传 configErrorKind（类型与 fetch 两处）', () => {
-    expect(chat).toMatch(/configErrorKind\?: 'read' \| 'parse' \| 'shape'/);
-    expect(chat).toMatch(/configErrorKind:[^\n]*r\?\.configErrorKind/);
+  it('store 透传 configErrorKind（类型与 fetch 两处）', async () => {
+    // 类型联合精确比较，清单逐个取值；undefined 旧应答也有确定回落。
+    const kindType: true = true as Equal<Chat['mcpServers']['configErrorKind'], 'read' | 'parse' | 'shape' | undefined>;
+    expect(kindType).toBe(true);
+    const kinds = { read: true, parse: true, shape: true } satisfies Record<NonNullable<Chat['mcpServers']['configErrorKind']>, true>;
+    const chat = useChat();
+    for (const configErrorKind of [...Object.keys(kinds), undefined]) {
+      _rpcCall.mockClear();
+      _rpcCall.mockResolvedValueOnce({ servers: [], statuses: [], configError: configErrorKind !== undefined, configErrorKind });
+      await chat.fetchMcpServers();
+      expect(_rpcCall.mock.calls).toEqual([['mcp.servers.list']]);
+      expect(chat.mcpServers.configErrorKind).toBe(configErrorKind);
+      expect(chat.mcpServers.configError).toBe(configErrorKind !== undefined);
+    }
   });
 });
 
@@ -219,8 +263,10 @@ describe('W1a 编辑不丢字段', () => {
     expect(tpl).toMatch(/\{\{ orig \? '保存' : '添加' \}\}/);
   });
 
-  it('改名与预览不新增 store action：MCP 相关 action 仍是原来那六个（mu6 清单的约定）', () => {
-    const acts = [...chat.matchAll(/^ {4}(?:async )?(\w*Mcp\w*)\(/gm)].map(m => m[1]).sort();
-    expect(acts).toEqual(['fetchMcpServers', 'removeMcpServer', 'setSessionMcpDisabled', 'testMcpServer', 'toggleMcpServer', 'upsertMcpServer']);
+  it('改名与预览不新增 store action：MCP 相关 action 仍是原来那六个（mu6 清单的约定）', async () => {
+    // 实例上枚举所有 MCP 动作，不靠名字在四空格行首出现；完整固定清单增减即红。
+    const chat = useChat();
+    const names = Object.keys(chat).filter(name => /Mcp/.test(name) && typeof (chat as any)[name] === 'function').sort();
+    expect(names).toEqual(['fetchMcpServers', 'removeMcpServer', 'setSessionMcpDisabled', 'testMcpServer', 'toggleMcpServer', 'upsertMcpServer']);
   });
 });

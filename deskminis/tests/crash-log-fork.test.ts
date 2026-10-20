@@ -1,3 +1,4 @@
+// Q07：此文件含已知受高负载影响的真实进程或计时用例；保留原断言，无自动重试。见 docs/TESTING.md。
 /** W2b-7（设计稿 §4 S25 · 侦察 lifecycle.md「W2b-crashlog」）：真 fork 一个 minisd 子进程，证明崩溃记录与按天日志真的落盘。
  *
  *  主进程是 src/main/index.ts 本体：electron 桩同 tests/main-window-guard-harness.ts（whenReady 在 worker 里真跑，

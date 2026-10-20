@@ -1,3 +1,4 @@
+// Q07：此文件含已知受高负载影响的真实进程或计时用例；保留原断言，无自动重试。见 docs/TESTING.md。
 /**
  * M3c Task 3 · OutboundClient 出站 WS 客户端测试
  *

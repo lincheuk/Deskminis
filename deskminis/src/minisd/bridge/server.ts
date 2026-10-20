@@ -81,7 +81,7 @@ export class BridgeServer {
   private server: Server | undefined;
   private sockets = new Set<Socket>();
 
-  constructor(private dispatch: (req: BridgeRequest) => Promise<BridgeEnvelope>) {}
+  constructor(private dispatch: (req: BridgeRequest, ctl?: { signal?: AbortSignal }) => Promise<BridgeEnvelope>) {}
 
   listen(pipePath: string): Promise<void> {
     return new Promise((resolvePromise, reject) => {
@@ -93,7 +93,15 @@ export class BridgeServer {
 
   private onConnection(socket: Socket): void {
     this.sockets.add(socket);
-    socket.on('close', () => this.sockets.delete(socket));
+    // F13：请求方的取消信号。连接在应答发出之前关闭 = 请求方（bridge-cli 进程）不等结果了：
+    // 分发器据此了结它挂着的权限卡、批准之后也不再执行。replied 在 respond 里置真——不能用下面的 answered，
+    // 那个在收到首帧时就置真，不表示「已应答」
+    const gone = new AbortController();
+    let replied = false;
+    socket.on('close', () => {
+      this.sockets.delete(socket);
+      if (!replied) gone.abort('requester-gone');
+    });
     socket.on('error', () => { /* 客户端中断：close 事件负责清理 */ });
     const decoder = new FrameDecoder();
     let answered = false;
@@ -112,7 +120,7 @@ export class BridgeServer {
       if (frames.length === 0) return;
       answered = true;
       clearTimeout(timer);
-      const respond = (env: BridgeEnvelope) => socket.end(encodeFrame(env));
+      const respond = (env: BridgeEnvelope) => { replied = true; socket.end(encodeFrame(env)); };
       let req: BridgeRequest;
       try {
         req = JSON.parse(frames[0].toString('utf8')) as BridgeRequest;
@@ -121,7 +129,7 @@ export class BridgeServer {
         return;
       }
       try {
-        respond(await this.dispatch(req));
+        respond(await this.dispatch(req, { signal: gone.signal }));
       } catch (e) {
         // dispatch 正常不该抛（分发器内部全兜成信封）；这里是最后防线
         respond(errEnvelope(req?.tool ?? '', req?.action ?? '', 'INTERNAL_ERROR', e instanceof Error ? e.message : String(e)));

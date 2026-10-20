@@ -1,15 +1,28 @@
 /** renderer 源码守卫（.vue 不在 typecheck 覆盖内，照抄 renderer-provider-settings.test.ts 的纯文本守卫）：
  *  ProviderSettings「网络搜索」分区：kind 下拉（未配置/brave/tavily/searxng）+ 密钥 password 输入不回填
  *  + searxng baseUrl 输入与 JSON 格式提示；接线经 stores/chat.ts → RPC search.provider.get/set。 */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const { _rpcCall, _rpcOn, _handlers, _rpcLost, _rpcConnect } = vi.hoisted(() => {
+  const handlers = new Map<string, (params: any) => unknown>();
+  return { _rpcCall: vi.fn(), _rpcOn: vi.fn((method: string, handler: (params: any) => unknown) => { handlers.set(method, handler); }), _handlers: handlers, _rpcLost: vi.fn(), _rpcConnect: vi.fn(async () => {}) };
+});
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: _rpcCall, on: _rpcOn, onLost: _rpcLost, connect: _rpcConnect } }));
+
 import fs from 'node:fs';
 import path from 'node:path';
+import { useChat } from '../src/renderer/src/stores/chat';
+import { resetStoreRpc, deferred } from './renderer-store-fixture';
 
 const root = path.resolve(__dirname, '..');
 // T6e-3 重指：网络搜索分区从旧 ProviderSettings 独立成了 ui/settings/SecSearch.vue
 const vue = fs.readFileSync(path.join(root, 'src/renderer/src/ui/settings/SecSearch.vue'), 'utf8');
-const chatStore = fs.readFileSync(path.join(root, 'src/renderer/src/stores/chat.ts'), 'utf8');
+
 const permCopy = fs.readFileSync(path.join(root, 'src/renderer/src/lib/perm/copy.ts'), 'utf8');
+
+const _probe = { call: _rpcCall, on: _rpcOn, handlers: _handlers, lost: _rpcLost, connect: _rpcConnect };
+// 每例使用新的真实 Pinia；RPC 桩只记调用与订阅，由用例放行应答。
+beforeEach(() => { resetStoreRpc(_probe); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('SecSearch 网络搜索分区（renderer 源码守卫）', () => {
   it('分区标题「网络搜索」+ kind 四 option（未配置/brave/tavily/searxng）', () => {
@@ -36,9 +49,27 @@ describe('SecSearch 网络搜索分区（renderer 源码守卫）', () => {
     expect(vue).toContain('实例需开启 JSON 输出格式');
   });
 
-  it('stores/chat.ts：fetchSearchProvider/saveSearchProvider 走 search.provider.get/set', () => {
-    expect(chatStore).toContain('search.provider.get');
-    expect(chatStore).toContain('search.provider.set');
+  it('stores/chat.ts：fetchSearchProvider/saveSearchProvider 走 search.provider.get/set', async () => {
+    // 查询与保存每个方法、参数、刷新顺序和 state；四 provider 值全部真走。
+    const chat = useChat();
+    const providers = { none: { kind: 'none' }, brave: { kind: 'brave', apiKey: 'test-brave' }, tavily: { kind: 'tavily', apiKey: 'test-tavily' }, searxng: { kind: 'searxng', baseUrl: 'https://invalid.example/search' } } satisfies Record<'none' | 'brave' | 'tavily' | 'searxng', { kind: string; apiKey?: string; baseUrl?: string }>;
+    for (const params of Object.values(providers)) {
+      const reply = { kind: params.kind, hasKey: 'apiKey' in params, ...('baseUrl' in params ? { baseUrl: params.baseUrl } : {}) };
+      _rpcCall.mockClear();
+      _rpcCall.mockResolvedValueOnce(reply);
+      expect(await chat.fetchSearchProvider()).toEqual(reply);
+      expect(_rpcCall.mock.calls).toEqual([['search.provider.get']]);
+      expect(chat.searchProvider).toEqual(reply);
+      const saving = deferred();
+      _rpcCall.mockClear();
+      _rpcCall.mockReturnValueOnce(saving.promise).mockResolvedValueOnce(reply);
+      const saved = chat.saveSearchProvider(params);
+      expect(_rpcCall.mock.calls).toEqual([['search.provider.set', params]]);
+      saving.resolve({ ok: true });
+      await saved;
+      expect(_rpcCall.mock.calls).toEqual([['search.provider.set', params], ['search.provider.get']]);
+      expect(chat.searchProvider).toEqual(reply);
+    }
   });
 
   it('权限卡文案：web-search 类目有中文标题', () => {

@@ -57,8 +57,10 @@ const HELP = `DeskMinis 远程接入 CLI（M3a）
 环境: MINISD_PORT / MINISD_TOKEN（或 --port / --token）
 
 子命令:
-  pair                          生成 8 字配对码 + 桌面端公钥 + 指纹（桌面端用）
+  pair                          生成配对码 + 桌面端公钥 + 指纹（桌面端用）。码长随本机配对策略：
+                                缺省是 8 字的旧码；打开了认证配对（实验）时是以 0 开头的 12 字码
   connect <code> <peerPubKeyB64>  扮演手机端：用配对码 + 对端公钥完成握手，返回手机端指纹
+                                （仅支持旧的 8 字配对；认证配对的 12 字码不能用它）
   status                        列出所有已配对节点
   unpair <fingerprint>          取消配对
 

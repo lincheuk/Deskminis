@@ -1,0 +1,281 @@
+{
+  "base": "df457d7",
+  "rows": [
+    {
+      "protocol": "openai",
+      "name": "main",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 中文消息"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "N23 synthetic system",
+        "tools": [],
+        "maxTokens": 4096,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"model\":\"n23-synthetic\",\"stream\":true,\"max_tokens\":4096,\"messages\":[{\"role\":\"system\",\"content\":\"N23 synthetic system\"},{\"role\":\"user\",\"content\":\"N23 中文消息\"}],\"stream_options\":{\"include_usage\":true}}",
+      "sha256": "e1ac52d594c6561d9afc6a744a68b5bdc53eb5d69b153106c597f917129eeded"
+    },
+    {
+      "protocol": "openai",
+      "name": "thinking",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 reasoning"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "N23 synthetic system",
+        "tools": [],
+        "maxTokens": 8192,
+        "thinkingLevel": "high"
+      },
+      "body": "{\"model\":\"n23-synthetic\",\"stream\":true,\"max_tokens\":8192,\"messages\":[{\"role\":\"system\",\"content\":\"N23 synthetic system\"},{\"role\":\"user\",\"content\":\"N23 reasoning\"}],\"stream_options\":{\"include_usage\":true},\"reasoning_effort\":\"high\"}",
+      "sha256": "f1110ad25a9b77efd4f38ded731ee7ae91e3f6858fbfa51a9ab2b97c1d840af2"
+    },
+    {
+      "protocol": "openai",
+      "name": "summary",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 摘要取材"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "你是对话摘要助手。",
+        "tools": [],
+        "maxTokens": 4096,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"model\":\"n23-synthetic\",\"stream\":true,\"max_tokens\":4096,\"messages\":[{\"role\":\"system\",\"content\":\"你是对话摘要助手。\"},{\"role\":\"user\",\"content\":\"N23 摘要取材\"}],\"stream_options\":{\"include_usage\":true}}",
+      "sha256": "8fc5bf7f38bb87c673a8854b55a6b29a9bc0c7a36ceb75abaee74981bcde1a9a"
+    },
+    {
+      "protocol": "openai",
+      "name": "title",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 标题取材"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "你是标题生成器。",
+        "tools": [],
+        "maxTokens": 2048,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"model\":\"n23-synthetic\",\"stream\":true,\"max_tokens\":2048,\"messages\":[{\"role\":\"system\",\"content\":\"你是标题生成器。\"},{\"role\":\"user\",\"content\":\"N23 标题取材\"}],\"stream_options\":{\"include_usage\":true}}",
+      "sha256": "f88d11a10814637dc89cd66c501cb186ad7b54d0b204687e6779fe2b6e7226c7"
+    },
+    {
+      "protocol": "anthropic",
+      "name": "main",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 中文消息"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "N23 synthetic system",
+        "tools": [],
+        "maxTokens": 4096,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"model\":\"n23-synthetic\",\"max_tokens\":4096,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"N23 中文消息\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[],\"system\":[{\"type\":\"text\",\"text\":\"N23 synthetic system\",\"cache_control\":{\"type\":\"ephemeral\"}}]}",
+      "sha256": "028e440f2fb5c0f23d60f3db7d9d371786633d048dde8a543d8be4053d5801db"
+    },
+    {
+      "protocol": "anthropic",
+      "name": "thinking",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 reasoning"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "N23 synthetic system",
+        "tools": [],
+        "maxTokens": 8192,
+        "thinkingLevel": "high"
+      },
+      "body": "{\"model\":\"n23-synthetic\",\"max_tokens\":8192,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"N23 reasoning\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[],\"system\":[{\"type\":\"text\",\"text\":\"N23 synthetic system\",\"cache_control\":{\"type\":\"ephemeral\"}}],\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":8191}}",
+      "sha256": "97bbac1ab21aefdd8a1c7f07851c8233e47e49bc9604dd828255bb6b539f5ddd"
+    },
+    {
+      "protocol": "anthropic",
+      "name": "summary",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 摘要取材"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "你是对话摘要助手。",
+        "tools": [],
+        "maxTokens": 4096,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"model\":\"n23-synthetic\",\"max_tokens\":4096,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"N23 摘要取材\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[],\"system\":[{\"type\":\"text\",\"text\":\"你是对话摘要助手。\",\"cache_control\":{\"type\":\"ephemeral\"}}]}",
+      "sha256": "b4c210ea10121aa2afa28e8b4f03c4dd0fa9dacfd9ba10373e697625ffd31998"
+    },
+    {
+      "protocol": "anthropic",
+      "name": "title",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 标题取材"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "你是标题生成器。",
+        "tools": [],
+        "maxTokens": 2048,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"model\":\"n23-synthetic\",\"max_tokens\":2048,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"N23 标题取材\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[],\"system\":[{\"type\":\"text\",\"text\":\"你是标题生成器。\",\"cache_control\":{\"type\":\"ephemeral\"}}]}",
+      "sha256": "571d1f26a9818cbc517b50defa43c5c0e899b1d9e584babff2010f019fdaae2f"
+    },
+    {
+      "protocol": "gemini",
+      "name": "main",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 中文消息"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "N23 synthetic system",
+        "tools": [],
+        "maxTokens": 4096,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"N23 中文消息\"}]}],\"system_instruction\":{\"parts\":[{\"text\":\"N23 synthetic system\"}]},\"generationConfig\":{\"maxOutputTokens\":4096}}",
+      "sha256": "3eae0e9903d147546594d6296eaeb37db96bbfb8829e6f53df2e5a94a26d00f8"
+    },
+    {
+      "protocol": "gemini",
+      "name": "thinking",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 reasoning"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "N23 synthetic system",
+        "tools": [],
+        "maxTokens": 8192,
+        "thinkingLevel": "high"
+      },
+      "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"N23 reasoning\"}]}],\"system_instruction\":{\"parts\":[{\"text\":\"N23 synthetic system\"}]},\"generationConfig\":{\"maxOutputTokens\":8192,\"thinkingConfig\":{\"thinkingBudget\":8191,\"includeThoughts\":true}}}",
+      "sha256": "bee1035072760b3d957be17ba0900f92d11f1b3e4a0f2d152ce619af0f29c80a"
+    },
+    {
+      "protocol": "gemini",
+      "name": "summary",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 摘要取材"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "你是对话摘要助手。",
+        "tools": [],
+        "maxTokens": 4096,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"N23 摘要取材\"}]}],\"system_instruction\":{\"parts\":[{\"text\":\"你是对话摘要助手。\"}]},\"generationConfig\":{\"maxOutputTokens\":4096}}",
+      "sha256": "44f7c848b1747662d52be19cc4330837931efbd94111d09eb0aac9b524148b0b"
+    },
+    {
+      "protocol": "gemini",
+      "name": "title",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "value": "N23 标题取材"
+              }
+            ]
+          }
+        ],
+        "systemPrompt": "你是标题生成器。",
+        "tools": [],
+        "maxTokens": 2048,
+        "thinkingLevel": "off"
+      },
+      "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"N23 标题取材\"}]}],\"system_instruction\":{\"parts\":[{\"text\":\"你是标题生成器。\"}]},\"generationConfig\":{\"maxOutputTokens\":2048}}",
+      "sha256": "634919d830bf78b4840bfbbae241ab77c10026cd13cc384ede994008595585f8"
+    }
+  ]
+}

@@ -6,8 +6,8 @@
  * 写 lastError、置 running=false、按乐观 id 过滤 messages；输入卡随后还把草稿交回（takeDraft）。
  * 用户先切到 B 再删 A，A 的「会话已取消」就顶在 B 的输入卡上；B 正在跑的话还会被误标成没在跑。
  *
- * 这里用 vi.mock 桩掉 rpc，真跑 store（与 renderer-permtier 同一种做法）。另外加两条源码守卫，
- * 先剥注释再匹配（交接 §2 第 10 条）：store 的 catch 认 `this.activeId === sid`，输入卡换了会话就不交回草稿。
+ * 这里用 vi.mock 桩掉 rpc，真跑 store（与 renderer-permtier 同一种做法）。store 守卫也真跑，输入卡源码守卫保留，
+ * store 枚举未切换、切走、切回三种会话关系；输入卡原守卫仍先剥注释再匹配（交接 §2 第 10 条）。
  * Composer.vue 的 <script> 段里没有在字符串或正则字面量中写 // 或 /* 的地方，stripComments 按正则去注释不会误删代码。
  *
  * 二审补：输入卡的 send() 也要真跑。源码守卫只钉了 sid 在寄存草稿之前记，没钉它在「欢迎页先建会话」之后记；
@@ -117,32 +117,67 @@ describe('W1b-4 审查：chat.prompt 被拒时只改发它的那个会话', () =
 });
 
 describe('W1b-4 审查：源码守卫（剥注释后匹配）', () => {
-  it('store.send：开头记下 sid（在第一个 await 即 chat.prompt 之前），catch 里只在 this.activeId === sid 时才写错误态', () => {
-    const code = stripComments(readFileSync(join(__dirname, '../src/renderer/src/stores/chat.ts'), 'utf8').replace(/\r\n/g, '\n'));
-    const send = (code.split(/\n {4}async send\(text: string, attachments\?: string\[\]\) \{/)[1] ?? '').split(/\n {4}(?:async )?[a-zA-Z]+\(/)[0];
-    expect(send).not.toBe('');
-    const sidIdx = send.search(/const sid = this\.activeId;/);
-    const callIdx = send.search(/await rpc\.call\('chat\.prompt', \{ sessionId: this\.activeId,/);
-    const catchIdx = send.search(/\bcatch \(e\) \{/);
-    expect(sidIdx).toBeGreaterThan(-1);
-    expect(callIdx).toBeGreaterThan(sidIdx);
-    // 两者之间没有别的 await：sid 就是 prompt 发往的会话
-    expect(send.search(/\bawait\b/)).toBe(callIdx);
-    expect(catchIdx).toBeGreaterThan(callIdx);
-    const katch = send.slice(catchIdx);
-    const gateIdx = katch.search(/if \(this\.activeId === sid\) \{/);
-    expect(gateIdx).toBeGreaterThan(-1);
-    // 三处写都在闸里：闸之前一处也不许有
-    for (const re of [/this\.lastError = /, /this\.messages = this\.messages\.filter/, /this\.running = false/]) {
-      const i = katch.search(re);
-      expect(i, String(re)).toBeGreaterThan(gateIdx);
+  it('store.send：开头记下 sid（在第一个 await 即 chat.prompt 之前），catch 里只在 this.activeId === sid 时才写错误态', async () => {
+    // 原守卫重复同文件前三例；这里仍在原 it 内枚举没换、切走、切回三条路径。
+    for (const route of ['stay', 'away', 'back'] as const) {
+      setActivePinia(createPinia());
+      const chat = useChat();
+      await chat.open('A');
+      const history = { id: 'old-A', role: 'assistant', parts: [], createdAt: 1 };
+      chat.messages = [history];
+      rpcCallMock.mockClear();
+      const sending = chat.send('guarded text', ['attachments/a.png']);
+
+      // 第一个 await 之前已经以 A 发出唯一 prompt，每个实参都来自本次发送。
+      expect(rpcCallMock.mock.calls).toEqual([
+        ['chat.prompt', { sessionId: 'A', text: 'guarded text', attachments: ['attachments/a.png'], promptId: expect.stringMatching(/^[A-Za-z0-9._:-]{1,128}$/) }],
+      ]);
+      expect(chat.running).toBe(true);
+      const optimisticId = chat.messages.at(-1)!.id;
+      expect(optimisticId).not.toBe(history.id);
+
+      // 拒绝发生时制造三种会话关系；切走后给 B 的三个字段放非默认哨兵。
+      if (route !== 'stay') await chat.open('B');
+      if (route === 'back') {
+        await chat.open('A');
+        chat.messages = [history, { id: optimisticId, role: 'user', parts: [], createdAt: 2 }];
+      }
+      chat.lastError = route === 'away' ? 'B own error' : '';
+      chat.running = true;
+      const beforeMessages = JSON.parse(JSON.stringify(chat.messages));
+      const writes: string[] = [];
+      const stop = vue.watch(() => chat.lastError, () => writes.push('lastError'), { flush: 'sync' });
+      const stopRunning = vue.watch(() => chat.running, () => writes.push('running'), { flush: 'sync' });
+      const stopMessages = vue.watch(() => chat.messages, () => writes.push('messages'), { flush: 'sync' });
+
+      // await send 的拒绝处理完成后再查“没有发生”，同步监听也能抓到写后又还原。
+      try {
+        rejectPrompt(new Error('guard rejection'));
+        await expect(sending).resolves.toBeUndefined();
+        expect(chat.activeId).toBe(route === 'away' ? 'B' : 'A');
+        if (route === 'away') {
+          expect(chat.lastError).toBe('B own error');
+          expect(chat.running).toBe(true);
+          expect(chat.messages).toEqual(beforeMessages);
+          expect(writes).toEqual([]);
+        } else {
+          expect(chat.lastError).toBe('guard rejection');
+          expect(chat.running).toBe(false);
+          expect(chat.messages).toEqual([history]);
+          expect(writes.sort()).toEqual(['lastError', 'messages', 'running']);
+        }
+      } finally {
+        stop();
+        stopRunning();
+        stopMessages();
+      }
     }
   });
 
   it('输入卡：send 返回时已换了会话，就丢掉草稿、不交回（不往另一个会话的输入框里塞）', () => {
     const src = readFileSync(join(__dirname, '../src/renderer/src/ui/Composer.vue'), 'utf8').replace(/\r\n/g, '\n');
     const script = stripComments(src.slice(src.indexOf('<script'), src.indexOf('</script>')));
-    const start = script.search(/async function send\(\): Promise<void> \{/);
+    const start = script.search(/async function send\(requestedMode\?: InputMode\): Promise<void> \{/);
     expect(start).toBeGreaterThan(-1);
     const body = script.slice(start, script.indexOf('\nfunction takeDraft', start));
     const sidIdx = body.search(/const sid = chat\.activeId;/);
@@ -183,11 +218,13 @@ const COMPOSER_DEPS: Record<string, unknown> = {
   '../lib/attach/downsample': downsampleModule,
   '../lib/models/binding': bindingModule,
   '../lib/welcome/assistant': welcomeAssistantModule, // W2b-4 起 send() 按欢迎页选择套用助手
+  './InputQueue.vue': { default: {} }, // This harness executes setup; child rendering is covered by the browser fixture.
   './UiIcon.vue': { default: {} }, // 只跑 setup、不渲染，子组件用空壳
 };
 
 type ComposerBindings = {
-  send: () => Promise<void>;
+  send: (mode?: 'steer' | 'queue') => Promise<void>;
+  canSend: { value: boolean };
   text: { value: string };
   atts: { value: { path: string; dataUrl: string }[] };
   sending: { value: boolean };
@@ -284,5 +321,66 @@ describe('W1b-4 二审：输入卡 send() 真跑（compiler-sfc 编译 <script s
     expect(chat.lastError).toBe('B 自己的报错');
     expect(c.text.value).toBe('');
     expect(chat.draft).toBeNull();
+  });
+});
+
+describe('F05：send() 发出的 chat.prompt 带 promptId', () => {
+  it('每次发送带一个合法的 promptId，连发两次不相同', async () => {
+    const chat = useChat();
+    await chat.open('A');
+    const first = chat.send('第一条');
+    rejectPrompt(new Error('会话已取消'));
+    await first;
+    const second = chat.send('第二条');
+    rejectPrompt(new Error('会话已取消'));
+    await second;
+    const ids = rpcCallMock.mock.calls.filter(c => c[0] === 'chat.prompt').map(c => (c[1] as { promptId?: unknown }).promptId);
+    expect(ids).toHaveLength(2);
+    // 与引擎一侧的校验同一条规则（shared/run.ts 的 PROMPT_ID_RE）
+    for (const id of ids) expect(id).toMatch(/^[A-Za-z0-9._:-]{1,128}$/);
+    expect(typeof ids[0]).toBe('string');
+    expect(ids[0]).not.toBe(ids[1]);
+  });
+});
+
+
+describe('F07 preserves Composer entry guards with compiled setup', () => {
+  it('C1 pending first-session creation blocks reentry and releases the gate after rejection', async () => {
+    let release!: (value: unknown) => void;
+    rpcCallMock.mockImplementation(method => method === 'chat.sessions.create'
+      ? new Promise(resolve => { release = resolve; })
+      : method === 'chat.prompt' ? new Promise((_resolve, reject) => { rejectPrompt = reject; })
+      : Promise.resolve(method === 'chat.sessions.list' ? [{id:'S1',title:'new'}] : method === 'skills.list' || method === 'chat.messages.list' ? [] : undefined));
+    const c = setupComposer('hero'); c.text.value = 'first draft';
+    const first = c.send(); expect(c.sending.value).toBe(true); expect(c.canSend.value).toBe(false);
+    await c.send(); expect(rpcCallMock.mock.calls.filter(x => x[0] === 'chat.sessions.create')).toHaveLength(1);
+    release({id:'S1'}); await promptSent(); rejectPrompt(Error('rejected')); await first;
+    expect(c.sending.value).toBe(false); expect(c.text.value).toBe('first draft'); expect(c.canSend.value).toBe(true);
+  });
+  it('C2 pending queue admission blocks another send and preserves text typed while awaiting rejection', async () => {
+    const chat = useChat(); await chat.open('A'); chat.inputsOn = true; chat.running = true;
+    chat.runOf = {A:{runId:'R',generation:1,ended:false}}; chat.streamingText = 'partial';
+    let reject!: (e: Error) => void;
+    rpcCallMock.mockImplementation(method => method === 'chat.input.send' ? new Promise((_r, r) => {reject=r;}) : Promise.resolve(undefined));
+    const c = setupComposer('chat'); c.text.value = 'queued draft'; const first = c.send('queue');
+    c.text.value = 'new text'; expect(c.canSend.value).toBe(false); await c.send('queue');
+    expect(rpcCallMock.mock.calls.filter(x => x[0] === 'chat.input.send')).toHaveLength(1);
+    reject(Error('queue full')); await first;
+    expect(c.text.value).toBe('queued draft\nnew text'); expect(c.sending.value).toBe(false);
+    expect(chat.streamingText).toBe('partial'); expect(chat.running).toBe(true);
+  });
+  it('C3 both disconnection states disable sending and Enter retains the original draft without RPC', async () => {
+    const chat = useChat(); await chat.open('A'); chat.inputsOn = true; chat.running = true;
+    const c = setupComposer('chat'); c.text.value = 'offline draft'; rpcCallMock.mockClear();
+    for (const state of ['reconnecting','lost'] as const) {
+      chat.connection = state; expect(c.canSend.value).toBe(false); await c.send('queue');
+      expect(c.text.value).toBe('offline draft'); expect(c.sending.value).toBe(false); expect(rpcCallMock).not.toHaveBeenCalled();
+    }
+  });
+  it('C4 older engines keep the running guard and retain an unsent draft', async () => {
+    const chat = useChat(); await chat.open('A'); chat.inputsOn = false; chat.running = true;
+    chat.runOf = {A:{runId:'R',generation:1,ended:false}}; // F06 identity exists even when F07 support is absent.
+    const c = setupComposer('chat'); c.text.value = 'legacy draft'; rpcCallMock.mockClear();
+    await c.send(); expect(rpcCallMock).not.toHaveBeenCalled(); expect(c.text.value).toBe('legacy draft'); expect(c.sending.value).toBe(false); expect(chat.lastError).toBe(''); expect(chat.draft).toBeNull();
   });
 });

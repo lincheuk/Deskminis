@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { computeNextRun, validateSchedule, type ScheduleKind } from './schedule';
 
-/** K1 定时任务存储（设计稿 2026-08-20-cron-design.md §1/§3）。
+/** K1 定时任务存储：保存计划、下次运行时间与运行结果。
  *  next_run_at 在 create/update/markRun 时算定（epoch 秒），调度器 tick 只做
  *  「enabled 且到点」的查表（dueJobs）。
  *

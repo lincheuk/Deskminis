@@ -1,0 +1,1468 @@
+{
+  "base": "c31495825249f8d154549bb7e2861ef628bfaaaa",
+  "matrix": {
+    "assistants.create": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "assistants.create 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "assistants.delete": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "assistants.delete 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "assistants.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "assistants.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "assistants.update": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "assistants.update 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "attachments.cancel": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "attachments.cancel 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "attachments.cancel 只允许本机连接，当前=remote"
+      }
+    },
+    "attachments.read": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "attachments.read 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "attachments.read 只允许本机连接，当前=remote"
+      }
+    },
+    "attachments.retry": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "attachments.retry 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "attachments.retry 只允许本机连接，当前=remote"
+      }
+    },
+    "attachments.status": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "attachments.status 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "attachments.status 只允许本机连接，当前=remote"
+      }
+    },
+    "audit.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "audit.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.annotations.add": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.annotations.add 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.annotations.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.annotations.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.annotations.remove": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.annotations.remove 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.annotations.update": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.annotations.update 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.cancel": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.cancel 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.contextInfo": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.contextInfo 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.input.cancel": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.input.cancel 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.input.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.input.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.input.resume": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.input.resume 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.input.edit": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.input.edit 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.input.hold": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.input.hold 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.input.move": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.input.move 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.input.steer": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.input.steer 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.input.send": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.input.send 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.messages.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.messages.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.prompt": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.prompt 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.runs.snapshot": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.runs.snapshot 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.applyAssistant": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.applyAssistant 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.create": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.create 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.delete": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.delete 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.listRetained": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.listRetained 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.purgeRetained": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.purgeRetained 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.rename": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.rename 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.restore": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.restore 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.setMcpDisabled": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.setMcpDisabled 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.setMemoryEnabled": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.setMemoryEnabled 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.setPinned": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.setPinned 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "chat.sessions.setModelBinding": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "chat.sessions.setModelBinding 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "checkpoints.diff": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "checkpoints.diff 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "文件检查点只能在运行 DeskMinis 引擎的这台电脑上查看和恢复"
+      }
+    },
+    "checkpoints.inspect": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "checkpoints.inspect 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "文件检查点只能在运行 DeskMinis 引擎的这台电脑上查看和恢复"
+      }
+    },
+    "checkpoints.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "checkpoints.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "文件检查点只能在运行 DeskMinis 引擎的这台电脑上查看和恢复"
+      }
+    },
+    "checkpoints.restore": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "checkpoints.restore 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "文件检查点只能在运行 DeskMinis 引擎的这台电脑上查看和恢复"
+      }
+    },
+    "checkpoints.saveCopy": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "checkpoints.saveCopy 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "文件检查点只能在运行 DeskMinis 引擎的这台电脑上查看和恢复"
+      }
+    },
+    "checkpoints.setQuota": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "checkpoints.setQuota 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "文件检查点只能在运行 DeskMinis 引擎的这台电脑上查看和恢复"
+      }
+    },
+    "checkpoints.usage": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "checkpoints.usage 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "文件检查点只能在运行 DeskMinis 引擎的这台电脑上查看和恢复"
+      }
+    },
+    "control.pause": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "control.pause 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "control.resume": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "control.resume 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "control.status": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "control.status 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "cron.create": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "cron.create 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "cron.delete": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "cron.delete 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "cron.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "cron.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "cron.runNow": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "cron.runNow 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "cron.update": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "cron.update 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "diagnostics.dryRun": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "diagnostics.dryRun 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "diagnostics.dryRun 需要 authMode=local，当前=remote"
+      }
+    },
+    "files.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "files.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "files.read": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "files.read 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "market.checkUpdates": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "market.checkUpdates 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "market.detail": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "market.detail 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "market.install": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "market.install 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "market.installPlan": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "market.installPlan 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "market.installed": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "market.installed 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "market.search": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "market.search 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "market.sources.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "market.sources.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "mcp.servers.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "mcp.servers.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "mcp.servers.remove": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "mcp.servers.remove 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "mcp.servers.test": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "mcp.servers.test 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "mcp.servers.toggle": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "mcp.servers.toggle 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "mcp.servers.upsert": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "mcp.servers.upsert 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "modelgroup.create": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "modelgroup.create 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "modelgroup.delete": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "modelgroup.delete 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "modelgroup.get": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "modelgroup.get 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "modelgroup.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "modelgroup.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "modelgroup.update": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "modelgroup.update 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "office.read": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "office.read 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "permission.getPreset": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "permission.getPreset 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "permission.respond": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "permission.respond 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "permission.setPreset": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "permission.setPreset 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "proc.trees.snapshot": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "proc.trees.snapshot 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.catalog.get": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.catalog.get 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.catalog.providers": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.catalog.providers 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.catalog.refresh": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.catalog.refresh 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.getDefault": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.getDefault 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.instances.create": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.instances.create 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.instances.delete": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.instances.delete 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.instances.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.instances.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.instances.update": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.instances.update 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.models.fetch": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.models.fetch 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.models.metadata": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.models.metadata 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.runtime.resolve": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.runtime.resolve 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "provider.setDefault": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "provider.setDefault 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "remote.pair.begin": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "remote.pair.begin 需要 authMode=local，当前=pairing"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "remote.pair.begin 需要 authMode=local，当前=remote"
+      }
+    },
+    "remote.pair.cancel": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "remote.pair.cancel 需要 authMode=local，当前=pairing"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "remote.pair.cancel 需要 authMode=local，当前=remote"
+      }
+    },
+    "remote.pair.complete": {
+      "local": {
+        "allowed": false,
+        "error": "remote.pair.complete 需要 authMode=pairing，当前=local"
+      },
+      "pairing": {
+        "allowed": true
+      },
+      "remote": {
+        "allowed": false,
+        "error": "remote.pair.complete 需要 authMode=pairing，当前=remote"
+      }
+    },
+    "remote.pair.join": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "remote.pair.join 需要 authMode=local，当前=pairing"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "remote.pair.join 需要 authMode=local，当前=remote"
+      }
+    },
+    "remote.pair.setPolicy": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "remote.pair.setPolicy 需要 authMode=local，当前=pairing"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "remote.pair.setPolicy 需要 authMode=local，当前=remote"
+      }
+    },
+    "remote.status": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "remote.status 需要 authMode=local，当前=pairing"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "remote.status 需要 authMode=local，当前=remote"
+      }
+    },
+    "remote.unpair": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "remote.unpair 需要 authMode=local，当前=pairing"
+      },
+      "remote": {
+        "allowed": false,
+        "error": "remote.unpair 需要 authMode=local，当前=remote"
+      }
+    },
+    "search.provider.get": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "search.provider.get 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "search.provider.set": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "search.provider.set 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "skills.delete": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "skills.delete 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "skills.import": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "skills.import 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "skills.importStatus": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "skills.importStatus 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "skills.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "skills.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "skills.setEnabled": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "skills.setEnabled 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "state.attach": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "state.attach 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "state.outcomes": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "state.outcomes 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.ack": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.ack 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.att.get": {
+      "local": {
+        "allowed": false,
+        "error": "ATT_CHANNEL_REQUIRED"
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.att.get 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.att.manifest": {
+      "local": {
+        "allowed": false,
+        "error": "ATT_CHANNEL_REQUIRED"
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.att.manifest 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.att.put": {
+      "local": {
+        "allowed": false,
+        "error": "ATT_CHANNEL_REQUIRED"
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.att.put 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.cursor": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.cursor 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.hello": {
+      "local": {
+        "allowed": false,
+        "error": "sync.hello 需要 authMode=remote，当前=local"
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.hello 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.pull": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.pull 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sync.push": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sync.push 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "terminal.attach": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "terminal.attach 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "terminal.input": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "terminal.input 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "workspace.get": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "workspace.get 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "workspace.reset": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "workspace.reset 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "workspace.set": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "workspace.set 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    }
+  }
+}

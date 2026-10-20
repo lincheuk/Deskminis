@@ -2,16 +2,35 @@
  *  纯模块 lib/perm/copy.ts（8 例）+ lib/perm/countdown.ts（2 例）
  *  + PermissionCard.vue/chat.ts 源文本守卫（含超时留条 2 例——守卫并入计数）。
  *  守卫工具：源文本读取统一归一化 CRLF→LF。 */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const { _rpcCall, _rpcOn, _handlers, _rpcLost, _rpcConnect } = vi.hoisted(() => {
+  const handlers = new Map<string, (params: any) => unknown>();
+  return { _rpcCall: vi.fn(), _rpcOn: vi.fn((method: string, handler: (params: any) => unknown) => { handlers.set(method, handler); }), _handlers: handlers, _rpcLost: vi.fn(), _rpcConnect: vi.fn(async () => {}) };
+});
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: _rpcCall, on: _rpcOn, onLost: _rpcLost, connect: _rpcConnect } }));
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { permTitle, permTriggerLabel } from '../src/renderer/src/lib/perm/copy';
 import { remainSeconds, countdownTone } from '../src/renderer/src/lib/perm/countdown';
 import { stripComments } from './strip-comments';
 
+import { toRaw } from 'vue';
+import { resetStoreRpc, initStore, dispatchStore, type Equal, type Chat, type PendingCard } from './renderer-store-fixture';
+import { prepareRun, RUN_ORIGINS, type RunOrigin } from './renderer-store-events';
+
+import type { PermissionResolvedReason } from '../src/shared/permission';
+
 const R = (p: string) => readFileSync(resolve(__dirname, p), 'utf8').replace(/\r\n/g, '\n');
 const permCard = R('../src/renderer/src/ui/PermCard.vue');
-const chatTs = R('../src/renderer/src/stores/chat.ts');
+
+const _probe = { call: _rpcCall, on: _rpcOn, handlers: _handlers, lost: _rpcLost, connect: _rpcConnect };
+// 每例初始化真实 Pinia，记录桩；固定时钟用于事件 timestamp 与 deadline，不以墙钟上界判未发生。
+beforeEach(() => {
+  resetStoreRpc(_probe);
+  vi.spyOn(Date, 'now').mockReturnValue(10000);
+});
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('MU2a Task 10 permTitle（8 例）', () => {
   it('bridge-notify → 请求发送通知', () => { expect(permTitle('bridge-notify')).toBe('请求发送通知'); });
@@ -82,7 +101,7 @@ describe('MU2a Task 10 PermissionCard.vue 守卫', () => {
     expect(permCard).toContain('perm.bridgeTriggers?.length');
     expect(permCard).toContain('permTriggerLabel(');
   });
-  it('按钮三枚：允许（--c-brand 实底主钮）/ 本会话允许 / 拒绝；预选 .pre 2px --c-brand 边框', () => {
+  it('按钮三枚：允许（--c-brand 实底主钮）/ 本会话允许 / 拒绝；预选 .pre 2px --c-brand 边框', async () => {
     expect(permCard).toContain('允许');
     expect(permCard).toContain('本会话允许');
     expect(permCard).toContain('拒绝');
@@ -95,8 +114,14 @@ describe('MU2a Task 10 PermissionCard.vue 守卫', () => {
     // 让预选项与另两枚不等高。锚「有 2px 品牌色环、且不改布局」这个意图。
     expect(permCard).toMatch(/\.pb\.pre[^}]*box-shadow:[^}]*2px var\(--c-brand\)/);
     expect(permCard).not.toMatch(/\.pb\.pre[^}]*border:\s*2px/);
-    // preselect 逻辑保留（permTier 映射不变）
-    expect(permCard).toContain("permTier === 'ask'");
+    // W8：四档只有session预选本会话允许；以真实store/SFC推导验证。
+    const { runSetup } = await import('./sfc-setup');
+    const { effectScope } = await import('vue');
+    const { useChat } = await import('../src/renderer/src/stores/chat');
+    const chat = await initStore(_probe);
+    const view = await runSetup<any>(resolve(__dirname, '../src/renderer/src/ui/PermCard.vue'), { perm: { requestId: 'r', kind: 'web-fetch', detail: 'x' } }, effectScope());
+    try { for (const tier of ['ask', 'session', 'plan', 'full'] as const) { chat.permTier = tier; expect(view.bindings.preselect.value).toBe(tier === 'session' ? 'allow-session' : 'allow-once'); } }
+    finally { view.unmount(); }
   });
   it('既有锚不回归：逐字完整 detail 区 + respondPerm 接线', () => {
     expect(permCard).toContain('perm.detail');
@@ -114,29 +139,71 @@ describe('MU2a Task 10 PermissionCard.vue 守卫', () => {
 });
 
 describe('MU2a Task 10 chat.ts 守卫', () => {
-  it('PendingPerm 扩字段 + permission.request 并入 meta + deadlineMs push 时计算', () => {
-    expect(chatTs).toContain('timeoutMs?: number');
-    expect(chatTs).toContain('riskClass?: string');
-    expect(chatTs).toContain('bridgeTriggers?: string[]');
-    expect(chatTs).toContain('deadlineMs');
-    expect(chatTs).toContain('Date.now() + ');
-    // meta 并入（permission.request 处理器消费 params.meta）
-    expect(chatTs).toContain('meta');
+  it('PendingPerm 扩字段 + permission.request 并入 meta + deadlineMs push 时计算', async () => {
+    // 全部卡片字段类型精确比较；meta 三个取值与 push 当时的 deadline。
+    const cardType: true = true as Equal<Chat['pendingPerms'][number], PendingCard>;
+    expect(cardType).toBe(true);
+    const chat = await initStore(_probe);
+    const req = { sessionId: 'A', detail: 'full detail', kind: 'file-write', toolTitle: 'write', preview: { oldText: 'old', newText: 'new' }, note: 'warning' };
+    for (const timeoutMs of [0, 2000, undefined]) {
+      vi.mocked(Date.now).mockReturnValue(10000);
+      const meta = { timeoutMs, riskClass: 'danger', bridgeTriggers: ['clipboard', 'open'] };
+      await dispatchStore(_probe, 'permission.request', { requestId: 'R', req, meta });
+      expect(chat.pendingPerms).toHaveLength(1);
+      expect(chat.pendingPerms[0]).toEqual({ requestId: 'R', sessionId: 'A', detail: 'full detail', kind: 'file-write', toolTitle: 'write', timeoutMs, riskClass: 'danger', bridgeTriggers: ['clipboard', 'open'], preview: req.preview, note: 'warning', deadlineMs: timeoutMs === undefined ? undefined : 10000 + timeoutMs });
+      expect(toRaw(chat.pendingPerms[0].preview)).toBe(req.preview);
+      expect(toRaw(chat.pendingPerms[0].bridgeTriggers)).toBe(meta.bridgeTriggers);
+      vi.mocked(Date.now).mockReturnValue(50000);
+      expect(chat.pendingPerms[0].deadlineMs).toBe(timeoutMs === undefined ? undefined : 10000 + timeoutMs);
+    }
+    expect(_rpcOn.mock.calls.filter(c => c[0] === 'permission.request')).toHaveLength(1);
+    expect(_rpcCall.mock.calls).toEqual([]);
   });
-  it('超时留条：resolved reason===timeout → 摘卡 + eventNotes 追加「权限请求已超时，自动拒绝」（retryable:false）', () => {
-    expect(chatTs).toContain("reason === 'timeout'");
-    expect(chatTs).toContain('权限请求已超时，自动拒绝');
-    // 留条走 error 类事件条且不可重试
-    expect(chatTs).toMatch(/reason === 'timeout'[\s\S]{0,400}kind: 'error'/);
-    expect(chatTs).toMatch(/权限请求已超时，自动拒绝[\s\S]{0,200}retryable: false/);
+  it('超时留条：resolved reason===timeout → 摘卡 + eventNotes 追加「权限请求已超时，自动拒绝」（retryable:false）', async () => {
+    // 当前会话、其它会话、未知卡三种归属；每个长度边界均等 resolved 回调完成再检查。
+    for (const owner of ['A', 'B', 'missing'])
+      for (const n of [0, 9, 10, 11]) {
+        resetStoreRpc(_probe);
+        const chat = await initStore(_probe);
+        chat.activeId = 'A';
+        if (owner !== 'missing')
+          await dispatchStore(_probe, 'permission.request', { requestId: 'R', req: { sessionId: owner, detail: 'd', kind: 'file', toolTitle: 't' }, meta: {} });
+        await dispatchStore(_probe, 'permission.request', { requestId: 'other', req: { sessionId: 'A', detail: 'other', kind: 'file', toolTitle: 't' }, meta: {} });
+        const old = Array.from({ length: n }, (_, i) => ({ kind: 'retry' as const, ts: i, detail: 'old-' + i }));
+        chat.eventNotes = old;
+        await dispatchStore(_probe, 'permission.resolved', { requestId: 'R', reason: 'timeout' });
+        expect(chat.pendingPerms.map(p => p.requestId)).toEqual(['other']);
+        expect(chat.eventNotes).toEqual(owner === 'A' ? [...old.slice(-9), { kind: 'error', ts: 10000, detail: '权限请求已超时，自动拒绝', retryable: false }] : old);
+        expect(_rpcCall.mock.calls).toEqual([]);
+      }
   });
-  it('answered/无 reason → 只摘卡不补条（分流结构存在，摘卡 filter 未删）', () => {
-    // 摘卡行为保留（两分支共用或各自 filter）
-    expect(chatTs).toContain('pendingPerms = this.pendingPerms.filter');
-    // 补条只挂在 timeout 分支：摘卡段（timeout 判定之前）不得出现留条文案
-    const resolvedHandler = chatTs.split("rpc.on('permission.resolved'")[1] ?? '';
-    const beforeTimeoutCheck = resolvedHandler.split("reason === 'timeout'")[0] ?? '';
-    expect(beforeTimeoutCheck).not.toContain('已超时'); // timeout 判定前的摘卡段无留条文案
+  it('answered/无 reason → 只摘卡不补条（分流结构存在，摘卡 filter 未删）', async () => {
+
+    // reason 全集 × 当前/其它/未知卡 × 三个运行来源；回调完成之后核对禁止的写入。
+    const reasons = { answered: false, timeout: true, cancelled: false, 'session-deleted': false, shutdown: false, invalidated: false } satisfies Record<PermissionResolvedReason, boolean>;
+    for (const reason of [...Object.keys(reasons), undefined]) {
+      for (const owner of ['A', 'B', 'missing']) {
+        for (const origin of Object.keys(RUN_ORIGINS) as RunOrigin[]) {
+          const chat = await prepareRun(_probe, origin);
+          chat.lastError = 'keep error';
+          chat.streamingText = 'keep text';
+          chat.streamingThinking = 'keep thinking';
+          const before = [chat.running, chat.midRun, chat.lastError, chat.streamingText, chat.streamingThinking];
+          if (owner !== 'missing') await dispatchStore(_probe, 'permission.request', { requestId: 'R', req: { sessionId: owner, detail: 'd', kind: 'file', toolTitle: 't' }, meta: {} });
+          await dispatchStore(_probe, 'permission.resolved', { requestId: 'R', reason });
+          expect(chat.pendingPerms).toEqual([]);
+          expect([chat.running, chat.midRun, chat.lastError, chat.streamingText, chat.streamingThinking]).toEqual(before);
+          if (reason === 'timeout' && owner === 'A') expect(chat.eventNotes).toEqual([{ kind: 'error', ts: 10000, detail: '权限请求已超时，自动拒绝', retryable: false }]);
+          else if (reason === 'invalidated' && owner === 'A') {
+            expect(chat.eventNotes).toHaveLength(1);
+            expect(chat.eventNotes[0]).toMatchObject({ kind: 'error', retryable: false });
+            expect(chat.eventNotes[0].detail).not.toContain('已超时');
+          } else expect(chat.eventNotes).toEqual([]);
+          expect(_rpcCall.mock.calls).toEqual([]);
+        }
+      }
+    }
+
   });
 });
 
@@ -155,9 +222,17 @@ describe('变更预览（审批前差分）守卫', () => {
     expect(argsIdx).toBeGreaterThan(-1);
     expect(previewIdx).toBeGreaterThan(argsIdx);
   });
-  it('chat.ts：PendingPerm 透传 preview（req.preview → push 字段）', () => {
-    expect(chatTs).toContain('preview?: { oldText: string; newText: string }');
-    expect(chatTs).toContain('preview: req.preview');
+  it('chat.ts：PendingPerm 透传 preview（req.preview → push 字段）', async () => {
+    // preview 可选完整结构由 tsc 比较；有/没有两个值实际穿过 request 处理器。
+    const cardType: true = true as Equal<Chat['pendingPerms'][number], PendingCard>;
+    expect(cardType).toBe(true);
+    const chat = await initStore(_probe);
+    for (const preview of [{ oldText: 'old', newText: 'new' }, undefined]) {
+      await dispatchStore(_probe, 'permission.request', { requestId: 'R', req: { sessionId: 'A', detail: 'd', kind: 'file', toolTitle: 't', preview }, meta: {} });
+      expect(chat.pendingPerms[0].preview).toEqual(preview);
+      expect(toRaw(chat.pendingPerms[0].preview)).toBe(preview);
+    }
+    expect(_rpcCall.mock.calls).toEqual([]);
   });
 });
 
@@ -167,18 +242,21 @@ describe('变更预览（审批前差分）守卫', () => {
 // 脚本侧用共用的 stripComments：它连行尾的 // 注释也剥（只剥整行的话，`preview: req.preview, // note: req.note`
 // 这种行尾注释照样喂饱三条断言，W1b-2 审查实测过），同时保留 `://`。
 describe('W1b-2 权限卡 note 行', () => {
-  const chatCode = stripComments(chatTs);
+
   const tpl = permCard.slice(permCard.indexOf('<template>'), permCard.lastIndexOf('</template>')).replace(/<!--[\s\S]*?-->/g, '');
   const css = permCard.slice(permCard.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '');
   const script = stripComments(permCard.slice(permCard.indexOf('<script'), permCard.indexOf('</script>')));
 
-  it('chat.ts：PendingPerm 声明 note?: string，permission.request 处理器把 req.note 拷进卡片', () => {
-    // PendingPerm 是单行声明，里面还嵌着 preview 的 { … }：按行取，不按第一个 } 截
-    const iface = /^interface PendingPerm \{.*$/m.exec(chatCode)?.[0] ?? '';
-    expect(iface).toMatch(/\bnote\?:\s*string/);
-    // 只认 permission.request 处理器本身的 push 对象（到下一个 rpc.on 为止）
-    const handler = (chatCode.split("rpc.on('permission.request'")[1] ?? '').split('rpc.on(')[0];
-    expect(handler).toMatch(/\bnote:\s*req\.note\b/);
+  it('chat.ts：PendingPerm 声明 note?: string，permission.request 处理器把 req.note 拷进卡片', async () => {
+    // note 可选字符串与原始内容逐值透传，不能靠别处出现 note 字样通过。
+    const cardType: true = true as Equal<Chat['pendingPerms'][number], PendingCard>;
+    expect(cardType).toBe(true);
+    const chat = await initStore(_probe);
+    for (const note of ['warning\nfull note', '', undefined]) {
+      await dispatchStore(_probe, 'permission.request', { requestId: 'R', req: { sessionId: 'A', detail: 'd', kind: 'file', toolTitle: 't', note }, meta: {} });
+      expect(chat.pendingPerms[0].note).toBe(note);
+    }
+    expect(_rpcCall.mock.calls).toEqual([]);
   });
 
   it('PermCard：props 声明 note?: string；模板在 .args 之后渲染 v-if="perm.note" 的 .note 行并插值 perm.note', () => {

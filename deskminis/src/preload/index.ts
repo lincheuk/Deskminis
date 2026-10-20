@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-export interface MinisdInfo { port: number; token: string }
+/** alive（F06）：引擎进程是否还在。旧主进程不带这个字段，渲染端按「还在」处理。 */
+export interface MinisdInfo { port: number; token: string; alive?: boolean }
 
 contextBridge.exposeInMainWorld('deskminis', {
   // 旧接口保留：只给端口，连不上带 token 认证的 minisd（仅作兼容/降级用）
@@ -9,6 +10,8 @@ contextBridge.exposeInMainWorld('deskminis', {
   minisdInfo: (): Promise<MinisdInfo> => ipcRenderer.invoke('minisd:info'),
   // 工作区目录选择器：取消返回 null（不是空串——空串会被当成「清空工作区」）
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
+  // W10：只给建议名与Markdown，保存路径由主进程的另存为对话框选择。
+  exportMarkdown: (defaultName: string, content: string): Promise<string | null> => ipcRenderer.invoke('dialog:saveMarkdown', defaultName, content),
   // 自动更新：开关归主进程管（它才是做检查的那一方），渲染端只读写与手动触发
   getUpdatePrefs: (): Promise<{ autoCheck: boolean; version: string; state: { status: string; version?: string; error?: string } }> =>
     ipcRenderer.invoke('update:getPrefs'),

@@ -9,7 +9,7 @@
  *
  *  W1a-3：上限与读条目的逻辑抽成共享预算闸（createZipBudget + readZipEntry），
  *  技能导入（skills/importer.ts 的 unzipToMemory）与这里的 readZip 共用同一套，只是上限不同。 */
-import { deflateRawSync, crc32, createInflateRaw } from 'node:zlib';
+import { deflateRawSync, inflateRawSync, crc32, createInflateRaw } from 'node:zlib';
 import type { Readable } from 'node:stream';
 import * as yauzl from 'yauzl';
 
@@ -274,4 +274,80 @@ export function readZip(buf: Buffer): Promise<Map<string, Buffer>> {
       zf.readEntry();
     });
   });
+}
+
+/** Synchronous, bounded inspection for the checkpoint transaction's produce callback. */
+export class ZipSyncError extends Error {
+  constructor(readonly why: 'not-zip' | 'zip64' | 'encrypted' | 'method' | 'corrupt' | 'budget', message: string) {
+    super(message); this.name = 'ZipSyncError';
+  }
+}
+export interface ZipDirEntry {
+  name: string; method: number; flags: number; compressedSize: number; size: number; localOffset: number;
+  crc: number;
+}
+const zipError = (why: ZipSyncError['why'], message: string): never => { throw new ZipSyncError(why, message); };
+function range(buf: Buffer, offset: number, size: number): void {
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(size) || offset < 0 || size < 0 || offset > buf.length - size) {
+    zipError('corrupt', 'ZIP 数据截断或偏移越界');
+  }
+}
+function supported(flags: number, method: number): void {
+  if (flags & 0x41) zipError('encrypted', '不支持加密 ZIP');
+  if (method !== 0 && method !== 8) zipError('method', '不支持该 ZIP 压缩方式');
+}
+export function listZipSync(buf: Buffer): ZipDirEntry[] {
+  if (buf.length < 22) zipError('not-zip', '不是可识别的 ZIP');
+  let end = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50 && i + 22 + buf.readUInt16LE(i + 20) === buf.length) { end = i; break; }
+  }
+  if (end < 0) zipError('not-zip', '没有 ZIP 中央目录');
+  const count = buf.readUInt16LE(end + 10), size = buf.readUInt32LE(end + 12), start = buf.readUInt32LE(end + 16);
+  if (count === 0xffff || size === 0xffffffff || start === 0xffffffff) zipError('zip64', '不支持 ZIP64');
+  if (buf.readUInt16LE(end + 4) || buf.readUInt16LE(end + 6) || buf.readUInt16LE(end + 8) !== count) zipError('corrupt', '不支持多卷 ZIP');
+  if (count > ZIP_MAX_ENTRIES) zipError('budget', 'ZIP 条目过多');
+  if (start + size !== end) zipError('corrupt', 'ZIP 中央目录范围错误');
+  range(buf, start, size);
+  const names = new Set<string>(), out: ZipDirEntry[] = [];
+  let offset = start, total = 0;
+  for (let n = 0; n < count; n++) {
+    range(buf, offset, 46);
+    if (offset + 46 > end || buf.readUInt32LE(offset) !== 0x02014b50) zipError('corrupt', 'ZIP 目录项损坏');
+    const flags = buf.readUInt16LE(offset + 8), method = buf.readUInt16LE(offset + 10);
+    const compressedSize = buf.readUInt32LE(offset + 20), entrySize = buf.readUInt32LE(offset + 24), localOffset = buf.readUInt32LE(offset + 42);
+    if ([compressedSize, entrySize, localOffset].includes(0xffffffff)) zipError('zip64', '不支持 ZIP64');
+    if (buf.readUInt16LE(offset + 34)) zipError('corrupt', '不支持多卷 ZIP');
+    supported(flags, method);
+    const nameLen = buf.readUInt16LE(offset + 28), extraLen = buf.readUInt16LE(offset + 30), commentLen = buf.readUInt16LE(offset + 32);
+    const next = offset + 46 + nameLen + extraLen + commentLen;
+    if (next > end) zipError('corrupt', 'ZIP 条目名称截断');
+    const name = buf.subarray(offset + 46, offset + 46 + nameLen).toString('utf8');
+    if (!name || name.includes('\0') || name.includes('\\') || name.startsWith('/') || name.split('/').includes('..') || names.has(name)) zipError('corrupt', 'ZIP 条目名称不安全或重复');
+    names.add(name);
+    if (localOffset >= start) zipError('corrupt', 'ZIP 本地头偏移错误');
+    total += entrySize;
+    if (entrySize > ZIP_MAX_ENTRY || total > ZIP_MAX_TOTAL) zipError('budget', 'ZIP 解压体积超过上限');
+    if (!name.endsWith('/')) out.push({ name, flags, method, compressedSize, size: entrySize, localOffset, crc: buf.readUInt32LE(offset + 16) });
+    offset = next;
+  }
+  if (offset !== end) zipError('corrupt', 'ZIP 目录项数目不符');
+  return out;
+}
+export function readZipEntrySync(buf: Buffer, e: ZipDirEntry, maxBytes: number): Buffer {
+  supported(e.flags, e.method);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || e.size > maxBytes) zipError('budget', 'ZIP 条目超过读取上限');
+  range(buf, e.localOffset, 30);
+  if (buf.readUInt32LE(e.localOffset) !== 0x04034b50) zipError('corrupt', 'ZIP 本地头损坏');
+  if (buf.readUInt16LE(e.localOffset + 6) !== e.flags || buf.readUInt16LE(e.localOffset + 8) !== e.method) zipError('corrupt', 'ZIP 本地头与目录不符');
+  const start = e.localOffset + 30 + buf.readUInt16LE(e.localOffset + 26) + buf.readUInt16LE(e.localOffset + 28);
+  range(buf, start, e.compressedSize);
+  let data: Buffer;
+  try {
+    const compressed = buf.subarray(start, start + e.compressedSize);
+    data = e.method === 0 ? Buffer.from(compressed) : inflateRawSync(compressed, { maxOutputLength: Math.max(1, maxBytes) });
+  } catch { return zipError('corrupt', 'ZIP 条目解压失败或超过上限'); }
+  if (data.length > maxBytes) zipError('budget', 'ZIP 条目超过读取上限');
+  if (data.length !== e.size || crc32(data) !== e.crc) zipError('corrupt', 'ZIP 条目长度或校验和不符');
+  return data;
 }

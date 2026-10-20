@@ -8,7 +8,7 @@ import { useChat } from '../stores/chat';
 import UiIcon from './UiIcon.vue';
 
 const props = defineProps<{ railOpen: boolean; asideOpen: boolean; termOpen: boolean }>();
-const emit = defineEmits<{ (e: 'toggle-rail'): void; (e: 'toggle-aside'): void; (e: 'toggle-term'): void; (e: 'menu'): void }>();
+const emit = defineEmits<{ (e: 'toggle-rail'): void; (e: 'toggle-aside'): void; (e: 'toggle-term'): void; (e: 'toggle-theme'): void }>();
 const chat = useChat();
 
 /** 标题 = 当前会话名；无会话时显示应用名。系统同步态用一个小点表示，不占文字位。 */
@@ -31,8 +31,8 @@ const syncDot = computed(() => {
       <button class="ib" type="button" :aria-pressed="props.railOpen" title="侧栏" @click="emit('toggle-rail')">
         <UiIcon name="panel" :size="17" />
       </button>
-      <button class="ib" type="button" title="菜单" @click="emit('menu')">
-        <UiIcon name="menu" :size="17" />
+      <button class="ib" type="button" title="切换明暗" aria-label="切换明暗" @click="emit('toggle-theme')">
+        <UiIcon name="sun" :size="17" />
       </button>
     </div>
 
@@ -53,7 +53,15 @@ const syncDot = computed(() => {
   <div v-if="chat.connection === 'lost'" class="lost" role="alert">
     <UiIcon name="alert" :size="16" />
     <span class="lmsg">与后台服务的连接已断开。进行中的任务可能已中止，新的操作不会执行。</span>
+    <!-- F06：自动重连用尽而引擎进程还在时，先给一次手动重连，不必重启整个应用 -->
+    <button v-if="chat.linkRetryable" class="f-btn" type="button" @click="chat.retryConnection()">重新连接</button>
     <button class="f-btn primary" type="button" @click="chat.relaunchApp()">重启应用</button>
+  </div>
+  <!-- F06 重连中：同样是标题栏下方独立一行、走正常流。引擎里的任务还在跑，所以不说「已中止」；
+       运行条、权限卡、已流出的正文都留着，发送 / 批准 / 停止 / 换会话在连上之前不执行。 -->
+  <div v-else-if="chat.connection === 'reconnecting'" class="reconn" role="status">
+    <UiIcon name="refresh" :size="16" />
+    <span class="lmsg">与后台服务的连接中断，正在重新连接（第 {{ chat.link?.attempt ?? 1 }} / {{ chat.link?.maxAttempts ?? 1 }} 次）。进行中的任务仍在后台继续，重连后恢复显示。</span>
   </div>
 </template>
 
@@ -95,4 +103,13 @@ const syncDot = computed(() => {
   border-bottom: 1px solid var(--c-line);
 }
 .lmsg { flex: 1; min-width: 0; font-size: var(--t-item-size); line-height: var(--t-item-lh); }
+/* F06 重连中：警告浅底 + 警告色字（与权限卡的说明行同一对颜色）。同样走正常流、不设层级。 */
+.reconn {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+  background: var(--c-warn-soft);
+  color: var(--c-warn);
+  border-bottom: 1px solid var(--c-line);
+}
 </style>

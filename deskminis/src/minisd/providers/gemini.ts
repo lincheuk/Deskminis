@@ -1,9 +1,23 @@
+import { sessionHeaders } from './session-headers';
+import { outboundFetch } from '../net/outbound-fetch';
 import { randomUUID } from 'node:crypto';
-import type { AgentStreamEvent, ContentPart, StopReason, ThinkingLevel } from '../../shared/types';
-import { ProviderError, type AgentProvider, type FetchLike, type StreamRequest } from './types';
+import type { AgentStreamEvent, ContentPart, StopReason } from '../../shared/types';
+import { ProviderError, type AdapterBudgetRule, type AgentProvider, type FetchLike, type StreamRequest } from './types';
 import { parseSse } from './sse';
+import { GeminiUsageAcc } from './usage';
 
-const BUDGETS: Record<Exclude<ThinkingLevel, 'off'>, number> = { low: 4096, medium: 16384, high: 24576 };
+/** F02：generateContent 的窗口约束。出处：ai.google.dev 的 Model 资源（2026-10-03 读取）分别给 inputTokenLimit
+ *  （「Maximum number of input tokens allowed」）与 outputTokenLimit，两个上限互不占用。
+ *  未完全核对：同站 tokens 文档另有一句「The context window defines the combined limit of input and output tokens」。
+ *  核到相反结论时把 window 改成 'shared' 即可，约束形态只由这一个常量决定。 */
+export const GEMINI_BUDGET_RULE: AdapterBudgetRule = {
+  window: 'separate',
+  note: 'Gemini Model 资源的 inputTokenLimit 与 outputTokenLimit',
+};
+
+/** 档位 → thinkingBudget。导出给运行时解析（F01）按同一张表核算槽位的推理预算是否合法。 */
+export const GEMINI_THINKING_BUDGETS: Record<'low' | 'medium' | 'high', number> = { low: 4096, medium: 16384, high: 24576 };
+const BUDGETS = GEMINI_THINKING_BUDGETS;
 
 /** Gemini Schema 子集允许的关键字：MCP server 的 inputSchema 是自由 JSON-Schema
  *  （常带 $schema/additionalProperties 等），Gemini 对未知关键字直接 400——
@@ -126,7 +140,8 @@ export function buildGeminiBody(req: StreamRequest, modelId: string): Record<str
   }
   const generationConfig: Record<string, unknown> = { maxOutputTokens: req.maxTokens };
   if (req.thinkingLevel !== 'off') {
-    generationConfig.thinkingConfig = { thinkingBudget: Math.min(BUDGETS[req.thinkingLevel], req.maxTokens - 1), includeThoughts: true };
+    // F01：运行时按当前槽位核算过的预算（目录声明的区间、< maxOutputTokens）优先；没给时沿用档位表
+    generationConfig.thinkingConfig = { thinkingBudget: req.thinking?.budgetTokens ?? Math.min(BUDGETS[req.thinkingLevel === 'xhigh' || req.thinkingLevel === 'max' ? 'high' : req.thinkingLevel], req.maxTokens - 1), includeThoughts: true };
   }
   body.generationConfig = generationConfig;
   return body;
@@ -142,7 +157,7 @@ export class GeminiProvider implements AgentProvider {
   constructor(opts: { apiKey: string; modelId: string; baseUrl?: string; fetchImpl?: FetchLike }) {
     this.apiKey = opts.apiKey; this.modelId = opts.modelId;
     this.baseUrl = (opts.baseUrl ?? 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.fetchImpl = opts.fetchImpl ?? outboundFetch;
   }
 
   async *streamAgentMessage(req: StreamRequest, signal?: AbortSignal): AsyncIterable<AgentStreamEvent> {
@@ -150,23 +165,24 @@ export class GeminiProvider implements AgentProvider {
     const res = await this.fetchImpl(url, {
       method: 'POST', signal,
       // 密钥放 header 而非 query key=：URL 会进代理/错误日志
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': this.apiKey },
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': this.apiKey, ...sessionHeaders(this.baseUrl, req.session) },
       body: JSON.stringify(buildGeminiBody(req, this.modelId)),
     }).catch((e: unknown) => { throw new ProviderError(`网络错误: ${String(e)}`, { retryable: true }); });
     if (!res.ok || !res.body) throw new ProviderError(`Gemini HTTP ${res.status}: ${await res.text()}`, { status: res.status });
 
-    let inputTokens = 0; let outputTokens = 0;
+    // F02：用量逐字段覆盖并按官方定义归一化（promptTokenCount 已含缓存内容；输出要不要加 thoughts 由 totalTokenCount 判定）
+    const acc = new GeminiUsageAcc();
     let stopReason: StopReason = 'endTurn';
     let sawFinish = false; let sawUsage = false; let sawToolCall = false;
     for await (const frame of parseSse(res.body)) {
       const chunk = JSON.parse(frame.data) as Record<string, any>;
       if (chunk.usageMetadata) {
-        inputTokens = chunk.usageMetadata.promptTokenCount ?? inputTokens;
-        outputTokens = chunk.usageMetadata.candidatesTokenCount ?? outputTokens;
-        sawUsage = true;
+        acc.observe(chunk.usageMetadata);
+        sawUsage = true;   // 断流判定用：见过 usageMetadata 的流不算提前结束
       }
       if (typeof chunk.promptFeedback?.blockReason === 'string') {
-        yield { kind: 'usage', usage: { inputTokens, outputTokens } };
+        const blocked = acc.result();
+        if (blocked) yield { kind: 'usage', usage: blocked };
         yield { kind: 'done', stopReason: 'refusal' };
         return;
       }
@@ -191,7 +207,9 @@ export class GeminiProvider implements AgentProvider {
     }
     if (!sawFinish && !sawUsage) throw new ProviderError('SSE 流提前结束', { retryable: true });
     if (sawToolCall) stopReason = 'toolUse';
-    yield { kind: 'usage', usage: { inputTokens, outputTokens } };
+    // 一个总数都没报时不发 usage 事件：0/0 会被当成真实用量落库
+    const usage = acc.result();
+    if (usage) yield { kind: 'usage', usage };
     yield { kind: 'done', stopReason };
   }
 }

@@ -13,27 +13,83 @@
  *    6. 随动修缺（申报）：SessionList 模型绑定 select 写 'provider:' 前缀值——此前存裸 id，
  *       chat.prompt 解析只认前缀，绑定静默失效走默认模型（J2 调研实锤的休眠 bug）。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const { _rpcCall, _rpcOn, _handlers, _rpcLost, _rpcConnect } = vi.hoisted(() => {
+  const handlers = new Map<string, (params: any) => unknown>();
+  return { _rpcCall: vi.fn(), _rpcOn: vi.fn((method: string, handler: (params: any) => unknown) => { handlers.set(method, handler); }), _handlers: handlers, _rpcLost: vi.fn(), _rpcConnect: vi.fn(async () => {}) };
+});
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: _rpcCall, on: _rpcOn, onLost: _rpcLost, connect: _rpcConnect } }));
+
 import fs from 'node:fs';
 import path from 'node:path';
+import { useChat } from '../src/renderer/src/stores/chat';
+import { resetStoreRpc, settleStore, dispatchStore, deferred, openCalls, type Equal, type Chat, type SessionRow, type AssistantRow } from './renderer-store-fixture';
 
 const root = path.resolve(__dirname, '..');
 const read = (p: string): string => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n');
-const STORE = read('src/renderer/src/stores/chat.ts');
+
 const EMPTY = read('src/renderer/src/ui/StageWelcome.vue');
 const SETTINGS = read('src/renderer/src/ui/StageSettings.vue');
 const ASSIST = 'src/renderer/src/ui/StageAssistants.vue';
 const SESSIONLIST = read('src/renderer/src/ui/NavRail.vue');
 
+const _probe = { call: _rpcCall, on: _rpcOn, handlers: _handlers, lost: _rpcLost, connect: _rpcConnect };
+// 每例使用新的真实 Pinia；RPC 桩只记调用与订阅，由用例放行应答。
+beforeEach(() => { resetStoreRpc(_probe); });
+afterEach(() => { vi.restoreAllMocks(); });
+
 describe('J2 助手体系前端接线', () => {
-  it('1. store：状态 + 刷新 + CRUD + 扩参建会话 + 广播订阅', () => {
-    expect(STORE).toContain('assistants: [] as UiAssistant[]');
-    expect(STORE).toContain("await rpc.call('assistants.list')");
-    expect(STORE).toContain("rpc.on('assistants.changed'");
-    expect(STORE).toContain('async newSessionWithAssistant(');
-    expect(STORE).toMatch(/chat\.sessions\.create',\s*\{\s*assistantId/);
-    expect(STORE).toMatch(/assistants\.delete',\s*\{\s*id[^}]*confirm:\s*true/);
-    expect(STORE).toContain('assistantId?: string'); // sessions 状态字段与后端 SessionMeta 对齐
+  it('1. store：状态 + 刷新 + CRUD + 扩参建会话 + 广播订阅', async () => {
+    // state 与会话元数据用精确编译类型比较，类型成员增减或可选性改变由 tsc 把关。
+    const assistantType: true = true as Equal<Chat['assistants'], AssistantRow[]>;
+    const sessionType: true = true as Equal<Chat['sessions'], SessionRow[]>;
+    expect([assistantType, sessionType]).toEqual([true, true]);
+    const chat = useChat();
+    expect(chat.assistants).toEqual([]);
+    await chat.init();
+    await settleStore();
+    _rpcCall.mockClear();
+    const row = { id: 'AS', name: 'Helper', avatar: 'H', rules: 'rules', skillIds: ['skill'], prompts: ['prompt'], sortOrder: 1 };
+    _rpcCall.mockResolvedValueOnce([row]);
+    await chat.refreshAssistants();
+    expect(_rpcCall.mock.calls).toEqual([['assistants.list']]);
+    expect(chat.assistants).toEqual([row]);
+
+    // CRUD 每个输入原样发出，刷新发生在成功应答之后。
+    _rpcCall.mockClear();
+    const input = { name: 'new', avatar: 'N', rules: 'rule', modelBinding: 'group:g', skillIds: ['s1'], prompts: ['p1'] };
+    _rpcCall.mockResolvedValueOnce(row).mockResolvedValueOnce([row]);
+    expect(await chat.createAssistant(input)).toEqual(row);
+    expect(_rpcCall.mock.calls).toEqual([['assistants.create', input], ['assistants.list']]);
+    _rpcCall.mockClear();
+    _rpcCall.mockResolvedValueOnce(row).mockResolvedValueOnce([row]);
+    expect(await chat.updateAssistant('AS', input)).toEqual(row);
+    expect(_rpcCall.mock.calls).toEqual([['assistants.update', { id: 'AS', ...input }], ['assistants.list']]);
+    _rpcCall.mockClear();
+    const deleting = deferred();
+    _rpcCall.mockReturnValueOnce(deleting.promise).mockResolvedValueOnce([]);
+    const removed = chat.deleteAssistant('AS');
+    expect(_rpcCall.mock.calls).toEqual([['assistants.delete', { id: 'AS', confirm: true }]]);
+    expect(chat.assistants).toEqual([row]);
+    deleting.resolve({ ok: true });
+    await removed;
+    expect(_rpcCall.mock.calls).toEqual([['assistants.delete', { id: 'AS', confirm: true }], ['assistants.list']]);
+    expect(chat.assistants).toEqual([]);
+
+    // 广播真实派发；带助手建会话完整顺序与 assistantId 会话字段都核对。
+    _rpcCall.mockClear();
+    _rpcCall.mockResolvedValueOnce([row]);
+    await dispatchStore(_probe, 'assistants.changed', {});
+    expect(_rpcCall.mock.calls).toEqual([['assistants.list']]);
+    expect(_rpcOn.mock.calls.filter(c => c[0] === 'assistants.changed')).toHaveLength(1);
+    _rpcCall.mockClear();
+    _rpcCall.mockResolvedValueOnce({ id: 'S' }).mockResolvedValueOnce([{ id: 'S', title: 'new', assistantId: 'AS' }]);
+    await chat.newSessionWithAssistant('AS');
+    await settleStore();
+    expect(_rpcCall.mock.calls).toEqual([['chat.sessions.create', { assistantId: 'AS' }], ['chat.sessions.list'], ...openCalls('S')]);
+    expect(chat.sessions[0].assistantId).toBe('AS');
+    expect(chat.activeId).toBe('S');
+    expect(chat.welcomeAssistantId).toBe('AS');
   });
 
   it('2. StageWelcome：选中助手 → 开场提示来自它的 prompts → 点一条填进输入卡（T6e-3 重指）', () => {
@@ -76,7 +132,6 @@ describe('J2 助手体系前端接线', () => {
     expect(a).toMatch(/skillIds: fSkills\.value/);
     expect(a).toContain('（全局已停用）');
   });
-
 
   it('5. SessionList：会话行助手 emoji 前缀', () => {
     expect(SESSIONLIST).toContain('emojiOf');  // 改名

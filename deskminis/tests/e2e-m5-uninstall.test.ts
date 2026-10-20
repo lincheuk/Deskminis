@@ -40,6 +40,7 @@ interface VerdictInput { status: number | null; signal?: string | null; errorCod
 interface SpawnResult { status: number | null; signal?: string | null; error?: { code: string } }
 /** uninstallTemp 真去动文件、起进程、记结果的四样（W3-e2ef 起可注入） */
 interface UninstallIo {
+  inspect(guid: string): { state: string; entries: { location: string }[]; running: number[] };
   exists(p: string): boolean;
   copy(from: string, to: string): void;
   spawn(file: string, args: string[], opts: Record<string, unknown>): SpawnResult;
@@ -109,6 +110,7 @@ function world(o: { uninstaller?: boolean; exe?: boolean; registry?: boolean; re
     registry: o.registry ?? true, regWorks: o.regWorks ?? true,
     copies: [], runs: [], regs: [], recs: [],
     io: {
+      inspect: () => ({ state: 'known', entries: w.registry ? [{ location: INST }] : [], running: [] }),
       exists: p => w.files.has(p),
       copy: (from, to) => {
         if (o.copyError) throw Object.assign(new Error(`${o.copyError}: operation not permitted, copyfile '${from}' -> '${to}'`), { code: o.copyError });

@@ -49,7 +49,7 @@ SOFTWARE.
 
 ## 2. AionUi — 令牌取值（Apache-2.0）
 
-**用了什么**：`deskminis/src/renderer/src/styles/tokens.css` A 区的**取值**（I 波 UI 换向，2026-08-20）。
+**用了什么**：`deskminis/src/renderer/src/styles/theme.css` 中保留的 Markdown 与全局基线令牌**取值**（I 波 UI 换向，2026-08-20；阶段14由旧 tokens.css 收敛至此）。
 取值据 AionUi v2.1.59 `default-color-scheme.css` 的 Arco / AOU 色系移植换算（hex → oklch），
 文本档为过 WCAG AA 压深的自研调整。与 A 区逐行一致的是本仓参考文件
 `docs/specs/2026-08-20-aionui-tokens-reference.css`（其文件头记有换算来历）。没有复制 AionUi 的源码。
@@ -189,9 +189,16 @@ deepseek-harness 桌面端的做法。
 | `undici` | MIT | app.asar |
 | `yauzl` | MIT | app.asar |
 | `@noble/ciphers`、`@noble/curves`、`@noble/hashes` | MIT | app.asar |
-| `@xterm/xterm`、`@xterm/addon-fit` | MIT | app.asar，并打进渲染包 |
+| `@xterm/xterm`、`@xterm/addon-fit` | MIT | 仅打进渲染包（out/renderer）；依赖目录不随包 |
 | `vue` | MIT | 打进渲染包；Copyright (c) 2018-present, Yuxi (Evan) You |
 | `pinia` | MIT | 打进渲染包；Copyright (c) 2019-present Eduardo San Martin Morote |
+
+`@xterm/xterm` 与 `@xterm/addon-fit` 的版权声明如下；许可全文与第 1 节所录的 MIT 全文相同：
+
+- `@xterm/xterm`：Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
+- `@xterm/xterm`：Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)
+- `@xterm/xterm`：Copyright (c) 2012-2013, Christopher Jeffrey (https://github.com/chjj/)
+- `@xterm/addon-fit`：Copyright (c) 2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
 
 间接依赖大多也是 MIT；许可不同的是下表 14 个包（`semver` 随包两份），许可全文都在 app.asar 里各包的目录下。
 `rc` 与 `expand-template` 是含 MIT 的多选一许可，本项目选 MIT。

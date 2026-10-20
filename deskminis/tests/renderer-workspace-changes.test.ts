@@ -224,7 +224,9 @@ describe('W2b-11d：改动清单与对话流判得一致（同一个 store 上�
   it('不在运行 / 中途接上 / 回合落下重取未回 / 取回无结果 / 发送被拒 / 实时卡片：两边列的写工具逐项相同', async () => {
     const chat = useChat();
     const { bindings: ws } = await runSetup<WsBindings>(WS_FILE, { selected: null }, scope);
-    const { bindings: stage } = await runSetup<StageBindings>(STAGE_FILE, { narrow: false }, scope);
+    const { bindings: history } = await runSetup<StageBindings>(STAGE_FILE, { narrow: false }, scope);
+    const { bindings: live } = await runSetup<Pick<StageBindings,'liveSteps'>>(path.join(root, 'src/renderer/src/ui/LiveTurn.vue'), {}, scope);
+    const stage = { ...history, liveSteps: live.liveSteps };
     const same = async (label: string, expected: string[]): Promise<void> => {
       await vue.nextTick();
       expect(new Set(paths(ws)), `${label}：改动清单`).toEqual(new Set(expected));

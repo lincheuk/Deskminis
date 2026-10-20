@@ -1,13 +1,20 @@
 <script setup lang="ts">
 /** T 波：会话视图（设计稿 §3）。内容定宽居中 760，回合之间靠间距分隔而非分隔线。
  *  用户消息右对齐浅底块，助手输出**满宽文档式**（不进气泡），工具调用收进 StepGroup。 */
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useChat } from '../stores/chat';
-import { parseMarkdown } from '../lib/markdown/parse';
+import type { MdNode } from '../lib/markdown/parse';
+import { createHistoryMarkdownCache } from '../lib/markdown/history-cache';
+import { holdTextAnchor } from '../lib/scroll-anchor';
+import { isReasoningPlaceholder } from '../lib/reasoning';
+import { turnMarkdown } from '../lib/turn-text';
+import { formatDuration } from '../lib/time/duration';
 import { fmtHHMM } from '../lib/time/hhmm';
 import { permsOf, waitingElsewhere } from '../lib/perm/scope';
 import { isResultCarrier, lastTurnStart, stepStatus, toolResultsById, type StepStatus } from '../lib/steps/status';
 import { useLastTurnLive } from '../lib/steps/live';
+import { ATTACHMENT_GUEST_PREFIX, ATTACHMENT_MODEL_HINT } from '@shared/attachments';
+import { chipOf, CHIP_ACTION_TEXT, type AttachmentChip } from '../lib/attach/status';
 import MarkdownView from '../components/MarkdownView.vue';
 import Composer from './Composer.vue';
 import StepGroup from './StepGroup.vue';
@@ -16,6 +23,7 @@ import AnnoLayer from './AnnoLayer.vue';
 import EventNotes from './EventNotes.vue';
 import ThinkBlock from './ThinkBlock.vue';
 import UiIcon from './UiIcon.vue';
+import LiveTurn from './LiveTurn.vue';
 
 const props = withDefaults(defineProps<{ narrow?: boolean }>(), { narrow: false });
 const chat = useChat();
@@ -27,7 +35,7 @@ function onQuote(text: string): void { composer.value?.quote(text); }
 
 type Msg = (typeof chat.messages)[number];
 /** 块上带 mid（这条块来自哪条消息）：注释锚点按消息 id 定位，没有它锚不住。 */
-interface Turn { id: string; user: Msg | null; blocks: { kind: 'text' | 'steps' | 'think'; mid?: string; text?: string; steps?: Step[] }[] }
+interface Turn { id: string; user: Msg | null; endedAt?: number; blocks: { kind: 'text' | 'steps' | 'think'; mid?: string; text?: string; nodes?: MdNode[]; steps?: Step[] }[] }
 interface Step { name: string; title: string; status: StepStatus; output?: string | null; input?: string }
 
 const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
@@ -50,6 +58,29 @@ function attsOf(m: Msg): { path: string; name: string }[] {
     out.push({ path: rel, name });
   }
   return out;
+}
+/** F11A：附件 chip 的同步状态。没有状态（旧引擎、还没取到）时 chip 与以前一样。 */
+function chipFor(a: { path: string }): AttachmentChip { return chipOf(chat.attachmentViews[a.path]); }
+function actionText(a: { path: string }): string { const act = chipFor(a).action; return act ? CHIP_ACTION_TEXT[act] : ''; }
+/** 点开附件：文件在本机才开。有状态时走附件的 guest 路径（预览区据此读本机附件桶），没有状态沿用原来的相对路径。 */
+function openAtt(a: { path: string }): void {
+  const view = chat.attachmentViews[a.path];
+  if (!view) { chat.pendingFilePreview = a.path; return; }
+  if (!view.localAvailable) return;
+  chat.pendingFilePreview = ATTACHMENT_GUEST_PREFIX + view.name;
+}
+/** chip 右侧的小按钮：取消，或重试（「下载」是对取消过的附件重新要，同一个动作）。 */
+function actAtt(a: { path: string }): void {
+  const view = chat.attachmentViews[a.path];
+  const act = chipFor(a).action;
+  if (!view || !act) return;
+  if (act === 'cancel') void chat.cancelAttachment(view.name);
+  else void chat.retryAttachment(view.name);
+}
+/** 这条消息里有没有本机还没有的附件。模型请求读的是本机文件，所以判据是 localAvailable，不是同步状态：
+ *  文件在本机、只是这一份不同步（被改过、同名冲突）时，模型照常读得到，不提示。 */
+function attsMissing(m: Msg): boolean {
+  return attsOf(m).some(a => { const v = chat.attachmentViews[a.path]; return v !== undefined && !v.localAvailable; });
 }
 
 /** W2b-11a：最后一个回合是不是还可能在跑。是的话，它里面没有结果的工具只是「结果还没到」（pending），不是中断。
@@ -75,30 +106,32 @@ function toolInput(v: unknown): { raw: string; title: string } {
 }
 
 /** 回合切分 + 助手块内把连续的工具调用聚成一个 StepGroup（相邻文本不合并，保留段落节奏）。 */
+const historyMarkdown = createHistoryMarkdownCache();
 const turns = computed<Turn[]>(() => {
+  historyMarkdown.begin();
   const out: Turn[] = [];
   // W2b-11a：从这一条起是最后一个回合；它不在跑时取 Infinity，所有回合里没结果的步骤都判中断
   const liveFrom = lastTurnLive.value ? lastTurnStart(chat.messages) : Infinity;
   // 给 toolUse 配库里的 toolResult：W2b-11d 起与改动清单共用 lib/steps/status 的 toolResultsById（原是本文件的 resultOf）
   const results = toolResultsById(chat.messages);
   for (const [i, m] of chat.messages.entries()) {
-    if (m.role === 'user') {
+    if (m.role === 'user' && !isResultCarrier(m)) {
       // 仅承载工具结果的合成 user 消息不产生新回合（后端用它回传 toolResult）。判据挪进了 lib/steps/status，
       // 与上面 lastTurnStart 找「最后一个回合从哪条开始」共用一份，两处切回合的口径不会分叉
-      if (isResultCarrier(m)) continue;
       out.push({ id: m.id, user: m, blocks: [] });
       continue;
     }
+    if (out.length) out[out.length - 1].endedAt = m.createdAt;
     if (m.role !== 'assistant') continue;
     if (!out.length) out.push({ id: m.id, user: null, blocks: [] });
     const t = out[out.length - 1];
     // V3：落库的推理内容置于本条正文之前——它是「怎么想的」，读在结论前面才有用
-    if (typeof m.reasoningContent === 'string' && m.reasoningContent) {
+    if (typeof m.reasoningContent === 'string' && m.reasoningContent && !isReasoningPlaceholder(m.reasoningContent)) {
       t.blocks.push({ kind: 'think', mid: m.id, text: m.reasoningContent });
     }
     for (const p of (Array.isArray(m.parts) ? m.parts : [])) {
       if (p?.type === 'text' && typeof p.value === 'string' && p.value) {
-        t.blocks.push({ kind: 'text', mid: m.id, text: p.value });
+        t.blocks.push({ kind: 'text', mid: m.id, text: p.value, nodes: historyMarkdown.nodes(m.id, p.value) });
       } else if (p?.type === 'toolUse' && isRec(p.value)) {
         const r = typeof p.value.toolUseId === 'string' ? results.get(p.value.toolUseId) : undefined;
         const ti = toolInput(p.value.input);
@@ -117,17 +150,29 @@ const turns = computed<Turn[]>(() => {
       }
     }
   }
+  historyMarkdown.end();
   return out;
 });
 
-const streamNodes = computed(() => (chat.streamingText ? parseMarkdown(chat.streamingText) : null));
-/** 实时回合的步骤：回合就是正在跑的那个，没到 toolEnd 的是 pending（画法同以前），到了的按 success 分——绝不判中断。
- *  toolEnd 一定带 success（loop.ts），所以 success 还是 undefined 就是结果没到。 */
-const liveSteps = computed<Step[]>(() => chat.toolCards.map(c => ({
-  name: c.name, title: c.title || c.name,
-  status: stepStatus(c.success === undefined ? undefined : c, true),
-  output: c.output ?? null, input: c.input,
-})));
+/** 终点已包含本回合任何角色的最后一条消息。 */
+function elapsed(t: Turn): string {
+  const start = t.user?.createdAt;
+  return typeof start === 'number' && typeof t.endedAt === 'number' ? formatDuration(t.endedAt - start) : '';
+}
+
+// 整条回复复制：只在完整历史回合显示，同一时刻只给一个回合反馈。
+const copiedTurn = ref<string | null>(null);
+let copyTimer: ReturnType<typeof setTimeout> | undefined;
+let copyRequest = 0;
+async function copyTurn(t: Turn): Promise<void> {
+  const request = ++copyRequest;
+  try { await navigator.clipboard.writeText(turnMarkdown(t.blocks)); } catch { return; }
+  if (request !== copyRequest) return;
+  copiedTurn.value = t.id;
+  if (copyTimer) clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => { copiedTurn.value = null; }, 1200);
+}
+onBeforeUnmount(() => { copyRequest++; if (copyTimer) clearTimeout(copyTimer); });
 
 // ---- Y5：消息锚点导航轨（L3 立、T 波换壳丢，从旧 ChatView 搬回）：右缘竖点，点击滚到对应回合；不做拖拽刷 ----
 const hasLive = computed(() => chat.running || !!chat.streamingText || !!chat.streamingThinking);
@@ -138,9 +183,11 @@ function railTitle(t: Turn): string {
 }
 /** querySelector 定位 + 平滑滚动；回合可能很高，块首对齐。 */
 function jumpTurn(id: string): void {
-  scroller.value?.querySelector(`[data-turn-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const target = scroller.value?.querySelector(`[data-turn-id="${id}"]`);
+  if (!target) return;
+  beginJump();
+  target.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
 }
-const mdOf = (s: string) => parseMarkdown(s);
 
 /** W2b-2：权限卡按会话区分。这里只渲染当前会话自己的卡——以前渲染全部会话的，
  *  B 的回合卡在权限上，卡却出现在 A 的对话流里，在 A 里点「允许」放行的是 B 的操作。 */
@@ -154,30 +201,185 @@ function openWaiting(): void {
   if (id) void chat.open(id);
 }
 
-// 新内容到达贴底（用户上翻时不抢——scrollTop 距底 >120 视为在看历史）
+// N05b：程序贴底的 scroll 到达时，内容可能又长了超过 120px；不能把它当作用户上翻。
 const following = ref(true);
-function onScroll(): void {
+const FOLLOW_NEAR_PX = 120;
+const USER_SCROLL_MS = 600;
+const bottomAnchor = ref<HTMLElement | null>(null);
+const awayFromBottom = ref(false);
+const backVisible = computed(() => !following.value && awayFromBottom.value);
+let intentUntil = 0, intentDirection = 0;
+let scrollbarDragging = false, previousTop = 0, touchY = 0;
+let bottomObserver: IntersectionObserver | undefined;
+let removeScrollListeners: (() => void) | undefined;
+function measureBackButton(): void {
+  const el = scroller.value;
+  if (el) awayFromBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight > FOLLOW_NEAR_PX;
+}
+function userScroll(direction: number): void {
+  intentDirection = direction;
+  intentUntil = performance.now() + USER_SCROLL_MS;
+  if (direction < 0) { following.value = false; measureBackButton(); }
+}
+function onWheel(e: WheelEvent): void {
+  if (e.deltaY) userScroll(e.deltaY < 0 ? -1 : 1);
+}
+function onScrollKey(e: KeyboardEvent): void {
+  if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.ctrlKey || e.metaKey || e.altKey) return;
+  if ((e.target as HTMLElement | null)?.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]')) return;
+  if (['PageUp', 'ArrowUp', 'Home'].includes(e.key)) userScroll(-1);
+  if (['PageDown', 'ArrowDown', 'End'].includes(e.key)) userScroll(1);
+}
+function onScrollPointer(e: PointerEvent): void {
+  const el = scroller.value;
+  if (!el || e.button !== 0 || e.target !== el) return;
+  const right = el.getBoundingClientRect().right;
+  if (e.clientX < right - (el.offsetWidth - el.clientWidth || 16)) return;
+  scrollbarDragging = true;
+  previousTop = el.scrollTop;
+  userScroll(0);
+}
+function endScrollPointer(): void {
+  if (!scrollbarDragging) return;
+  scrollbarDragging = false;
+  intentUntil = performance.now() + USER_SCROLL_MS;
+}
+function onTouchStart(e: TouchEvent): void { touchY = e.touches[0]?.clientY ?? 0; }
+function onTouchMove(e: TouchEvent): void {
+  const y = e.touches[0]?.clientY ?? touchY;
+  if (y !== touchY) userScroll(y > touchY ? -1 : 1);
+  touchY = y;
+}
+onMounted(() => {
+  window.addEventListener('pointerup', endScrollPointer);
+  window.addEventListener('pointercancel', endScrollPointer);
+  removeScrollListeners = () => {
+    window.removeEventListener('pointerup', endScrollPointer);
+    window.removeEventListener('pointercancel', endScrollPointer);
+  };
+  if (!scroller.value || !bottomAnchor.value) return;
+  // 只在底部越过阈值时通知；上翻后内容继续增长也能显示入口，不逐帧读布局。
+  bottomObserver = new IntersectionObserver(entries => {
+    awayFromBottom.value = !entries[0].isIntersecting;
+  }, { root: scroller.value, rootMargin: '0px 0px 120px 0px', threshold: 0 });
+  bottomObserver.observe(bottomAnchor.value);
+});
+onBeforeUnmount(() => {
+  bottomObserver?.disconnect();
+  removeScrollListeners?.();
+});
+function backToBottom(): void {
+  clearTimeout(jumpIdle);
+  jumping = false;
+  intentUntil = 0;
+  intentDirection = 0;
+  following.value = true;
+  void nextTick(() => {
+    const el = scroller.value;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  });
+}
+/** Q11b：导航跳转进行中。平滑滚动要走很多帧，头几帧离底部还不到 120——这期间既不能贴底
+ *  （已排队的、新来的都算，否则画面被拉回底部、跳转作废），也不能按半路的位置改写 following。
+ *  收尾看「滚动停了」：JUMP_IDLE_MS 内没有新的滚动事件，就按停下的位置重算 following。
+ *  不能在起跳时直接把 following 置假了事：已经在目标位置、内容不满一屏时跳转根本不引起滚动，
+ *  没有滚动事件就没有任何途径把它改回来，之后的输出不再跟随（Q11-R1）。 */
+const JUMP_IDLE_MS = 200;
+let jumping = false;
+/** 起跳时的内容高度。跳转期间不贴底，内容照样在长；「停在底部没有」要拿起跳时的底部来比，
+ *  否则点一下「正在进行的回合」、画面原地没动，却因为这两百毫秒里多长出来的内容被判成不在底部。 */
+let jumpHeight = 0;
+let jumpIdle: ReturnType<typeof setTimeout> | undefined;
+function beginJump(): void {
+  intentUntil = 0;
+  intentDirection = 0;
+  jumping = true;
+  jumpHeight = scroller.value?.scrollHeight ?? 0;
+  armJumpEnd();
+}
+function armJumpEnd(): void {
+  clearTimeout(jumpIdle);
+  jumpIdle = setTimeout(endJump, JUMP_IDLE_MS);
+}
+function endJump(): void {
+  clearTimeout(jumpIdle);
+  if (!jumping) return;
+  jumping = false;
   const el = scroller.value;
   if (!el) return;
-  following.value = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  const grew = el.scrollHeight > jumpHeight;
+  following.value = Math.min(jumpHeight, el.scrollHeight) - el.scrollTop - el.clientHeight < 120;
+  if (!following.value) measureBackButton();
+  // 停在了底部、期间又长了内容：把按下没做的贴底补上
+  if (grew) stickBottom();
 }
+onBeforeUnmount(() => clearTimeout(jumpIdle));
+function onScroll(): void {
+  if (jumping) { armJumpEnd(); return; }
+  if (scrollbarDragging) {
+    const top = scroller.value?.scrollTop ?? 0;
+    if (top !== previousTop) userScroll(top > previousTop ? 1 : -1);
+    previousTop = top;
+  }
+  // 只有朝底部的用户输入才恢复；向上翻一点也不会因仍在 120px 内就被拉回。
+  if (performance.now() <= intentUntil && intentDirection > 0) {
+    const el = scroller.value;
+    // 恢复后窗口内还会收到程序贴底/内容增长的 scroll；距离只能恢复，不能取消跟随。
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_NEAR_PX && !following.value) {
+      following.value = true;
+      // 回底入口隐藏后视口会增高；没有后续增量时，也要把恢复时的贴底补齐。
+      stickBottom();
+    }
+  }
+  if (!following.value) measureBackButton();
+}
+// 双帧布局等待期间只保留一次贴底，免得每个增量都再排一遍。
+let stickPending = false;
 /** 贴底：nextTick 之后 Markdown 子树往往还没完成布局，此刻量到的 scrollHeight 是旧值——
  *  实测表现为「发完消息助手回复停在视口外」。故再等一帧（双 rAF）确认布局提交后再滚。 */
 function stickBottom(): void {
-  if (!following.value) return;
+  if (!following.value || stickPending) return;
+  stickPending = true;
   void nextTick(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    stickPending = false;
+    // 排队之后用户上翻了、或导航跳转还在进行：这一次不滚
+    if (jumping || !following.value) return;
     const el = scroller.value;
     if (el) el.scrollTop = el.scrollHeight;
   })));
 }
+// 回合结束后异步取回历史，正文会换一棵 DOM；显式保住取消跟随后的可见行。
+watch(() => chat.messages, () => {
+  const el = scroller.value;
+  if (following.value || chat.running || !el?.querySelector('[data-turn-id="live"]')) return;
+  const restore = holdTextAnchor(el);
+  const session = chat.activeId;
+  void nextTick(() => {
+    if (!following.value && chat.activeId === session && scroller.value === el) restore?.();
+  });
+}, { flush: 'sync' });
 // 卡只数当前会话的（W2b-2）；顶部提示行出现、消失会改变滚动区的高度，同样要重新贴底
 watch(
-  () => [chat.messages.length, chat.streamingText, chat.toolCards.length, permsHere.value.length, elsewhere.value.length > 0] as const,
+  () => [chat.messages.length, chat.toolCards.length, permsHere.value.length, elsewhere.value.length > 0] as const,
   stickBottom,
 );
 // 分栏开合会改变列宽 → 内容重排、总高改变。不重新贴底的话，刚才还在视野里的
 // 助手回复会被顶出视口（T4 实拍逮到）。
 watch(() => props.narrow, stickBottom);
+// 拖列宽与输入卡换行都会重排滚动区；沿用用户的跟随意图，不用距离重新裁决。
+let layoutObserver: ResizeObserver | undefined;
+watch(scroller, el => {
+  layoutObserver?.disconnect();
+  if (!el || typeof ResizeObserver === 'undefined') return;
+  layoutObserver = new ResizeObserver(() => {
+    if (following.value) stickBottom();
+    else measureBackButton();
+  });
+  layoutObserver.observe(el);
+  // 思考块的高度过渡改变内容高度，沿用跟随意图；不把程序滚动当作用户输入。
+  if (el.firstElementChild) layoutObserver.observe(el.firstElementChild);
+}, { flush: 'post' });
+onBeforeUnmount(() => layoutObserver?.disconnect());
 </script>
 
 <template>
@@ -192,18 +394,26 @@ watch(() => props.narrow, stickBottom);
       </button>
     </div>
     <!-- keyup 与 mouseup 同接：键盘用户靠 Shift+方向键选中，只认 mouseup 等于对他们关门 -->
-    <div ref="scroller" class="scroll" @scroll="onScroll" @mouseup="anno?.onMouseUp($event)" @keyup="anno?.onMouseUp($event)">
+    <div ref="scroller" class="scroll" tabindex="0" @scroll="onScroll"
+      @wheel.passive="onWheel" @keydown="onScrollKey" @pointerdown="onScrollPointer"
+      @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove" @mouseup="anno?.onMouseUp($event)" @keyup="anno?.onMouseUp($event)">
       <div class="col">
         <section v-for="t in turns" :key="t.id" class="turn" :data-turn-id="t.id">
           <div v-if="t.user" class="urow">
             <div v-if="attsOf(t.user).length" class="uatts">
-              <button
-                v-for="a in attsOf(t.user)" :key="a.path" type="button" class="uatt"
-                :title="a.path" @click="chat.pendingFilePreview = a.path"
-              >
-                <UiIcon name="file" :size="13" /><span>{{ a.name }}</span>
-              </button>
+              <span v-for="a in attsOf(t.user)" :key="a.path" class="uatt-wrap">
+                <button
+                  type="button" class="uatt" :class="`is-${chipFor(a).tone}`" :disabled="!chipFor(a).open"
+                  :title="chipFor(a).title || a.path" @click="openAtt(a)"
+                >
+                  <UiIcon name="file" :size="13" /><span>{{ a.name }}</span>
+                  <em v-if="chipFor(a).label" class="uatt-state">{{ chipFor(a).label }}</em>
+                </button>
+                <!-- F11A：未同步 / 传输中 / 失败的附件可以取消、重试、下载 -->
+                <button v-if="chipFor(a).action" type="button" class="uatt-act" @click="actAtt(a)">{{ actionText(a) }}</button>
+              </span>
             </div>
+            <div v-if="attsMissing(t.user)" class="uatt-hint">{{ ATTACHMENT_MODEL_HINT }}</div>
             <!-- 用户正文同样可标注：旧 ChatView 两处都挂了 data-anno-root，换壳只留了助手那处。
                  「我这句里说的是这个意思」是引用追问的常见起点，机制与助手侧完全一样。 -->
             <div v-if="textOf(t.user)" class="ubub t-chat" data-anno-root :data-mid="t.user.id">{{ textOf(t.user) }}</div>
@@ -212,29 +422,22 @@ watch(() => props.narrow, stickBottom);
           <div v-for="(b, i) in t.blocks" :key="i" class="ablock">
             <MarkdownView
               v-if="b.kind === 'text'" class="t-chat"
-              :nodes="mdOf(b.text!)" data-anno-root :data-mid="b.mid"
+              :nodes="b.nodes!" data-anno-root :data-mid="b.mid"
             />
             <ThinkBlock v-else-if="b.kind === 'think'" :text="b.text!" />
             <StepGroup v-else :steps="b.steps!" />
           </div>
+          <div v-if="(t.blocks.some(b => b.kind === 'text') || elapsed(t)) && !(lastTurnLive && t === turns[turns.length - 1])" class="turn-actions">
+            <button v-if="t.blocks.some(b => b.kind === 'text')" type="button" class="turn-copy" aria-label="复制这条回复" @click="copyTurn(t)">
+              <UiIcon :name="copiedTurn === t.id ? 'check' : 'copy'" :size="13" />
+              <span>{{ copiedTurn === t.id ? '已复制' : '复制' }}</span>
+            </button>
+            <span v-if="elapsed(t)" class="turn-elapsed t-aux tnum">用时 {{ elapsed(t) }}</span>
+          </div>
         </section>
 
         <!-- 实时回合 -->
-        <section v-if="hasLive" class="turn" data-turn-id="live">
-          <!-- W2b-1：切回仍在跑的会话（或重载后才收到它的事件）时，手里的缓冲只有接上之后的半截——
-               照常渲染的话流式区从句子中间开始长、步骤卡缺前半。改为占位，回合结束后 open() 重取完整历史。 -->
-          <div v-if="chat.midRun" class="waiting t-aux" role="status">仍在运行（切换前的输出在本回合结束后显示）</div>
-          <template v-else>
-            <div v-if="chat.streamingThinking" class="ablock">
-              <ThinkBlock live :text="chat.streamingThinking" />
-            </div>
-            <div v-if="chat.toolCards.length" class="ablock">
-              <StepGroup live :steps="liveSteps" />
-            </div>
-            <div v-if="streamNodes" class="ablock"><MarkdownView class="t-chat" :nodes="streamNodes" /></div>
-            <div v-else-if="chat.running" class="waiting t-aux">正在思考…</div>
-          </template>
-        </section>
+        <LiveTurn v-if="hasLive" @content="stickBottom" />
 
         <!-- V2：事件条（降级/压缩/卸载/修剪/重试/出错/同步）——出错这条带重试入口 -->
         <EventNotes />
@@ -250,6 +453,7 @@ watch(() => props.narrow, stickBottom);
           <UiIcon name="alert" :size="16" /><span>{{ chat.lastError }}</span>
         </div>
       </div>
+      <div ref="bottomAnchor" class="bottom-anchor" aria-hidden="true"></div>
     </div>
 
     <AnnoLayer ref="anno" :host="scroller" @quote="onQuote" />
@@ -268,6 +472,9 @@ watch(() => props.narrow, stickBottom);
     </nav>
 
     <div class="dock">
+      <div v-if="backVisible" class="backrow">
+        <button type="button" class="back-bottom" aria-label="回到底部" @click="backToBottom">回到底部</button>
+      </div>
       <div class="col"><Composer ref="composer" variant="chat" /></div>
     </div>
   </div>
@@ -302,6 +509,14 @@ watch(() => props.narrow, stickBottom);
 
 .ablock { color: var(--c-ink); }
 .ablock :deep(.md) { font-size: var(--t-chat-size); line-height: var(--t-chat-lh); }
+.turn-actions { display: flex; align-items: center; gap: var(--sp-3); user-select: none; }
+.turn-elapsed { color: var(--c-ink-3); white-space: nowrap; }
+.turn-copy {
+  display: inline-flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2);
+  border: 0; border-radius: var(--r-s); background: transparent; color: var(--c-ink-3); cursor: pointer;
+  font-family: inherit; font-size: var(--t-aux-size); line-height: var(--t-aux-lh);
+}
+.turn-copy:hover { background: var(--c-bg-2); color: var(--c-ink); }
 .waiting { color: var(--c-ink-3); }
 
 .err {
@@ -313,6 +528,14 @@ watch(() => props.narrow, stickBottom);
    与 EventNotes 的 .note 同一写法 */
 .err :deep(svg) { flex: 0 0 auto; }
 
+.bottom-anchor { height: 0; }
+.backrow { display: flex; justify-content: center; padding: var(--sp-2) 0; }
+.back-bottom {
+  padding: var(--sp-2) var(--sp-4); border: 1px solid var(--c-line); border-radius: var(--r-pill);
+  background: var(--c-bg-2); color: var(--c-ink-2); cursor: pointer;
+  font-family: inherit; font-size: var(--t-aux-size); line-height: var(--t-aux-lh);
+}
+.back-bottom:hover { background: var(--c-bg-3); color: var(--c-ink); }
 .dock { flex: 0 0 auto; padding: 0 0 var(--sp-6); background: var(--c-bg); }
 
 /* W2b-2 别的会话在等批准的提示行：与权限卡、任务面板的「等你批准」同一图标同一令牌（盾牌 + 警示色）。
@@ -353,4 +576,18 @@ watch(() => props.narrow, stickBottom);
 }
 .uatt:hover { background: var(--c-bg-3); color: var(--c-ink); }
 .uatt span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* F11A：附件的同步状态。chip 变宽以放下小字；本机没有文件的 chip 点不开 */
+.uatt-wrap { display: inline-flex; align-items: center; gap: var(--sp-1); max-width: 100%; }
+.uatt-wrap .uatt { max-width: 420px; }
+.uatt:disabled { cursor: default; }
+.uatt:disabled:hover { background: var(--c-bg-2); color: var(--c-ink-2); }
+.uatt-state { flex: none; font-style: normal; color: var(--c-ink-3); white-space: nowrap; }
+.uatt.is-warn .uatt-state { color: var(--c-warn, var(--c-ink-2)); }
+.uatt.is-err .uatt-state { color: var(--c-err, var(--c-ink-2)); }
+.uatt-act {
+  height: var(--h-mini); padding: 0 var(--sp-3); border: 0; border-radius: var(--r-s); cursor: pointer;
+  background: transparent; color: var(--c-brand, var(--c-ink)); font-family: inherit; font-size: var(--t-aux-size);
+}
+.uatt-act:hover { background: var(--c-bg-2); }
+.uatt-hint { margin-bottom: var(--sp-2); text-align: right; color: var(--c-ink-3); font-size: var(--t-aux-size); }
 </style>

@@ -143,12 +143,12 @@ export const MIGRATIONS: readonly string[] = Object.freeze([
   );
   CREATE INDEX idx_annotations_session ON annotations(session_id, created_at);
   `,
-  // [9] J1 助手体系（设计稿 2026-08-20-assistants-design.md §1）：assistants 只追加新表。
+  // [9] J1 助手体系：assistants 只追加新表，保存命名预设。
   //  迁移一经发布不可改：已发布库 user_version=9，runner 只对 v<10 的库跑 MIGRATIONS[9]。
   //  助手 = 命名预设：rules 追加系统提示词、skill_ids_json 默认技能勾选（建会话时快照式
   //  写 session_skill_overrides）、model_binding 同 sessions 取值约定（'provider:'/'group:'）、
   //  prompts_json 示例指令数组。会话绑定列 sessions.assistant_id 走 ChatStore 构造器
-  //  幂等补列（mcp_disabled_json 成例），不占迁移位。权限档不入表：全局态不劫持（设计稿 §0）。
+  //  幂等补列（mcp_disabled_json 成例），不占迁移位。权限档不入表：助手预设不接管全局权限档。
   `
   CREATE TABLE assistants (
     id TEXT PRIMARY KEY,
@@ -163,7 +163,7 @@ export const MIGRATIONS: readonly string[] = Object.freeze([
     updated_at REAL NOT NULL
   );
   `,
-  // [10] K1 定时任务（设计稿 2026-08-20-cron-design.md §1）：cron_jobs 只追加新表。
+  // [10] K1 定时任务：cron_jobs 只追加新表，保存计划、下一次运行时间与结果状态。
   //  迁移一经发布不可改：已发布库 user_version=10，runner 只对 v<11 的库跑 MIGRATIONS[10]。
   //  三态调度：schedule_kind 'interval'（分钟数 ≥5）/'once'（epoch 秒）/'cron'（5 段，
   //  本机时区，日/周 OR 语义）；next_run_at 在 create/update/跑完时算定（epoch 秒），
@@ -187,6 +187,280 @@ export const MIGRATIONS: readonly string[] = Object.freeze([
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
   );
+  `,
+  // [11] F11A 附件同步（docs/specs/2026-10-03-f11a-attachment-sync.md）：sync_attachments 只追加新表。
+  //  迁移一经发布不可改：已发布库 user_version=11，runner 只对 v<12 的库跑 MIGRATIONS[11]。
+  //  设备本地索引，不上线路：一个（会话，名字）一行，记这个名字绑定的内容（sha256 + 长度）与本机状态。
+  //  name 用 NOCASE：名字只含 ASCII，Windows 文件系统不分大小写，A.png 与 a.png 必须落在同一行上。
+  //  state：present（本机有完整且校验过的文件）/ missing（知道内容身份，本机没有）/ failed。
+  //  传输进度不入库：以暂存文件在磁盘上的长度为准，库里不存一个可能与磁盘不一致的数。
+  `
+  CREATE TABLE sync_attachments (
+    session_id TEXT NOT NULL,
+    name TEXT NOT NULL COLLATE NOCASE,
+    sha256 TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL,
+    want INTEGER NOT NULL DEFAULT 1,
+    fail_code TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    conflict_sha256 TEXT,
+    conflict_size INTEGER,
+    stat_size INTEGER,
+    stat_mtime_ms REAL,
+    source_fp TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (session_id, name)
+  );
+  CREATE INDEX idx_sync_attachments_content ON sync_attachments(sha256, size, state);
+  `,
+  // [12] F05 持久化运行状态与工具执行账本：只建三张新表与索引，不 ALTER 任何既有表、不引用别的迁移建的表或列。
+  //  engine_instances：每次启动一行，epoch 自增 = 引擎代次（租约）；heartbeat_at 只供存活判断与诊断，
+  //   从不据此改任何状态；close_kind 'shutdown'（有序关停）/'superseded'（被后一代接管时还没关 = 崩溃或被强杀）。
+  //  agent_runs：run 状态机。active 非终态为 1、终态为 NULL，部分唯一索引保证同一会话最多一个活动 run；
+  //   (session_id, prompt_id) 唯一 = chat.prompt 的持久去重（跨重启）；generation 是该会话的第几次运行。
+  //  tool_executions：每个 toolUse 一行（按 run / batch / call_index，不按 toolUseId——同批里它可以重复）。
+  //   state 七种（待执行 / 审批中 / 执行中 / 已完成 / 失败 / 取消 / 结果未知）；started=1 表示执行意图已落账、
+  //   execute 可能已被调用。result_output 只在「已落定、未交付」期间有值（落库形态），交付即清空；
+  //   工具入参不重复存，在 assistant_message_id 那条消息的 toolUse 里。
+  //  不声明外键（与既有表同一风格）；账本行随会话删除（ChatStore.deleteSession）。三张表只在本机，不进同步。
+  `
+  CREATE TABLE engine_instances (
+    epoch INTEGER PRIMARY KEY AUTOINCREMENT,
+    instance_id TEXT NOT NULL,
+    pid INTEGER NOT NULL,
+    app_version TEXT NOT NULL DEFAULT '',
+    started_at REAL NOT NULL,
+    heartbeat_at REAL NOT NULL,
+    closed_at REAL,
+    close_kind TEXT
+  );
+  CREATE TABLE agent_runs (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    epoch INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    active INTEGER,
+    step TEXT NOT NULL DEFAULT 'starting',
+    tool_batches INTEGER NOT NULL DEFAULT 0,
+    origin TEXT NOT NULL DEFAULT 'user',
+    origin_ref TEXT,
+    prompt_id TEXT,
+    prompt_digest TEXT,
+    user_message_id TEXT,
+    stop_reason TEXT,
+    stop_detail TEXT,
+    recovered_epoch INTEGER,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    ended_at REAL
+  );
+  CREATE UNIQUE INDEX idx_agent_runs_active ON agent_runs(session_id) WHERE active = 1;
+  CREATE UNIQUE INDEX idx_agent_runs_generation ON agent_runs(session_id, generation);
+  CREATE UNIQUE INDEX idx_agent_runs_prompt ON agent_runs(session_id, prompt_id) WHERE prompt_id IS NOT NULL;
+  CREATE TABLE tool_executions (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    epoch INTEGER NOT NULL,
+    batch INTEGER NOT NULL,
+    call_index INTEGER NOT NULL,
+    tool_use_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    assistant_message_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    end_kind TEXT,
+    started INTEGER NOT NULL DEFAULT 0,
+    barrier INTEGER,
+    read_only INTEGER,
+    side_effects TEXT,
+    claims_json TEXT,
+    write_paths_json TEXT,
+    approval_state TEXT,
+    approval_request_id TEXT,
+    approval_kind TEXT,
+    approval_reason TEXT,
+    approval_cause TEXT,
+    prior_allows INTEGER NOT NULL DEFAULT 0,
+    result_success INTEGER,
+    result_output TEXT,
+    result_offload_path TEXT,
+    result_chars INTEGER,
+    result_message_id TEXT,
+    delivered_at REAL,
+    created_at REAL NOT NULL,
+    started_at REAL,
+    settled_at REAL,
+    updated_at REAL NOT NULL
+  );
+  CREATE UNIQUE INDEX idx_tool_executions_call ON tool_executions(run_id, batch, call_index);
+  CREATE INDEX idx_tool_executions_open ON tool_executions(epoch) WHERE delivered_at IS NULL;
+  CREATE INDEX idx_tool_executions_session ON tool_executions(session_id);
+  `,
+  // [13] F11B 会话生命周期登记（docs/specs/2026-10-03-f11b-delete-propagation.md）：session_lifecycle 只追加新表。
+  //  迁移一经发布不可改：已发布库 user_version=13，runner 只对 v<14 的库跑 MIGRATIONS[13]。
+  //  每个会话至多一行，存当前登记：version 奇数 = 已删除（墓碑），偶数（≥2）= 删除后被显式恢复；没有行等于从未删除。
+  //  为什么单独成表而不挂在 sessions 行上：登记要比会话行活得久——会话行一删，挂在上面的标记也没了，
+  //  拦不住之后带着旧副本回来的设备。这张表的行永不删除，GC 只把 seen_ids_json 置空（条数与摘要留着）。
+  //  origin_at / recorded_at 是墙钟，只用于展示与压实的早晚；谁胜出只看 (version, op_id)。
+  //  sessions.remote_tombstoned_at（迁移 [0] 预留列）在这一版开始使用：非空 = 这一行已被别的设备的删除覆盖、
+  //  本机内容还留着（保留副本）。走迁移而不是构造器自建表，是为了让 user_version 前进：
+  //  旧构建打开这个库会把保留副本当普通会话显示并推出去，必须由降级守卫拦住。
+  `
+  CREATE TABLE session_lifecycle (
+    session_id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    op_id TEXT NOT NULL,
+    origin_device_id TEXT NOT NULL,
+    origin_at REAL NOT NULL,
+    seen_count INTEGER,
+    seen_digest TEXT,
+    seen_ids_json TEXT,
+    received_from TEXT,
+    recorded_at REAL NOT NULL
+  );
+  `,
+  // [14] F08 普通文件检查点：只建两张新表与索引，不 ALTER 任何既有表，不声明外键。
+  //  file_checkpoints：内置文件 / Office 写入工具每改一个文件一行。seq 自增 = 同一路径上改动的先后；
+  //   path_key 是路径身份键（tools/data-gate.ts 的 pathKeyOf，与资源锁同一套规范化）；state 五种
+  //   （pending / applied / aborted / restored / unknown）；「恢复中」不是 state，是 restoring_at 非空。
+  //   before_blob / after_blob 指向 checkpoint_blobs.hash：写入前的内容在写入之前存下，写入后的内容只在恢复那一刻存；
+  //   清理只置 pruned_at 并清空这两个引用，行留着。tmp_path / restore_tmp_path 是放在用户目录里的临时文件，
+  //   确认它已不在才清空该列。run_id / execution_id 指向 F05 的 agent_runs.id / tool_executions.id（代码层面的关联）。
+  //  checkpoint_blobs：内容文件的登记表（按 sha256 去重，文件在 <数据根>/checkpoints/blobs/ 下）。
+  //  两张表只在本机，不进同步；file_checkpoints 的行随会话物理清除（ChatStore.purgeSessionRows：本机删除、对端墓碑、
+  //  彻底删除保留副本都经它；保留副本的行与内容留着），还记着残留临时文件的行留成不带内容的占位。
+  `
+  CREATE TABLE file_checkpoints (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    session_id TEXT NOT NULL,
+    run_id TEXT,
+    execution_id TEXT,
+    tool_use_id TEXT,
+    tool_name TEXT NOT NULL DEFAULT '',
+    ordinal INTEGER NOT NULL DEFAULT 0,
+    requested_path TEXT NOT NULL,
+    path TEXT NOT NULL,
+    path_key TEXT NOT NULL,
+    state TEXT NOT NULL,
+    before_exists INTEGER NOT NULL,
+    before_hash TEXT,
+    before_size INTEGER,
+    before_mode INTEGER,
+    before_blob TEXT,
+    after_hash TEXT NOT NULL,
+    after_size INTEGER NOT NULL,
+    after_blob TEXT,
+    file_dev TEXT,
+    file_ino TEXT,
+    restored_dev TEXT,
+    restored_ino TEXT,
+    tmp_path TEXT,
+    restoring_at REAL,
+    restore_tmp_path TEXT,
+    abort_reason TEXT,
+    detail TEXT,
+    created_at REAL NOT NULL,
+    applied_at REAL,
+    restored_at REAL,
+    pruned_at REAL,
+    updated_at REAL NOT NULL
+  );
+  CREATE INDEX idx_file_checkpoints_session ON file_checkpoints(session_id, seq);
+  CREATE INDEX idx_file_checkpoints_path ON file_checkpoints(path_key, seq);
+  CREATE INDEX idx_file_checkpoints_execution ON file_checkpoints(execution_id);
+  CREATE INDEX idx_file_checkpoints_before_blob ON file_checkpoints(before_blob) WHERE before_blob IS NOT NULL;
+  CREATE INDEX idx_file_checkpoints_after_blob ON file_checkpoints(after_blob) WHERE after_blob IS NOT NULL;
+  CREATE TABLE checkpoint_blobs (
+    hash TEXT PRIMARY KEY,
+    size INTEGER NOT NULL,
+    created_at REAL NOT NULL
+  );
+  `,
+  // [15] F03 结构化压缩标记：compact_marker_meta 只追加新表，不 ALTER compact_markers（它的列由同步线路与既有读取方钉着）。
+  //  一条 marker 至多一行，与 marker 行同一个事务写入；meta_json 是 CompactMeta（v 目前恒为 2）：覆盖区间、模型写的各小节、
+  //  程序根据落库消息生成的记录。没有这一行的 marker 就是旧 marker（旧版本写的、同步来的），读的一方按没有 meta 处理。
+  //  设备本地，不上同步线路；不声明外键（与既有表同一风格），行随会话删除。不引用别的迁移建的表或列。
+  `
+  CREATE TABLE compact_marker_meta (
+    marker_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    v INTEGER NOT NULL,
+    meta_json TEXT NOT NULL,
+    created_at REAL NOT NULL
+  );
+  CREATE INDEX idx_compact_marker_meta_session ON compact_marker_meta(session_id);
+  `,
+  // F09 进程树账本：只建一张新表与两个索引，不 ALTER 任何既有表、不引用别的迁移建的表或列。
+  //  process_trees：引擎为 shell、终端、stdio MCP 起的每个根进程一行。root_pid + root_created（进程自己报的创建时间，
+  //   FILETIME 十进制）才算身份；库里的 PID 只用于展示与取证，恢复从不按它结束或探测任何进程。
+  //   protection 'pending' / 'job'（根自建的作业对象已就位、属主监视已就位）/ 'none'（原因在 protection_reason）。
+  //   stop_cause = 引擎发起回收的原因；end_kind 'exited' / 'stopped' / 'spawn-failed' / 'engine-lost'（引擎停止时还开着，
+  //   只由后一代写）；reaped 只由后一代关账时写（'job' = 当时受作业托管，整棵树已随引擎由系统结束；'unverified' = 没有依据）。
+  //   run_id / stop_run_id 是对 agent_runs.id 的弱引用（不建外键）；epoch 是 engine_instances 的代次。
+  //  表只在本机，不进同步；按会话归属的行随会话删除（ChatStore.purgeSessionRows）。旧库升级得到一张空表，不回填。
+  `
+  CREATE TABLE process_trees (
+    id TEXT PRIMARY KEY,
+    epoch INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    session_id TEXT,
+    owner_ref TEXT,
+    tool_prefix TEXT,
+    run_id TEXT,
+    root_pid INTEGER,
+    root_created TEXT,
+    target_pid INTEGER,
+    protection TEXT NOT NULL DEFAULT 'pending',
+    protection_reason TEXT,
+    pre_job INTEGER,
+    started_at REAL NOT NULL,
+    stop_cause TEXT,
+    stop_run_id TEXT,
+    stop_at REAL,
+    ended_at REAL,
+    end_kind TEXT,
+    exit_code INTEGER,
+    exit_signal TEXT,
+    reaped TEXT,
+    recovered_epoch INTEGER
+  );
+  CREATE INDEX idx_process_trees_open ON process_trees(epoch) WHERE ended_at IS NULL;
+  CREATE INDEX idx_process_trees_session ON process_trees(session_id);
+  `,
+  // F07: local durable steer and queue; prior migrations stay immutable.
+  `
+  CREATE TABLE session_inputs (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    input_id TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK(mode IN ('steer','queue')),
+    text TEXT NOT NULL,
+    attachments_json TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','starting','admitted','delivered','held','cancelled')),
+    run_id TEXT,
+    history_message_id TEXT,
+    claim TEXT,
+    reason TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    delivered_at REAL,
+    UNIQUE(session_id,input_id),
+    CHECK(state NOT IN ('admitted','delivered') OR (run_id IS NOT NULL AND history_message_id IS NOT NULL)),
+    CHECK(state != 'delivered' OR delivered_at IS NOT NULL)
+  );
+  CREATE INDEX idx_session_inputs_open ON session_inputs(session_id,seq) WHERE state IN ('pending','starting','held');
+  CREATE INDEX idx_session_inputs_run ON session_inputs(run_id);
+  `,
+  // C4: queue order is independent of immutable input identity; old writers retain seq order.
+  `
+  ALTER TABLE session_inputs ADD COLUMN position REAL;
   `,
 ]);
 

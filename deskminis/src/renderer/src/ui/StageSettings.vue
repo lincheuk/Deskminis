@@ -13,9 +13,10 @@ import SecSkills from './settings/SecSkills.vue';
 import SecMcp from './settings/SecMcp.vue';
 import SecSearch from './settings/SecSearch.vue';
 import SecLook from './settings/SecLook.vue';
+import SecDiagnostics from './settings/SecDiagnostics.vue';
 import SecAbout from './settings/SecAbout.vue';
 
-type Sec = 'models' | 'perm' | 'skills' | 'mcp' | 'search' | 'look' | 'about';
+type Sec = 'models' | 'perm' | 'skills' | 'mcp' | 'search' | 'look' | 'diagnostics' | 'about';
 const SECS: { k: Sec; icon: string; label: string }[] = [
   { k: 'models', icon: 'robot', label: '模型' },
   { k: 'perm', icon: 'shield', label: '权限' },
@@ -23,6 +24,7 @@ const SECS: { k: Sec; icon: string; label: string }[] = [
   { k: 'mcp', icon: 'puzzle', label: 'MCP' },
   { k: 'search', icon: 'search', label: '网络搜索' },
   { k: 'look', icon: 'sun', label: '外观' },
+  { k: 'diagnostics', icon: 'check', label: '诊断' },
   { k: 'about', icon: 'alert', label: '关于' },
 ];
 const sec = ref<Sec>('models');
@@ -47,6 +49,7 @@ const sec = ref<Sec>('models');
         <SecMcp v-else-if="sec === 'mcp'" />
         <SecSearch v-else-if="sec === 'search'" />
         <SecLook v-else-if="sec === 'look'" />
+        <SecDiagnostics v-else-if="sec === 'diagnostics'" />
         <SecAbout v-else />
       </div>
     </div>

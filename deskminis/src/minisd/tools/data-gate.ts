@@ -58,6 +58,8 @@ const CORE_ENTRIES: ReadonlyArray<readonly [name: string, label: string, selfMan
   ['vault.json', '本机密钥库', true],
   [DATA_ROOT_LOCK_NAME, '数据目录锁', true],
   [DATA_ROOT_LOCK_RECOVERY_NAME, '数据目录锁', true],
+  // F08：检查点目录里是用户文件改动前的原始内容。agent 批准后能改写它的话，那份原始内容就丢了，恢复会写出错的东西
+  ['checkpoints', '文件检查点', true],
 ];
 const CORE = new Map<string, { label: string; selfManaged: boolean }>(
   CORE_ENTRIES.flatMap(([name, label, selfManaged]) => [
@@ -133,8 +135,9 @@ function canonical(p: string, P: PathApi, realpath: ((p: string) => string) | un
 }
 
 /** win32 的一段：剥掉 ':' 起的流名（providers.json::$DATA 就是 providers.json 本体），
- *  再剥尾部的点和空格（Win32 API 打开 providers.json. 与 providers.json 是同一个文件）。 */
-function stripWin32Segment(seg: string): string {
+ *  再剥尾部的点和空格（Win32 API 打开 providers.json. 与 providers.json 是同一个文件）。
+ *  Q15：自包含，不许引用函数外的任何东西——搜索的遍历线程经 toString 拿它的源码（见 walk-scan.ts）。 */
+export function stripWin32Segment(seg: string): string {
   return seg.replace(/:[\s\S]*$/, '').replace(/[. ]+$/, '');
 }
 
@@ -156,12 +159,12 @@ function under(base: NormPath, t: NormPath): { cmp: string[]; disp: string[] } |
   return { cmp: t.cmp.slice(base.cmp.length), disp: t.disp.slice(base.cmp.length) };
 }
 
-function gateEnv(opts: DataGateOptions): { win: boolean; norm: (p: string) => NormPath } {
+function gateEnv(opts: DataGateOptions): { win: boolean; norm: (p: string) => NormPath; real: (p: string) => string } {
   const platform = opts.platform ?? process.platform;
   const win = platform === 'win32';
   const P: PathApi = win ? nodePath.win32 : nodePath.posix;
   const realpath = opts.realpath ?? (platform === process.platform ? (p: string) => realpathSync.native(p) : undefined);
-  return { win, norm: (p: string) => normalize(p, P, win, realpath) };
+  return { win, norm: (p: string) => normalize(p, P, win, realpath), real: (p: string) => canonical(p, P, realpath) };
 }
 
 // ---------- 判定 ----------
@@ -206,12 +209,45 @@ export function dataGate(abs: string, scope: DataGateScope, op: DataGateOp, opts
  *  servers.json 与其它会话的文件，绕过上面「读取走卡」的规则。
  *  walkDir 不跟随符号链接，所以相对基准的词法路径与规范化后的相对路径一致，按段比较即可。 */
 export function dataRootSkipper(base: string, root: string, opts: DataGateOptions = {}): ((rel: string) => boolean) | undefined {
+  const rule = dataRootSkipRule(base, root, opts);
+  return rule ? (rel: string) => matchesSkipRule(rule, rel, stripWin32Segment) : undefined;
+}
+
+/** Q15：dataRootSkipper 的数据形态。遍历放进了 worker，函数过不去，过去的是这条规则：
+ *  target 是数据根相对基准的路径（正斜杠；win32 下已小写、已剥流名与尾部的点和空格），win 说明比较前要不要同样折叠。 */
+export interface SkipRule { target: string; win: boolean }
+
+export function dataRootSkipRule(base: string, root: string, opts: DataGateOptions = {}): SkipRule | undefined {
   const env = gateEnv(opts);
   const below = under(env.norm(base), env.norm(root));
   if (!below || below.cmp.length === 0) return undefined; // 数据根不在基准之下，或基准就是数据根（那时按 dataGate 判）
-  const target = below.cmp.join('/');
-  const fold = env.win
-    ? (rel: string) => rel.split('/').map(stripWin32Segment).filter(s => s !== '').map(s => s.toLowerCase()).join('/')
-    : (rel: string) => rel;
-  return (rel: string) => fold(rel) === target;
+  return { target: below.cmp.join('/'), win: env.win };
+}
+
+/** Q15：rel（相对基准的正斜杠路径）是不是规则指的那个目录。strip 传 stripWin32Segment。
+ *  自包含，不许引用函数外的任何东西：主线程与遍历线程跑的是同一份（后者经 toString 拿源码，strip 也从参数进去）。 */
+export function matchesSkipRule(rule: SkipRule, rel: string, strip: (seg: string) => string): boolean {
+  const folded = rule.win ? rel.split('/').map(strip).filter(s => s !== '').map(s => s.toLowerCase()).join('/') : rel;
+  return folded === rule.target;
+}
+
+/** F04：路径身份。与 dataGate 判定同一套规范化——对最近存在的祖先取 realpath（解析符号链接、junction、8.3 短名），
+ *  不存在的尾段拼回；win32 下小写折叠、剥 ADS 流名与尾部的点和空格。资源锁（F04）与检查点（F08）共用，不另写一份：
+ *  另写一套迟早与权限判定用的这套漂移，换个写法就成了另一把锁。 */
+export function pathIdentity(abs: string, opts: DataGateOptions = {}): { root: string; segs: string[] } {
+  const n = gateEnv(opts).norm(abs);
+  return { root: n.root, segs: n.cmp };
+}
+
+/** F08：路径的真实位置——对最近存在的祖先取 realpath、不存在的尾段拼回（与 pathIdentity 同一个 canonical），
+ *  保留磁盘上的大小写。检查点对它做实际读写与文件 ID 比对：对工具给的路径做 IO 的话，路径上有链接时改的是链接本身。 */
+export function realPathOf(abs: string, opts: DataGateOptions = {}): string {
+  return gateEnv(opts).real(abs);
+}
+
+/** F08：路径身份键 = pathIdentity 的 root + segs.join('/')（与资源锁的 claimKey 去掉 'path:' 前缀后相同）。
+ *  换个写法（大小写、8.3 短名、经链接的别名）得到同一个键；同一个键上的检查点才算同一个文件的先后改动。 */
+export function pathKeyOf(abs: string, opts: DataGateOptions = {}): string {
+  const id = pathIdentity(abs, opts);
+  return id.root + id.segs.join('/');
 }

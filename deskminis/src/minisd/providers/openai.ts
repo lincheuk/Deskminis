@@ -1,6 +1,17 @@
+import { sessionHeaders } from './session-headers';
+import { outboundFetch } from '../net/outbound-fetch';
 import type { AgentStreamEvent, ContentPart, StopReason } from '../../shared/types';
-import { ProviderError, type AgentProvider, type FetchLike, type StreamRequest } from './types';
+import { ProviderError, type AdapterBudgetRule, type AgentProvider, type FetchLike, type StreamRequest } from './types';
 import { parseSse } from './sse';
+import { OpenAIUsageAcc } from './usage';
+
+/** F02：/chat/completions 的窗口约束。出处：DeepSeek 接口文档 create-chat-completion（2026-10-03 读取）——
+ *  「The total length of input tokens and generated tokens is limited by the model's context length」。
+ *  目录另给独立输入上限的型号（如官方 gpt-5：400,000 = 272,000 + 128,000）由 limitProfile 按目录资料叠加，不在这条规则里。 */
+export const OPENAI_CHAT_BUDGET_RULE: AdapterBudgetRule = {
+  window: 'shared',
+  note: 'OpenAI 兼容接口的通行约束，DeepSeek 接口文档',
+};
 
 /** 持久化的 toolUse.input 可能是被截断/损坏的 JSON（旧数据或异常写入）。
  *  发给端点前校验一次：解析失败就回退成空对象，避免把坏 JSON 当 arguments 发出去。 */
@@ -51,6 +62,14 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: Open
       if (echoReasoning) msg.reasoning_content = m.reasoningContent ?? '';
       messages.push(msg);
     } else {
+      // F05：tool 消息先于这条消息里的文本 / 图片。pairToolResults 把缺失结果的占位并进下一条 user 消息的最前面
+      //（崩溃后用户接着提问、或结果消息被同步合并进来的对端消息隔开），同一条消息里就既有 toolResult 又有文本；
+      // 以前先发 user 文本、再发 tool，得到 assistant(tool_calls) → user → tool，OpenAI 兼容端点以
+      // 「tool_calls 后面必须紧跟对应的 tool 消息」拒绝，会话此后每次请求都 400。只有 toolResult 或只有文本的消息不受影响。
+      for (const p of toolResults) {
+        const v = p.value as { toolUseId: string; output: string };
+        messages.push({ role: 'tool', tool_call_id: v.toolUseId, content: v.output });
+      }
       // 含图时才切数组 content：老端点（部分 OpenAI 兼容网关/Ollama）对数组形态 content 支持参差，
       // 无图消息保持 string 形态是最保守的兼容面——只在必要时才启用新形态。
       if (images.length > 0) {
@@ -64,15 +83,15 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: Open
       } else if (texts) {
         messages.push({ role: 'user', content: texts });
       }
-      for (const p of toolResults) {
-        const v = p.value as { toolUseId: string; output: string };
-        messages.push({ role: 'tool', tool_call_id: v.toolUseId, content: v.output });
-      }
     }
   }
   const body: Record<string, unknown> = {
     model: modelId, stream: true, max_tokens: req.maxTokens, messages,
-    tools: req.tools.map(t => ({
+  };
+  // 没有工具时不写 tools 键（F01）：OpenAI 对 tools: [] 直接 400（"[] is too short - 'tools'"）——
+  // 不支持工具调用的槽位、压缩摘要与自动命名的请求都不带工具。有工具时键序与以前一致（golden 不变）
+  if (req.tools.length > 0) {
+    body.tools = req.tools.map(t => ({
       type: 'function',
       function: {
         name: t.name, description: t.description,
@@ -84,10 +103,11 @@ export function buildOpenAIBody(req: StreamRequest, modelId: string, flags: Open
           required: t.required,
         },
       },
-    })),
-  };
+    }));
+  }
   if (flags.includeStreamOptions !== false) body.stream_options = { include_usage: true };
-  if (req.thinkingLevel !== 'off' && flags.reasoningEffort !== false) body.reasoning_effort = req.thinkingLevel;
+  // F01：运行时按当前端点目录声明的档位映射过的值（如只接受 low/high/max 时 medium → low）优先
+  if (req.thinkingLevel !== 'off' && flags.reasoningEffort !== false) body.reasoning_effort = req.thinking?.effort ?? req.thinkingLevel;
   return body;
 }
 
@@ -102,7 +122,7 @@ export class OpenAIProvider implements AgentProvider {
   constructor(opts: { apiKey: string; modelId: string; baseUrl: string; fetchImpl?: FetchLike; compat?: OpenAICompatFlags }) {
     this.apiKey = opts.apiKey; this.modelId = opts.modelId;
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.fetchImpl = opts.fetchImpl ?? outboundFetch;
     this.compat = opts.compat ?? {};
   }
 
@@ -110,20 +130,21 @@ export class OpenAIProvider implements AgentProvider {
     const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
       method: 'POST', signal,
       // Ollama 等本地端点无 key：空 key 时跳过 authorization 头（部分前置代理对多余鉴权头 401）
-      headers: { 'content-type': 'application/json', ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}) },
+      headers: { 'content-type': 'application/json', ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}), ...sessionHeaders(this.baseUrl, req.session) },
       body: JSON.stringify(buildOpenAIBody(req, this.modelId, this.compat)),
     }).catch((e: unknown) => { throw new ProviderError(`网络错误: ${String(e)}`, { retryable: true }); });
     if (!res.ok || !res.body) throw new ProviderError(`OpenAI HTTP ${res.status}: ${await res.text()}`, { status: res.status });
 
     const calls = new Map<number, { id: string; name: string; args: string }>();
-    let usage = { inputTokens: 0, outputTokens: 0 };
+    // F02：用量取最后一次有效报告并按官方定义归一化（prompt_tokens 已含缓存、推理是 completion 的子集）
+    const acc = new OpenAIUsageAcc();
     let stopReason: StopReason = 'endTurn';
     let sawFinish = false;
     let sawDone = false;
     for await (const frame of parseSse(res.body)) {
       if (frame.data === '[DONE]') { sawDone = true; break; }
       const chunk = JSON.parse(frame.data) as Record<string, any>;
-      if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens ?? 0, outputTokens: chunk.usage.completion_tokens ?? 0 };
+      acc.observe(chunk.usage);
       const choice = chunk.choices?.[0];
       if (!choice) continue;
       const delta = choice.delta ?? {};
@@ -147,7 +168,9 @@ export class OpenAIProvider implements AgentProvider {
     for (const c of [...calls.values()]) {
       yield { kind: 'toolCallComplete', toolUseId: c.id, name: c.name, input: c.args || '{}' };
     }
-    yield { kind: 'usage', usage };
+    // 端点没报 usage（不认 stream_options、流被截在末帧之前）时不发 usage 事件：0/0 会被当成真实用量落库
+    const usage = acc.result();
+    if (usage) yield { kind: 'usage', usage };
     yield { kind: 'done', stopReason };
   }
 }

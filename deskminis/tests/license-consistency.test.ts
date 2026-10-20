@@ -594,8 +594,8 @@ describe('THIRD-PARTY-NOTICES.md（仓库根）', () => {
 
   it('AionUi 令牌取值一节与「仅借思路、未复制代码」一节都在', () => {
     const aion = sections.find((s) => s.title.startsWith('AionUi'));
-    expect(aion, 'NOTICES 缺 AionUi 一节（tokens.css A 区的取值来自 AionUi）').toBeDefined();
-    expect(aion?.body ?? '').toMatch(/tokens\.css/);
+    expect(aion, 'NOTICES 缺 AionUi 一节（theme.css 中保留的取值来自 AionUi）').toBeDefined();
+    expect(aion?.body ?? '').toMatch(/theme\.css/);
     expect(aion?.body ?? '').toMatch(/Copyright 2025 AionUi/);
     const ideas = sections.find((s) => s.title.includes('仅借思路'));
     expect(ideas, 'NOTICES 缺「仅借思路、未复制代码」一节').toBeDefined();
@@ -630,8 +630,8 @@ describe('THIRD-PARTY-NOTICES.md（仓库根）', () => {
 
   it('依赖一节的许可与锁文件对得上：许可不是 MIT 的随包包都列了、表上的许可与锁一致、没带许可文件的包点了名', () => {
     const lock = JSON.parse(readText(join(appRoot, 'package-lock.json'))) as { packages?: Record<string, LockEntry> };
-    // 「包内有没有许可文件」看本机 node_modules：electron-builder 的默认过滤不碰 LICENSE / COPYING，
-    // 实测 app.asar 里缺许可文件的包与 node_modules 里缺的是同一批。本机没装的（别的平台的可选包）返回 null，不查。
+    // 本条检查安装输入与锁文件的许可登记；本机没装的可选包返回 null，不查。
+    // 实际包内许可由 windows-package-composition.mjs 直接读 ASAR 核对，打包过滤后不再由本机输入推断。
     const hasLicenseFile = (key: string): boolean | null => {
       const dir = join(appRoot, ...key.split('/'));
       return existsSync(dir) ? readdirSync(dir).some((f) => LICENSE_FILE_RE.test(f)) : null;

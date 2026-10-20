@@ -9,7 +9,8 @@ export interface DiffLine {
 
 export const MAX_LCS_LINES = 2000;
 
-function splitLines(s: string): string[] {
+/** 切行（F08 起导出：检查点对比先剥相同的前后缀行，只对中间段算差分）。 */
+export function splitLines(s: string): string[] {
   const n = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (n === '') return [];
   const lines = n.split('\n');
@@ -26,6 +27,12 @@ export function diffLines(oldStr: string, newStr: string): DiffLine[] {
       ...b.map((text, i): DiffLine => ({ type: 'add', text, newNo: i + 1 })),
     ];
   }
+  return diffLineArrays(a, b);
+}
+
+/** 对已切好的两组行算差分（F08 起单独导出）。调用方保证规模：两侧都不超过 MAX_LCS_LINES。
+ *  收行数组而不是字符串：中间段是单个空行时，拼回字符串再切会被 splitLines('') 吃掉。 */
+export function diffLineArrays(a: readonly string[], b: readonly string[]): DiffLine[] {
   // DP LCS + 回溯（规模受性能闸约束，Uint32Array 平铺省内存）
   const n = a.length;
   const m = b.length;

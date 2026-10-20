@@ -8,8 +8,8 @@
  *  四种状态：
  *  - ok / failed：配到了结果，按 success 分。只有 success === false 才算失败——与原判据一致，老库里没有 success 字段的结果照旧算成功；
  *  - interrupted：没配到结果，而它所在的回合已经不在跑了——执行被打断，工具可能做完了也可能没做，结果不知道；
- *  - pending：没配到结果，所在回合还在跑——结果还没到是正常的。界面照旧画（与成功同一个点），
- *    回合结束后 open() 重取历史就有结果了；给「进行中」另画一种样子属于 W7c「各步骤的状态点」，不在这一步。
+ *  - pending：没配到结果，所在回合还在跑——结果还没到是正常的。N25 起用品牌色脉冲点与成功区分；
+ *    回合结束后 open() 重取历史就有结果了。
  *  「所在回合还在不在跑」由调用方判（StageChat 看运行态与最后一个回合的起点，见 lastTurnStart）。
  *
  *  W2b-11d：右栏「改动」清单（lib/artifacts/collect）也按这里的状态判一次写入算不算改动，配结果（toolResultsById）
@@ -18,8 +18,10 @@
 
 export type StepStatus = 'ok' | 'failed' | 'interrupted' | 'pending';
 
-/** 一步配到的工具结果：success 原样带回（交给 stepStatus 判，只有 === false 算失败），output 给展开区显示。 */
-export interface StepResult { success: unknown; output?: string }
+/** 一步配到的工具结果：success 原样带回（交给 stepStatus 判，只有 === false 算失败），output 给展开区显示。
+ *  status（F05）：落库的 toolResult.status 原样带回。'unknown' = 引擎在这一步执行期间停了，重启后补的结果——
+ *  有结果，但结果是「不知道做没做完」，要按中断画，不能因为 success === false 就画成失败。 */
+export interface StepResult { success: unknown; output?: string; status?: unknown }
 
 /** 库里的 toolResult 按 toolUseId 建索引，给历史里的 toolUse 配结果（W2b-11d 从 StageChat 的 resultOf 抽出来，改动清单共用）。
  *  认的形态与原 resultOf 相同：type 为 toolResult、value 是对象、toolUseId 是字符串。
@@ -31,9 +33,12 @@ export function toolResultsById(messages: readonly { role?: unknown; parts?: unk
     if (!Array.isArray(m?.parts)) continue;
     for (const p of m.parts as ({ type?: unknown; value?: unknown } | null)[]) {
       if (p?.type !== 'toolResult' || !p.value || typeof p.value !== 'object') continue;
-      const v = p.value as { toolUseId?: unknown; success?: unknown; output?: unknown };
+      const v = p.value as { toolUseId?: unknown; success?: unknown; output?: unknown; status?: unknown };
       if (typeof v.toolUseId !== 'string' || out.has(v.toolUseId)) continue;
-      out.set(v.toolUseId, { success: v.success, output: typeof v.output === 'string' ? v.output : undefined });
+      const r: StepResult = { success: v.success, output: typeof v.output === 'string' ? v.output : undefined };
+      // 只在库里有这个字段时带出来：老结果、实时回合 toolEnd 带回来的结果都没有它，形态与以前逐字段相同
+      if (v.status !== undefined) r.status = v.status;
+      out.set(v.toolUseId, r);
     }
   }
   return out;
@@ -41,8 +46,10 @@ export function toolResultsById(messages: readonly { role?: unknown; parts?: unk
 
 /** result：这一步配到的工具结果（库里的 toolResult，或实时回合 toolEnd 带回来的）；还没有结果传 undefined / null。
  *  turnLive：这一步所在的回合是否还在跑。 */
-export function stepStatus(result: { success?: unknown } | null | undefined, turnLive: boolean): StepStatus {
-  if (result) return result.success === false ? 'failed' : 'ok';
+export function stepStatus(result: { success?: unknown; status?: unknown } | null | undefined, turnLive: boolean): StepStatus {
+  // F05：结果未知的一步（重启后补的结果）与「没配到结果」同一种呈现——已中断 · 结果未知，与回合是否在跑无关。
+  // 右栏「改动」清单沿用同一判定：结果未知的写入不列。其余 status（cancelled、failed、没有这个字段的老结果）照旧只看 success
+  if (result) return result.status === 'unknown' ? 'interrupted' : result.success === false ? 'failed' : 'ok';
   return turnLive ? 'pending' : 'interrupted';
 }
 

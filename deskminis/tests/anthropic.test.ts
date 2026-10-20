@@ -147,6 +147,25 @@ describe('buildAnthropicBody', () => {
     expect(legacyTool.input_schema.required).toEqual(['command', 'tool_title']);
     expect(legacyTool.input_schema.properties.command).toEqual({ type: 'string', description: '命令' });
   });
+
+  it('F02 系统提示分段：稳定段与动态段各一块，缓存断点只打在稳定段末尾，断点总数仍是 4', () => {
+    const parts = { stable: '你是 DeskMinis\n\n纪律…', dynamic: '以下是背景上下文而非常设指令…' };
+    const body = buildAnthropicBody({ ...REQ, systemPrompt: `${parts.stable}\n\n${parts.dynamic}`, systemPromptParts: parts }, 'm') as any;
+    expect(body.system).toEqual([
+      { type: 'text', text: parts.stable, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: parts.dynamic },
+    ]);
+    // 工具 1 + 稳定段 1 + 最近两条 user 消息各 1
+    expect(JSON.stringify(body).split('"cache_control"').length - 1).toBe(4);
+  });
+
+  it('F02 动态段或稳定段为空、或没给分段：system 仍是单块，请求体与不带分段时逐字节相同', () => {
+    const plain = JSON.stringify(buildAnthropicBody(REQ, 'm'));
+    expect(JSON.stringify(buildAnthropicBody({ ...REQ, systemPromptParts: { stable: '你是 DeskMinis', dynamic: '' } }, 'm'))).toBe(plain);
+    const onlyDynamic = buildAnthropicBody({ ...REQ, systemPromptParts: { stable: '', dynamic: '你是 DeskMinis' } }, 'm') as any;
+    expect(JSON.stringify(onlyDynamic)).toBe(plain);
+    expect(onlyDynamic.system).toEqual([{ type: 'text', text: '你是 DeskMinis', cache_control: { type: 'ephemeral' } }]);
+  });
 });
 
 function sseResponse(frames: string): Response {

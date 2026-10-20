@@ -21,10 +21,11 @@
   font-display: swap;
 }
 
-/** T 波新设计系统（设计稿 docs/specs/2026-08-21-ui-rebuild-design.md §2）。
+/** T 波新设计系统：颜色、文字、圆角、间距与阴影的语义令牌。
  *
- *  这是**推倒重做**的设计系统，不是旧 tokens.css 的演进版：
- *  命名空间全新（--c-/--t-/--r-/--sp-/--sh-），与旧令牌零冲突，两套并存到 T6 清场。
+ *  渲染端唯一令牌表；阶段14按四种模式的实际计算样式收敛了旧令牌。
+ *  Markdown 与全局基线保留原语义名，取值仍来自 AionUi（Apache-2.0，见 NOTICES）。
+ *  取值唯一来源：docs/specs/2026-08-20-aionui-tokens-reference.css。
  *
  *  三条立系原则（旧 UI 违反了全部三条，才有「四不像」）：
  *  ① **层次靠明度阶梯，不靠阴影和边框**——容器分层用 bg→bg-1→bg-2→bg-3，
@@ -34,10 +35,31 @@
  *     这正是「花哨而廉价」的来源。
  *  ③ **字号与行高成对定义**——不许各调各的。七组排版档一次定死，组件只引档不写值。
  *
- *  数值依据：docs/research/2026-08-21-aionui-typography-radius.md（AionUi 源码实测）。 */
+ *  以下声明固定排版与圆角档位，组件通过语义令牌使用。 */
 
 :root {
   color-scheme: light;
+
+  /* 旧令牌的实际生效值：Markdown与全局基线。尺度复用现有等值档。 */
+  --bg: oklch(.985 .002 247.8);
+  --fill-quaternary: oklch(.985 .002 247.8);
+  --fill-tertiary: oklch(.964 .003 264.5);
+  --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, "Noto Sans SC", "Microsoft YaHei", monospace;
+  --font-ui: -apple-system, "SF Pro Text", "Segoe UI Variable", "Noto Sans SC", system-ui, "Microsoft YaHei", sans-serif;
+  --fs-micro: var(--t-aux-size);
+  --fs-mono: var(--t-code-size);
+  --fs-ui: var(--t-body-size);
+  --fw-strong: var(--w-bd);
+  --grouped-bg-secondary: oklch(1 0 0);
+  --label: oklch(.247 .016 264.2);
+  --label-secondary: oklch(.42 .032 266.2);
+  --lh-normal: 1.55;
+  --lh-tight: 1.3;
+  --link: oklch(.537 .239 262.8);
+  --r-control: var(--r-s);
+  --r-md: var(--r-m);
+  --selection-color: oklch(.537 .239 262.8 / 18%);
+  --separator: oklch(.926 .007 277.2);
 
   /* ===== 色：中性阶梯（层次的唯一来源） ===== */
   --c-bg: #ffffff;        /* 卡片/侧栏底——原图里侧栏是**纯白**，主区才略灰 */
@@ -112,16 +134,8 @@
   --r-hero: 24px;        /* 欢迎页输入卡 */
   --r-pill: 999px;       /* 胶囊选择器、进度条 */
 
-  /* 间距：只用这八档。
-     ⚠️ 这里的值是**当前真正渲染出来的值**，不是 T 波最初写下的那一套（4/6/8/10/12/16/20/24）。
-     真相是：main.ts 先引本文件再引 tokens.css，两边有九个同名令牌，**后加载的赢**——
-     整套间距标尺被旧文件顶高一档，297 处引用一直在用旧值，而 T 波的界面
-     正是在这个前提下审过并被接受的。所以对齐方向是「让声明追上像素」，
-     不是「让像素追上声明」——后者要重新目视 297 处。
-     tokens.css 不能删（MarkdownView / MarkdownInline 还消费它 18 个变量），
-     但对齐之后哪天删掉它，视觉零变化。两文件同名令牌必须同值，有守卫钉着。
-     --sp-7 保持 20px 与 --sp-5 同值：改成 28px 会动 14 处间距，与「零视觉变化」冲突。
-     谁要把标尺理顺成单调的，必须连带重新目视那 14 处。 */
+  /* 间距按已验收的实际标尺保留。--sp-7 与 --sp-5 都是20px：
+     理顺成单调标尺会改变14处间距，不属于这次零外观变化的整理。 */
   --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
   --sp-5: 20px; --sp-6: 24px; --sp-7: 20px; --sp-8: 32px;
 
@@ -214,8 +228,46 @@
   }
 }
 
+/* 旧令牌的主题覆盖保留原选择器关系：系统暗色先给默认值，
+   强制浅色再覆盖它；不能让系统深色吞掉强制浅色。 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: oklch(.164 0 0);
+    --fill-quaternary: oklch(.713 .024 260.7 / 8%);
+    --fill-tertiary: oklch(.218 0 0);
+    --grouped-bg-secondary: oklch(.218 0 0);
+    --label: oklch(.937 .006 264.5);
+    --label-secondary: oklch(.865 .011 256.7);
+    --link: oklch(.696 .163 254.1);
+    --selection-color: oklch(.696 .163 254.1 / 25%);
+    --separator: oklch(.321 0 0);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: oklch(.164 0 0);
+  --fill-quaternary: oklch(.713 .024 260.7 / 8%);
+  --fill-tertiary: oklch(.218 0 0);
+  --grouped-bg-secondary: oklch(.218 0 0);
+  --label: oklch(.937 .006 264.5);
+  --label-secondary: oklch(.865 .011 256.7);
+  --link: oklch(.696 .163 254.1);
+  --selection-color: oklch(.696 .163 254.1 / 25%);
+  --separator: oklch(.321 0 0);
+}
+:root[data-theme="light"] {
+  --bg: oklch(.985 .002 247.8);
+  --fill-quaternary: oklch(.985 .002 247.8);
+  --fill-tertiary: oklch(.964 .003 264.5);
+  --grouped-bg-secondary: oklch(1 0 0);
+  --label: oklch(.247 .016 264.2);
+  --label-secondary: oklch(.42 .032 266.2);
+  --link: oklch(.537 .239 262.8);
+  --selection-color: oklch(.537 .239 262.8 / 18%);
+  --separator: oklch(.926 .007 277.2);
+}
+
 /* ===== 基线 ===== */
-* { box-sizing: border-box; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 /* 边框基线设 transparent 而非 currentColor：漏写颜色的边框保持隐形，
    不会突然冒出一条黑线（AionUi preflight 同策略） */
 *, *::before, *::after { border-width: 0; border-style: solid; border-color: transparent; }
@@ -223,19 +275,20 @@
 html, body, #app { height: 100%; margin: 0; }
 
 body {
-  font-family: var(--f-ui);
+  font-family: var(--font-ui);
   font-size: var(--t-body-size);
-  line-height: var(--t-body-lh);
-  background: var(--c-bg);
-  color: var(--c-ink);
+  line-height: var(--lh-normal);
+  background: var(--bg);
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
 
-/* 等宽数字只给读数（耗时/字节/token），正文一律比例数字 */
+/* 全局保留原有等宽数字；对话与Markdown正文各自显式恢复比例数字。 */
 .tnum { font-variant-numeric: tabular-nums; }
 
-::selection { background: var(--c-brand-soft); color: var(--c-ink); }
+::selection { background: var(--selection-color); color: var(--c-ink); }
 
 /* 滚动条：默认隐形，hover 才显——AionUi 同策略，避免细长灰条切割界面 */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -247,10 +300,12 @@ body {
 /* 线性图标统一描边（组件内 <svg> 只写路径）。
    注意：stroke 颜色由组件自己给 currentColor——这里给 fill:none 却不给 stroke，
    漏写的图标就是全透明（T2 实拍逮到一次）。 */
-svg { stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+svg { stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 
 /* 焦点环：键盘可见、鼠标不可见 */
 :focus-visible { outline: 2px solid var(--c-brand); outline-offset: 2px; }
+/* 权限卡自动移到容器时也标出焦点，沿用同一套全局焦点环。 */
+.perm:focus { outline: 2px solid var(--c-brand); outline-offset: 2px; }
 
 /* 排版工具类：组件引档不写值 */
 .t-hero { font-size: var(--t-hero-size); line-height: var(--t-hero-lh); font-weight: var(--t-hero-w); }
@@ -351,4 +406,24 @@ svg { stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; fill: no
 .f-confirm {
   display: inline-flex; align-items: center; gap: var(--sp-3);
   font-size: var(--t-aux-size); color: var(--c-err);
+}
+
+/* 进行中的步骤只改变合成层上的缩放与透明度。 */
+@keyframes dm-think-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+@keyframes dm-step-pulse {
+  0% { transform: scale(.5); opacity: .8; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+/* 系统减少动效偏好：状态即时呈现，保留动画结束事件。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

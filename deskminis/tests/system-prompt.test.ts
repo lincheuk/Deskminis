@@ -3,9 +3,12 @@ import {
   buildSystemPrompt,
   createStableCache,
   STABLE_IDENTITY,
+  STABLE_IDENTITY_NO_TOOLS,
   BRIDGE_SECTION_FULL,
   BRIDGE_SECTION_MINIMAL,
   SYSTEM_PROMPT,
+  TOOL_USE_GUIDANCE,
+  WINDOWS_COMMAND_SAFETY,
   type PromptConfig,
 } from '../src/minisd/agent/system-prompt';
 import { runAgentLoop, type LoopEvent } from '../src/minisd/agent/loop';
@@ -16,7 +19,10 @@ import { ProviderError, type AgentProvider, type StreamRequest } from '../src/mi
 import type { AgentStreamEvent } from '../src/shared/types';
 import type { ToolContext, ToolExecutor } from '../src/minisd/tools/types';
 import { MinisPaths } from '../src/minisd/paths';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { MemoryInjector } from '../src/minisd/store/memory-injector';
+import { MemoryStore } from '../src/minisd/store/memory-store';
+import { joinSystemPrompt } from '../src/minisd/agent/request-budget';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -74,9 +80,11 @@ describe('buildSystemPrompt 桥段落条件注入', () => {
 // ===== token 估算 =====
 
 describe('token 估算', () => {
-  it('未用桥会话 stable 段 < 350 字符（精简桥提示）', () => {
+  it('未用桥会话原身份与精简桥 < 350 字符；W6 两段计入完整长度', () => {
     const r = buildSystemPrompt({ sessionId: 's1', modelId: 'gpt-5', bridgeGranted: false, config: { bridgeSection: 'full' }, skillsBlock: '', memoryBlock: '' });
-    expect(r.length).toBeLessThan(350);
+    const guidance = '\n\n' + TOOL_USE_GUIDANCE + '\n\n' + WINDOWS_COMMAND_SAFETY;
+    expect(r).toBe(STABLE_IDENTITY + BRIDGE_SECTION_MINIMAL + guidance);
+    expect(r.length - guidance.length).toBeLessThan(350);
   });
 
   it('授权桥会话 stable 段含完整桥段落（字符数更高但仍合理）', () => {
@@ -93,6 +101,22 @@ describe('SYSTEM_PROMPT 向后兼容', () => {
     expect(SYSTEM_PROMPT).toBe(STABLE_IDENTITY + BRIDGE_SECTION_FULL);
     expect(SYSTEM_PROMPT).toContain('DeskMinis');
     expect(SYSTEM_PROMPT).toContain('windows-notify');
+  });
+});
+
+// ===== F01R：不带工具的槽位用的身份段（A5）=====
+
+describe('STABLE_IDENTITY_NO_TOOLS：不带工具时不声称工具能力', () => {
+  it('不说能读写文件 / 执行命令，不带桥段落与「必须调用工具」的纪律；说明没有工具、历史工具记录是文字', () => {
+    for (const claim of ['你可以读写文件', 'PowerShell', 'MINIS_BRIDGE', '必须调用']) {
+      expect(STABLE_IDENTITY_NO_TOOLS, claim).not.toContain(claim);
+    }
+    expect(STABLE_IDENTITY_NO_TOOLS).toContain('DeskMinis');
+    expect(STABLE_IDENTITY_NO_TOOLS).toContain('不支持工具调用');
+    expect(STABLE_IDENTITY_NO_TOOLS).toContain('[历史工具调用]');
+    expect(STABLE_IDENTITY_NO_TOOLS).toContain('[历史工具结果]');
+    // 带工具的身份段一字未动
+    expect(STABLE_IDENTITY).toContain('你可以读写文件、执行 PowerShell 命令');
   });
 });
 
@@ -274,5 +298,56 @@ describe('RunOptions.systemPrompt 工厂函数接口', () => {
     expect(called).toContain('claude-opus-4');
     // 降级后 backup 收到的 systemPrompt 用新 modelId
     expect(backupProvider.seen[0].systemPrompt).toBe('prompt for claude-opus-4');
+  });
+});
+
+describe('F02 系统提示分稳定段与动态段：拼出的全文与分段之前相同，一段不删', () => {
+  /** 分段之前 chat.prompt 的组法（原样照抄）：先用占位符拼好记忆块，再 String.replace 换回正文。 */
+  const legacyCompose = (inj: MemoryInjector, base: string, memoryEnabled: boolean): string => {
+    const memoryBlock = inj.build('__BASE__', { memoryEnabled });
+    return memoryBlock ? memoryBlock.replace('__BASE__', base) : base;
+  };
+  /** 现在的组法：index.ts 的 promptFactoryFor 最后两行。 */
+  const compose = (inj: MemoryInjector, base: string, memoryEnabled: boolean) => {
+    const { head, tail } = inj.buildParts(base, { memoryEnabled });
+    return { stable: head, dynamic: tail };
+  };
+  const SKILLS = '\n\n## 可用技能\n- pdf-tools：处理 PDF（读 skills/pdf-tools/SKILL.md）';
+  const ASSISTANT = '\n\n## 助手规则\n回答先给结论，再给依据。';
+
+  it('矩阵（有无人设 × 有无记忆上下文 × 带不带工具 × 有无技能与助手 × 记忆开关）：joinSystemPrompt(parts) 等于旧的单串组合', () => {
+    for (const soul of [true, false]) for (const memory of [true, false]) {
+      const dir = mkdtempSync(join(tmpdir(), 'dm-parts-'));
+      try {
+        writeFileSync(join(dir, 'SOUL.md'), soul ? '你是一个严谨的工程师' : '', 'utf8');
+        writeFileSync(join(dir, 'GLOBAL.md'), memory ? '用户喜欢简洁回复' : '', 'utf8');
+        const inj = new MemoryInjector(new MemoryStore(dir));
+        for (const sendTools of [true, false]) for (const extras of [true, false]) for (const enabled of [true, false]) {
+          const stable = sendTools ? buildSystemPrompt({ sessionId: 's1', modelId: 'm', bridgeGranted: false, config: {}, skillsBlock: '', memoryBlock: '' }) : STABLE_IDENTITY_NO_TOOLS;
+          const base = stable + (extras ? ASSISTANT : '') + (extras && sendTools ? SKILLS : '');
+          const parts = compose(inj, base, enabled);
+          const where = JSON.stringify({ soul, memory, sendTools, extras, enabled });
+          expect(joinSystemPrompt(parts), where).toBe(legacyCompose(inj, base, enabled));
+          // 稳定段里有人设与正文，没有记忆内容；动态段只在开着记忆且确有记忆时非空
+          expect(parts.stable, where).toContain(base);
+          expect(parts.stable.includes('用户喜欢简洁回复'), where).toBe(false);
+          expect(parts.dynamic !== '', where).toBe(enabled && memory);
+          if (enabled && soul) expect(parts.stable.startsWith('你是一个严谨的工程师\n\n'), where).toBe(true);
+        }
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    }
+  });
+
+  it('正文里有 $& 之类的替换模式：旧组法会改写它，现在原样保留', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dm-parts-'));
+    try {
+      writeFileSync(join(dir, 'GLOBAL.md'), '用户喜欢简洁回复', 'utf8');
+      const inj = new MemoryInjector(new MemoryStore(dir));
+      const base = `${STABLE_IDENTITY_NO_TOOLS}\n\n## 助手规则\n报价写成 $& 的形式，金额前加 $$。`;
+      const now = joinSystemPrompt(compose(inj, base, true));
+      expect(now).toContain(base);
+      expect(legacyCompose(inj, base, true)).not.toContain(base);
+      expect(now).not.toBe(legacyCompose(inj, base, true));
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

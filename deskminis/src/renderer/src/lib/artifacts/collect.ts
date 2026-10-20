@@ -27,10 +27,17 @@ export interface Artifact {
  *  role 用来切回合（结果载体不开新回合，见 lastTurnStart）。 */
 interface MsgLike { role?: unknown; parts?: unknown }
 /** 与 chat store toolCards 对齐的最小契约：success 在 toolEnd 时才有，没到是 undefined。 */
-interface ToolCardLike { name: string; input?: string; success?: boolean }
+interface ToolCardLike { name: string; input?: string; success?: boolean; toolUseId?: string }
+
+/** F08：skipToolUseIds 里的工具调用不列——它们已有文件检查点，在「改动」页按运行分组的清单里出现，不重复列。
+ *  settledOnly：结果还没到的调用也不列。「改动」页「没有检查点的改动」一节用：还在等审批或执行中的写入还不是改动，
+ *  写成之后有了检查点会出现在按运行分组的清单里；先列在那一节，等于说它「没有检查点」。
+ *  都不传时返回值与以前逐字段相同。 */
+export interface CollectOptions { skipToolUseIds?: ReadonlySet<string>; settledOnly?: boolean }
 
 /** 算作改动的步骤状态：确知做了的（ok）与结果还没到的（pending）。写成白名单：以后状态多出一种，默认不当成改动。 */
 const LISTED: ReadonlySet<StepStatus> = new Set<StepStatus>(['ok', 'pending']);
+const SETTLED: ReadonlySet<StepStatus> = new Set<StepStatus>(['ok']);
 
 /** file_write input JSON → 相对路径（坏 JSON/缺 path → null）。 */
 function writePath(inputJson: string | undefined): string | null {
@@ -42,7 +49,9 @@ function writePath(inputJson: string | undefined): string | null {
 }
 
 /** lastTurnLive：messages 里最后一个回合是不是还在跑——调用方用 useLastTurnLive 取，与 StageChat 同一份判定。 */
-export function collectArtifacts(messages: MsgLike[], toolCards: ToolCardLike[], lastTurnLive: boolean): Artifact[] {
+export function collectArtifacts(messages: MsgLike[], toolCards: ToolCardLike[], lastTurnLive: boolean, opts: CollectOptions = {}): Artifact[] {
+  const skip = opts.skipToolUseIds;
+  const listed = opts.settledOnly ? SETTLED : LISTED;
   const byPath = new Map<string, Artifact>();
   const push = (path: string | null, kind: 'write' | 'edit', add?: number, del?: number): void => {
     if (!path) return;
@@ -72,14 +81,16 @@ export function collectArtifacts(messages: MsgLike[], toolCards: ToolCardLike[],
     for (const p of parts) {
       const v = (p as { type?: string; value?: { toolUseId?: unknown; name?: unknown; input?: unknown } } | null)?.value;
       if ((p as { type?: string } | null)?.type === 'toolUse' && v && typeof v.name === 'string') {
+        if (skip && typeof v.toolUseId === 'string' && skip.has(v.toolUseId)) continue;
         const r = typeof v.toolUseId === 'string' ? results.get(v.toolUseId) : undefined;
-        if (LISTED.has(stepStatus(r, i >= liveFrom))) scan(v.name, typeof v.input === 'string' ? v.input : undefined);
+        if (listed.has(stepStatus(r, i >= liveFrom))) scan(v.name, typeof v.input === 'string' ? v.input : undefined);
       }
     }
   }
   // 实时卡片就是正在跑的那个回合的，与 StageChat 的 liveSteps 同一句：toolEnd 一定带 success，还是 undefined 就是结果没到，绝不判中断
   for (const c of toolCards ?? []) {
-    if (LISTED.has(stepStatus(c.success === undefined ? undefined : c, true))) scan(c.name, c.input);
+    if (skip && c.toolUseId !== undefined && skip.has(c.toolUseId)) continue;
+    if (listed.has(stepStatus(c.success === undefined ? undefined : c, true))) scan(c.name, c.input);
   }
   return [...byPath.values()];
 }

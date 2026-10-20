@@ -68,11 +68,10 @@ describe('T6e-2 工具步骤展开区：file_edit 走差分，其余回落参数
 });
 
 describe('T6e-2 两条链路都要把 input 传下去（2 例）', () => {
-  it('实时路径：toolCards 映射必须带 input', () => {
+  it('实时路径：toolCards 映射必须带 input', async () => {
     // chat.toolCards 在 toolStart 时就存了 input，映射里不写这一行就等于当场扔掉。
-    const map = stage.match(/chat\.toolCards\.map\([\s\S]{0,300}?\)\)/)?.[0] ?? '';
-    expect(map).not.toBe('');
-    expect(map).toMatch(/input:/);
+    const { q11ComponentProbe } = await import('./helpers/q11-probe-loader');
+    expect((await q11ComponentProbe()).liveInputs).toEqual(['{"path":"a","tool_title":"live"}', '{"path":"b","tool_title":"second"}']);
   });
 
   it('历史路径：step 字面量必须带 input（同一处已经读了 input.tool_title）', () => {
@@ -92,6 +91,7 @@ describe('T6e-2 两条链路都要把 input 传下去（2 例）', () => {
 // 不是只看源码里写了什么。
 
 const STAGE_FILE = path.join(root, 'src/renderer/src/ui/StageChat.vue');
+const LIVE_FILE = path.join(root, 'src/renderer/src/ui/LiveTurn.vue');
 const GROUP_FILE = path.join(root, 'src/renderer/src/ui/StepGroup.vue');
 
 type StepOut = { title: string; status?: string; ok?: boolean };
@@ -134,7 +134,8 @@ afterEach(() => { scope.stop(); });
 async function runStage(): Promise<{ chat: ReturnType<typeof useChat>; b: StageBindings }> {
   const chat = useChat();
   const { bindings } = await runSetup<StageBindings>(STAGE_FILE, { narrow: false }, scope);
-  return { chat, b: bindings };
+  const { bindings: live } = await runSetup<Pick<StageBindings,'liveSteps'>>(LIVE_FILE, {}, scope);
+  return { chat, b: { ...bindings, liveSteps: live.liveSteps } };
 }
 
 describe('W2b-11a StageChat：历史步骤的状态（真跑 setup）', () => {

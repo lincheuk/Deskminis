@@ -125,11 +125,15 @@ async function test(): Promise<void> {
       </span>
       <span
         v-if="statusOf(s.name)" class="f-tag"
-        :class="{ ok: statusOf(s.name)!.status === 'connected', err: statusOf(s.name)!.status === 'error' }"
+        :class="{ ok: statusOf(s.name)!.status === 'connected', err: statusOf(s.name)!.status === 'error', 'has-skips': statusOf(s.name)!.status === 'connected' && (statusOf(s.name)!.limitSkipped?.length || statusOf(s.name)!.collisionSkipped?.length) }"
         :title="statusOf(s.name)!.lastError || ''"
       >
         {{ statusOf(s.name)!.status === 'connected' ? `${statusOf(s.name)!.toolCount} 个工具`
            : statusOf(s.name)!.status === 'error' ? '连不上' : '空闲' }}
+        <template v-if="statusOf(s.name)!.status === 'connected'">
+          <span v-if="statusOf(s.name)!.limitSkipped?.length" class="mcp-skipped" :title="statusOf(s.name)!.limitSkipped!.join('、')">另有 {{ statusOf(s.name)!.limitSkipped!.length }} 个没加载（超过每台 40 / 全局 120 的上限）</span>
+          <span v-if="statusOf(s.name)!.collisionSkipped?.length" class="mcp-skipped" :title="statusOf(s.name)!.collisionSkipped!.join('、')">{{ statusOf(s.name)!.collisionSkipped!.length }} 个与已有工具重名、没加载</span>
+        </template>
       </span>
       <button class="f-btn ghost" type="button" @click="startEdit(s)">编辑</button>
       <template v-if="confirming === s.name">
@@ -196,6 +200,8 @@ async function test(): Promise<void> {
 </template>
 
 <style scoped>
+.f-tag.has-skips { height: auto; min-width: 0; flex-shrink: 1; display: flex; flex-direction: column; align-items: flex-start; max-width: 300px; white-space: normal; }
+.mcp-skipped { color: var(--c-warn); }
 .mrow {
   display: flex; align-items: center; gap: var(--sp-4);
   padding: var(--sp-3) var(--sp-4); background: var(--c-bg);

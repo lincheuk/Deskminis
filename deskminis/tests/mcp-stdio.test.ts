@@ -5,9 +5,57 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { ProcSupervisor } from '../src/minisd/proc/owned';
 import { McpStdioClient, spawnMcpProcess, killTree, type McpNotification } from '../src/minisd/mcp/stdio';
 
 const FIXTURE = fileURLToPath(new URL('./mcp-stdio-server.mjs', import.meta.url));
+
+describe('F09 连接起根窗口的回收', () => {
+  function gatedClient(owned: boolean) {
+    const writes: string[] = []; let killed = 0; let spawned = 0;
+    const child = Object.assign(new EventEmitter(), {
+      pid: 4242, exitCode: null as number | null, signalCode: null as NodeJS.Signals | null,
+      stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+      kill: (): boolean => { killed++; child.signalCode = 'SIGTERM'; queueMicrotask(() => child.emit('exit', null, 'SIGTERM')); return true; },
+    });
+    child.stdin.on('data', (data: Buffer) => {
+      writes.push(String(data));
+      const message = JSON.parse(String(data));
+      if (message.id) queueMicrotask(() => child.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }) + '\n'));
+    });
+    const spawnImpl = (() => { spawned++; return child; }) as unknown as typeof import('node:child_process').spawn;
+    const supervisor = owned ? new ProcSupervisor() : undefined;
+    const client = new McpStdioClient({ command: '/fixture', proc: { platform: 'linux', spawnImpl, supervisor }, ...(owned ? { tree: { ownerRef: 'fixture' } } : {}) });
+    return { client, child, writes, counts: () => ({ killed, spawned }) };
+  }
+  it.each([false, true])('dispose 在 spawn 落定之前（owned=%s）：等自己的根落定并回收，不再发送 initialize', async owned => {
+    const g = gatedClient(owned);
+    const connected = g.client.connect().then(() => null, error => error as Error);
+    let disposed = false;
+    const reaped = g.client.dispose('shutdown').then(() => { disposed = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    const early = disposed;
+    g.child.emit('spawn');
+    const error = await connected; await reaped;
+    expect(early).toBe(false);
+    expect(error?.message).toContain('已关闭');
+    expect(g.counts()).toEqual({ killed: 1, spawned: 1 });
+    expect(g.writes).toEqual([]);
+    await g.client.dispose('shutdown');
+    expect(g.counts().killed).toBe(1);
+  });
+  it('先 dispose 再 connect：拒绝启动，不创建任何进程', async () => {
+    const g = gatedClient(false);
+    await g.client.dispose('shutdown');
+    const connected = g.client.connect().then(() => null, error => error as Error);
+    g.child.emit('spawn');
+    const error = await connected;
+    expect(error?.message).toContain('已关闭');
+    expect(g.counts()).toEqual({ killed: 0, spawned: 0 });
+    expect(g.writes).toEqual([]);
+  });
+});
 
 /** vitest 跑在 electron 二进制上，process.execPath 即 electron——子进程必须带
  *  ELECTRON_RUN_AS_NODE=1 才是 Node 模式，否则会拉起 GUI 应用 */

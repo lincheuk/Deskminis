@@ -1,3 +1,4 @@
+import { outboundFetch } from '../net/outbound-fetch';
 /** D4 MCP streamable-http 传输客户端：每条 JSON-RPC 一次 POST（MCP streamable-http 规范）。
  *  本步只做传输与协议机械——initialize 握手（Mcp-Session-Id 捕获/回显）、JSON/SSE 双形态
  *  响应分派、tools/list 翻页、tools/call 两级超时与取消透传、dispose 收口；content[]/isError
@@ -62,7 +63,7 @@ export class McpHttpClient {
   /** dispose 的总闸：中止全部在途 fetch（DELETE 告别请求单独走，不挂此信号） */
   private disposeController = new AbortController();
 
-  constructor(opts: McpHttpClientOptions, fetchImpl: typeof fetch = fetch) {
+  constructor(opts: McpHttpClientOptions, fetchImpl: typeof fetch = outboundFetch) {
     this.url = opts.url;
     this.cfgHeaders = opts.headers ?? {};
     this.startupTimeoutMs = (opts.startupTimeoutSeconds ?? STARTUP_TIMEOUT_SECONDS_DEFAULT) * 1000;

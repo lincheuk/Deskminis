@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** T5：技能。技能 = 一个带 SKILL.md 的目录，导入后可在对话里用斜杠调用。
  *  这里列的是**全部**技能（含已禁用）——只列启用的话，关掉一个就再也找不回来了。 */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useChat } from '../../stores/chat';
 import UiIcon from '../UiIcon.vue';
 
@@ -13,6 +13,11 @@ const confirming = ref('');
 
 onMounted(() => { void chat.refreshAllSkills(); });
 const task = computed(() => chat.skillImport);
+const missingDescriptionHint = '模型只看得到名字，几乎不会自己用它；在 SKILL.md 开头加一行 description: 说明它做什么';
+const importedWithoutDescription = computed(() => task.value?.state === 'done'
+  ? chat.allSkills.filter(s => task.value!.succeeded.includes(s.id) && !s.description?.trim()) : []);
+// 广播与主动轮询两条完成路径都要刷新元数据，才能显示本次成功导入的描述提示。
+watch(() => task.value?.state, state => { if (state === 'done') void chat.refreshAllSkills(); });
 
 async function doImport(): Promise<void> {
   const src = importPath.value.trim();
@@ -58,6 +63,7 @@ async function onDelete(id: string): Promise<void> { await chat.deleteSkill(id);
         </template>
         <template v-else>导入失败：{{ task.error || '未知原因' }}</template>
       </p>
+      <p v-for="s in importedWithoutDescription" :key="s.id" class="skill-warning import-warning t-aux">{{ s.name }}：没有描述。{{ missingDescriptionHint }}</p>
       <ul v-if="task?.failures.length" class="fails">
         <li v-for="f in task.failures" :key="f.name" class="t-aux">{{ f.name }}：{{ f.error }}</li>
       </ul>
@@ -71,7 +77,8 @@ async function onDelete(id: string): Promise<void> { await chat.deleteSkill(id);
       </label>
       <span class="sinfo">
         <span class="sname">{{ s.name }}</span>
-        <span class="sdesc t-aux">{{ s.description || '没有描述' }}</span>
+        <span class="sdesc t-aux" :class="{ 'skill-warning': !s.description?.trim() }">{{ s.description?.trim() ? s.description : '没有描述' }}</span>
+        <span v-if="!s.description?.trim()" class="skill-warning t-aux">{{ missingDescriptionHint }}</span>
       </span>
       <span v-if="s.useCount" class="f-tag tnum">用过 {{ s.useCount }} 次</span>
       <template v-if="confirming === s.id">
@@ -100,5 +107,7 @@ async function onDelete(id: string): Promise<void> { await chat.deleteSkill(id);
 .sinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .sname { font-size: var(--t-item-size); font-weight: var(--w-md); color: var(--c-ink); }
 .sdesc { color: var(--c-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-warning { color: var(--c-warn); }
+.import-warning { margin: 0; }
 code { font-family: var(--f-mono); background: var(--c-bg-2); padding: 1px 5px; border-radius: 4px; }
 </style>

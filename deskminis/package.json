@@ -24,7 +24,8 @@
     "gen:app-icon": "node scripts/gen-app-icon.mjs",
     "e2e:mcp": "node scripts/e2e-mcp-acceptance.mjs",
     "dist": "electron-vite build && electron-builder --publish never",
-    "dist:dir": "electron-vite build && electron-builder --dir"
+    "dist:dir": "electron-vite build && electron-builder --dir",
+    "verify:windows": "node scripts/verify-windows.mjs"
   },
   "keywords": [],
   "author": "",
@@ -55,6 +56,7 @@
     "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.1",
     "pinia": "^3.0.4",
+    "postcss": "^8.5.23",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7",
     "vue": "^3.5.40"

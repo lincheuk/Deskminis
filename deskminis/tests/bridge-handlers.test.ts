@@ -11,6 +11,7 @@ import type { PermissionGateway, PermissionRequest } from '../src/minisd/tools/t
 import { withClipboardLock } from './clipboard-lock';
 
 const SESSION = 'A1B2C3D4-E5F6-4789-ABCD-EF0123456789';
+const REAL_CLIPBOARD = process.env.DESKMINIS_TEST_CLIPBOARD === '1';
 
 function allowGateway(captured: PermissionRequest[]): PermissionGateway {
   return { async check(r) { captured.push(r); return 'allow'; }, hasBridgeGrant: () => false };
@@ -278,7 +279,8 @@ describe('真实 PowerShell 集成（allow-all 网关）', () => {
   // bridge-cli.test.ts 的剪贴板往返用例竞态（set→get 之间被另一个 worker 的 set 打断）。
   // 同时用例自包含「保存旧值 → 断言 → finally 恢复」，避免 beforeAll 级钩子因异常/skip 漏恢复
   // 或因长时间持锁阻塞其他文件。
-  it('clipboard set→get 往返（会短暂改写本机剪贴板，跨文件互斥）', async () => {
+  // Q07：真实剪贴板仅在显式验收档执行，默认保护用户的非文本格式；见 docs/TESTING.md。
+  it.skipIf(!REAL_CLIPBOARD)('clipboard set→get 往返（会短暂改写本机剪贴板，跨文件互斥）', async () => {
     await withClipboardLock(async () => {
       // 保存用户剪贴板
       const saved = await runPowerShell(`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8

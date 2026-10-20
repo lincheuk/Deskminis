@@ -6,6 +6,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as parseMod from '../src/renderer/src/lib/markdown/parse';
+import { q11ComponentProbe } from './helpers/q11-probe-loader';
 
 const root = path.resolve(__dirname, '..');
 const readSrc = (rel: string): string =>
@@ -58,14 +59,16 @@ describe('MU2a Task 2 MarkdownView 源文本守卫（5 例）', () => {
     }
   });
 
-  it('类名锚点：md-table/md-quote/md-ul/md-ol/md-li/md-icode/md-link；ChatView 接线（历史+流式走 MarkdownView，用户消息纯文本不动，atext 退役）', () => {
+  it('类名锚点：md-table/md-quote/md-ul/md-ol/md-li/md-icode/md-link；ChatView 接线（历史+流式走 MarkdownView，用户消息纯文本不动，atext 退役）', async () => {
     for (const c of ['md-table', 'md-quote', 'md-ul', 'md-ol', 'md-li', 'md-icode', 'md-link']) {
       expect(mdView + mdInline).toContain(c);
     }
     // ChatView 两处增量替换：历史正文 + 流式文本
     // 会话视图从 ui/ 引 components/ 里仍活的 MarkdownView（三个活文件之一）
     expect(chatView).toMatch(/import MarkdownView from '\.\.\/components\/MarkdownView\.vue'/);
-    expect(chatView).toContain(':nodes="mdOf(');
+    const actual = await q11ComponentProbe();
+    expect(actual.wiring.historyUsesMarkdown).toBe(true);
+    expect(actual.wiring.liveUsesMarkdown).toBe(true);
     // 「稳定区 streamStable + 尾部 FadeText」两区模型已随 T6e-1 退场；流式正文整段走 MarkdownView
     expect(chatView).toMatch(/<MarkdownView[^>]*:nodes=/);
     // 用户消息不渲染 Markdown（§5.1）

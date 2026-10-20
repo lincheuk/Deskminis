@@ -13,15 +13,16 @@
  * W1b-4b（W1b-4 第三轮审查）：删除只能了结 / 中止被删的那个会话。单会话用例对「按会话过滤」写错毫无感知，
  * 双会话一例把它钉住；它不是先红，靠 deny-all、abort-all 两个变异证明抓得住。
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startMinisd } from '../src/minisd/index';
-import { stripComments } from './strip-comments';
+import { watchEngine, type EngineWatch } from './engine-wiring';
+import { callMark, onCall, recorder, sequence } from './engine-trace';
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -253,25 +254,59 @@ describe('W1b-4 定时任务的终态如实（cross.md missing：失败不再记
   }, 30000);
 });
 
-describe('W1b-4 删除处理器的收尾顺序（源码守卫）', () => {
+describe('W1b-4 删除处理器的收尾顺序（在真实引擎上观察调用的先后）', () => {
   // 依赖顺序（cross.md dependencies）：run 收尾 → 终端 / shell 释放 → 删库 → 广播。
-  // shell 在 Linux 上起不来（PowerShell），行为测试覆盖不到 ShellManager.dispose 的接线，这里认调用形态；先剥注释。
-  const code = stripComments(readFileSync(join(__dirname, '../src/minisd/index.ts'), 'utf8').replace(/\r\n/g, '\n'));
-  const body = (code.split("'chat.sessions.delete':")[1] ?? '').split(/\n {4}'[\w.]+':/)[0];
+  // 终端与 shell 在这里都没有真的起过进程：dispose 对没有进程的会话是空操作，但处理器照样要按这个次序调到它们。
+  afterEach(() => { vi.restoreAllMocks(); });
+  const STEPS = ['run.end', 'terminals.dispose', 'shells.dispose', 'chat.deleteSession', 'changed'];
 
-  it('先 await stopRun，再 terminals.dispose → shells.dispose(sessionId) → chat.deleteSession → 广播 chat.sessions.changed', () => {
-    const idx = [
-      body.search(/await stopRun\(sessionId,/),
-      body.search(/terminals\.dispose\(sessionId\)/),
-      body.search(/shells\.dispose\(sessionId\)/),
-      body.search(/chat\.deleteSession\(sessionId\)/),
-      body.search(/rpc\.broadcast\('chat\.sessions\.changed'/),
-    ];
-    for (const i of idx) expect(i).toBeGreaterThan(-1);
-    for (let k = 1; k < idx.length; k++) expect(idx[k]).toBeGreaterThan(idx[k - 1]);
-  });
+  /** 观察台加一个记「广播 chat.sessions.changed」的观察点。 */
+  function watching(): { w: EngineWatch; steps(after: number): string[] } {
+    const w = watchEngine();
+    const changed = recorder();
+    onCall(w.spy('rpc.broadcast'), (_self, [method]) => { if (method === 'chat.sessions.changed') changed(); });
+    return { w, steps: after => sequence({ ...Object.fromEntries(STEPS.slice(0, 4).map(n => [n, w.spy(n)])), changed }, after) };
+  }
 
-  it('停不下来就抛错，不往下删', () => {
-    expect(body).toMatch(/if \(!stopped\) throw new Error\('会话仍在停止中，请稍后再删'\)/);
-  });
+  it('先 await stopRun，再 terminals.dispose → shells.dispose(sessionId) → chat.deleteSession → 广播 chat.sessions.changed', async () => {
+    const { w, steps } = watching();
+    const { c } = await boot();
+    const target = await localServer(false);
+    const s = (await c.call('chat.sessions.create', {})).result;
+    await c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: toolScript('web_fetch', { url: target.url.replace('/mcp', '/page'), tool_title: '抓网页' }) });
+    await waitFor('permission.request', () => c.notifications.some(n => n.method === 'permission.request'));
+
+    const from = callMark();
+    expect((await c.call('chat.sessions.delete', { sessionId: s.id, confirm: true })).result).toEqual({ ok: true });
+    // 在跑的 run 先落终态（处理器等到了它收尾），再释放终端与 shell，再删库，最后才广播
+    expect(steps(from)).toEqual(STEPS);
+    expect(w.spy('run.end').mock.calls.at(-1)![1]).toMatchObject({ state: 'cancelled', reason: 'session-deleted' });
+    for (const step of ['terminals.dispose', 'shells.dispose', 'chat.deleteSession']) expect(w.spy(step).mock.calls.at(-1), step).toEqual([s.id]);
+  }, 30000);
+
+  it('停不下来就抛错，不往下删', async () => {
+    const { w, steps } = watching();
+    const { c } = await boot({ runStopTimeoutMs: 200 });
+    // 起跑停在连 MCP 上、不理会中止：200ms 内停不下来
+    let release!: () => void;
+    w.spy('mcp.ensureForRun').mockImplementationOnce(() => new Promise<void>(res => { release = res; }));
+    const s = (await c.call('chat.sessions.create', {})).result;
+    const prompting = c.call('chat.prompt', { sessionId: s.id, providerId: '__fake__', text: '你好' });
+    await waitFor('起跑停在连 MCP', () => typeof release === 'function');
+
+    const from = callMark();
+    const del = await c.call('chat.sessions.delete', { sessionId: s.id, confirm: true });
+    expect(del.error?.message ?? '').toContain('会话仍在停止中，请稍后再删');
+    // 抛错之后什么都没往下做：终端、shell 没释放，库没删，没有广播
+    expect(steps(from)).toEqual([]);
+    expect((await c.call('chat.sessions.list')).result.some((x: any) => x.id === s.id)).toBe(true);
+
+    // run 自己收尾之后再删：这回五步齐全、次序不变
+    release();
+    expect((await prompting).error?.message ?? '').toContain('会话已取消');
+    const again = callMark();
+    expect((await c.call('chat.sessions.delete', { sessionId: s.id, confirm: true })).error).toBeUndefined();
+    expect(steps(from).slice(0, 1)).toEqual(['run.end']);
+    expect(steps(again)).toEqual(STEPS.slice(1));
+  }, 30000);
 });

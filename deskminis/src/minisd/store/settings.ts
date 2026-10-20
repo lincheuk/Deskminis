@@ -7,6 +7,8 @@ export const SYNC_PAUSE_KEY = 'sync.paused';
 // 权限选择器档位（'ask'|'session'|'full'）持久化键：落 settings 表，重启后仍生效。
 // 与 SYNC_PAUSE_KEY 同表同机制，不新增 schema。
 export const PERMISSION_PRESET_KEY = 'permission.preset';
+// F11C 本机配对策略（'legacy'|'authenticated'）持久化键：缺失或非法值按 shared/pairing.ts 的 DEFAULT_PAIRING_POLICY。
+export const PAIRING_POLICY_KEY = 'pairing.policy';
 
 export class SettingsStore {
   constructor(private db: Database.Database) {}

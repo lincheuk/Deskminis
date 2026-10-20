@@ -10,6 +10,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { sfcBlocks } from './sfc-blocks';
+import { runSetup } from './sfc-setup';
+import { effectScope, isVNode, nextTick, type VNode } from 'vue';
 
 const { rpcCallMock } = vi.hoisted(() => ({ rpcCallMock: vi.fn() }));
 vi.mock('../src/renderer/src/rpc', () => ({
@@ -132,7 +134,20 @@ describe('Z4 设置页 — 模型组编辑器（SecModelGroups）', () => {
     expect(g).toContain('限流、密钥失效、请求被拒会立刻换');
     expect(g).toContain('重试约一分钟再换');
     expect(g).toContain('改绑到接手的模型');
+    // F02b：改绑只跟出错的降级走——只因输出被截断而改用备用的那一轮不改绑，说明里写明
+    expect(g).toContain('因出错换成功后，这个会话会改绑到接手的模型');
+    expect(g).toContain('只因输出被截断、没有产出正文而改用备用时不改绑，下一条消息仍先给原来的模型');
     expect(g).toContain('只有一个成员时不会降级');
+  });
+
+  it('README 功能表「模型组降级」一行与设置页同一个说法：改绑只跟出错的降级走，不写成无条件的「换成功后改绑」', () => {
+    const readme = readFileSync(join(__dirname, '../../README.md'), 'utf8').replace(/\r\n/g, '\n');
+    const row = readme.split('\n').find(l => l.startsWith('| 模型组降级 |'));
+    expect(row, 'README 功能表里找不到「模型组降级」一行').toBeDefined();
+    expect(row).toContain('因出错换成功后该会话改绑到接手的模型');
+    expect(row).toContain('只因输出被截断、没有产出正文而改用备用的那一轮不改绑');
+    // 改之前的写法：前一句只讲出错换用，这半句却不带条件——按输出额度换用（F02b）不改绑
+    expect(row).not.toMatch(/[；。，]换成功后该会话改绑/);
   });
 
   it('列表按成员顺序给出整条链（已删成员如实标出）', () => {
@@ -174,7 +189,7 @@ describe('Z5 — 绑定入口认组', () => {
     expect(a).not.toContain('providerNameOf');
   });
 
-  it('输入卡模型胶囊显示实际生效的绑定：会话绑定 > 欢迎页选中助手的绑定 > 默认', () => {
+  it('输入卡模型胶囊显示实际生效的绑定：会话绑定 > 欢迎页选中助手的绑定 > 默认', async () => {
     const c = read('Composer.vue');
     // 脚本段先剥注释再断言：读原文的话，代码退回旧三元式、上方留一行写着新调用的注释，正则照样命中
     // （W2b-4 审查实测过这个变异；交接 §2 第 10 条）。
@@ -195,12 +210,38 @@ describe('Z5 — 绑定入口认组', () => {
     // W2b-4b 审查补：模板与样式此前读的是原文 c——`<span>{{ permLabel }}<!-- {{ modelView.label }} --></span>`
     // 让胶囊不再显示生效的模型，照样全绿。模板段剥 <!-- -->、样式段剥 /* */ 后再断言（ct、cy 见上）
     expect(ct).toMatch(/:name="modelView\.kind === 'group' \? 'link' : 'robot'"/);
-    expect(ct).toMatch(/:title="modelView\.title"/);
+    // 完整 title 与同枚胶囊的行为断言见下方。
     expect(ct).toMatch(/\{\{ modelView\.label \}\}/);
     // 绑定对象已删：胶囊要变色，不能照常显示
     expect(ct).toMatch(/:class="\{ bad: modelView\.missing \}"/);
     expect(cy).toMatch(/\.cap\.bad\s*\{[^}]*var\(--c-warn\)/);
     // 上面几样须长在同一枚 .cap 胶囊上：散落到别处（比如 label 挪进一个 v-if="false" 的元素）也要红
-    expect(ct).toMatch(/<span class="cap" :class="\{ bad: modelView\.missing \}" :title="modelView\.title">\s*<UiIcon :name="modelView\.kind === 'group' \? 'link' : 'robot'" :size="13" \/>\s*<span>\{\{ modelView\.label \}\}<\/span>\s*<\/span>/);
+    // N24：完整文字进入 title/aria 后，原来的逐字模板形状不再成立。
+    // 真跑同一枚胶囊，防 title、图标、文字或错误态散落到其它元素。
+    const chat = useChat();
+    rpcCallMock.mockImplementation(async m => m === 'mcp.servers.list'
+      ? { servers: [], statuses: [], configError: false }
+      : m === 'provider.runtime.resolve' ? { runtime: { reasoning: { state: 'supported' } } } : []);
+    chat.activeId = 'N24';
+    chat.messages = [{ id: 'U', role: 'user', parts: [{ type: 'text', value: '合成' }] }];
+    chat.sessions = [{ id: 'N24', title: '合成', modelBinding: 'group:G1' }];
+    chat.providers = [{ id: 'P1', name: '合成一', hasApiKey: false, kind: 'openai-compat', modelId: 'model-a' }, { id: 'P2', name: '合成二', hasApiKey: false, kind: 'openai-compat', modelId: 'model-b' }];
+    chat.defaultProviderId = 'P1'; chat.modelGroups = GROUPS;
+    const run = await runSetup<any>(join(__dirname, '../src/renderer/src/ui/Composer.vue'), {}, effectScope(), { inlineTemplate: true });
+    const flatten = (v: any): VNode[] => Array.isArray(v) ? v.flatMap(flatten) : isVNode(v) ? [v, ...flatten(v.children)] : [];
+    try {
+      for (const [binding, label, icon, bad] of [['group:G1', '主备', 'link', false], ['provider:P2', 'model-b', 'robot', false], ['group:gone', '绑定的模型组已删除', 'link', true], ['', '默认 · model-a', 'robot', false]] as const) {
+        chat.sessions[0].modelBinding = binding; await nextTick();
+        const cap = flatten(run.bindings({}, [])).find(v => v.type === 'span' && String(v.props?.class).split(/\s+/).includes('cap'))!;
+        expect(cap).toBeDefined();
+        expect(cap.props!.role).toBe('img');
+        expect(cap.props!.title).toContain(label);
+        expect(cap.props!['aria-label']).toContain(label);
+        expect(String(cap.props!.class).split(/\s+/).includes('bad')).toBe(bad);
+        const children = flatten(cap.children);
+        expect(children.find(v => (v.type as any)?.name?.endsWith('UiIcon.vue'))?.props?.name).toBe(icon);
+        expect(children.find(v => v.props?.class === 'pill-text')?.children).toBe(label);
+      }
+    } finally { run.unmount(); }
   });
 });

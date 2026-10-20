@@ -8,7 +8,9 @@ import { computed } from 'vue';
 import { useChat } from '../stores/chat';
 import UiIcon from './UiIcon.vue';
 
-const props = defineProps<{ open: string[]; active: string | null }>();
+// active：当前标签。文档路径 = 那个文档；null = 会话标签（纯对话）；不传（undefined）= 一个都不标——
+// 舞台上是别的东西（F08 的审阅面板）时，标成哪个都与内容不符。
+const props = defineProps<{ open: string[]; active?: string | null }>();
 const emit = defineEmits<{
   (e: 'pick', path: string | null): void;
   (e: 'close', path: string): void;

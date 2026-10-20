@@ -264,6 +264,7 @@ describe('W3-sec2：正则扫描放进可终止的 worker', () => {
     Promise<{ rows: string[]; timedOut: boolean; aborted: boolean }>;
   const grepInWorker = (grepScanModule as unknown as { grepInWorker?: GrepInWorker }).grepInWorker;
 
+  // Q07：本例事件循环 tick 数受高负载影响；保留计时断言，无自动重试。见 docs/TESTING.md。
   it('点停止：灾难性回溯中途也立即返回 [已取消]，扫描期间引擎的事件循环照常转', async () => {
     writeFileSync(join(ws, 'x.txt'), REDOS_LINE);
     const controller = new AbortController();

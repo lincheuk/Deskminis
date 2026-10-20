@@ -46,6 +46,7 @@ const FROZEN: { dependencies: DepMap; devDependencies: DepMap } = {
     'electron-builder': '^26.15.3',
     'electron-vite': '^4.0.1',
     pinia: '^3.0.4',
+    postcss: '^8.5.23',
     typescript: '^5.9.3',
     vitest: '^3.2.7',
     vue: '^3.5.40',

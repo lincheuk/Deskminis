@@ -110,6 +110,13 @@ function printReport(r) {
   printCheck('Node.js 解析', r.checks.bridgeNode);
   console.log();
 
+  // F09：shell、终端、MCP 起的子进程是否受作业对象托管（纯信息项，不参与总体状态；连的是旧引擎时没有这一项，不打印）
+  if (r.checks.processOwnership) {
+    console.log('── 进程 ──');
+    printCheck('进程树托管', r.checks.processOwnership);
+    console.log();
+  }
+
   console.log('── M3c 配对 ──');
   if (r.checks.pairing.length === 0) {
     console.log('  （无已配对设备）');

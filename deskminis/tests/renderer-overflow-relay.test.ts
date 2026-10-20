@@ -34,6 +34,8 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import * as ts from 'typescript';
 import { parse as parseSfc } from 'vue/compiler-sfc';
 import { stripComments } from './strip-comments';
+import { sourceSetFiles } from './source-set';
+import { settleStore, type Chat, type Equal, type EventKind } from './renderer-store-fixture';
 
 // ── 桩掉 renderer 的 rpc：call 走可控实现并记账，on 把处理器收进 handlers，测试里直接派发广播 ──
 const { rpcCallMock, handlers, calls } = vi.hoisted(() => ({
@@ -218,30 +220,47 @@ function declsIn(root: ts.Node): string[] {
   return out;
 }
 
-/** stores/chat.ts 里名字各落在哪：state 里声明它的那个属性记 'state'；actions 对象的直接成员（方法、属性、存取器）
+/** stores目录的全部模块里名字各落在哪：state 里声明它的那个属性记 'state'；actions 对象的直接成员（方法、属性、存取器）
  *  记成员名；别处记 '?'（getters、文件顶层的帮手、state 里别的属性的初值……）。只认 actions 的直接成员：
  *  某个 action 里再套一个对象、上面挂一个叫 onEvent 的方法，算在外层那个 action 头上，冒充不了真的 onEvent。 */
-function storeSites(sf: ts.SourceFile, name: string): { site: string; node: ts.Node }[] {
-  const defs: ts.CallExpression[] = [];
-  walk(sf, n => { if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'defineStore') defs.push(n); });
-  if (defs.length !== 1) throw new Error(`stores/chat.ts 里 defineStore 应恰好一处，实际 ${defs.length}`);
-  const opts = defs[0].arguments[1];
-  if (!opts || !ts.isObjectLiteralExpression(opts)) throw new Error('defineStore 的第二个参数不是对象字面量');
-  const member = (k: string): ts.ObjectLiteralElementLike | undefined => opts.properties.find(p => p.name?.getText(sf) === k);
-  const st = member('state');
-  const ac = member('actions');
-  const stateFn = st && ts.isPropertyAssignment(st) ? st.initializer : undefined;
-  const stateBody = stateFn && ts.isArrowFunction(stateFn) && ts.isParenthesizedExpression(stateFn.body) ? stateFn.body.expression : undefined;
-  const actions = ac && ts.isPropertyAssignment(ac) ? ac.initializer : undefined;
-  if (!stateBody || !ts.isObjectLiteralExpression(stateBody)) throw new Error('state 不是 () => ({ … }) 的形态');
-  if (!actions || !ts.isObjectLiteralExpression(actions)) throw new Error('actions 不是对象字面量');
-  return mentions(sf, name).map(node => {
-    if (ts.isPropertyAssignment(node.parent) && node.parent.name === node && node.parent.parent === stateBody) return { site: 'state', node };
-    for (let p: ts.Node | undefined = node.parent; p; p = p.parent) {
-      if (p.parent === actions) return { site: (p as ts.ObjectLiteralElementLike).name?.getText(sf) ?? '?', node };
+function storeSites(name: string): { site: string; node: ts.Node }[] {
+  let definitions = 0;
+  const sites: { site: string; node: ts.Node }[] = [];
+  for (const file of sourceSetFiles(['src/renderer/src/stores'])) {
+    const sf = tsOf(file, readRoot(file));
+    const defs: ts.CallExpression[] = [];
+    walk(sf, n => { if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'defineStore') defs.push(n); });
+    definitions += defs.length;
+    const shapes = defs.map(def => {
+      const opts = def.arguments[1];
+      if (!opts || !ts.isObjectLiteralExpression(opts)) throw new Error('defineStore 的第二个参数不是对象字面量');
+      const member = (k: string) => opts.properties.find(p => p.name?.getText(sf) === k);
+      const st = member('state'), ac = member('actions');
+      const fn = st && ts.isPropertyAssignment(st) ? st.initializer : undefined;
+      const state = fn && ts.isArrowFunction(fn) && ts.isParenthesizedExpression(fn.body) ? fn.body.expression : undefined;
+      const actions = ac && ts.isPropertyAssignment(ac) ? ac.initializer : undefined;
+      if (!state || !ts.isObjectLiteralExpression(state)) throw new Error('state 不是 () => ({ … }) 的形态');
+      if (!actions || !ts.isObjectLiteralExpression(actions)) throw new Error('actions 不是对象字面量');
+      return { state, actions };
+    });
+    for (const node of mentions(sf, name)) {
+      let site = '?';
+      for (const { state, actions } of shapes) {
+        if (ts.isPropertyAssignment(node.parent) && node.parent.name === node && node.parent.parent === state) {
+          site = 'state';
+          break;
+        }
+        for (let p: ts.Node | undefined = node.parent; p; p = p.parent) if (p.parent === actions) {
+          site = (p as ts.ObjectLiteralElementLike).name?.getText(sf) ?? '?';
+          break;
+        }
+        if (site !== '?') break;
+      }
+      sites.push({ site, node });
     }
-    return { site: '?', node };
-  });
+  }
+  if (definitions === 0) throw new Error('stores 目录没有 defineStore');
+  return sites;
 }
 
 /** 一个代码文件里交给 TypeScript 解析的脚本，以及外置脚本的 src：.vue 按 SFC 块切，.html 按 <script> 标签切，其余整份。 */
@@ -659,7 +678,6 @@ describe('store.relayToNewSession：新建会话接力', () => {
 describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费', () => {
   const notes = sfc('ui/EventNotes.vue');
   const composer = sfc('ui/Composer.vue');
-  const store = stripComments(read('stores/chat.ts'));
 
   it('EventNotes：接力钮按 n.relay 出现、点了调 chat.relayToNewSession()；重试钮仍只认 n.retryable', () => {
     expect(notes.tpl).toMatch(/<button v-if="n\.relay" class="rt relay" type="button" @click="chat\.relayToNewSession\(\)">新建会话接力<\/button>/);
@@ -813,7 +831,9 @@ describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费
       const refs = [...sfs.flatMap(importsOf), ...srcs.map(spec => ({ spec, typeOnly: false }))];
       for (const { spec, typeOnly } of refs) if (!typeOnly && landsOutside(f, spec, DIRS)) escapes.push(`${f} → ${spec}`);
     }
-    expect(touching.sort()).toEqual(['src/renderer/src/stores/chat.ts', 'src/renderer/src/ui/Composer.vue']);
+    expect(touching.filter(f => f !== 'src/renderer/src/ui/Composer.vue').every(f => f.startsWith('src/renderer/src/stores/'))).toBe(true);
+    expect(touching.filter(f => f.startsWith('src/renderer/src/stores/')).length).toBeGreaterThan(0);
+    expect(touching.filter(f => f === 'src/renderer/src/ui/Composer.vue')).toHaveLength(1);
     expect(escapes, '渲染端值引用了 src/renderer、src/shared 之外的模块：挪进 src/shared，或把那个目录加进上面的扫描').toEqual([]);
   });
 
@@ -823,17 +843,29 @@ describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费
   });
 
   it('store：relayDraft 是 {sessionId, text}；eventNotes 类型带 relay / short', () => {
-    expect(store).toMatch(/relayDraft: null as null \| \{ sessionId: string; text: string \}/);
-    expect(store).toContain('retryable?: boolean; relay?: boolean; short?: string }[]');
+    // 编译期精确类型比较，不依赖声明排版；kind全集由renderer-store-events逐项真派发。
+    const draft: true = true as Equal<Chat['relayDraft'], null | { sessionId: string; text: string }>;
+    const notes: true = true as Equal<Chat['eventNotes'], { kind: EventKind; ts: number; key?: string; detail?: string; retryable?: boolean; relay?: boolean; short?: string; retry?: { attempt: number; delayMs: number } }[]>;
+    expect([draft, notes]).toEqual([true, true]);
   });
 
-  it('store：relayToNewSession 先写 relayDraft 再 await this.open(，并照抄模型绑定', () => {
-    const body = bodyFrom(store, 'async relayToNewSession() {');
-    const iDraft = body.indexOf('this.relayDraft = { sessionId: ');
-    const iOpen = body.indexOf('await this.open(');
-    expect(iDraft).toBeGreaterThan(-1);
-    expect(iOpen).toBeGreaterThan(iDraft);
-    expect(body).toMatch(/rpc\.call\('chat\.sessions\.setModelBinding', \{ sessionId: /);
+  it('store：relayToNewSession 先写 relayDraft 再 await this.open(，并照抄模型绑定', async () => {
+    // 新旧绑定不同、旧无绑定、新旧相同三种情况，均在取新会话消息的时点观察草稿。
+    for (const [source, created, expected] of [['group:G1', 'provider:P2', 'group:G1'], [undefined, 'provider:P2', undefined], ['group:G1', 'group:G1', undefined]] as const) {
+      setActivePinia(createPinia());
+      const chat = await boot({ sourceA: { modelBinding: source }, createBinding: created });
+      emit('A', { kind: 'error', code: 'contextFull', message: FULL_MSG, relayDraft: DRAFT });
+      await settleStore();
+      calls.length = 0;
+      await chat.relayToNewSession();
+      await settleStore();
+      const history = calls.filter(c => c.method === 'chat.messages.list' && c.params.sessionId === 'N');
+      expect(history).toHaveLength(1);
+      expect(history[0].relayDraft).toEqual({ sessionId: 'N', text: DRAFT });
+      expect(calls.filter(c => c.method === 'chat.sessions.setModelBinding').map(c => [c.method, c.params])).toEqual(source === created ? [] : [['chat.sessions.setModelBinding', { sessionId: 'N', binding: expected }]]);
+      expect(chat.activeId).toBe('N');
+      expect(chat.relayDraft).toEqual({ sessionId: 'N', text: DRAFT });
+    }
   });
 
   // W2a-6b：store 这一侧也得钉。给 store 加个取草稿的 action（popRelay），Composer 在 watch 里调它——Composer 里
@@ -842,14 +874,22 @@ describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费
   // 只在 onEvent 的一句里读，它进的是 relaySource（上面 store.onEvent 的行为测试钉着），这一句按原文钉住。
   // 不按变量名放行（把接收者叫成 e 就能混过去，W2a-6b 审查 Q4），也不在剥过注释的文本上数（字符串里的 'a//' 会把
   // 同行后面的读写一起剥掉，D3）。
-  it('store：relayDraft 只出现在 state 声明与 relayToNewSession 里（外加 onEvent 读引擎事件字段的一句），没有别的 getter / action 能取走它', () => {
-    const sf = tsOf('chat.ts', read('stores/chat.ts'));
-    const sites = storeSites(sf, 'relayDraft');
+  it('store：relayDraft 只出现在 state 声明与 relayToNewSession 里（外加 onEvent 读引擎事件字段的一句），没有别的 getter / action 能取走它', async () => {
+    // 真实事件与接力动作能验证写入和传递；隐藏的只读引用须由目录语法树限制。
+    const chat = await boot();
+    emit('A', { kind: 'error', code: 'contextFull', message: FULL_MSG, relayDraft: DRAFT });
+    await settleStore();
+    expect(chat.relaySource).toEqual({ sessionId: 'A', text: DRAFT });
+    expect(chat.relayDraft).toBeNull();
+    await chat.relayToNewSession();
+    await settleStore();
+    expect(chat.relayDraft).toEqual({ sessionId: 'N', text: DRAFT });
+    const sites = storeSites('relayDraft');
     expect(sites.filter(s => s.site === 'state'), 'state 声明应恰好一处').toHaveLength(1);
     expect([...new Set(sites.map(s => s.site))].sort(), 'relayDraft 出现在 state 声明、onEvent、relayToNewSession 之外')
       .toEqual(['onEvent', 'relayToNewSession', 'state']);
     const EVENT_LINE = "const draft = typeof e.relayDraft === 'string' ? e.relayDraft : '';";
-    expect(sites.filter(s => s.site === 'onEvent').map(s => stmtOf(s.node).getText(sf)), 'onEvent 里只许读引擎事件字段的那一句')
+    expect(sites.filter(s => s.site === 'onEvent').map(s => stmtOf(s.node).getText(s.node.getSourceFile())), 'onEvent 里只许读引擎事件字段的那一句')
       .toEqual([EVENT_LINE, EVENT_LINE]);
   });
 
@@ -857,13 +897,21 @@ describe('源码守卫：接力钮、短句优先、输入卡只在 setup 消费
   // 用户切回出事的旧会话时接力文本就被填进那个已满的会话；relaySource 被清空后 relayToNewSession 直接 return，
   // 接力钮也失效了——正是 state 里 relaySource 注释要防的事。所以它在 store 里只许落在 state 声明、onEvent（引擎报
   // contextFull 时写入，按原文钉成只写这一句）与 relayToNewSession（接力钮取用）里。
-  it('store：relaySource 只出现在 state 声明、onEvent（只写）与 relayToNewSession 里', () => {
-    const sf = tsOf('chat.ts', read('stores/chat.ts'));
-    const sites = storeSites(sf, 'relaySource');
+  it('store：relaySource 只出现在 state 声明、onEvent（只写）与 relayToNewSession 里', async () => {
+    // 真实事件与接力动作能验证写入和传递；隐藏的只读引用须由目录语法树限制。
+    const chat = await boot();
+    emit('A', { kind: 'error', code: 'contextFull', message: FULL_MSG, relayDraft: DRAFT });
+    await settleStore();
+    expect(chat.relaySource).toEqual({ sessionId: 'A', text: DRAFT });
+    expect(chat.relayDraft).toBeNull();
+    await chat.relayToNewSession();
+    await settleStore();
+    expect(chat.relayDraft).toEqual({ sessionId: 'N', text: DRAFT });
+    const sites = storeSites('relaySource');
     expect(sites.filter(s => s.site === 'state'), 'state 声明应恰好一处').toHaveLength(1);
     expect([...new Set(sites.map(s => s.site))].sort(), 'relaySource 出现在 state 声明、onEvent、relayToNewSession 之外')
       .toEqual(['onEvent', 'relayToNewSession', 'state']);
-    expect(sites.filter(s => s.site === 'onEvent').map(s => stmtOf(s.node).getText(sf)), 'onEvent 里只许写入这一句')
+    expect(sites.filter(s => s.site === 'onEvent').map(s => stmtOf(s.node).getText(s.node.getSourceFile())), 'onEvent 里只许写入这一句')
       .toEqual(['this.relaySource = draft ? { sessionId: this.activeId, text: draft } : null;']);
   });
 });

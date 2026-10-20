@@ -7,10 +7,22 @@
  * .vue 不在 typecheck 覆盖内，这里是源码守卫：先剥注释再认调用形态（模板剥 <!-- -->，脚本剥块注释与行注释），
  * 否则注释里留一句原文就能把断言喂饱（交接 §2 第 10 条）。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripComments } from './strip-comments';
+
+const probe = vi.hoisted(() => ({ call: vi.fn(), on: vi.fn(), handlers: new Map<string, (p: any) => unknown>(), lost: vi.fn(), connect: vi.fn(async () => {}) }));
+vi.mock('../src/renderer/src/rpc', () => ({ rpc: { call: probe.call, on: probe.on.mockImplementation((m: string, h: (p: any) => unknown) => probe.handlers.set(m, h)), onLost: probe.lost, connect: probe.connect } }));
+
+import { resetStoreRpc, initStore, settleStore } from './renderer-store-fixture';
+beforeEach(() => resetStoreRpc(probe));
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+import { deletionSentinels, seedDeletion } from './renderer-store-deletion';
 
 const src = readFileSync(join(__dirname, '../src/renderer/src/ui/NavRail.vue'), 'utf8').replace(/\r\n/g, '\n');
 const script = stripComments(src.slice(src.indexOf('<script'), src.indexOf('</script>')));
@@ -93,18 +105,25 @@ describe('W1b-4 NavRail 删除中状态与报错', () => {
 // 写进 lastError / eventNotes；删完落到欢迎页，欢迎页的输入卡照样顶着这条已删会话的错误。
 // 落到别的会话时 open() 换会话会清掉这组临时态，落到欢迎页的分支以前只清了 activeId 与 messages。
 describe('W1b-4 store.deleteSession：落到欢迎页时清掉被删会话的临时态', () => {
-  const chatCode = stripComments(readFileSync(join(__dirname, '../src/renderer/src/stores/chat.ts'), 'utf8').replace(/\r\n/g, '\n'));
-  const del = (chatCode.split(/\n {4}async deleteSession\(id: string\) \{/)[1] ?? '').split(/\n {4}(?:async )?[a-zA-Z]+\(/)[0];
-  const elseBranch = del.slice(del.search(/\belse \{/));
 
-  it('else 分支（没有别的会话可落）清 lastError / eventNotes / running 与降级、压缩、卸载、流式态', () => {
-    expect(del).not.toBe('');
-    expect(elseBranch.startsWith('else {')).toBe(true);
-    for (const re of [
-      /this\.activeId = ''/, /this\.messages = \[\]/,
-      /this\.lastError = ''/, /this\.retryNote = ''/, /this\.running = false/,
-      /this\.eventNotes = \[\]/, /this\.fallbackState = null/, /this\.compactedState = null/, /this\.offloadedState = null/,
-      /this\.streamingText = ''/, /this\.streamingThinking = ''/, /this\.toolCards = \[\]/,
-    ]) expect(elseBranch).toMatch(re);
+  it('else 分支（没有别的会话可落）清 lastError / eventNotes / running 与降级、压缩、卸载、流式态', async () => {
+    // 十二个字段各有非默认值；真删唯一会话后逐项观察清空结果。
+    const chat = await initStore(probe);
+    seedDeletion(chat);
+    for (const k of ['activeId', 'messages', 'lastError', 'retryNote', 'running', 'eventNotes', 'fallbackState', 'compactedState', 'offloadedState', 'streamingText', 'streamingThinking', 'toolCards'] as const) expect(chat[k]).toEqual(deletionSentinels[k]);
+    await chat.deleteSession('A');
+    await settleStore();
+    expect(chat.activeId).toBe('');
+    expect(chat.messages).toEqual([]);
+    expect(chat.lastError).toBe('');
+    expect(chat.retryNote).toBe('');
+    expect(chat.running).toBe(false);
+    expect(chat.eventNotes).toEqual([]);
+    expect(chat.fallbackState).toBeNull();
+    expect(chat.compactedState).toBeNull();
+    expect(chat.offloadedState).toBeNull();
+    expect(chat.streamingText).toBe('');
+    expect(chat.streamingThinking).toBe('');
+    expect(chat.toolCards).toEqual([]);
   });
 });

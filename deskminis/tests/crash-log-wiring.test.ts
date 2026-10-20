@@ -16,11 +16,13 @@
  *  ② 源码守卫（先剥注释再匹配）：两个进程的崩溃监听都只经安装函数挂——main 在 whenReady 早退之后、起更新检查与 fork 之前；
  *     minisd 只在 standalone 分支、作为分支第一句（进程内起 minisd 的 20 个测试不能被装上钩子）；
  *     exit 监听里判崩溃用的是握手与退出流程两个状态，连传进去的值一起钉（stopRequested 只有这里钉得住，见守卫处的说明）。 */
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripComments } from './strip-comments';
 import { bootMain, h } from './main-window-guard-harness';
+import { startCapturedEngine } from './engine-assembly';
+import { runStandaloneBranch } from './standalone-branch';
 
 vi.mock('electron', async () => (await import('./main-window-guard-harness')).fakeElectron());
 vi.mock('electron-updater', async () => (await import('./main-window-guard-harness')).fakeElectronUpdater());
@@ -56,6 +58,8 @@ beforeAll(async () => {
   logDir = join(process.env.DESKMINIS_DATA_DIR ?? '', 'logs');
 }, 30_000);
 afterAll(() => { restore(); });
+
+afterEach(() => vi.restoreAllMocks());
 
 type Rec = { process: string; kind: string; message: string; version: string; exitCode?: number; stderrTail?: string };
 const crashes = (): Rec[] => {
@@ -173,7 +177,6 @@ describe('① 优雅退出不是崩溃（放在最后：之后引擎就算退出
 describe('② 源码守卫', () => {
   const read = (rel: string): string => stripComments(readFileSync(join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n'));
   const main = read('src/main/index.ts');
-  const minisd = read('src/minisd/index.ts');
   /** 挂监听的各种写法（与 tests/main-shutdown-wiring.test.ts 同一个认法），事件名是两个崩溃事件之一 */
   const CRASH_HOOK = /\.(?:on|once|addListener|prependListener|prependOnceListener)\s*(?:\?\.)?\s*\(\s*['"`](?:uncaughtException|unhandledRejection)['"`]/;
 
@@ -207,12 +210,43 @@ describe('② 源码守卫', () => {
     }
   });
 
-  it('minisd 不自己挂崩溃监听：standalone 分支第一句是 installMinisdCrashHandlers(logRootFromEnv(process.env));，全文件只此一处', () => {
-    expect(minisd).not.toMatch(CRASH_HOOK);
-    expect(minisd.match(/\binstallMinisdCrashHandlers\(/g) ?? []).toHaveLength(1);
-    const standalone = blockAfter(minisd, /if \(process\.env\.DESKMINIS_STANDALONE === '1'\) \{/);
-    expect(standalone).toMatch(/^\s*installMinisdCrashHandlers\(\s*logRootFromEnv\(\s*process\.env\s*\)\s*\);/);
-  });
+  it('minisd 不自己挂崩溃监听：standalone 分支第一句是 installMinisdCrashHandlers(logRootFromEnv(process.env));，全文件只此一处', async () => {
+    // 进程内起引擎不安装崩溃钩子，测试框架已有的两类监听原样保留。
+    const before = ['uncaughtException', 'unhandledRejection'].map(event => process.listenerCount(event));
+    const e = await startCapturedEngine();
+    try {
+      expect(['uncaughtException', 'unhandledRejection'].map(event => process.listenerCount(event))).toEqual(before);
+    } finally {
+      await e.close();
+    }
+
+    // standalone实际第一步安装一次，传入临时根下的logs，赶在拿锁和装配之前。
+    const standaloneBefore = ['uncaughtException', 'unhandledRejection'].map(event => process.listenerCount(event));
+    const run = await runStandaloneBranch({ logDirName: 'q20a-custom-logs' });
+    try {
+      await run.settled();
+      expect(['uncaughtException', 'unhandledRejection'].map(event => process.listenerCount(event))).toEqual(standaloneBefore);
+      expect(run.order()[0]).toBe('crash.install');
+      expect(run.spies['crash.install'].mock.calls).toEqual([[join(run.root, 'q20a-custom-logs')]]);
+      expect(run.order().filter(name => ['crash.install', 'lock.acquire', 'rpc.listen'].includes(name))).toEqual(['crash.install', 'lock.acquire', 'rpc.listen']);
+      run.post({ type: 'shutdown' });
+      await run.exited();
+      expect(['uncaughtException', 'unhandledRejection'].map(event => process.listenerCount(event))).toEqual(standaloneBefore);
+    } finally {
+      await run.dispose();
+    }
+    // 启动失败也会走到分支的 catch；安装替身之外不许另挂监听。
+    const failedBefore = ['uncaughtException', 'unhandledRejection'].map(event => process.listenerCount(event));
+    const failed = await runStandaloneBranch({ lockHeld: true });
+    try {
+      await failed.settled();
+      expect(failed.spies['fatal.report'].mock.calls).toHaveLength(1);
+      expect(failed.spies['crash.install'].mock.calls).toEqual([[join(failed.root, 'logs')]]);
+      expect(['uncaughtException', 'unhandledRejection'].map(event => process.listenerCount(event))).toEqual(failedBefore);
+    } finally {
+      await failed.dispose();
+    }
+  }, 60000);
 
   it('exit 监听按「握手了没有」「请求过关停没有」「主进程在不在退出」判崩溃（传的是哪个值也钉住），判出来的才 recordCrash(', () => {
     const start = blockAfter(main, /function startMinisdProcess\(\): Promise<number> \{/);
