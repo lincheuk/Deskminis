@@ -1,11 +1,14 @@
-import { join, resolve, isAbsolute } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { dirname, join, resolve, isAbsolute } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
 
 /** 导出给 tools/data-gate.ts 复用：数据根收窄按桶名与全局目录名判定，两边各写一份常量迟早漂移。 */
 export const SESSION_BUCKETS = ['workspace', 'attachments', 'offloads', 'browser'] as const;
 export const GLOBAL_DIRS = ['memory', 'skills', 'shared', 'mcp-servers'] as const;
 export type SessionBucket = (typeof SESSION_BUCKETS)[number];
 export type GlobalDir = (typeof GLOBAL_DIRS)[number];
+/** 执行隔离第 2 步：放在 agent 根而不是数据根里的全局目录。会话的四个桶也都在 agent 根里（sessions/<id>/<桶>）。
+ *  其余全局目录（memory、skills、mcp-servers）是 DeskMinis 的控制面：会进提示、会被执行，留在数据根里。 */
+export const AGENT_GLOBAL_DIRS: readonly GlobalDir[] = ['shared'];
 
 /** 数据根锁（止血设计稿 §3 第 9 条）：`<dataRoot>/minisd.lock`，接管闸 `minisd.lock.recovery`。
  *  名字定在这里，W1b-3 的锁实现与 dataGate 的硬拒表引用同一对常量——
@@ -56,11 +59,52 @@ export function logRootFromEnv(env: Readonly<Record<string, string | undefined>>
   return defaultLogRoot(env, 'prod');
 }
 
+/** 执行隔离第 2 步：agent 根的缺省位置——LocalLow 下的 DeskMinis[-dev]（%USERPROFILE%\AppData\LocalLow）。
+ *  agent 能看到、能写的目录（会话的工作区、附件、卸载、浏览器桶与 shared）都在这里，数据根里只剩 DeskMinis 自己的东西；
+ *  放 LocalLow 是为第 3 步做准备：低完整性的进程只能写这类目录。非 Windows 回退 HOME/.local/share 下的 DeskMinis[-dev]-agent。 */
+export function defaultAgentRoot(env: Readonly<Record<string, string | undefined>>, variant: AppVariant): string {
+  if (env.LOCALAPPDATA) return join(dirname(env.LOCALAPPDATA), 'LocalLow', productDirName(variant));
+  return join(env.HOME ?? '.', '.local', 'share', `${productDirName(variant)}-agent`);
+}
+
+/** minisd 的 agent 根：DESKMINIS_AGENT_DIR 优先；显式给了数据根（DESKMINIS_DATA_DIR 或 dataDirGiven）却没给 agent 根时
+ *  就用数据根本身，布局与第 2 步之前相同（测试与 standalone 脚本的临时根照旧）；都没给时是正式版的缺省位置。
+ *  经主进程起的 minisd 总会收到主进程下发的 DESKMINIS_AGENT_DIR。空串当没设。 */
+export function agentRootFromEnv(env: Readonly<Record<string, string | undefined>>, dataRootPath: string, dataDirGiven = false): string {
+  if (env.DESKMINIS_AGENT_DIR) return env.DESKMINIS_AGENT_DIR;
+  if (dataDirGiven || env.DESKMINIS_DATA_DIR) return dataRootPath;
+  return defaultAgentRoot(env, 'prod');
+}
+
+/** 会话桶的实际目录（执行隔离第 2 步）：agent 根下的 sessions/<id>/<桶>；只有数据根里的旧桶还在、agent 根里还没有时
+ *  （启动时的迁移没搬成，例如文件被别的程序占着）才用旧桶——不然用户会以为工作区里的文件丢了。下次启动再搬。
+ *  主进程存粘贴的附件时用同一条规则，两边落在同一个目录。 */
+export function sessionBucketDir(dataRootPath: string, agentRootPath: string, sessionId: string, bucket: SessionBucket): string {
+  const fresh = join(agentRootPath, 'sessions', sessionId, bucket);
+  if (resolve(agentRootPath) === resolve(dataRootPath)) return fresh;
+  const legacy = join(dataRootPath, 'sessions', sessionId, bucket);
+  return !existsSync(fresh) && existsSync(legacy) ? legacy : fresh;
+}
+
 export class MinisPaths {
-  constructor(public readonly root: string) {}
+  /** root：数据根（DeskMinis 自己的数据：会话库、配置、技能、记忆、MCP 配置）。
+   *  agentRoot（执行隔离第 2 步）：agent 能看到的目录的根，缺省与数据根相同（第 2 步之前的布局）。 */
+  constructor(public readonly root: string, public readonly agentRoot: string = root) {
+    this.agentSeparate = resolve(agentRoot) !== resolve(root);
+  }
+
+  /** agent 根与数据根是不是两个目录。 */
+  readonly agentSeparate: boolean;
+
+  /** 每个会话桶第一次用时定下的目录（见 sessionBucketDir），本进程里不再变：之后数据根里冒出同名旧桶也不跟过去。 */
+  private bucketDirs = new Map<string, string>();
 
   sessionBucket(sessionId: string, bucket: SessionBucket): string {
-    return join(this.root, 'sessions', sessionId, bucket);
+    if (!this.agentSeparate) return join(this.agentRoot, 'sessions', sessionId, bucket);
+    const key = `${sessionId}\u0000${bucket}`;
+    let dir = this.bucketDirs.get(key);
+    if (dir === undefined) { dir = sessionBucketDir(this.root, this.agentRoot, sessionId, bucket); this.bucketDirs.set(key, dir); }
+    return dir;
   }
 
   /** 每会话工作区覆盖值的解析器。由 index.ts 注入——Paths 不该认识 DB。 */
@@ -75,7 +119,7 @@ export class MinisPaths {
     const o = this.workspaceResolver?.(sessionId);
     return (typeof o === 'string' && o.trim() !== '') ? resolve(o) : this.sessionBucket(sessionId, 'workspace');
   }
-  globalDir(name: GlobalDir): string { return join(this.root, name); }
+  globalDir(name: GlobalDir): string { return join(AGENT_GLOBAL_DIRS.includes(name) ? this.agentRoot : this.root, name); }
 
   ensureSessionDirs(sessionId: string): void {
     for (const b of SESSION_BUCKETS) mkdirSync(this.sessionBucket(sessionId, b), { recursive: true });
