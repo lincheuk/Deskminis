@@ -140,7 +140,9 @@ const PLAIN_KINDS: PermissionRequest['kind'][] = ['file-write', 'file-read', 'we
 const SHELL = {
   readonly: ['git status', 'dir', 'Get-Content a.txt'],
   /** 只读写法，但碰数据根 / 网络路径 / 环境变量：回落到询问 */
-  readonlyAsks: ['Get-Content $env:APPDATA\\DeskMinis\\minis.db', 'dir \\\\host\\share', 'gci env:'],
+  // 点到数据目录的（Get-Content $env:APPDATA\\DeskMinis\\…）在 full 档下有意改成询问（执行隔离方案第 0 步），与旧网关不再逐项相同，
+  // 由 exec-isolation-step0.test.ts 覆盖；这里换成同样回落、但不点到数据目录的上级目录写法
+  readonlyAsks: ['Get-Content ..\\minis.db', 'dir \\\\host\\share', 'gci env:'],
   gated: ['npm install'],
   danger: ['Remove-Item x', 'rm -r y'],
 };

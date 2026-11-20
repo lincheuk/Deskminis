@@ -51,6 +51,14 @@ const DANGER_ANYWHERE = [
   /\b(stop-service|remove-service|new-service|set-service)\b/i,
   /\bset-executionpolicy\b/i,
   /\b(stop-process|taskkill)\b/i,
+  // 磁盘与分区级的破坏性 cmdlet（隔离方案第 0 步）：格式化、清盘、重新初始化、删分区
+  /\b(format-volume|clear-disk|initialize-disk|remove-partition)\b/i,
+  // .NET 静态删除调用绕开了 cmdlet 名：[IO.File]::Delete、[System.IO.Directory]::Delete，
+  // 以及 VB 的 [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile / DeleteDirectory
+  /\[\s*(system\s*\.\s*)?io\s*\.\s*(file|directory)\s*\]\s*::\s*delete\b/i,
+  /::\s*delete(file|directory)\b/i,
+  // robocopy 的镜像与清除会把目标目录里源目录没有的东西全部删掉
+  /\brobocopy(\.exe)?\b[\s\S]*\s[/-](mir|purge)\b/i,
   // 名字绑定原语：影子命名（把无害名字重绑为任意行为）。含常见别名 nal/sal。
   /(^|[;|&(]\s*)(function|filter|workflow)\s/i,
   /\b(set-alias|new-alias|nal|sal)\b/i,
@@ -328,11 +336,127 @@ function asksEvenIfReadonly(c: string): boolean {
     || ASK_EVEN_IF_READONLY.some(re => re.test(c) || re.test(joined));
 }
 
+// ---------- 嵌套 shell（隔离方案第 0 步） ----------
+//
+// 危险规则看的是命令文本。经 cmd /c 或 powershell -Command 转一手，里层命令就不在「命令位」上了（cmd /c del x 里的 del
+// 前面是空格），-EncodedCommand 更是把整条命令藏进 base64。这里把里层命令取出来、解码，交给同一套规则再判一次。
+// 取不出来的照旧按外层判；能认出是编码命令却解不开的，一律按危险拒绝——解不开就不知道它要做什么。
+// 这仍然是读文本：cmd 的 %变量% 展开、PowerShell 拼接出来的命令名都认不出。真正的边界见执行隔离方案的沙箱部分。
+
+/** 递归展开的层数上限：超过的按「解不开」处理。 */
+const NESTED_MAX_DEPTH = 4;
+
+/** 找 cmd / powershell / pwsh 的调用：前面是行首、空白、分隔符、引号、@ 或路径分隔符（C:\Windows\System32\cmd.exe）。
+ *  argument 里恰好出现这几个词（git commit -m "用 cmd /c del 清理"）也会被当成调用，里层若命中危险规则整条会被拒——宁可多拒。 */
+const NESTED_SHELL_RE = /(?:^|[\s;|&(@"'\\/\u2018-\u201e])(cmd|powershell|pwsh)(?:\.exe)?(?=["'\s\u2018-\u201e]|$)/gi;
+
+/** cmd 的开关：/c、/k、/r 之后的全部文本就是要执行的命令；之前可以有 /s /q /d /v:on 这类开关。 */
+const CMD_SWITCHES_RE = /^\s*(?:\/[a-z](?::\S*)?\s+)*?\/[ckr](?=[\s"]|$)\s*([\s\S]*)$/i;
+
+/** PowerShell 命令行里带一个值的参数（按前缀认）。值之后才可能出现位置参数形式的命令。
+ *  -File 之后是脚本文件，内容看不到，不展开（这条命令本来就要过卡）。 */
+const PS_VALUE_PARAMS = [
+  'executionpolicy', 'ep', 'ex', 'windowstyle', 'w', 'version', 'v', 'psconsolefile', 'inputformat', 'if', 'outputformat', 'of',
+  'configurationname', 'workingdirectory', 'wd', 'settingsfile', 'custompipename',
+];
+
+/** PowerShell 认作参数前缀的字符：- / 以及长短横线。 */
+const PS_PARAM_PREFIX_RE = /^[-/\u2013-\u2015]/;
+
+/** 一个 token 去掉包住它的引号（含弯引号）。 */
+const unquote = (t: string): string => t.replace(/^["'\u2018-\u201e]+|["'\u2018-\u201e]+$/g, '');
+
+/** 严格的 base64 → UTF-16LE 文本。PowerShell 的 -EncodedCommand 就是这个格式；不合格返回 undefined。 */
+function decodeEncodedCommand(value: string): string | undefined {
+  const v = unquote(value);
+  if (v === '' || v.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(v)) return undefined;
+  const bytes = Buffer.from(v, 'base64');
+  if (bytes.length === 0 || bytes.length % 2 !== 0) return undefined;
+  const text = bytes.toString('utf16le');
+  // 解出来不是正常文本（替换符、控制字符）就不认：那不是 PowerShell 能执行的命令，也说不清它是什么
+  if (text.includes('\uFFFD') || /[\u0000-\u0008\u000e-\u001f]/.test(text)) return undefined;
+  return text;
+}
+
+/** 从 powershell / pwsh 之后的文本里取出要执行的命令。 */
+function psInner(rest: string): { inner?: string; undecodable?: boolean } {
+  const tokenRe = /\s*("[^"]*"|'[^']*'|\S+)/y;
+  let m: RegExpExecArray | null;
+  for (;;) {
+    const start = tokenRe.lastIndex;
+    m = tokenRe.exec(rest);
+    if (m === null) return {};
+    const token = m[1];
+    if (!PS_PARAM_PREFIX_RE.test(token)) {
+      // 第一个不是参数的 token 起就是位置参数形式的命令（powershell Remove-Item x）
+      return { inner: rest.slice(start) };
+    }
+    const name = token.slice(1).split(':')[0].toLowerCase();
+    if (name === '') continue;
+    if (name === 'e' || name === 'ec' || (name.startsWith('en') && 'encodedcommand'.startsWith(name))) {
+      const v = tokenRe.exec(rest);
+      const decoded = v === null ? undefined : decodeEncodedCommand(v[1]);
+      return decoded === undefined ? { undecodable: true } : { inner: decoded };
+    }
+    if (name.startsWith('c') && 'command'.startsWith(name)) return { inner: rest.slice(tokenRe.lastIndex) };
+    if (name.startsWith('f') && 'file'.startsWith(name)) return {};
+    // 跳过它的值；没有值（命令行到头）就没有要展开的命令。sticky 正则匹配失败会把 lastIndex 归零，不能接着循环
+    if (PS_VALUE_PARAMS.some(p => p.startsWith(name)) && tokenRe.exec(rest) === null) return {};
+  }
+}
+
+/** 命令文本连同它经 cmd /c、powershell -Command / -EncodedCommand 嵌进去的各层命令。
+ *  undecodable：认出了嵌套调用，但里层解不开（编码坏了、层数太深）。 */
+export function expandNestedShells(command: string, depth = 0): { texts: string[]; undecodable: boolean } {
+  const texts = [command];
+  let undecodable = false;
+  for (const m of command.matchAll(NESTED_SHELL_RE)) {
+    // & "C:\Windows\System32\cmd.exe" /c …：exe 名后面紧跟的收尾引号不算参数
+    const rest = command.slice((m.index ?? 0) + m[0].length).replace(/^["'\u2018-\u201e]/, '');
+    let inner: string | undefined;
+    if (m[1].toLowerCase() === 'cmd') {
+      const sw = CMD_SWITCHES_RE.exec(rest);
+      if (sw) inner = sw[1];
+    } else {
+      const r = psInner(rest);
+      if (r.undecodable) undecodable = true;
+      inner = r.inner;
+    }
+    if (inner === undefined) continue;
+    // 去掉包住整段的引号与 cmd 的 @ 前缀；cmd 把引号外的 ^ 当转义吞掉（d^el = del），去掉 ^ 的版本也判一次
+    inner = inner.trim().replace(/^["'\u2018-\u201e@]+/, '').trim();
+    if (inner === '') continue;
+    if (depth + 1 > NESTED_MAX_DEPTH) { undecodable = true; continue; }
+    const variants = inner.includes('^') ? [inner, inner.replace(/\^/g, '')] : [inner];
+    for (const v of variants) {
+      const sub = expandNestedShells(v, depth + 1);
+      texts.push(...sub.texts);
+      if (sub.undecodable) undecodable = true;
+    }
+  }
+  return { texts, undecodable };
+}
+
+function matchesDanger(c: string): boolean {
+  return DANGER_ANYWHERE.some(r => r.test(c)) || DANGER_AT_COMMAND_POSITION.some(r => r.test(c));
+}
+
+/** 完全访问档下仍要询问的命令（隔离方案第 0 步）：命令文本（含展开出来的里层命令）点到 DeskMinis 的数据目录或 AppData。
+ *  完全访问本来什么都不问，但数据目录里是会话库、模型密钥、MCP 配置（启动命令会被执行）和本机连接凭据——
+ *  改了它们，权限设置本身就可能被改掉。这是按写法认的门槛，不是边界：换个写法（拼接路径、环境变量间接取值）仍然认不出。
+ *  applicationdata 认的是 [Environment]::GetFolderPath('ApplicationData') / 'LocalApplicationData' 这种取法。 */
+const FULL_MODE_ASK_RE = /deskminis|appdata|applicationdata|%localappdata%/i;
+
+export function asksInFullMode(command: string): boolean {
+  return expandNestedShells(command.trim()).texts.some(t => FULL_MODE_ASK_RE.test(t) || FULL_MODE_ASK_RE.test(t.replace(QUOTE_CHARS_RE, '')));
+}
+
 export function classifyShellCommand(command: string): CommandClass {
   const c = command.trim();
-  // 危险层两个表原样先行：readonly 判定绝不允许越过 danger（Remove-Item 开头必是 danger）
-  if (DANGER_ANYWHERE.some(r => r.test(c))) return 'danger';
-  if (DANGER_AT_COMMAND_POSITION.some(r => r.test(c))) return 'danger';
+  // 危险层两个表原样先行：readonly 判定绝不允许越过 danger（Remove-Item 开头必是 danger）。
+  // 经 cmd /c、powershell -Command / -EncodedCommand 嵌进去的里层命令同样要过这两个表；认出是编码命令却解不开的按危险拒绝
+  const nested = expandNestedShells(c);
+  if (nested.undecodable || nested.texts.some(matchesDanger)) return 'danger';
   if (isReadonlyCommand(c)) return asksEvenIfReadonly(c) ? 'gated' : 'readonly';
   return 'gated';
 }
@@ -504,7 +628,10 @@ export class PermissionGatewayImpl implements PermissionGateway {
     // 例如 C:\tools\diskpart\notes.txt 会被误判成 danger 而静默拒绝；桥 kind 直接就是类目。
     const cls: PermissionClass = req.kind === 'shell' ? classifyShellCommand(req.detail) : req.kind;
     // plan 仍询问只因路径等敏感字样回落的只读命令；其它三档沿用原分类与档位。
-    const level = this.isPlanMode() && cls === 'gated' && isReadonlyCommand(req.detail) ? 'askOnce' : this.levels[cls];
+    let level = this.isPlanMode() && cls === 'gated' && isReadonlyCommand(req.detail) ? 'askOnce' : this.levels[cls];
+    // 完全访问档下，点到 DeskMinis 数据目录或 AppData 的命令仍询问（隔离方案第 0 步，见 asksInFullMode）。
+    // 只把放行改成询问，不会多放；会话授权照常生效，「本会话允许」过的同一条命令不再弹卡
+    if (level === 'bypass' && this.preset === 'full' && req.kind === 'shell' && cls === 'gated' && asksInFullMode(req.detail)) level = 'askOnce';
     if (level === 'bypass') return allowed('level-bypass');
     if (level === 'notAllowed') {
       // 规则直接拦下：不询问。以前这里不留任何痕迹，现在报给宿主记一条审计

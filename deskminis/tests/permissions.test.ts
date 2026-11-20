@@ -67,7 +67,8 @@ describe('classifyShellCommand', () => {
     ['Get-Content "a.txt', 'gated'], // 引号未配对 → 结构不明
     ['rg "$pattern" src', 'gated'], // 引号内含 $ → 可能展开，不收
     ['&{rm x}', 'gated'], // 调用符 + 脚本块
-    ['cmd /c del x', 'gated'], // cmd 白名单外；嵌套 shell 一律问
+    ['cmd /c del x', 'danger'], // 执行隔离第 0 步：cmd /c 里层命令取出来再过危险规则（del 在里层的命令位）
+    ['cmd /c dir', 'gated'], // cmd 白名单外；嵌套 shell 一律问
     ['Get-Content (Set-Content C:\\x -Value p)', 'gated'], // 裸括号是表达式求值，若放行会静默写文件
     // former bypasses（git --output / 裸括号 / UNC 求值形态）仍只是 gated → 走确认
     ['git diff --output=C:\\tmp\\a.txt', 'gated'], // git 家族 --output 把 diff 写入文件，旗标前缀后门拒绝
@@ -91,7 +92,8 @@ describe('classifyShellCommand', () => {
     ['echo hi | select-object', 'gated'], // 源命令不在白名单
     ['gci | foreach-object { $_ }', 'gated'], // {} 脚本块字符全局禁 → 过滤段过不了禁字符检查
     ['gci | out-file x.txt', 'gated'], // out-file 写盘，不在纯过滤白名单
-    ['type a.txt | cmd /c del x', 'gated'], // cmd 不在白名单（del 不在命令位，未触发 danger）
+    ['type a.txt | cmd /c del x', 'danger'], // 执行隔离第 0 步：管道右侧 cmd /c 的里层 del 同样认得出
+    ['type a.txt | cmd /c sort', 'gated'], // cmd 不在纯过滤白名单
     ['git log | git push', 'gated'], // 右侧 git 不是纯过滤器
     ['gci | select-object; select-string x', 'gated'], // 段内含 ; —— 复合结构穿透不了管道
     ['git log | select-string a | select-string b | select-string c', 'gated'], // 四段超保守上限
