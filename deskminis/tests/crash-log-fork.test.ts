@@ -61,6 +61,8 @@ beforeAll(async () => {
   // 子进程继承这两项：凭据走内存库（不碰开发机的 keyring），provider 用假的
   process.env.DESKMINIS_TEST = '1';
   process.env.DESKMINIS_FAKE_PROVIDER = '1';
+  // 端口文件默认不带 authToken；下面的 portFile() 要从里面取 token 连引擎
+  process.env.DESKMINIS_PERSIST_AUTH_TOKEN = '1';
   h.forkImpl = (_modulePath: string, _args: string[], opts: ForkOptions) => {
     const cp = spawn(process.execPath, ['-r', INJECT, VITE_NODE, 'src/minisd/index.ts'], {
       cwd: appRoot,

@@ -4,6 +4,7 @@
 // 不做成 npm script（避免与 npm test/npm run build 混淆）。
 //
 // 读取 minisd-port.json（含 port + authToken）连接本机 minisd，authMode=local。
+// 引擎默认不写 authToken：要先以 DESKMINIS_PERSIST_AUTH_TOKEN=1 启动应用（见下方提示）。
 // 如果 minisd 未运行或文件不存在，输出提示并退出。
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -35,8 +36,16 @@ try {
   process.exit(1);
 }
 
-if (!port || !authToken) {
-  console.error('错误：minisd-port.json 缺少 port 或 authToken——请重启 DeskMinis 应用。');
+if (!port) {
+  console.error('错误：minisd-port.json 缺少 port——请重启 DeskMinis 应用。');
+  process.exit(1);
+}
+if (!authToken) {
+  // 引擎默认不再把 authToken 写进端口文件：agent 的 shell 与引擎是同一个账户，读到它就能改权限档位、自己批准权限卡
+  console.error('错误：minisd-port.json 里没有 authToken——引擎默认不再把它写到磁盘上。');
+  console.error('  要用这个脚本，请先完全退出 DeskMinis，在同一个终端里设 DESKMINIS_PERSIST_AUTH_TOKEN=1 再启动应用，例如：');
+  console.error('    PowerShell：$env:DESKMINIS_PERSIST_AUTH_TOKEN = "1"; npm run dev');
+  console.error('  用完后不带这个变量重启一次，token 就不再落盘。');
   process.exit(1);
 }
 

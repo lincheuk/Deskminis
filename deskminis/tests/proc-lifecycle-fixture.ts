@@ -495,6 +495,8 @@ export class Lab {
     const pathKey = Object.keys(env).find(k => k.toLowerCase() === 'path') ?? 'PATH';
     env[pathKey] = this.binDir + ';' + (env[pathKey] ?? '');
     env.DESKMINIS_DATA_DIR = this.dataDir; env.DESKMINIS_E2E = '1';
+    // 端口文件默认不带 authToken（隔离方案第 0 步）；这里要从里面取 token 连引擎，显式打开
+    env.DESKMINIS_PERSIST_AUTH_TOKEN = '1';
     const main = appExe
       ? spawn(appExe, [`--user-data-dir=${join(this.root, 'electron')}`], { cwd: dirname(appExe), env, stdio: 'ignore' })
       : spawn(ELECTRON, ['.'], { cwd: appRoot, env, stdio: 'ignore' });

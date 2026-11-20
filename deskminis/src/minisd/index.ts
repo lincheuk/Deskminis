@@ -174,6 +174,14 @@ export async function resolveAndPersistPort(
   return port;
 }
 
+/** 端口文件里要不要带 authToken：只认 DESKMINIS_PERSIST_AUTH_TOKEN=1（主进程 fork 引擎时原样带上外层环境）。
+ *  DESKMINIS_ 前缀的变量不会传给 shell、终端与 MCP 子进程（proc/child-env.ts），agent 在 shell 里看不到它。
+ *  同一账户的进程仍能用 setx 之类写用户环境变量、等下次启动生效：这样的命令带着 DeskMinis 字样，完全访问档下也要询问
+ *  （tools/permissions.ts 的 asksInFullMode）；按写法认的门槛挡不住换了写法的，真正的边界要等沙箱。 */
+export function persistAuthTokenEnabled(env: Readonly<Record<string, string | undefined>>): boolean {
+  return env.DESKMINIS_PERSIST_AUTH_TOKEN === '1';
+}
+
 function writePersistedPort(portFile: string, port: number, authToken?: string): void {
   const tmp = portFile + '.tmp';
   const data: Record<string, unknown> = { port };
@@ -204,6 +212,11 @@ function writePersistedPort(portFile: string, port: number, authToken?: string):
   //
   // 缓解方向见计划 Backlog：dry-run 独立运行模式（不连 minisd，直接静态解析数据根），
   // 可彻底移除落盘需求。
+  //
+  // 【隔离方案第 0 步订正】上面「不扩大攻击面」的前提不成立：agent 的 shell 就是以同一账户执行代码的进程。
+  // 用户批准过的任何一个脚本都能读到这个 token，回环连上引擎，调 permission.setPreset 切到完全访问、
+  // 调 permission.respond 自己批准权限卡——权限网关整个失效。所以默认不再写；调用方（startMinisd）
+  // 只在开发者显式设了 DESKMINIS_PERSIST_AUTH_TOKEN=1 时才把 token 传进来（见 persistAuthTokenEnabled）。
   if (authToken) data.authToken = authToken;
   writeFileSync(tmp, JSON.stringify(data), 'utf8');
   renameSync(tmp, portFile);
@@ -2120,7 +2133,8 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   runLedger.startHeartbeat();
   // M3c Task 4：端口持久化（必改 4b）——读 minisd-port.json 复用 → 占用回退随机 → 写文件
   const listenHost = opts?.host ?? '127.0.0.1';
-  const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p), authToken);
+  // token 默认不落盘（见 writePersistedPort 的订正说明）；只有开发者显式开启时才写，供 scripts/dry-run.mjs 连接
+  const port = await resolveAndPersistPort(root, listenHost, opts?.port ?? 0, (h, p) => rpc.listen(h, p), persistAuthTokenEnabled(process.env) ? authToken : undefined);
   syncOpts.listenPort = port; // sync.hello 响应带实际监听端口（对端刷新地址簿，端口漂移自愈）
 
   // M3c Task 6：OutboundClient 装配（决策 8）——出站 WS 客户端，拨已配对对端（主从裁决 myFp < peerFp 者主拨）
