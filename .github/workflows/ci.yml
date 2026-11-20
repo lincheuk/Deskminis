@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: deskminis
+
+env:
+  # README 中 Windows x64 已验收的组合
+  NODE_VERSION: '24.19.0'
+  NPM_VERSION: '10.9.4'
+
+jobs:
+  check:
+    name: Typecheck, build, test
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: deskminis/package-lock.json
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\.electron-gyp
+          key: electron-${{ runner.os }}-${{ hashFiles('deskminis/package-lock.json') }}
+
+      - name: Use a long-path temp directory
+        # runner 默认的 TEMP 是 8.3 短名（C:\Users\RUNNER~1\...），而被测代码与 PowerShell 返回长名，
+        # 测试里按路径相等匹配的断言和故障注入会对不上。换成 runner.temp（D:\a\_temp），开发机上本来就是长名。
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
+      - name: Install npm ${{ env.NPM_VERSION }}
+        run: npm install -g npm@${{ env.NPM_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test (excluding load-sensitive files)
+        run: node scripts/ci-test.mjs stable --reporter=default --reporter=json --outputFile.json=../test-results/stable.json
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-report-stable
+          path: test-results/
+          if-no-files-found: ignore
+
+  load-sensitive:
+    # docs/TESTING.md「已知受高负载影响的用例」：单独、串行运行；不重试，失败只发警告并保留原日志，不阻塞合并。
+    name: Load-sensitive tests (non-blocking)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: deskminis/package-lock.json
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\.electron-gyp
+          key: electron-${{ runner.os }}-${{ hashFiles('deskminis/package-lock.json') }}
+
+      - name: Use a long-path temp directory
+        # runner 默认的 TEMP 是 8.3 短名（C:\Users\RUNNER~1\...），而被测代码与 PowerShell 返回长名，
+        # 测试里按路径相等匹配的断言和故障注入会对不上。换成 runner.temp（D:\a\_temp），开发机上本来就是长名。
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
+      - name: Install npm ${{ env.NPM_VERSION }}
+        run: npm install -g npm@${{ env.NPM_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test load-sensitive files
+        id: tests
+        continue-on-error: true
+        run: node scripts/ci-test.mjs load-sensitive --reporter=default --reporter=json --outputFile.json=../test-results/load-sensitive.json
+
+      - name: Report failure without blocking
+        if: steps.tests.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning title=Load-sensitive tests failed::负载敏感用例失败（不阻塞合并）。按 docs/TESTING.md，保留本次日志，再在同一提交、同一环境单独复验并记录结果。"
+          {
+            echo "### 负载敏感用例失败（不阻塞）"
+            echo
+            echo "按 docs/TESTING.md 的约定：保留本次日志与 test-report-load-sensitive 附件，再在同一提交、同一环境单独复验并记录结果；复验通过不能覆盖本次失败。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-report-load-sensitive
+          path: test-results/
+          if-no-files-found: ignore

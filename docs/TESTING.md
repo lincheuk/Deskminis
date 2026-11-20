@@ -53,3 +53,14 @@ Remove-Item Env:DESKMINIS_F09_FULL
 | `sync-delete-e2e.test.ts` | 删除传播及保留副本的端到端收敛等待 |
 
 一次完整任务交付仍须全量两遍、类型检查和构建。记录各次结果，区分已存在的失败、新增失败与未验证项；单独复验通过不能覆盖原全量失败。
+
+## 持续集成（GitHub Actions）
+
+`.github/workflows/ci.yml` 在 `windows-latest` 上运行，推送到 main、每个 PR 以及手动触发时执行。分组由 `deskminis/scripts/ci-test.mjs` 决定，本地可用同一脚本复现：
+
+| CI job | 内容 | 失败时 |
+|---|---|---|
+| Typecheck, build, test | `npm ci`、`npm run typecheck`、`npm run build`，以及 `node scripts/ci-test.mjs stable`（默认档减去「已知受高负载影响的用例」中的 8 个文件） | 阻塞合并，失败时上传 vitest JSON 报告 |
+| Load-sensitive tests (non-blocking) | `node scripts/ci-test.mjs load-sensitive`：只跑这 8 个文件，逐个文件串行 | 不阻塞合并；发出警告并上传 JSON 报告，不重试 |
+
+「已知受高负载影响的用例」增删文件时，同步修改 `ci-test.mjs` 中的 `LOAD_SENSITIVE`。CI 不替代上面的完整交付要求：剪贴板档、完整进程档与发布验收仍须在 Windows 桌面会话中执行。负载敏感 job 的失败同样按上文约定保留日志并复验，不能因为它不阻塞就忽略。
