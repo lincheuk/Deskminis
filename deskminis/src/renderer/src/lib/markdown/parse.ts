@@ -13,13 +13,16 @@ export type MdInline =
   | { type: 'inlineCode'; text: string }
   | { type: 'link'; href: string; children: MdInline[] };
 
+/** 列表项：只出现在 ul/ol 的 items 里。单独命名，模板里 `it.children` 才能被类型检查认出来。 */
+export type MdListItem = { type: 'li'; children: MdNode[] };
+
 export type MdNode =
   | { type: 'paragraph'; children: MdInline[] }
   | { type: 'heading'; level: 2 | 3; children: MdInline[] }
   | { type: 'codeBlock'; lang: string; code: string; open?: true }
-  | { type: 'ul'; items: MdNode[] }
-  | { type: 'ol'; items: MdNode[]; start: number }
-  | { type: 'li'; children: MdNode[] }
+  | { type: 'ul'; items: MdListItem[] }
+  | { type: 'ol'; items: MdListItem[]; start: number }
+  | MdListItem
   | { type: 'blockquote'; children: MdNode[] }
   | { type: 'table'; header: MdInline[][]; rows: MdInline[][][] }
   | { type: 'hr' };
@@ -247,7 +250,7 @@ function parseList(lines: string[], start: number, liveTail: boolean): { node: M
   const first = (ordered ? OL_RE.exec(lines[start]) : UL_RE.exec(lines[start]))!;
   const baseIndent = first[1].length;
   const startNum = ordered ? parseInt((first as RegExpExecArray)[2], 10) : 1;
-  const items: MdNode[] = [];
+  const items: MdListItem[] = [];
   let i = start;
 
   while (i < lines.length) {

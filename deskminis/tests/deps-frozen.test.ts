@@ -19,7 +19,7 @@ const readJson = (rel: string): Record<string, unknown> =>
 
 type DepMap = Record<string, string>;
 
-/** 2026-09-24 的依赖清单，逐字照抄 package.json（11 条 + 14 条）。 */
+/** 依赖清单，逐字照抄 package.json（11 条 + 16 条）。2026-09-24 定稿；2026-11-20 加 vue-tsc（typecheck 覆盖 .vue）。 */
 const FROZEN: { dependencies: DepMap; devDependencies: DepMap } = {
   dependencies: {
     '@napi-rs/keyring': '^1.3.0',
@@ -50,6 +50,7 @@ const FROZEN: { dependencies: DepMap; devDependencies: DepMap } = {
     typescript: '^5.9.3',
     vitest: '^3.2.7',
     vue: '^3.5.40',
+    'vue-tsc': '^3.3.14',
   },
 };
 
