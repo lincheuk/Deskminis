@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   PermissionGatewayImpl, classifyShellCommand, MAX_UNANSWERED_STREAK,
-  type PermissionClass, type PermissionLevel, type PermissionPreset, type PromptAnswer, type PromptControl,
+  type PermissionClass, type PermissionLevel, type PermissionPreset, type PromptAnswer, type PromptControl, type ShellAnalysis,
 } from '../src/minisd/tools/permissions';
 import type { BridgePermissionKind, PermissionDecision, PermissionGateway, PermissionRequest } from '../src/minisd/tools/types';
 import type { PermissionDenied, PermissionOutcome, UserDecision } from '../src/shared/permission';
@@ -36,6 +36,8 @@ const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
   danger: 'notAllowed',
   readonly: 'bypass',
   gated: 'askOnce', 'file-write': 'askOnce', 'file-read': 'askOnce',
+  // 隔离方案第 1 步加了 opaque 类目，只为让类型齐全；文本分类器从不产出它，原行为不受影响
+  opaque: 'askOnce',
   'web-fetch': 'askOnce',
   'web-search': 'askOnce',
   'mcp': 'askOnce',
@@ -69,6 +71,7 @@ class LegacyGateway implements PermissionGateway {
       this.levels = {
         danger: 'notAllowed',
         readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
+        opaque: 'askOnce', // 同上，只为类型齐全
         'web-fetch': 'bypass',
         'web-search': 'bypass',
         'mcp': 'bypass',
@@ -368,34 +371,36 @@ describe('G2 差分：新 decide 的许可范围与改动前的 check 逐项相�
 
 describe('G2b 金表：三档 × 每个类目，期望写死在这里', () => {
   type Cell = 'allow' | 'deny' | 'ask';
-  const SAMPLES: { cls: PermissionClass; r: PermissionRequest }[] = [
+  const SAMPLES: { cls: PermissionClass; r: PermissionRequest; analysis?: ShellAnalysis }[] = [
     { cls: 'danger', r: req('shell', 'Remove-Item x') },
     { cls: 'readonly', r: req('shell', 'git status') },
     { cls: 'gated', r: req('shell', 'npm install') },
+    // 看不透的命令只有解析器能认出来（隔离方案第 1 步），这里由钩子直接给出判断
+    { cls: 'opaque', r: req('shell', 'iex $code'), analysis: { cls: 'opaque' } },
     ...PLAIN_KINDS.map(k => ({ cls: k as PermissionClass, r: req(k, 'detail') })),
     ...BRIDGE_KINDS.map(k => ({ cls: k as PermissionClass, r: req(k, 'windows-x y') })),
   ];
   const ASK_ROW: Record<PermissionClass, Cell> = {
-    danger: 'deny', readonly: 'allow', gated: 'ask', 'file-write': 'ask', 'file-read': 'ask', 'web-fetch': 'ask', 'web-search': 'ask', mcp: 'ask',
+    danger: 'deny', readonly: 'allow', gated: 'ask', opaque: 'ask', 'file-write': 'ask', 'file-read': 'ask', 'web-fetch': 'ask', 'web-search': 'ask', mcp: 'ask',
     'bridge-device': 'allow', 'bridge-notify': 'ask', 'bridge-clipboard-read': 'ask', 'bridge-clipboard-write': 'ask',
     'bridge-open': 'ask', 'bridge-speak': 'ask', 'bridge-screenshot': 'ask',
   };
   const FULL_ROW: Record<PermissionClass, Cell> = {
-    danger: 'deny', readonly: 'allow', gated: 'allow', 'file-write': 'allow', 'file-read': 'allow', 'web-fetch': 'allow', 'web-search': 'allow', mcp: 'allow',
+    danger: 'deny', readonly: 'allow', gated: 'allow', opaque: 'ask', 'file-write': 'allow', 'file-read': 'allow', 'web-fetch': 'allow', 'web-search': 'allow', mcp: 'allow',
     'bridge-device': 'allow', 'bridge-notify': 'allow', 'bridge-clipboard-read': 'allow', 'bridge-clipboard-write': 'allow',
     'bridge-open': 'allow', 'bridge-speak': 'allow', 'bridge-screenshot': 'allow',
   };
   const GOLD: Record<Exclude<PermissionPreset, 'plan'>, Record<PermissionClass, Cell>> = { ask: ASK_ROW, session: ASK_ROW, full: FULL_ROW };
 
-  it('覆盖了全部 15 个类目', () => {
+  it('覆盖了全部 16 个类目', () => {
     expect(SAMPLES.map(s => s.cls).sort()).toEqual(Object.keys(ASK_ROW).sort());
   });
 
   it.each(PRESETS)('%s 档逐格相等；不问即放行的 via 只能是 level-bypass', async preset => {
-    for (const { cls, r } of SAMPLES) {
+    for (const { cls, r, analysis } of SAMPLES) {
       // 每格一个新网关：不让上一格的答复影响这一格
       const s = scripted(() => 'deny');
-      const gw = new PermissionGatewayImpl(s.prompt);
+      const gw = new PermissionGatewayImpl(s.prompt, undefined, undefined, undefined, analysis ? { analyzeShell: async () => analysis } : undefined);
       gw.applyPreset(preset);
       const o = await gw.decide(r);
       const cell: Cell = s.calls.length > 0 ? 'ask' : o.decision;
@@ -406,9 +411,9 @@ describe('G2b 金表：三档 × 每个类目，期望写死在这里', () => {
   });
 
   it('缺省（不调 applyPreset）与 ask 档相同', async () => {
-    for (const { cls, r } of SAMPLES) {
+    for (const { cls, r, analysis } of SAMPLES) {
       const s = scripted(() => 'deny');
-      const o = await new PermissionGatewayImpl(s.prompt).decide(r);
+      const o = await new PermissionGatewayImpl(s.prompt, undefined, undefined, undefined, analysis ? { analyzeShell: async () => analysis } : undefined).decide(r);
       expect(s.calls.length > 0 ? 'ask' : o.decision, cls).toBe(ASK_ROW[cls]);
     }
   });

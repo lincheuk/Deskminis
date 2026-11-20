@@ -34,7 +34,9 @@ export interface PermPreview { oldText: string; newText: string }
  *  preview 只放差分正文，note 说明这次动的是什么；note 也不拼进 detail——detail 是逐字的路径，
  *  会话授权键（permissions.ts）与既有断言都按它匹配。kind 不变，档位与标题映射都不用动。
  *  note 进广播也进审计（审计只剔除 preview 全文）。 */
-export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | 'mcp' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview; note?: string }
+export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | 'mcp' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview; note?: string;
+  /** 只在网关交给询问函数的请求上：解析器对这条 shell 命令的判断（权限卡的风险显示用）。调用方不填，填了也不参与判定。 */
+  shellClass?: 'danger' | 'readonly' | 'gated' | 'opaque' }
 /** 粗决定（F04 的 SchedulerEvent 用它）。带原因的结果是 PermissionOutcome（F13，shared/permission.ts）。 */
 export type PermissionDecision = 'allow' | 'deny';
 
