@@ -4,8 +4,13 @@ import {
   type PermissionAllowed, type PermissionDenied, type PermissionDenyCause, type PermissionOutcome, type UserDecision,
 } from '../../shared/permission';
 
-/** 危险层保留：这些命令即使用户想批准也硬拦截（不可逆/系统级/影子命名原语）。 */
-export type CommandClass = 'danger' | 'readonly' | 'gated';
+/** 危险层保留：这些命令即使用户想批准也硬拦截（不可逆/系统级/影子命名原语）。
+ *  opaque（隔离方案第 1 步）：PowerShell 解析器看出命令名或代码要运行时才拼出来（Invoke-Expression、& $x、[scriptblock]::Create……），
+ *  看不出它会做什么——完全访问档下也询问。只有解析器给出结果时才会有这一类，文本规则不产出它。 */
+export type CommandClass = 'danger' | 'readonly' | 'gated' | 'opaque';
+
+/** 宿主对一条 shell 命令的进一步判断（隔离方案第 1 步，见 shell-analysis.ts）。note 写在权限卡上，说明为什么要问。 */
+export interface ShellAnalysis { cls: CommandClass; note?: string }
 export type PermissionLevel = 'bypass' | 'askOnce' | 'notAllowed';
 
 /** F13：网关放弃这次询问的原因，作为 PromptControl.signal 的 abort reason。 */
@@ -327,7 +332,7 @@ const ASK_EVEN_IF_READONLY = [DATA_ROOT_HINT_RE, REMOTE_PATH_RE, ENV_PROVIDER_RE
 
 /** 原文与「去掉引号」的文本各判一次：PowerShell 把引号和紧挨着的字拼成一个参数（Desk''Minis → DeskMinis、e''nv: → env:、
  *  \''\host → \\host），只看原文会被引号拆开的字样骗过；原文那一遍保留「引号后面紧跟 \\host 也算打头」。 */
-function asksEvenIfReadonly(c: string): boolean {
+export function asksEvenIfReadonly(c: string): boolean {
   const joined = c.replace(QUOTE_CHARS_RE, '');
   // 按带引号的参数取路径，目录名里的空格不会漏掉，也不会跨到下一参数的分隔符。
   const tokens = c.replace(/[\u2018-\u201b]/g, "'").replace(/[\u201c-\u201e]/g, '"')
@@ -437,7 +442,7 @@ export function expandNestedShells(command: string, depth = 0): { texts: string[
   return { texts, undecodable };
 }
 
-function matchesDanger(c: string): boolean {
+export function matchesDanger(c: string): boolean {
   return DANGER_ANYWHERE.some(r => r.test(c)) || DANGER_AT_COMMAND_POSITION.some(r => r.test(c));
 }
 
@@ -469,6 +474,8 @@ const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
   // 只读免批：保守子集判定通过即静默放行——查目录/看 git status 这类高频只读不再打断用户
   readonly: 'bypass',
   gated: 'askOnce', 'file-write': 'askOnce', 'file-read': 'askOnce',
+  // 看不透的命令（命令名或代码运行时才拼出来）：和 gated 一样询问；不同在完全访问档下也询问
+  opaque: 'askOnce',
   // web 抓取默认过卡：URL 的查询串/路径可携带会话内外传数据，是现成的静默外泄通道
   'web-fetch': 'askOnce',
   // web 搜索同理：查询串本身就是数据外传通道（论证同 web-fetch），默认过卡
@@ -530,6 +537,9 @@ export class PermissionGatewayImpl implements PermissionGateway {
       onDenied?(req: PermissionRequest, d: PermissionDenied, opts?: Pick<PermissionAskOptions, 'toolUseId' | 'origin'>): void;
       runActive?(sessionId: string): boolean;
       onRevoked?(req: PermissionRequest, a: PermissionAllowed): void;
+      /** 隔离方案第 1 步：用 PowerShell 解析器进一步判断 shell 命令（见 shell-analysis.ts）。文本规则判为危险的不再问它；
+       *  它返回 undefined 或抛错时照旧按文本规则。它可以把只读命令改成询问、把 ; 串起来的只读命令认作只读、认出更多危险命令。 */
+      analyzeShell?(req: PermissionRequest): Promise<ShellAnalysis | undefined>;
     },
   ) {
     this.levels = { ...DEFAULT_LEVELS, ...levels };
@@ -547,6 +557,8 @@ export class PermissionGatewayImpl implements PermissionGateway {
         // 危险规则按命令写法认（DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），拦不住所有不可逆操作——设置页副标题照此如实写
         danger: 'notAllowed',
         readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
+        // 看不透的命令完全访问档下也询问（隔离方案第 1 步）：危险规则按写法认，拼出来的命令名它认不出
+        opaque: 'askOnce',
         'web-fetch': 'bypass',
         'web-search': 'bypass',
         'mcp': 'bypass',
@@ -557,7 +569,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
     } else {
       this.levels = { ...DEFAULT_LEVELS };
       if (preset === 'plan') {
-        for (const cls of ['gated', 'file-write', 'mcp', 'bridge-notify', 'bridge-clipboard-write', 'bridge-open', 'bridge-speak'] as const) {
+        for (const cls of ['gated', 'opaque', 'file-write', 'mcp', 'bridge-notify', 'bridge-clipboard-write', 'bridge-open', 'bridge-speak'] as const) {
           this.levels[cls] = 'notAllowed';
         }
       }
@@ -626,7 +638,17 @@ export class PermissionGatewayImpl implements PermissionGateway {
   async decide(req: PermissionRequest, opts: PermissionAskOptions = {}): Promise<PermissionOutcome> {
     // 非 shell 请求的 detail 是路径/能力串，不能喂给 shell 分类器：
     // 例如 C:\tools\diskpart\notes.txt 会被误判成 danger 而静默拒绝；桥 kind 直接就是类目。
-    const cls: PermissionClass = req.kind === 'shell' ? classifyShellCommand(req.detail) : req.kind;
+    let cls: PermissionClass = req.kind === 'shell' ? classifyShellCommand(req.detail) : req.kind;
+    // 交给询问函数的请求：带上解析器的判断（权限卡据此显示风险与原因）。授权、审计照旧用原请求
+    let asked = req;
+    if (req.kind === 'shell' && cls !== 'danger' && this.hooks?.analyzeShell) {
+      let a: ShellAnalysis | undefined;
+      try { a = await this.hooks.analyzeShell(req); } catch { a = undefined; }
+      if (a !== undefined) {
+        cls = a.cls;
+        asked = { ...req, shellClass: a.cls, ...(a.note !== undefined && req.note === undefined ? { note: a.note } : {}) };
+      }
+    }
     // plan 仍询问只因路径等敏感字样回落的只读命令；其它三档沿用原分类与档位。
     let level = this.isPlanMode() && cls === 'gated' && isReadonlyCommand(req.detail) ? 'askOnce' : this.levels[cls];
     // 完全访问档下，点到 DeskMinis 数据目录或 AppData 的命令仍询问（隔离方案第 0 步，见 asksInFullMode）。
@@ -697,7 +719,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
     let raw: unknown;
     try {
       // 询问函数同步调用：卡片在 decide 的同一拍登记
-      const p = Promise.resolve(this.prompt(req, {
+      const p = Promise.resolve(this.prompt(asked, {
         signal: ask.signal, toolUseId: opts.toolUseId, origin,
         issued: id => { issuedId = id; try { opts.onIssued?.(id); } catch { /* 观察者的错误不影响判定 */ } },
       }));

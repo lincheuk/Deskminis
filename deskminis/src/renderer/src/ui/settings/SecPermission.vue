@@ -18,7 +18,7 @@ const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: bo
   // W1b-2g：旧副标题许诺「不可逆的系统操作仍拦截」，言过其实。危险规则是 minisd/tools/permissions.ts 的两张表
   // （DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），按命令写法匹配：完全访问下，换个写法的删除（[IO.File]::Delete）、
   // 表里没有的 Format-Volume 照样会执行。举的例子必须真在表里（tests/renderer-settings-modal.test.ts 逐个交给分类器判）
-  { tier: 'full', icon: 'alert', title: '完全访问', sub: '除了点到 DeskMinis 数据目录或 AppData 的命令，不再询问；危险规则只按命令写法拦截（如 Remove-Item、reg delete），拦不住所有不可逆操作', danger: true },
+  { tier: 'full', icon: 'alert', title: '完全访问', sub: '除了点到 DeskMinis 数据目录或 AppData 的命令、看不出会执行什么的命令，不再询问；危险规则只按命令写法拦截（如 Remove-Item、reg delete），拦不住所有不可逆操作', danger: true },
 ];
 </script>
 

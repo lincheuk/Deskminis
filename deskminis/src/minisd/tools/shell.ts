@@ -9,6 +9,7 @@ import type { OwnedTree, ProcSupervisor, ProcTreeMeta } from '../proc/owned';
 import type { ProcStopCause } from '../../shared/proc';
 import { cancelCauseOf } from '../../shared/permission';
 import { ShellOutput, SHELL_OUTPUT_LIMIT } from './shell-output';
+import { isReadonlyCommand } from './permissions';
 
 const MAX_OUTPUT = SHELL_OUTPUT_LIMIT;
 
@@ -41,6 +42,16 @@ ${hook === '' ? '' : `  ${hook}\n`}  $sp = $line.IndexOf(' ')
 `;
 const DRIVER_PS = driverPs('');
 
+/** 问驱动此刻在哪个目录（隔离方案第 1 步：只读命令的相对路径按它解析）。包在 & { } 里，不在会话作用域留下变量；
+ *  不是文件系统位置（cd 到了 HKLM: 之类）时回空。路径按 UTF-8 转 base64，避开控制台编码。 */
+const LOCATION_QUERY = "& { $l = Get-Location; if ($l.Provider.Name -eq 'FileSystem') { [Console]::Out.WriteLine('__MINIS_LOC_' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($l.ProviderPath)) + '__') } else { [Console]::Out.WriteLine('__MINIS_LOC___') } }";
+const LOCATION_RE = /__MINIS_LOC_([A-Za-z0-9+/=]*)__/;
+const LOCATION_TIMEOUT_MS = 10_000;
+
+/** run 的附加选项。keepsLocation：这条命令改不了当前目录，跑完之后记下的位置仍然有效。
+ *  internal：宿主自己发的查询，不消费「shell 已重启」的提示（那句话要留给模型的下一条命令）。 */
+export interface RunOptions { keepsLocation?: boolean; internal?: boolean }
+
 /** 宿主侧解码：驱动已把控制台切到 UTF-8，但仍拦不住硬编码 GBK 输出的老 exe。
  *  先按 UTF-8 解，无 U+FFFD 即直接用；含替换符说明字节不是合法 UTF-8（多半是 GBK），降级再解一次。
  *  只做「有替换符才降级」而非「先猜编码」：UTF-8 合法性校验是结构性的（多字节序列必须自洽），
@@ -70,6 +81,8 @@ export class PersistentShell {
   private readonly supervisor: ProcSupervisor | undefined;
   /** 当前驱动对应的那棵树（与 proc 同生共换）。 */
   private tree: OwnedTree | undefined;
+  /** 已知的当前目录（隔离方案第 1 步）。只对记下它时的那个驱动有效；跑过可能改目录的命令就作废，下次用时再问驱动。 */
+  private loc: { proc: ChildProcessWithoutNullStreams; path: string } | undefined;
 
   /** env：会话级环境变量（MINIS_CHAT_SESSION_ID/桥管道等），在 shell 首次创建时捕获——长驻进程出生后无法改环境。
    *  opts：平台、spawn 与本进程环境的注入，生产用缺省值（见 proc/win-exec.ts）。
@@ -119,23 +132,41 @@ export class PersistentShell {
       proc.stderr.resume(); // 驱动已 2>&1 并入 stdout；排空真实 stderr 管道避免写满阻塞
     }
     this.proc = proc;
+    this.loc = { proc, path: this.cwd }; // 新驱动在出生目录里
     return proc;
   }
 
+  /** 驱动此刻的当前目录（隔离方案第 1 步）。驱动还没起或已经没了：下一条命令在出生目录里跑，就是它。
+   *  说不清（查询超时、不在文件系统里、已释放）时返回 undefined。查询排在命令队列里，不会插到正在跑的命令中间。 */
+  async location(): Promise<string | undefined> {
+    if (this.disposed) return undefined;
+    const live = this.proc !== undefined && this.proc.exitCode === null && !this.proc.killed;
+    if (!live) return this.cwd;
+    if (this.loc !== undefined && this.loc.proc === this.proc) return this.loc.path;
+    const r = await this.run(LOCATION_QUERY, LOCATION_TIMEOUT_MS, { keepsLocation: true, internal: true });
+    const m = LOCATION_RE.exec(r.output);
+    if (m === null || m[1] === '') return undefined;
+    const path = Buffer.from(m[1], 'base64').toString('utf8');
+    if (this.proc !== undefined && this.loc === undefined) this.loc = { proc: this.proc, path };
+    return path;
+  }
+
   /** 会话内串行：排队执行。 */
-  run(command: string, timeoutMs = 120000): Promise<{ output: string; exitCode: number; durationMs: number }> {
-    const next = this.queue.then(() => this.runNow(command, timeoutMs));
+  run(command: string, timeoutMs = 120000, opts: RunOptions = {}): Promise<{ output: string; exitCode: number; durationMs: number }> {
+    const next = this.queue.then(() => this.runNow(command, timeoutMs, opts));
     this.queue = next.catch(() => undefined);
     return next;
   }
 
-  private runNow(command: string, timeoutMs: number): Promise<{ output: string; exitCode: number; durationMs: number }> {
+  private runNow(command: string, timeoutMs: number, opts: RunOptions = {}): Promise<{ output: string; exitCode: number; durationMs: number }> {
     // dispose() 后队列里剩余（或之后新来）的调用不得再 ensure()，否则会复活一个无人跟踪的孤儿进程。
     if (this.disposed) return Promise.resolve({ output: '[shell 已释放]', exitCode: 130, durationMs: 0 });
     // 上一轮把驱动杀了：本条命令跑在重建后的新进程上，cd/env 已复位，必须让模型知道
-    const resetNote = this.wasReset ? RESET_HINT + '\n' : '';
-    this.wasReset = false; // 只提示一次：紧接着的这条命令
+    const resetNote = this.wasReset && !opts.internal ? RESET_HINT + '\n' : '';
+    if (!opts.internal) this.wasReset = false; // 只提示一次：紧接着的这条命令
     const proc = this.ensure();
+    // 这条命令可能 cd 到别处：记下的位置作废（只读白名单里的命令改不了目录，留着）
+    if (!opts.keepsLocation) this.loc = undefined;
     const marker = randomUUID().slice(0, 8);
     const sentinel = new RegExp(`__MINIS_DONE_${marker}_EXIT_(-?\\d+)__`);
     const started = Date.now();
@@ -240,12 +271,18 @@ export class ShellManager {
     return s;
   }
 
+  /** 隔离方案第 1 步：该会话的命令此刻会在哪个目录里跑。还没建 shell 时是 fallback（工作区，shell 会在那里出生）。 */
+  locationOf(sessionId: string, fallback: string): Promise<string | undefined> {
+    const s = this.shells.get(sessionId);
+    return s === undefined ? Promise.resolve(fallback) : s.location();
+  }
+
   /** F04：该会话常驻 shell 的出生目录（没建过返回 undefined）。只读，给调度器算锁范围用：
    *  getShell 只在首次创建时用 cwd，会话中途改了工作区之后 shell 仍在旧目录里跑。 */
   cwdOf(sessionId: string): string | undefined { return this.shells.get(sessionId)?.cwd; }
 
-  run(sessionId: string, cwd: string, command: string, timeoutMs?: number, env?: Record<string, string>): Promise<{ output: string; exitCode: number; durationMs: number }> {
-    return this.getShell(sessionId, cwd, env).run(command, timeoutMs);
+  run(sessionId: string, cwd: string, command: string, timeoutMs?: number, env?: Record<string, string>, opts?: RunOptions): Promise<{ output: string; exitCode: number; durationMs: number }> {
+    return this.getShell(sessionId, cwd, env).run(command, timeoutMs, opts);
   }
 
   /** 会话级中断（取消时由 shell 工具的 abort 监听触发）：杀该会话当前驱动，下条命令自动重建。 */
@@ -329,7 +366,8 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       };
       ctx.signal?.addEventListener('abort', onAbort);
       try {
-        const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx));
+        // 只读白名单里的命令改不了当前目录：跑完不必再问驱动在哪（隔离方案第 1 步）
+        const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx), { keepsLocation: isReadonlyCommand(command) });
         let output = r.output;
         if (output.length > MAX_OUTPUT) output = output.slice(0, MAX_OUTPUT) + `\n[输出超过 100KB 被截断]`;
         return { output: `${timeoutNote}${output}\n[exit=${r.exitCode}, ${r.durationMs}ms]`, success: r.exitCode === 0 };

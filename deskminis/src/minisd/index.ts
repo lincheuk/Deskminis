@@ -27,6 +27,10 @@ import { officeReadTool, officeWriteTool } from './tools/office';
 import { parseOffice } from './office/parse';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
 import { ShellManager, makeShellTool } from './tools/shell';
+import { PsParser } from './tools/ps-parse';
+import { analyzeShellCommand } from './tools/shell-analysis';
+import { powershellPath } from './proc/win-exec';
+import { childEnv } from './proc/child-env';
 import { PermissionGatewayImpl, classifyShellCommand } from './tools/permissions';
 import { PermissionBroker, responderOf, type SystemSettle } from './tools/permission-broker';
 import { buildPreviewMessages, runAgentLoop, shapeMessagesForSlot, type ProviderSlot, type SystemPromptCtx } from './agent/loop';
@@ -456,7 +460,7 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     describe: req => {
       if (req.kind !== 'shell') return {};
       const t = detectBridgeTriggers(req.detail);
-      return { riskClass: classifyShellCommand(req.detail), ...(t.length > 0 ? { bridgeTriggers: t } : {}) };
+      return { riskClass: req.shellClass ?? classifyShellCommand(req.detail), ...(t.length > 0 ? { bridgeTriggers: t } : {}) };
     },
     onApproved: (e, decision) => {
       // 决策 4c 桥双段授权合并：shell 卡批准时，对探测到的每个桥 kind 同步授权（会话级/一次性计数）。
@@ -479,6 +483,10 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     permBroker.settleWhere(e => filter === 'all' || e.req.sessionId === filter,
       { reason: 'cancelled', cause: reason === 'cancelled' ? 'user-stop' : reason });
   }
+  // 常驻的 PowerShell 解析进程（只解析不执行，见 tools/ps-parse.ts）。只在真 Windows 上起；第一次判断 shell 命令时才启动
+  const psParser = process.platform === 'win32'
+    ? new PsParser({ exe: powershellPath(process.env), env: childEnv(process.env) })
+    : undefined;
   const gateway = new PermissionGatewayImpl(permBroker.ask, undefined, permTimeoutMs, undefined, {
     // 不弹卡的拒绝（规则拦截、核心数据、MCP 停用、无人答复抑制）与「批准之后没执行」记一条审计，不广播
     onDenied: (req, d, o) => {
@@ -506,6 +514,14 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       }
       if (kinds.length > 0) stableCache.invalidate(req.sessionId);
     },
+    // 隔离方案第 1 步：Windows 上用 PowerShell 自己的解析器再判一次（shell-analysis.ts）。解析器起不来、超时就按文本规则，与第 0 步相同。
+    // 延迟执行的闭包，引用后面才声明的 shells
+    ...(psParser !== undefined ? {
+      analyzeShell: req => {
+        const workspace = paths.workspaceOf(req.sessionId);
+        return analyzeShellCommand(req.detail, { workspace, cwd: () => shells.locationOf(req.sessionId, workspace) }, psParser);
+      },
+    } : {}),
   });
   /** F13：MCP 停用 / 会话禁用 / 改配置 / 移除时，把这台挂着的权限卡当场作废——卡片从界面消失、工具立即返回，
    *  不用等人点或 90 秒。调用点都放在配置已写入、forget 之后：工具醒来现查配置时看到的是新状态。
@@ -2259,6 +2275,7 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       await shutdownReap([
         ['销毁终端', () => terminals.disposeAll()],
         ['销毁 shell', () => shells.disposeAll()],
+        ['停止命令解析进程', () => { psParser?.dispose(); }],
         ['断开 MCP', () => mcpManager.disposeAll()],
       ], reapWaitMs);
       await shutdownStepAsync('关桥', () => bridge?.close());
