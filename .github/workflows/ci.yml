@@ -37,12 +37,20 @@ jobs:
           cache-dependency-path: deskminis/package-lock.json
 
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~\AppData\Local\electron\Cache
             ~\.electron-gyp
           key: electron-${{ runner.os }}-${{ hashFiles('deskminis/package-lock.json') }}
+
+      - name: Use a long-path temp directory
+        # runner 默认的 TEMP 是 8.3 短名（C:\Users\RUNNER~1\...），而被测代码与 PowerShell 返回长名，
+        # 测试里按路径相等匹配的断言和故障注入会对不上。换成 runner.temp（D:\a\_temp），开发机上本来就是长名。
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
       - name: Install npm ${{ env.NPM_VERSION }}
         run: npm install -g npm@${{ env.NPM_VERSION }}
@@ -61,7 +69,7 @@ jobs:
 
       - name: Upload test report
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: test-report-stable
           path: test-results/
@@ -82,12 +90,20 @@ jobs:
           cache-dependency-path: deskminis/package-lock.json
 
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~\AppData\Local\electron\Cache
             ~\.electron-gyp
           key: electron-${{ runner.os }}-${{ hashFiles('deskminis/package-lock.json') }}
+
+      - name: Use a long-path temp directory
+        # runner 默认的 TEMP 是 8.3 短名（C:\Users\RUNNER~1\...），而被测代码与 PowerShell 返回长名，
+        # 测试里按路径相等匹配的断言和故障注入会对不上。换成 runner.temp（D:\a\_temp），开发机上本来就是长名。
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
       - name: Install npm ${{ env.NPM_VERSION }}
         run: npm install -g npm@${{ env.NPM_VERSION }}
@@ -113,7 +129,7 @@ jobs:
 
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: test-report-load-sensitive
           path: test-results/
