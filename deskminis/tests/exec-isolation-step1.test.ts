@@ -429,7 +429,7 @@ describe.skipIf(!WIN)('真实 PowerShell 解析器', () => {
     const s = await parser.parse('git status; type "a b.txt" -Encoding:utf8 $x');
     expect(s).toBeDefined();
     expect(s!.errors).toBe(0);
-    expect(s!.statements).toEqual([[0, 10], [12, 45]]);
+    expect(s!.statements).toEqual([[0, 10], [12, 44]]);
     expect(s!.commands.map(c => c.n)).toEqual(['git', 'type']);
     expect(s!.commands[1].a).toEqual([{ t: 's', v: 'a b.txt' }, { t: 'p', n: 'Encoding', v: 'utf8' }, { t: 'x', v: '$x' }]);
   }, 30_000);
