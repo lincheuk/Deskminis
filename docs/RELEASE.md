@@ -227,7 +227,10 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - [ ] 安装目录 `resources\` 下有 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`（W1a-1 起随包；
       `extraResources` 的 `from: ../` 指向工程目录之外，缺了就退回在 `deskminis/` 下放拷贝并加一致性测试）。
       `verify:release` 第 8 项查的是 `win-unpacked`，这一条确认装出来的也有。
-- [ ] 卸载：数据目录保留（`deleteAppDataOnUninstall: false`）；`%LOCALAPPDATA%\DeskMinis`（日志）与
+- [ ] 从旧版本升级装上之后第一次启动：数据目录里的 `sessions\<id>\` 下的工作区、附件等目录与 `shared\` 搬到了
+      `%USERPROFILE%\AppData\LocalLow\DeskMinis`，老会话的附件、卸载的长输出能照常打开，「改动」面板能恢复升级前的改动。
+- [ ] 卸载：数据目录保留（`deleteAppDataOnUninstall: false`）；`%LOCALAPPDATA%\DeskMinis`（日志）、
+      `%USERPROFILE%\AppData\LocalLow\DeskMinis`（会话工作区与附件）与
       `%LOCALAPPDATA%\deskminis-updater`（安装程序留的自身副本与自动更新下载的安装包）也还在——README「数据存在哪」的彻底清理写的就是这几处。
 
 ## 4. 发布到公开发布仓库 `lincheuk/deskminis-releases`

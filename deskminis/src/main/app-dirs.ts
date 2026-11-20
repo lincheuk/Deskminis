@@ -7,13 +7,16 @@
  *
  *  纯函数、不 import electron：isPackaged 与 env 由调用方传入，测试可以直接穷举组合。 */
 import { join, resolve } from 'node:path';
-import { defaultDataRoot, defaultLogRoot, type AppVariant } from '../minisd/paths';
+import { defaultAgentRoot, defaultDataRoot, defaultLogRoot, type AppVariant } from '../minisd/paths';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
 export interface AppDirs {
   /** minisd 的数据根，经 DESKMINIS_DATA_DIR 下发。 */
   dataRoot: string;
+  /** agent 根（执行隔离第 2 步），经 DESKMINIS_AGENT_DIR 下发：会话的工作区、附件、卸载、浏览器桶与 shared 在这里，
+   *  主进程存粘贴的附件也落在这里。 */
+  agentRoot: string;
   /** 要 app.setPath('userData') 的目录；undefined 表示保持 Electron 默认（打包态）。 */
   userData?: string;
   /** keyring 服务名，经 DESKMINIS_KEYRING_SERVICE 下发。 */
@@ -36,6 +39,9 @@ export interface AppDirs {
  *   非 Windows 回退 HOME/.local/state。放 Local 而不放数据根：数据根在 Roaming 下会被域漫游或 OneDrive 同步，
  *   日志不该跟着漫游，也不该进数据根写闸和将来备份的范围。
  *
+ * - agent 根：设了 DATA_DIR 时就是它（布局与以前相同，临时根自成一体）；否则 LocalLow 下的 DeskMinis[-dev]，
+ *   非 Windows 回退 HOME/.local/share 下的 DeskMinis[-dev]-agent（paths.ts 的 defaultAgentRoot）。
+ *
  * 所有路径都 resolve 成绝对路径：app.setPath 只收绝对路径，DATA_DIR 给相对路径时会在模块顶层抛错、应用起不来。
  * 主进程与 minisd 的 cwd 相同，所以对 minisd 来说落点不变。
  */
@@ -49,5 +55,6 @@ export function resolveAppDirs(input: { isPackaged: boolean; env: Env }): AppDir
   const logRoot = override ? join(override, 'logs') : resolve(defaultLogRoot(env, variant));
   const userData = isPackaged ? undefined : (override ? join(override, 'electron') : dataRoot);
   const keyringService = isPackaged ? 'DeskMinis' : 'DeskMinis-dev';
-  return { dataRoot, userData, keyringService, logRoot, variant };
+  const agentRoot = override ?? resolve(defaultAgentRoot(env, variant));
+  return { dataRoot, agentRoot, userData, keyringService, logRoot, variant };
 }

@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
-import { attachmentPath, contentTag, decodeImageDataUrl, extFromDataUrl } from '../src/main/attachments';
+import { attachmentPath, contentTag, decodeImageDataUrl, extFromDataUrl, sessionAttachmentPath } from '../src/main/attachments';
 import { validateAttachmentName } from '../src/shared/attachments';
 
 const VALID_ID = 'A47184C8-77FA-4D88-9981-6BDE73C87C4E';
@@ -119,8 +119,9 @@ describe('F11A：attachments:save 把内容标签接进落盘的文件名（取�
     }).outputText;
     const mod: { exports: unknown } = { exports: undefined };
     // 处理体用到的自由标识符就是这几个；以后多用一个，这里会以 ReferenceError 红，补进来即可
-    new Function('module', 'attachmentPath', 'contentTag', 'decodeImageDataUrl', 'extFromDataUrl', 'mkdirSync', 'writeFileSync', 'dirname', 'dirs', js)(
-      mod, attachmentPath, contentTag, decodeImageDataUrl, extFromDataUrl, mkdirSync, writeFileSync, dirname, { dataRoot },
+    // 第 2 步起附件落在 agent 根：这里两个根取同一个目录，落盘位置与老布局一致
+    new Function('module', 'sessionAttachmentPath', 'contentTag', 'decodeImageDataUrl', 'extFromDataUrl', 'mkdirSync', 'writeFileSync', 'dirname', 'dirs', js)(
+      mod, sessionAttachmentPath, contentTag, decodeImageDataUrl, extFromDataUrl, mkdirSync, writeFileSync, dirname, { dataRoot, agentRoot: dataRoot },
     );
     return mod.exports as (e: unknown, sessionId: unknown, dataUrl: unknown) => string;
   }

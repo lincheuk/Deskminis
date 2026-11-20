@@ -105,7 +105,7 @@ export class AttachmentStore {
   constructor(
     private readonly db: Database.Database,
     private readonly root: string,
-    private readonly paths: Pick<MinisPaths, 'sessionBucket'>,
+    private readonly paths: Pick<MinisPaths, 'sessionBucket'> & { readonly root?: string; readonly agentRoot?: string },
     private readonly limits: AttachmentLimits,
     private readonly io: AttachmentIo,
     private readonly now: () => number,
@@ -139,8 +139,9 @@ export class AttachmentStore {
     try {
       if (create) mkdirSync(dir, { recursive: true });
       const real = realpathSync.native(dir);
-      const expect = join(realpathSync.native(this.root), 'sessions', sessionId, 'attachments');
-      return samePath(real, expect);
+      // 执行隔离第 2 步：桶在 agent 根里；迁移没搬成的会话桶暂时还在数据根里（paths.ts 的 sessionBucketDir），两处都认
+      const roots = [this.paths.agentRoot ?? this.root, ...(this.paths.agentRoot !== undefined ? [this.paths.root ?? this.root] : [])];
+      return roots.some(r => samePath(real, join(realpathSync.native(r), 'sessions', sessionId, 'attachments')));
     } catch { return false; }
   }
 
