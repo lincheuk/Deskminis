@@ -7,7 +7,7 @@
     "test": "cross-env ELECTRON_RUN_AS_NODE=1 electron node_modules/vitest/vitest.mjs run",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit",
     "e2e": "node scripts/e2e-acceptance.mjs",
     "e2e:m2b": "node scripts/e2e-m2b-acceptance.mjs",
     "e2e:m2a": "node scripts/e2e-m2a-acceptance.mjs",
@@ -59,6 +59,7 @@
     "postcss": "^8.5.23",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7",
-    "vue": "^3.5.40"
+    "vue": "^3.5.40",
+    "vue-tsc": "^3.3.14"
   }
 }
