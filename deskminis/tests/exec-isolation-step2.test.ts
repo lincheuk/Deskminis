@@ -7,7 +7,7 @@
 import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { agentRootFromEnv, AGENT_GLOBAL_DIRS, defaultAgentRoot, MinisPaths, sessionBucketDir } from '../src/minisd/paths';
 import { migrateAgentDirs, rewriteCheckpointPaths, type MigrateIo } from '../src/minisd/store/agent-dirs-migrate';
 import { openDb } from '../src/minisd/store/db';
@@ -46,8 +46,8 @@ describe('agent 根的位置', () => {
 
   it('主进程：打包态在 LocalLow，设了 DATA_DIR 就跟着它', () => {
     const env = { APPDATA: '/home/u/AppData/Roaming', LOCALAPPDATA: '/home/u/AppData/Local' };
-    expect(resolveAppDirs({ isPackaged: true, env }).agentRoot).toBe(join('/home/u/AppData/LocalLow', 'DeskMinis'));
-    expect(resolveAppDirs({ isPackaged: false, env }).agentRoot).toBe(join('/home/u/AppData/LocalLow', 'DeskMinis-dev'));
+    expect(resolveAppDirs({ isPackaged: true, env }).agentRoot).toBe(resolve('/home/u/AppData/LocalLow', 'DeskMinis'));
+    expect(resolveAppDirs({ isPackaged: false, env }).agentRoot).toBe(resolve('/home/u/AppData/LocalLow', 'DeskMinis-dev'));
     const override = resolveAppDirs({ isPackaged: true, env: { ...env, DESKMINIS_DATA_DIR: '/tmp/x' } });
     expect(override.agentRoot).toBe(override.dataRoot);
   });
