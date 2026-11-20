@@ -17,7 +17,7 @@ it.each([[0,1],[-5,1],[0.5,1],[3601,3600],[3600,3600],[1,1],[NaN,120],[Infinity,
  const manager=new ShellManager();const run=vi.spyOn(manager,'run').mockResolvedValue({output:'result',exitCode:0,durationMs:7});
  const input:any={command:'dir',tool_title:'test'};if(requested!==undefined)input.timeout_seconds=requested;
  const tool=makeShellTool(manager);const r=await tool.execute(input,{sessionId:'S',paths:new MinisPaths('synthetic'),permissions:new PermissionGatewayImpl(async()=> 'deny')});
- expect(run).toHaveBeenCalledWith('S',expect.any(String),'dir',seconds*1000,undefined);expect(r.success).toBe(true);
+ expect(run).toHaveBeenCalledWith('S',expect.any(String),'dir',seconds*1000,undefined,{keepsLocation:true}); // 隔离第 1 步：只读命令跑完沿用记下的当前目录expect(r.success).toBe(true);
  if(requested!==undefined&&requested!==seconds){expect(r.output.startsWith('timeout_seconds='+String(requested))).toBe(true);expect(r.output.split('\n')[0]).toContain('已按 '+seconds+' 秒执行');}
  else expect(r.output).toBe('result\n[exit=0, 7ms]');await manager.disposeAll();
 });

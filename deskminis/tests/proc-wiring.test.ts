@@ -95,11 +95,14 @@ describe('F09 源码守卫（W1–W5、W8）', () => {
     }
   });
 
-  it('W2 src/minisd 里引 node:child_process 的文件恰好是 8 个；桥与市场两处只许 spawnSync', () => {
+  // tools/ps-parse.ts（执行隔离第 1 步）：常驻的 PowerShell 解析进程，只解析命令、不执行任何东西，不起孙进程；
+  // stdin 断开（minisd 退出）它就自己退出，不登记进程账本
+  it('W2 src/minisd 里引 node:child_process 的文件恰好是 9 个；桥与市场两处只许 spawnSync', () => {
     const importers = SRC.filter(f => f.startsWith('src/minisd/') && /from 'node:child_process'|require\('node:child_process'\)/.test(code(f))).sort();
     expect(importers).toEqual([
       'src/minisd/bridge/handlers.ts', 'src/minisd/bridge/server.ts', 'src/minisd/market/install.ts', 'src/minisd/mcp/stdio.ts',
-      'src/minisd/proc/owned.ts', 'src/minisd/proc/win-exec.ts', 'src/minisd/terminal.ts', 'src/minisd/tools/shell.ts',
+      'src/minisd/proc/owned.ts', 'src/minisd/proc/win-exec.ts', 'src/minisd/terminal.ts', 'src/minisd/tools/ps-parse.ts',
+      'src/minisd/tools/shell.ts',
     ]);
     for (const f of ['src/minisd/bridge/server.ts', 'src/minisd/market/install.ts']) {
       expect([...code(f).matchAll(/import (?:type )?\{([^}]*)\} from 'node:child_process'/g)].map(m => m[1].trim())).toEqual(['spawnSync']);
