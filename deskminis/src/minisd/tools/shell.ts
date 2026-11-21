@@ -10,6 +10,7 @@ import type { ProcStopCause } from '../../shared/proc';
 import { cancelCauseOf } from '../../shared/permission';
 import { ShellOutput, SHELL_OUTPUT_LIMIT } from './shell-output';
 import { isReadonlyCommand } from './permissions';
+import { LOWER_HOOK_PS, SANDBOX_LOWER_PS, SANDBOX_NATIVE_PS, SANDBOX_REFUSED_EXIT, SANDBOX_REFUSED_TEXT, overrideEnv, type ShellSandbox } from '../proc/sandbox';
 
 const MAX_OUTPUT = SHELL_OUTPUT_LIMIT;
 
@@ -88,19 +89,34 @@ export class PersistentShell {
    *  opts：平台、spawn 与本进程环境的注入，生产用缺省值（见 proc/win-exec.ts）。
    *  cwd 只读公开（F04）：驱动的出生目录，被杀后重建用的仍是它；ShellManager.cwdOf 读它来算锁范围。
    *  meta（F09）：这棵进程树归谁；与 opts.supervisor 都在时，驱动带归属前导并登记进进程账本。 */
-  constructor(readonly cwd: string, private env?: Record<string, string>, opts: ProcOpts = {}, private readonly meta?: ProcTreeMeta) {
+  constructor(readonly cwd: string, private env?: Record<string, string>, opts: ProcOpts = {}, private readonly meta?: ProcTreeMeta, sandbox?: ShellSandbox) {
     this.platform = opts.platform ?? process.platform;
     this.spawnImpl = opts.spawnImpl ?? spawn;
     this.sysEnv = opts.sysEnv ?? process.env;
     this.supervisor = opts.supervisor;
+    // 执行隔离第 3 步：沙箱只在 Windows 上有意义；标签打完之前（ready）队列里的命令都等着，驱动也不起
+    this.sandbox = this.platform === 'win32' ? sandbox : undefined;
+    if (this.sandbox) this.queue = this.sandbox.ready.then(() => undefined, () => undefined);
   }
+
+  /** 执行隔离第 3 步：开了沙箱时驱动在执行第一条命令之前把自己降到低完整性级别（proc/sandbox.ts）。 */
+  private readonly sandbox: ShellSandbox | undefined;
+
+  /** 这个 shell 跑在沙箱里吗（开了沙箱且在 Windows 上）。 */
+  get sandboxed(): boolean { return this.sandbox !== undefined; }
 
   private ensure(): ChildProcessWithoutNullStreams {
     if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.proc;
     // F09：托管可用时驱动带归属前导——读到第一条命令之后、执行它之前，自己建作业并把自己放进去（proc/own-script.ts）。
     // 托管不可用（非 win32、已停用、没有 supervisor）时用的就是原来的脚本
     const armed = this.meta !== undefined && this.supervisor?.wants(this.platform) === true;
-    const encoded = Buffer.from(armed ? this.supervisor!.armedDriver(driverPs) : DRIVER_PS, 'utf16le').toString('base64');
+    // 执行隔离第 3 步：沙箱的降级排在归属之后（作业照常建在原级别下），执行第一条命令之前；降不下去驱动自己退出，不执行命令
+    const sbx = this.sandbox !== undefined;
+    const lowered = (hook: string): string => SANDBOX_NATIVE_PS + SANDBOX_LOWER_PS + driverPs(hook === '' ? LOWER_HOOK_PS : `${hook}\n  ${LOWER_HOOK_PS}`);
+    const script = armed
+      ? this.supervisor!.armedDriver(sbx ? lowered : driverPs)
+      : (sbx ? lowered('') : DRIVER_PS);
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
     // win32 用 System32 下的绝对路径：cwd 是工作区（可能是克隆来的仓库），裸名会先在 cwd 里找同名 exe。
     // 非 win32 保留裸名，Linux 上 shell.test.ts 的失败与通过逐例不变。
     // windowsHide：打包后的 minisd 自己没有控制台（推断），控制台程序不加这一项会另开一个可见的控制台窗口。
@@ -112,7 +128,8 @@ export class PersistentShell {
     const proc = this.spawnImpl(exe, ['-NoProfile', '-NoLogo', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
       // 剥掉 DESKMINIS_*（§3 第 10 条，见 proc/child-env.ts）；会话级变量与 ELECTRON_RUN_AS_NODE 照旧
-      env: childEnv(this.sysEnv, this.env ? { ELECTRON_RUN_AS_NODE: '1', ...this.env } : undefined),
+      // 沙箱里 TEMP 与缓存指到 agent 根下（Low 进程写不了原来的位置）
+      env: overrideEnv(childEnv(this.sysEnv, this.env ? { ELECTRON_RUN_AS_NODE: '1', ...this.env } : undefined), this.sandbox?.env),
     });
     // spawn 失败（cwd 不存在 / ENOENT / EACCES）会在 child 上发 'error'；
     // 没有监听器时该事件会在事件循环里抛出并杀死整个 minisd 进程。常驻一个兜底监听器，
@@ -203,7 +220,12 @@ export class PersistentShell {
       };
       const onClose = () => {
         cleanup();
-        resolve({ output: unfinishedOutput() + '\n[shell 进程意外退出]', exitCode: 129, durationMs: Date.now() - started });
+        // 沙箱降级失败：驱动已把原因写进输出（SANDBOX_REFUSED_TEXT），这条命令一行都没执行
+        const refused = this.sandbox !== undefined && proc.exitCode === SANDBOX_REFUSED_EXIT;
+        const out = unfinishedOutput();
+        resolve(refused
+          ? { output: (out.includes(SANDBOX_REFUSED_TEXT) ? out : `${out}\n${SANDBOX_REFUSED_TEXT}`) + '\n[命令隔离启动失败，shell 已退出]', exitCode: SANDBOX_REFUSED_EXIT, durationMs: Date.now() - started }
+          : { output: out + '\n[shell 进程意外退出]', exitCode: 129, durationMs: Date.now() - started });
       };
       const timer = setTimeout(() => {
         cleanup();
@@ -262,12 +284,13 @@ export class PersistentShell {
 export class ShellManager {
   private shells = new Map<string, PersistentShell>();
 
-  /** opts 原样透传给每个会话的 PersistentShell（测试注入用；生产不传）。 */
-  constructor(private readonly procOpts: ProcOpts = {}) {}
+  /** opts 原样透传给每个会话的 PersistentShell（测试注入用；生产不传）。
+   *  sandbox（执行隔离第 3 步）：开了沙箱时由 index.ts 给，每个会话的 shell 都跑在低完整性级别下。 */
+  constructor(private readonly procOpts: ProcOpts = {}, private readonly sandbox?: ShellSandbox) {}
 
   getShell(sessionId: string, cwd: string, env?: Record<string, string>): PersistentShell {
     let s = this.shells.get(sessionId);
-    if (!s) { s = new PersistentShell(cwd, env, this.procOpts, { kind: 'shell', sessionId }); this.shells.set(sessionId, s); }
+    if (!s) { s = new PersistentShell(cwd, env, this.procOpts, { kind: 'shell', sessionId }, this.sandbox); this.shells.set(sessionId, s); }
     return s;
   }
 

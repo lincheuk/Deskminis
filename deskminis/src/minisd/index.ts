@@ -28,6 +28,7 @@ import { officeReadTool, officeWriteTool } from './tools/office';
 import { parseOffice } from './office/parse';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
 import { ShellManager, makeShellTool } from './tools/shell';
+import { applyLabels, ensureSandboxDirs, sandboxDecision, sandboxEnv, type ShellSandbox } from './proc/sandbox';
 import { PsParser } from './tools/ps-parse';
 import { analyzeShellCommand } from './tools/shell-analysis';
 import { powershellPath } from './proc/win-exec';
@@ -582,7 +583,25 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     sessionId => makeBridgeEnv(sessionId, bridgePipe, bridgeCli, bridgeNode), procOpts);
   const filesSvc = new FilesService(paths);
 
-  const shells = new ShellManager(procOpts);
+  // 执行隔离第 3 步（一）：低完整性沙箱，开发者开关 DESKMINIS_SANDBOX=1，默认关（proc/sandbox.ts）。
+  // 开了就给数据根打「Low 进程不许读写」的标签、给 agent 根打 Low 标签；标签打完之前 shell 不起驱动。
+  // 标签没打上照样降级：Low 进程本来就写不了没有标签的数据根，只是还读得到，日志里说清楚
+  const sandboxWanted = sandboxDecision({ env: process.env, platform: procOpts.platform ?? process.platform, root, agentRoot: paths.agentRoot });
+  let shellSandbox: ShellSandbox | undefined;
+  if (sandboxWanted.enabled) {
+    const env = sandboxEnv(paths.agentRoot);
+    for (const dir of ensureSandboxDirs(env)) console.warn(`命令隔离：建不了 ${dir}，沙箱里用到它的工具会失败`);
+    const ready = applyLabels([{ mode: 'protect', path: root }, { mode: 'low', path: paths.agentRoot }], procOpts).then(results => {
+      for (const r of results) {
+        if (r.outcome === 'err') console.warn(`命令隔离：给 ${r.path} 打标签失败（错误码 ${r.code}）${r.path === root ? '，沙箱里的命令仍写不了数据目录，但读得到' : '，沙箱里的命令可能写不了它'}`);
+      }
+      console.log(`命令隔离已开启：shell 跑在低完整性级别下（标签：${results.map(r => r.outcome).join(' / ')}）`);
+    });
+    shellSandbox = { env, ready };
+  } else if (sandboxWanted.reason !== 'off') {
+    console.warn(`命令隔离没有开启（${sandboxWanted.reason === 'not-windows' ? '只支持 Windows' : 'agent 目录和数据目录重叠'}）`);
+  }
+  const shells = new ShellManager(procOpts, shellSandbox);
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
   // U4 Office 文档：读走结构化文本、写从结构化 JSON 产出（权限门与 file_* 同一道）
