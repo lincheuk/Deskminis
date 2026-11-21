@@ -52,7 +52,7 @@ type GuardCtx = Parameters<ToolExecutor['execute']>[1];
 
 /** dataGate 的判定范围：数据根、会话、该会话的实际工作目录（认每会话覆盖值）。 */
 function gateScope(ctx: GuardCtx): DataGateScope {
-  return { root: ctx.paths.root, sessionId: ctx.sessionId, workspace: ctx.paths.workspaceOf(ctx.sessionId) };
+  return { root: ctx.paths.root, agentRoot: ctx.paths.agentRoot, sessionId: ctx.sessionId, workspace: ctx.paths.workspaceOf(ctx.sessionId) };
 }
 
 /** 写入的权限门（U4 起 office 工具复用同一道门——不给新工具开后门）。

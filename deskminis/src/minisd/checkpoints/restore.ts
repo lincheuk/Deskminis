@@ -185,7 +185,7 @@ export class CheckpointService {
       if (R.state === 'unknown') return un('unknown-state');
       if (R.prunedAt !== undefined) return un('pruned');
       if (this.deps.isSessionRunning(R.sessionId)) return un('run-active');
-      const scope = { root: this.deps.paths.root, sessionId: R.sessionId, workspace: this.deps.paths.workspaceOf(R.sessionId) };
+      const scope = { root: this.deps.paths.root, agentRoot: this.deps.paths.agentRoot, sessionId: R.sessionId, workspace: this.deps.paths.workspaceOf(R.sessionId) };
       if (dataGate(R.path, scope, 'write', this.deps.path).verdict === 'deny') return un('rule-blocked');
       return this.precheckFile(R);
     } catch (e) {
@@ -366,7 +366,7 @@ export class CheckpointService {
       if (!R || R.state !== 'applied' || R.restoringAt !== undefined || R.prunedAt !== undefined) continue;
       if (this.deps.isSessionRunning(R.sessionId) || this.deps.isSessionDeleted(R.sessionId)) continue;
       try {
-        const scope = { root: this.deps.paths.root, sessionId: R.sessionId, workspace: this.deps.paths.workspaceOf(R.sessionId) };
+        const scope = { root: this.deps.paths.root, agentRoot: this.deps.paths.agentRoot, sessionId: R.sessionId, workspace: this.deps.paths.workspaceOf(R.sessionId) };
         if (dataGate(R.path, scope, 'write', this.deps.path).verdict === 'deny') continue;
         const id = pathIdentity(R.path, this.deps.path);
         // 身份已变的项不取锁：它的结论就是无锁预检给的 identity-changed
@@ -439,7 +439,7 @@ export class CheckpointService {
     const two = (n: number): string => String(n).padStart(2, '0');
     const stamp = `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
     const label = which === 'before' ? '改动前' : '改动后';
-    const scope = { root: this.deps.paths.root, sessionId, workspace: this.deps.paths.workspaceOf(sessionId) };
+    const scope = { root: this.deps.paths.root, agentRoot: this.deps.paths.agentRoot, sessionId, workspace: this.deps.paths.workspaceOf(sessionId) };
     for (let n = 1; n <= 20; n++) {
       const target = nodePath.join(dir, `${stem}.${label}-${stamp}${n === 1 ? '' : `-${n}`}${ext}`);
       if (dataGate(target, scope, 'write', this.deps.path).verdict === 'deny') throw new Error('这个位置是 DeskMinis 的核心数据，不能把副本存到这里');

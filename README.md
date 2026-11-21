@@ -181,13 +181,15 @@ minisd.lock           数据目录锁（运行时存在）
 Electron 自己的缓存与界面偏好（包括自动更新开关 `update-prefs.json`）也在这个目录里。
 模型与搜索服务的 API key、本机的设备身份与配对密钥不在这个目录里，存在 Windows 凭据管理器（服务名 `DeskMinis`）。
 **但这个目录里仍有明文的敏感内容**：MCP 服务器的 env / headers（包括在扩展市场确认卡里填的密钥）原样写在
-`mcp-servers\servers.json`；本机引擎的连接令牌（每次启动换新）写在 `minisd-port.json`；会话库与各会话目录里是全部对话内容
-（含 agent 读到的文件内容与命令输出）。把这个目录打包发给别人、放进网盘或同步盘、做备份之前，先想到这些。
+`mcp-servers\servers.json`；会话库里是全部对话内容（含 agent 读到的文件内容与命令输出）。把这个目录打包发给别人、
+放进网盘或同步盘、做备份之前，先想到这些。
+各会话的工作区、附件、卸载的长输出与浏览器目录，以及 `shared`，在另一个目录 `%USERPROFILE%\AppData\LocalLow\DeskMinis`
+（`sessions\<id>\` 与 `shared\`）；老版本放在数据目录里的，升级后第一次启动自动搬过去。
 日志与崩溃记录在 `%LOCALAPPDATA%\DeskMinis\logs`（按天日志 `minisd-<日期>.log` 保留 7 天；崩溃记录 `crashes.json` 只留 7 天内最近的 5 条）。
 
-删除会话会清掉它在库里的记录，但不删磁盘上的 `sessions\<id>\` 目录。库里会留一条不含内容的删除记录（会话 id、版本号、发起删除的设备、当时的消息 id 清单；清单 90 天后压掉），用来把这次删除同步给已配对的设备，并挡住之后带着旧副本回来的设备。
+删除会话会清掉它在库里的记录，但不删磁盘上的 `sessions\<id>\` 目录（在上面的 LocalLow 目录里）。库里会留一条不含内容的删除记录（会话 id、版本号、发起删除的设备、当时的消息 id 清单；清单 90 天后压掉），用来把这次删除同步给已配对的设备，并挡住之后带着旧副本回来的设备。
 卸载不会删除上面这些，也不删 `%LOCALAPPDATA%\deskminis-updater`（安装程序留的自身副本，以及自动更新下载的安装包）。
-想彻底清干净：删掉 `%APPDATA%\DeskMinis`、`%LOCALAPPDATA%\DeskMinis` 与 `%LOCALAPPDATA%\deskminis-updater`，
+想彻底清干净：删掉 `%APPDATA%\DeskMinis`、`%LOCALAPPDATA%\DeskMinis`、`%USERPROFILE%\AppData\LocalLow\DeskMinis` 与 `%LOCALAPPDATA%\deskminis-updater`，
 再到 Windows 凭据管理器里删掉名字带 `DeskMinis` 的条目。
 
 ## 关于联网

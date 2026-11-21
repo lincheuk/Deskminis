@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
-import { dataRoot, logRootFromEnv, MinisPaths } from './paths';
+import { basename, join, resolve } from 'node:path';
+import { agentRootFromEnv, dataRoot, logRootFromEnv, MinisPaths } from './paths';
+import { migrateAgentDirs, rewriteCheckpointPaths } from './store/agent-dirs-migrate';
 import { openDb } from './store/db';
 import { reportStartupFailure } from './fatal';
 import { installMinisdCrashHandlers } from './diag/crash-hooks';
@@ -360,7 +361,8 @@ export function closeThenExit(starting: Promise<Pick<MinisdHandle, 'close'>>, ex
  *  没有、也不加任何降低检查点容量下限的开关：容量清理用真实数据量验证。
  *  eventRetention（F06）：广播保留窗口的上限（条数 / 字符数），缺省见 rpc/event-log.ts（测试注入小值验「窗口过期改取快照」，与 permTimeoutMs 同类；生产不传）。 */
 export type StartMinisdOpts = {
-  dataDir?: string; host?: string; port?: number; permTimeoutMs?: number; runStopTimeoutMs?: number;
+  /** agentDir（执行隔离第 2 步）：agent 能看到的目录的根。缺省见 paths.ts 的 agentRootFromEnv（给了 dataDir 时就是它）。 */
+  dataDir?: string; agentDir?: string; host?: string; port?: number; permTimeoutMs?: number; runStopTimeoutMs?: number;
   reapWaitMs?: number; proc?: ProcOpts; toolLockWaitTimeoutMs?: number; checkpointIo?: FileIo;
   now?: () => number; tombstoneSeenTtlS?: number;
   eventRetention?: { maxEvents?: number; maxChars?: number };
@@ -389,8 +391,21 @@ export async function startMinisd(opts?: StartMinisdOpts): Promise<MinisdHandle>
 }
 
 async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMinisdOpts): Promise<MinisdHandle> {
-  const paths = new MinisPaths(root);
+  // 执行隔离第 2 步：会话的工作区、附件、卸载、浏览器桶与 shared 放在 agent 根，数据根里只剩 DeskMinis 自己的数据。
+  // 老数据根里的这些目录先搬过去；搬不动的留在原处继续用（paths.ts 的 sessionBucketDir），下次启动再搬
+  const agentRoot = opts?.agentDir ?? agentRootFromEnv(process.env, root, opts?.dataDir !== undefined);
+  // 与数据根同一个目录时外壳已经建过（老布局：测试与显式指定数据根），不再建一次
+  if (resolve(agentRoot) !== resolve(root)) mkdirSync(agentRoot, { recursive: true });
+  const migration = migrateAgentDirs(root, agentRoot);
+  for (const f of migration.failed) console.warn(`把 ${f.path} 搬到 agent 目录失败，这次照旧在原处使用，下次启动再试：${f.error}`);
+  for (const c of migration.conflicts) console.warn(`agent 目录里已有同名项，${c} 留在原处没有搬`);
+  const paths = new MinisPaths(root, agentRoot);
   const db = openDb(join(root, 'minis.db'));
+  try {
+    rewriteCheckpointPaths(db, migration.moved);
+  } catch (e) {
+    console.warn('搬目录之后改写检查点记录失败（这些改动的恢复会报文件已变化）:', e);
+  }
   // M6 R4 审计日志：跨会话事件审计（权限决议等），独立于会话生命周期（决策点 2-3）。
   const audit = new AuditLogger(db);
   // M6 R2 全局设置：key-value 落 settings 表，重启后仍生效（决策点 2-6）。现唯一用途是暂停标志 sync.paused。

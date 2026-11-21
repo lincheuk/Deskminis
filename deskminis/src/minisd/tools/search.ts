@@ -86,7 +86,8 @@ async function resolveBaseDir(guestPath: string, ctx: ToolContext, toolTitle: st
   let st: Stats;
   try { st = lstatSync(abs); } catch { return { fail: { output: `路径不存在: ${abs}`, success: false } }; }
   if (!st.isDirectory()) return { fail: { output: `不是目录: ${abs}`, success: false } };
-  return { abs, skip: dataRootSkipRule(abs, ctx.paths.root) };
+  // 数据根与 agent 根（执行隔离第 2 步，别的会话的桶在那里）落在基准之下时都整棵跳过
+  return { abs, skip: dataRootSkipRule(abs, ctx.paths.agentSeparate ? [ctx.paths.root, ctx.paths.agentRoot] : ctx.paths.root) };
 }
 
 /** file_glob / file_grep 的遍历：不占住引擎的事件循环（Q15；大目录放在 worker 里走，见 walk-scan.ts），遍历中途点停止立即返回 [已取消]。 */

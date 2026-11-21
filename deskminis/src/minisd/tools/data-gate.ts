@@ -20,7 +20,7 @@
  */
 import { realpathSync } from 'node:fs';
 import * as nodePath from 'node:path';
-import { DATA_ROOT_LOCK_NAME, DATA_ROOT_LOCK_RECOVERY_NAME, SESSION_BUCKETS, type GlobalDir } from '../paths';
+import { AGENT_GLOBAL_DIRS, DATA_ROOT_LOCK_NAME, DATA_ROOT_LOCK_RECOVERY_NAME, SESSION_BUCKETS, type GlobalDir } from '../paths';
 
 export type DataGateOp = 'read' | 'write';
 export type DataGateVerdict =
@@ -28,8 +28,9 @@ export type DataGateVerdict =
   | { verdict: 'deny'; reason: string }
   | { verdict: 'ask'; note?: string };
 
-/** root：数据根；workspace：该会话的实际工作目录（paths.workspaceOf 的结果，未绑定时就是数据根里的沙箱桶）。 */
-export interface DataGateScope { root: string; sessionId: string; workspace: string }
+/** root：数据根；workspace：该会话的实际工作目录（paths.workspaceOf 的结果，未绑定时就是沙箱桶）。
+ *  agentRoot（执行隔离第 2 步）：agent 根，会话的桶与 shared 在这里；不给或与数据根相同时就是第 2 步之前的布局。 */
+export interface DataGateScope { root: string; sessionId: string; workspace: string; agentRoot?: string }
 
 export interface DataGateOptions {
   /** 按哪个平台的路径语义判定，默认本机。win32 下大小写不敏感，并剥掉 ADS 流名与尾部的点和空格。 */
@@ -192,12 +193,32 @@ function judgeInRoot(abs: string, rel: { cmp: string[]; disp: string[] }, sessio
   return ask(op === 'write' ? DATA_GATE_NOTES.appDataWrite : DATA_GATE_NOTES.appDataRead);
 }
 
+/** agent 根里的判定（执行隔离第 2 步）：当前会话的桶与 shared 免审，别的会话的桶照旧走卡并点名，其余按应用数据走卡。 */
+function judgeInAgentRoot(rel: { cmp: string[]; disp: string[] }, sessionId: string, op: DataGateOp): DataGateVerdict {
+  const [top, second, third] = rel.cmp;
+  if (top === 'sessions' && second !== undefined) {
+    if (second !== sessionId) {
+      const id = rel.disp[1];
+      return ask(op === 'write' ? DATA_GATE_NOTES.otherSessionWrite(id) : DATA_GATE_NOTES.otherSessionRead(id));
+    }
+    if (third !== undefined && BUCKETS.has(third)) return FREE;
+  } else if (top !== undefined && (AGENT_GLOBAL_DIRS as readonly string[]).includes(top)) {
+    return GLOBAL_RULES[top as GlobalDir][op]();
+  }
+  return ask(op === 'write' ? DATA_GATE_NOTES.appDataWrite : DATA_GATE_NOTES.appDataRead);
+}
+
 /** 判定一次文件读写。abs 是工具解析出的宿主绝对路径；拒绝串里原样引用它，给模型看的是它自己给的路径。 */
 export function dataGate(abs: string, scope: DataGateScope, op: DataGateOp, opts: DataGateOptions = {}): DataGateVerdict {
   const env = gateEnv(opts);
   const target = env.norm(abs);
+  const sid = env.win ? scope.sessionId.toLowerCase() : scope.sessionId;
   const inRoot = under(env.norm(scope.root), target);
-  if (inRoot) return judgeInRoot(abs, inRoot, env.win ? scope.sessionId.toLowerCase() : scope.sessionId, op);
+  if (inRoot) return judgeInRoot(abs, inRoot, sid, op);
+  if (scope.agentRoot !== undefined) {
+    const inAgent = under(env.norm(scope.agentRoot), target);
+    if (inAgent) return judgeInAgentRoot(inAgent, sid, op);
+  }
   // 数据根之外：绑定的工作区里免审（绑定动作本身就是授权），其余照旧走卡、不带 note
   if (under(env.norm(scope.workspace), target)) return FREE;
   return { verdict: 'ask' };
@@ -215,20 +236,27 @@ export function dataRootSkipper(base: string, root: string, opts: DataGateOption
 
 /** Q15：dataRootSkipper 的数据形态。遍历放进了 worker，函数过不去，过去的是这条规则：
  *  target 是数据根相对基准的路径（正斜杠；win32 下已小写、已剥流名与尾部的点和空格），win 说明比较前要不要同样折叠。 */
-export interface SkipRule { target: string; win: boolean }
+export interface SkipRule { target: string; win: boolean; /** 另外要跳的目录（执行隔离第 2 步：agent 根），同样的写法。 */ more?: string[] }
 
-export function dataRootSkipRule(base: string, root: string, opts: DataGateOptions = {}): SkipRule | undefined {
+/** root 可以给多个（执行隔离第 2 步：数据根与 agent 根），落在基准之下的都跳。 */
+export function dataRootSkipRule(base: string, root: string | readonly string[], opts: DataGateOptions = {}): SkipRule | undefined {
   const env = gateEnv(opts);
-  const below = under(env.norm(base), env.norm(root));
-  if (!below || below.cmp.length === 0) return undefined; // 数据根不在基准之下，或基准就是数据根（那时按 dataGate 判）
-  return { target: below.cmp.join('/'), win: env.win };
+  const b = env.norm(base);
+  const targets: string[] = [];
+  for (const r of typeof root === 'string' ? [root] : root) {
+    const below = under(b, env.norm(r));
+    // 根不在基准之下，或基准就是这个根（那时按 dataGate 判）
+    if (below && below.cmp.length > 0) targets.push(below.cmp.join('/'));
+  }
+  if (targets.length === 0) return undefined;
+  return targets.length === 1 ? { target: targets[0], win: env.win } : { target: targets[0], win: env.win, more: targets.slice(1) };
 }
 
 /** Q15：rel（相对基准的正斜杠路径）是不是规则指的那个目录。strip 传 stripWin32Segment。
  *  自包含，不许引用函数外的任何东西：主线程与遍历线程跑的是同一份（后者经 toString 拿源码，strip 也从参数进去）。 */
 export function matchesSkipRule(rule: SkipRule, rel: string, strip: (seg: string) => string): boolean {
   const folded = rule.win ? rel.split('/').map(strip).filter(s => s !== '').map(s => s.toLowerCase()).join('/') : rel;
-  return folded === rule.target;
+  return folded === rule.target || (rule.more !== undefined && rule.more.includes(folded));
 }
 
 /** F04：路径身份。与 dataGate 判定同一套规范化——对最近存在的祖先取 realpath（解析符号链接、junction、8.3 短名），

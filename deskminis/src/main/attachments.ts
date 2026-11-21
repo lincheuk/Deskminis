@@ -1,6 +1,7 @@
 /** 附件落盘纯函数（MU2b Task 6，main 侧 attachments:save handler 的可测核）。
  *  与 Electron 解耦，node 直测（tests/main-attachments.test.ts）。 */
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { sessionBucketDir } from '../minisd/paths';
 import { createHash } from 'node:crypto';
 
 /** 与 minisd/index.ts SESSION_ID_RE 同款：sessionId 拼进文件系统路径前必须限死 UUID 形态，
@@ -25,6 +26,13 @@ export function attachmentPath(root: string, sessionId: string, ts: number, ext:
   if (tag !== undefined && !TAG_RE.test(tag)) throw new Error('非法标签');
   const name = tag === undefined ? `paste-${ts}.${ext}` : `paste-${ts}-${tag}.${ext}`;
   return join(root, 'sessions', sessionId, 'attachments', name);
+}
+
+/** 执行隔离第 2 步：附件桶在 agent 根里（迁移没搬成的会话暂时还在数据根里，规则同 minisd 的 paths.sessionBucketDir）。
+ *  校验与文件名同 attachmentPath，只换目录。 */
+export function sessionAttachmentPath(dirs: { dataRoot: string; agentRoot: string }, sessionId: string, ts: number, ext: string = 'png', tag?: string): string {
+  const name = basename(attachmentPath(dirs.dataRoot, sessionId, ts, ext, tag));
+  return join(sessionBucketDir(dirs.dataRoot, dirs.agentRoot, sessionId, 'attachments'), name);
 }
 
 /** 内容标签：字节 sha256 的前 8 位十六进制。 */

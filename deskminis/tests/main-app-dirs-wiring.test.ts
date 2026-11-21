@@ -7,7 +7,8 @@
  *  ② 打包态不调 setPath：setPath 包在 `if (dirs.userData)` 里，resolveAppDirs 对打包态返回 undefined。
  *  ③ fork minisd 时显式下发 DESKMINIS_DATA_DIR / DESKMINIS_KEYRING_SERVICE / DESKMINIS_LOG_DIR，
  *     而且写在 `...process.env` 之后——顺序反了，外层 shell 里残留的旧值会盖掉主进程算出来的值。
- *  ④ attachments:save 用同一份 dirs.dataRoot，不再自己调 dataRoot() 另算一遍（两处算法一漂移，附件就落进另一个根）。
+ *  ④ attachments:save 用同一份 dirs（执行隔离第 2 步起附件落在 dirs.agentRoot，老桶还在时用老桶），不再自己调 dataRoot() 另算一遍
+ *     （两处算法一漂移，附件就落进另一个根）。
  *  ⑤ 主进程不改写 process.env；minisd 按 env 选 keyring 服务名。
  *  本文件不 import src/main/index.ts（electron 桩只在 ipc-contract.test.ts 维护一份）。
  *
@@ -96,13 +97,14 @@ describe('② fork minisd 时显式下发三个目录变量', () => {
     expect(forkArgs).toMatch(/DESKMINIS_DATA_DIR:\s*dirs\.dataRoot\b/);
     expect(forkArgs).toMatch(/DESKMINIS_KEYRING_SERVICE:\s*dirs\.keyringService\b/);
     expect(forkArgs).toMatch(/DESKMINIS_LOG_DIR:\s*dirs\.logRoot\b/);
+    expect(forkArgs).toMatch(/DESKMINIS_AGENT_DIR:\s*dirs\.agentRoot\b/);
     expect(forkArgs).toMatch(/DESKMINIS_STANDALONE:\s*'1'/);
   });
 
   it('三者都写在 `...process.env` 之后（后写的键才生效）', () => {
     const iSpread = forkArgs.indexOf('...process.env');
     expect(iSpread).toBeGreaterThanOrEqual(0);
-    for (const k of ['DESKMINIS_DATA_DIR:', 'DESKMINIS_KEYRING_SERVICE:', 'DESKMINIS_LOG_DIR:']) {
+    for (const k of ['DESKMINIS_DATA_DIR:', 'DESKMINIS_AGENT_DIR:', 'DESKMINIS_KEYRING_SERVICE:', 'DESKMINIS_LOG_DIR:']) {
       expect(forkArgs.indexOf(k), `${k} 必须在 ...process.env 之后`).toBeGreaterThan(iSpread);
     }
   });
@@ -116,9 +118,9 @@ describe('② fork minisd 时显式下发三个目录变量', () => {
 });
 
 describe('③ attachments:save 与数据根用同一份结果', () => {
-  it('处理体用 attachmentPath(dirs.dataRoot, …)，不再调 dataRoot()', () => {
+  it('处理体用 sessionAttachmentPath(dirs, …)，不再调 dataRoot()', () => {
     const body = blockAfter(main, "ipcMain.handle('attachments:save'");
-    expect(body).toMatch(/attachmentPath\(\s*dirs\.dataRoot\s*,/);
+    expect(body).toMatch(/sessionAttachmentPath\(\s*dirs\s*,/);
     expect(body).not.toMatch(/\bdataRoot\(\)/);
   });
 

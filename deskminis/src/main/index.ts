@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { writeFile } from 'node:fs/promises';
 import { markdownFileName } from './markdown-export';
 import { resolveAppDirs } from './app-dirs';
-import { attachmentPath, contentTag, decodeImageDataUrl, extFromDataUrl } from './attachments';
+import { contentTag, decodeImageDataUrl, extFromDataUrl, sessionAttachmentPath } from './attachments';
 import { describeUpdateError, downloadedDialog, isPortableBuild, manualCheckDialog, MANUAL_CHECK_SETTLE_MS, updateErrorForLog, updaterLogText, type UpdateState } from './update-status';
 import { parseMinisdFatal, MinisdFatalError, fatalDialogOptions, withStderrTail } from './minisd-fatal';
 import { TailBuffer, STDERR_TAIL_BYTES, LineSplitter } from './child-output';
@@ -113,14 +113,16 @@ export function parseHandshake(line: string): { port: number; token: string } | 
 function startMinisdProcess(): Promise<number> {
   return new Promise((resolve, reject) => {
     // 开发者一眼看得出这次 dev 用的是哪份数据（dev 默认不再碰正式版的库与 keyring）
-    if (dirs.variant === 'dev') process.stderr.write(`开发态数据根：${dirs.dataRoot}（keyring 服务名 ${dirs.keyringService}；userData ${dirs.userData}；日志目录 ${dirs.logRoot}）\n`);
+    if (dirs.variant === 'dev') process.stderr.write(`开发态数据根：${dirs.dataRoot}（keyring 服务名 ${dirs.keyringService}；userData ${dirs.userData}；日志目录 ${dirs.logRoot}；agent 目录 ${dirs.agentRoot}）\n`);
     minisdLog.append('[main] 启动引擎进程（fork minisd）');
     minisd = utilityProcess.fork(join(__dirname, 'minisd.js'), [], {
       env: {
         ...process.env,
         DESKMINIS_STANDALONE: '1',
-        // 三个目录变量写在展开之后：外层 shell 里残留的同名变量不能盖掉主进程算出来的值。
+        // 几个目录变量写在展开之后：外层 shell 里残留的同名变量不能盖掉主进程算出来的值。
         DESKMINIS_DATA_DIR: dirs.dataRoot,
+        // 执行隔离第 2 步：agent 能看到的目录（会话工作区、附件等）的根
+        DESKMINIS_AGENT_DIR: dirs.agentRoot,
         DESKMINIS_KEYRING_SERVICE: dirs.keyringService,
         DESKMINIS_LOG_DIR: dirs.logRoot,
         // W2b-7：minisd 的崩溃记录要带版本号，它自己拿不到 app.getVersion()
@@ -465,7 +467,7 @@ ipcMain.handle('attachments:save', (_e, sessionId: unknown, dataUrl: unknown) =>
   const ts = Date.now();
   const bytes = decodeImageDataUrl(dataUrl);
   const tag = contentTag(bytes);
-  const abs = attachmentPath(dirs.dataRoot, sessionId, ts, ext, tag);
+  const abs = sessionAttachmentPath(dirs, sessionId, ts, ext, tag);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, bytes);
   return `attachments/paste-${ts}-${tag}.${ext}`;
