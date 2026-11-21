@@ -15,7 +15,9 @@ const RECENT_LOGS = 3;
  *   - GLOBAL.md/日志：wrapUntrustedDataBlock（包裹为 <untrusted-text> 数据块，内部走 sanitizeMultiline）
  */
 export class MemoryInjector {
-  constructor(private store: MemoryStore) {}
+  /** allow（执行隔离第 2 步（二））：这个记忆文件现在的内容用户认可过没有。被 DeskMinis 以外改过、还没确认的不注入
+   *  （日志不拿更早的一份补位，免得改一下就把旧日志顶上来）。不传则全部注入（同之前）。 */
+  constructor(private store: MemoryStore, private allow: (file: string, content: string) => boolean = () => true) {}
 
   build(basePrompt: string, opts: { memoryEnabled: boolean }): string {
     const { head, tail } = this.buildParts(basePrompt, opts);
@@ -35,7 +37,7 @@ export class MemoryInjector {
     // SOUL.md 作为人设基础（设计 §3.4；注入段未明示，决策：放 basePrompt 之前）
     // 消毒：sanitizeMultiline（多行 Markdown 人设文件，保留换行结构）+ 不包裹（人设是指令非数据）
     const soul = this.store.readSoul();
-    if (soul.trim()) parts.push(sanitizeMultiline(soul.trim()));
+    if (soul.trim() && this.allow('SOUL.md', soul)) parts.push(sanitizeMultiline(soul.trim()));
 
     // basePrompt 始终保留
     parts.push(basePrompt);
@@ -44,7 +46,7 @@ export class MemoryInjector {
     // 背景上下文块（GLOBAL.md/日志：数据 → 包裹为 <untrusted-text>）
     const ctx: string[] = [];
     const global = this.store.readGlobal();
-    if (global.trim()) {
+    if (global.trim() && this.allow('GLOBAL.md', global)) {
       const g = global.length > GLOBAL_MAX_CHARS ? global.slice(0, GLOBAL_MAX_CHARS) + '\n[…截断]' : global;
       ctx.push('=== 全局记忆 (GLOBAL.md) ===\n' + g);
     }
@@ -55,6 +57,7 @@ export class MemoryInjector {
       if (nonEmpty.length >= RECENT_LOGS) break;
       const text = this.store.readDailyLog(date);
       if (!text.trim()) continue;
+      if (!this.allow(`${date}.md`, text)) { nonEmpty.push(`--- 日志 ${date} ---\n[这份日志被 DeskMinis 以外的程序改过，用户确认之前不注入]`); continue; }
       const lines = text.split('\n');
       const truncated = lines.length > LOG_MAX_LINES ? lines.slice(0, LOG_MAX_LINES).join('\n') + '\n[…截断]' : text;
       nonEmpty.push(`--- 日志 ${date} ---\n${truncated}`);

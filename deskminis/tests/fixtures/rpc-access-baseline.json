@@ -564,6 +564,30 @@
         "allowed": true
       }
     },
+    "control.pending.confirm": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "control.pending.confirm 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "control.pending.list": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "control.pending.list 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
     "control.resume": {
       "local": {
         "allowed": true

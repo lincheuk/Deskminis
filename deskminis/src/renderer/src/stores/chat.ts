@@ -135,6 +135,8 @@ interface UiProvider {
 }
 type PermTier = 'ask' | 'session' | 'plan' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
+/** 一项等确认的外部改动（字段同引擎 control/external-changes.ts 的 PendingView）。 */
+export interface UiControlPending { kind: 'mcp' | 'skill' | 'memory'; key: string; fingerprint: string; title: string; preview: string; reason: 'new' | 'changed' }
 /** J2 助手（字段对齐后端 AssistantMeta，assistants.list 原样返回）。 */
 interface UiAssistant { id: string; name: string; avatar: string; rules: string; modelBinding?: string; skillIds: string[]; prompts: string[]; sortOrder: number }
 /** Z3 模型组（字段对齐后端 ModelGroup，modelgroup.list 原样返回）。memberIds 有序：第一个为主，其余按序降级。 */
@@ -200,6 +202,9 @@ export const useChat = defineStore('chat', {
     /** 网络搜索 provider 状态（设置页用）：后端 get 只回 {kind, hasKey, baseUrl?}，密钥永不回显。 */
     searchProvider: null as null | { kind: string; hasKey: boolean; baseUrl?: string },
     skills: [] as UiSkill[],
+    /** 执行隔离第 2 步（二）：被 DeskMinis 以外的程序改过、等用户确认的 MCP 配置、技能、记忆（control.pending.list）。
+     *  确认之前引擎不连接、不注入；顶栏横幅与设置「权限」页据此提示。旧引擎没有这个接口时一直是空的。 */
+    controlPending: [] as UiControlPending[],
     /** MU6 技能管理页数据源。**与上面的 skills 不是一回事**：那份是斜杠菜单用的，
      *  带 sessionId 时只返回该会话生效的启用集、不带时还过滤掉了禁用项——
      *  管理页必须看得见禁用的技能，否则关掉一个就再也找不回来了。 */
@@ -468,6 +473,8 @@ export const useChat = defineStore('chat', {
       // 技能菜单数据源：开关/删除广播 changed；导入是后台任务不广播 changed，
       // 靠 progress 终态刷新（否则导入完成菜单里看不到）
       rpc.on('skills.changed', () => { void this.refreshSkills(); });
+      rpc.on('control.pending.changed', () => { void this.refreshControlPending(); });
+      void this.refreshControlPending();
       // 会话标题会被后端自己改（首回合结束的自动命名），不是每次都由本窗口发起——
       // 不订阅这条广播的话，取好的名字要等到下次手动刷新列表才看得见。
       rpc.on('chat.sessions.changed', () => { void this.refreshSessions(); });
@@ -537,6 +544,21 @@ export const useChat = defineStore('chat', {
       } catch { /* 旧后端没有这个 RPC：走回落 */ }
       // 后端未设/已失效时回落到列表首个（与后端 create() 的默认策略一致）
       if (!this.providers.some(p => p.id === this.defaultProviderId)) this.defaultProviderId = this.providers[0]?.id ?? '';
+    },
+    /** 取一遍待确认的外部改动。旧引擎没有这个接口：保持空，不报错。 */
+    async refreshControlPending() {
+      try {
+        const r = await rpc.call('control.pending.list');
+        this.controlPending = Array.isArray(r?.items) ? r.items : [];
+      } catch { this.controlPending = []; }
+    },
+    /** 用户看过内容后确认。指纹对不上（看过之后又被改了）时引擎拒绝，错误抛给调用方显示；之后都重取一遍。 */
+    async confirmControlPending(item: UiControlPending) {
+      try {
+        await rpc.call('control.pending.confirm', { kind: item.kind, key: item.key, fingerprint: item.fingerprint });
+      } finally {
+        await this.refreshControlPending();
+      }
     },
     async refreshSkills() {
       // 斜杠菜单只列生效启用集：有活动会话走会话覆盖，否则退回全局启用项
@@ -1592,6 +1614,7 @@ export const useChat = defineStore('chat', {
         safe(() => this.refreshAssistants()),
         safe(() => this.refreshAllSkills()),
         safe(() => this.refreshSkills()),
+        safe(() => this.refreshControlPending()),
         safe(() => this.refreshCronJobs()),
         safe(() => this.refreshSyncPaused()),
         safe(async () => {
