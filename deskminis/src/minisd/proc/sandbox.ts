@@ -122,6 +122,18 @@ $n = __minis_sbx_native @(
   @('advapi32.dll', 'GetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr], [IntPtr].MakeByRefType())),
   @('advapi32.dll', 'SetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])))
 $want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = '' }
+# 比较前两边都过一遍系统的 SDDL 往返：系统写回来的旗标、权限的写法和顺序不一定与这里的字面量相同
+$canon = {
+  $p = [IntPtr]::Zero; $o = ''
+  if ($n::ConvertStringSecurityDescriptorToSecurityDescriptorW($args[0], [uint32]1, [ref]$p, [IntPtr]::Zero)) {
+    $q = [IntPtr]::Zero
+    if ($n::ConvertSecurityDescriptorToStringSecurityDescriptorW($p, [uint32]1, [uint32]0x10, [ref]$q, [IntPtr]::Zero)) { $o = $M::PtrToStringUni($q); [void]$n::LocalFree($q) }
+    [void]$n::LocalFree($p)
+  }
+  $o
+}
+# 显式（不带 ID 旗标）的完整性标签 ACE，按出现顺序拼成一串
+$explicit = { (@([regex]::Matches([string]$args[0], '\\(ML;([A-Z]*);[^)]*\\)') | Where-Object { -not $_.Groups[1].Value.Contains('ID') } | ForEach-Object { $_.Value })) -join '|' }
 $i = -1
 foreach ($ln in $jobs.Split([char]10)) {
   $ln = $ln.Trim(); if ($ln -eq '') { continue }
@@ -137,8 +149,8 @@ foreach ($ln in $jobs.Split([char]10)) {
     $cur = ''; $str = [IntPtr]::Zero
     if ($n::ConvertSecurityDescriptorToStringSecurityDescriptorW($sd, [uint32]1, [uint32]0x10, [ref]$str, [IntPtr]::Zero)) { $cur = $M::PtrToStringUni($str); [void]$n::LocalFree($str) }
     [void]$n::LocalFree($sd)
-    $explicit = [regex]::Matches($cur, '\\(ML;([A-Z]*);[^)]*\\)') | Where-Object { -not $_.Groups[1].Value.Contains('ID') } | ForEach-Object { $_.Value }
-    $same = if ($ace -eq '') { @($explicit).Count -eq 0 } else { @($explicit).Count -eq 1 -and $explicit -eq $ace }
+    $same = (& $explicit $cur) -eq (& $explicit (& $canon ('S:' + $ace)))
+    [Console]::Out.WriteLine('__MINIS_LABEL_CUR__ ' + $i + ' ' + $cur)
     if ($same) { $res = 'same' } else {
       $psd = [IntPtr]::Zero
       if (-not $n::ConvertStringSecurityDescriptorToSecurityDescriptorW('S:' + $ace, [uint32]1, [ref]$psd, [IntPtr]::Zero)) { $res = 'err ' + $M::GetLastWin32Error(); throw 'x' }

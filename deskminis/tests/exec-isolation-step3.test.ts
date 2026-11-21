@@ -253,7 +253,13 @@ describe.runIf(WIN)('④ Windows 真跑', () => {
 
     const labels = await applyLabels([{ mode: 'protect', path: root }, { mode: 'low', path: agentRoot }, { mode: 'protect', path: nested }]);
     expect(labels.map(l => l.outcome)).toEqual(['ok', 'ok', 'ok']);
-    expect((await applyLabels([{ mode: 'protect', path: root }]))[0].outcome).toBe('same');
+    // 第二次是同一个标签：不重写。不对时把系统读回来的 SDDL 带进失败信息
+    const again = labelInvocation([{ mode: 'protect', path: root }]);
+    const { spawnSync } = await import('node:child_process');
+    const raw = spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(again.script, 'utf16le').toString('base64')],
+      { encoding: 'utf8', env: { ...process.env, MINIS_LABEL_JOBS: again.jobsEnv }, windowsHide: true });
+    expect(raw.stdout, raw.stdout + raw.stderr).toMatch(/__MINIS_LABEL__ 0 same/);
 
     const env = sandboxEnv(agentRoot);
     expect(ensureSandboxDirs(env)).toEqual([]);
@@ -310,9 +316,9 @@ describe.runIf(WIN)('④ Windows 真跑', () => {
     const report = JSON.parse(readFileSync(out, 'utf8').replace(/^\uFEFF/, ''));
     const byId = new Map<string, string>((report.child?.results ?? []).map((x: { id: string; result: string }) => [x.id, x.result]));
     expect(report.childExit).toBe(0);
-    expect(report.labels).toMatchObject({ data: 'ok', agentRoot: 'ok', nested: 'ok', dataAgain: 'same' });
     expect(byId.get('il')).toBe('low');
     for (const id of ['data-read', 'data-list', 'data-write', 'nested-read', 'nested-write', 'docs-write', 'hkcu-write']) expect(byId.get(id), id).toBe('denied');
     for (const id of ['ws-write', 'temp-write', 'user-read']) expect(byId.get(id), id).toBe('allowed');
+    expect(report.labels).toMatchObject({ data: 'ok', agentRoot: 'ok', nested: 'ok', dataAgain: 'same' });
   }, 660_000);
 });
