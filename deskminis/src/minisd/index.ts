@@ -16,6 +16,7 @@ import { ChatStore } from './store/chat-store';
 import {InputQueueStore, type QueueClaim} from './store/input-queue';
 import {createInputController} from './input-controller';
 import { ProviderStore, KeyringVault, InMemoryVault, FileVault, keyringServiceFromEnv, type SecretVault, type ProviderInstance } from './store/provider-store';
+import { SecretFileVault, isHomeDataRoot } from './store/secret-file-vault';
 import { SearchProviderStore } from './store/search-provider-store';
 import { McpServersStore, type McpServerEntry } from './mcp/config';
 import { McpManager } from './mcp/manager';
@@ -418,9 +419,12 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   // M3c 修复：e2e 跨进程持久化用 FileVault（DESKMINIS_E2E=1），单测用 InMemoryVault.forDataRoot 单例，
   //   生产用 KeyringVault。FileVault 明文存 dataRoot/vault.json，隔离于临时数据根，不污染真实凭据库。
   // W1a-9：keyring 服务名由主进程经 DESKMINIS_KEYRING_SERVICE 下发（dev 为 DeskMinis-dev），缺省仍是正式版的 DeskMinis。
+  // 执行隔离第 3 步（二）：生产的密钥改存数据根里的加密文件 secrets.vault，钥匙留在凭据管理器（低完整性进程读得到凭据管理器，
+  // 读不到打了标签的数据根）。老版本逐项存在凭据管理器里的，用到时和下面的启动迁移里搬过去（store/secret-file-vault.ts）
+  const keyring = process.env.DESKMINIS_E2E || process.env.DESKMINIS_TEST ? undefined : new KeyringVault(keyringServiceFromEnv(process.env));
   const vault: SecretVault = process.env.DESKMINIS_E2E
     ? new FileVault(root)
-    : (process.env.DESKMINIS_TEST ? InMemoryVault.forDataRoot(root) : new KeyringVault(keyringServiceFromEnv(process.env)));
+    : (keyring === undefined ? InMemoryVault.forDataRoot(root) : new SecretFileVault(root, keyring, undefined, isHomeDataRoot(root, keyring.service, process.env)));
   const pairingStore = new PairingStore(root, vault);
   // F11C：本机配对策略落 settings 表（缺失或非法值按缺省的 legacy），每次用时现读；配对生命周期事件写审计
   //（事件里没有配对码和密钥；审计写失败不该让配对失败，PairingService 会吞掉回调里的错，这里再包一层说明意图）。
@@ -443,6 +447,15 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   const providers = new ProviderStore(root, vault);
   // 搜索 provider 与模型 provider 同库隔离：密钥走同一 vault（另一槽位），配置独立文件
   const searchProviderStore = new SearchProviderStore(root, vault);
+  // 把凭据管理器里老版本的密钥一次搬完：列得出来的账户名，加上各 store 的已知键（列表本身也会经 get 触发搬迁）
+  if (vault instanceof SecretFileVault && keyring !== undefined) {
+    try {
+      const known = [...keyring.accounts(), 'search-provider', 'pairing.static-identity',
+        ...providers.list().map(p => `provider:${p.id}`), ...pairingStore.list().map(p => `pairing.${p.peerFingerprint}`)];
+      const moved = vault.migrate(known);
+      if (moved > 0) console.log(`已把 ${moved} 项密钥从凭据管理器${vault.removeLegacy ? '搬进' : '抄进（不是默认数据目录，凭据管理器里的留着）'} ${vault.file}`);
+    } catch (e) { console.warn('把密钥从凭据管理器搬进密钥文件时出错，用到时再搬:', e); }
+  }
   // D2 MCP 配置层：只做 servers.json 读写，连接（网络/子进程）在 D3/D4
   const mcpServers = new McpServersStore(paths);
 

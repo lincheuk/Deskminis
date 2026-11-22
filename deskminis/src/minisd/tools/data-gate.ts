@@ -57,6 +57,7 @@ const CORE_ENTRIES: ReadonlyArray<readonly [name: string, label: string, selfMan
   ['peer-addresses.json', '设备配对记录', false],
   ['minisd-port.json', '本机连接凭据', true],
   ['vault.json', '本机密钥库', true],
+  ['secrets.vault', '本机密钥库', true],
   [DATA_ROOT_LOCK_NAME, '数据目录锁', true],
   [DATA_ROOT_LOCK_RECOVERY_NAME, '数据目录锁', true],
   // F08：检查点目录里是用户文件改动前的原始内容。agent 批准后能改写它的话，那份原始内容就丢了，恢复会写出错的东西
@@ -71,7 +72,7 @@ const CORE = new Map<string, { label: string; selfManaged: boolean }>(
 
 /** 读取时单独点名的两类：会话数据库（含全部会话内容），本机连接凭据（minisd-port.json 明文带 authToken）。 */
 const DB_FILES = new Set(['minis.db', 'minis.db-wal', 'minis.db-shm', 'minis.db-journal'].flatMap(n => [n, `${n}.tmp`]));
-const CREDENTIAL_FILES = new Set(['minisd-port.json', 'vault.json'].flatMap(n => [n, `${n}.tmp`]));
+const CREDENTIAL_FILES = new Set(['minisd-port.json', 'vault.json', 'secrets.vault'].flatMap(n => [n, `${n}.tmp`]));
 
 const BUCKETS = new Set<string>(SESSION_BUCKETS);
 
