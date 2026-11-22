@@ -96,12 +96,13 @@ describe('F09 源码守卫（W1–W5、W8）', () => {
   });
 
   // tools/ps-parse.ts（执行隔离第 1 步）：常驻的 PowerShell 解析进程，只解析命令、不执行任何东西，不起孙进程；
-  // stdin 断开（minisd 退出）它就自己退出，不登记进程账本
-  it('W2 src/minisd 里引 node:child_process 的文件恰好是 9 个；桥与市场两处只许 spawnSync', () => {
+  // stdin 断开（minisd 退出）它就自己退出，不登记进程账本。
+  // proc/sandbox.ts（执行隔离第 3 步）：开了沙箱时启动打一次标签的 PowerShell，只调安全描述符的 API、不起孙进程，跑完即退，不登记进程账本
+  it('W2 src/minisd 里引 node:child_process 的文件恰好是 10 个；桥与市场两处只许 spawnSync', () => {
     const importers = SRC.filter(f => f.startsWith('src/minisd/') && /from 'node:child_process'|require\('node:child_process'\)/.test(code(f))).sort();
     expect(importers).toEqual([
       'src/minisd/bridge/handlers.ts', 'src/minisd/bridge/server.ts', 'src/minisd/market/install.ts', 'src/minisd/mcp/stdio.ts',
-      'src/minisd/proc/owned.ts', 'src/minisd/proc/win-exec.ts', 'src/minisd/terminal.ts', 'src/minisd/tools/ps-parse.ts',
+      'src/minisd/proc/owned.ts', 'src/minisd/proc/sandbox.ts', 'src/minisd/proc/win-exec.ts', 'src/minisd/terminal.ts', 'src/minisd/tools/ps-parse.ts',
       'src/minisd/tools/shell.ts',
     ]);
     for (const f of ['src/minisd/bridge/server.ts', 'src/minisd/market/install.ts']) {
