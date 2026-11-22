@@ -32,7 +32,7 @@ npm run e2e
 ```
 
 `e2e:m2a`、`e2e:m2c`、`e2e:m2e` 会自行创建数据根，并固定从 `%APPDATA%\DeskMinis\providers.json`
-复制配置；设置 `DESKMINIS_DATA_DIR` 不会改变这份配置的来源。需要按配置中的 provider id 在相应凭据服务下准备有效密钥。
+复制配置（有 `secrets.vault` 的话一并复制，API key 从 0.3.0 起存在这个加密文件里，钥匙在凭据管理器）；设置 `DESKMINIS_DATA_DIR` 不会改变这份配置的来源。需要先在正式版里配好有效密钥。
 临时根隔离会话和文件，不隔离模型费用或 Windows 桥对桌面的操作。
 
 ## M5 产物与安装

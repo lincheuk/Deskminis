@@ -58,6 +58,13 @@ export class KeyringVault implements SecretVault {
     try { return this.entry(k).getPassword() ?? undefined; } catch { return undefined; }
   }
   delete(k: string): void { try { this.entry(k).deletePassword(); } catch { /* 不存在则忽略 */ } }
+  /** 这个服务名下凭据管理器里列得出来的账户名（执行隔离第 3 步迁移用）。列不出来返回空，不抛。 */
+  accounts(): string[] {
+    try {
+      const { findCredentials } = nativeRequire('@napi-rs/keyring') as typeof import('@napi-rs/keyring');
+      return findCredentials(this.service).map(c => c.account).filter(a => typeof a === 'string' && a !== '');
+    } catch { return []; }
+  }
 }
 
 /**

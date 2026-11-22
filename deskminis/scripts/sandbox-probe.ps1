@@ -146,6 +146,8 @@ foreach ($ln in $jobs.Split([char]10)) {
 
 # ---- 在 Low 进程里逐项试（降级之后才跑）。输入经 PROBE_* 环境变量；结论以一行 __PROBE__ <json> 输出 ----
 $ChildPs = @'
+# 中文系统的控制台代码页是 936：不切成 UTF-8 的话，父进程按 UTF-8 读到的报错原文是乱码
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $R = [System.Collections.ArrayList]::new()

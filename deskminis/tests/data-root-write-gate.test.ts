@@ -63,7 +63,7 @@ const CORE = [
   'providers.json', 'providers.json.tmp', 'search-provider.json', 'search-provider.json.tmp',
   'minis.db', 'minis.db-wal', 'minis.db-shm', 'minis.db-journal',
   'pairing-index.json', 'pairing-index.json.tmp', 'peer-addresses.json', 'peer-addresses.json.tmp',
-  'minisd-port.json', 'minisd-port.json.tmp', 'vault.json', 'vault.json.tmp',
+  'minisd-port.json', 'minisd-port.json.tmp', 'vault.json', 'vault.json.tmp', 'secrets.vault', 'secrets.vault.tmp',
 ];
 
 describe('① ② 写应用配置走卡，带 note', () => {

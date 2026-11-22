@@ -41,6 +41,9 @@ const DATA_ROOT = mkdtempSync(join(tmpdir(), 'dm-e2e-m2a-'));
 const realProviders = join(REAL_ROOT, 'providers.json');
 if (!existsSync(realProviders)) { console.error('真实数据根没有 providers.json —— 先在应用里配置 provider'); process.exit(2); }
 copyFileSync(realProviders, join(DATA_ROOT, 'providers.json'));
+// 执行隔离第 3 步起 API key 在数据根的 secrets.vault 里（钥匙在凭据管理器，同一个服务名共用）：一并拷过去。
+// 临时根只把凭据管理器里没搬的抄一份，不删正式根的（store/secret-file-vault.ts 的 removeLegacy）
+if (existsSync(join(REAL_ROOT, 'secrets.vault'))) copyFileSync(join(REAL_ROOT, 'secrets.vault'), join(DATA_ROOT, 'secrets.vault'));
 mkdirSync(join(DATA_ROOT, 'memory'), { recursive: true });
 console.log('临时数据根: ' + DATA_ROOT);
 
