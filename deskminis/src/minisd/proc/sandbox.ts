@@ -107,6 +107,8 @@ export const LOWER_HOOK_PS = 'if (-not $__minis_low) { $__minis_low = $true; __m
 /**
  * 打标签的一次性脚本。输入经环境变量 MINIS_LABEL_JOBS：每行「模式 空格 路径的 UTF-8 base64」；读完即从进程环境删掉。
  * 模式：protect = Medium + NO_READ_UP|NO_WRITE_UP，继承给子目录与文件（数据根）；low = Low + NO_WRITE_UP，继承（agent 根）；
+ * pipe = Low + NO_WRITE_UP，给已经建好的命名管道（windows-* 桥）：以客户端身份连上一次，经句柄按内核对象写（SetSecurityInfo），
+ * 不走按名字写的那条路（那条路要按文件算继承），也不比较现有标签（管道每次启动都是新建的）；
  * clear = 去掉显式标签（回到默认的隐式 Medium）。
  * 已经是这个标签（显式、带继承）的不再写一遍：SetNamedSecurityInfo 会把继承来的标签逐个推给已有的子项，大目录要花时间。
  * 每行输出一条结论（纯 ASCII）：__MINIS_LABEL__ <序号> ok | same | unsupported | err <错误码>。
@@ -126,8 +128,11 @@ $n = __minis_sbx_native @(
   @('advapi32.dll', 'SetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])),
   @('kernel32.dll', 'GetVolumePathNameW', [bool], [Type[]]@([string], [Text.StringBuilder], [uint32])),
   @('kernel32.dll', 'GetDriveTypeW', [uint32], [Type[]]@([string])),
-  @('kernel32.dll', 'GetVolumeInformationW', [bool], [Type[]]@([string], [IntPtr], [uint32], [IntPtr], [IntPtr], [uint32].MakeByRefType(), [IntPtr], [uint32])))
-$want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = '' }
+  @('kernel32.dll', 'GetVolumeInformationW', [bool], [Type[]]@([string], [IntPtr], [uint32], [IntPtr], [IntPtr], [uint32].MakeByRefType(), [IntPtr], [uint32])),
+  @('kernel32.dll', 'CreateFileW', [IntPtr], [Type[]]@([string], [uint32], [uint32], [IntPtr], [uint32], [uint32], [IntPtr])),
+  @('kernel32.dll', 'CloseHandle', [bool], [Type[]]@([IntPtr])),
+  @('advapi32.dll', 'SetSecurityInfo', [uint32], [Type[]]@([IntPtr], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])))
+$want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = ''; pipe = '(ML;;NW;;;LW)' }
 # 比较前两边都过一遍系统的 SDDL 往返：系统写回来的旗标、权限的写法和顺序不一定与这里的字面量相同
 $canon = {
   $p = [IntPtr]::Zero; $o = ''
@@ -149,6 +154,22 @@ foreach ($ln in $jobs.Split([char]10)) {
     $mode = $ln.Substring(0, $sp); if (-not $want.ContainsKey($mode)) { throw 'x' }
     $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ln.Substring($sp + 1)))
     $ace = $want[$mode]
+    if ($mode -eq 'pipe') {
+      # 0xA0000 = READ_CONTROL | WRITE_OWNER；3 = 读写共享 / OPEN_EXISTING；6 = SE_KERNEL_OBJECT
+      $psd = [IntPtr]::Zero
+      if (-not $n::ConvertStringSecurityDescriptorToSecurityDescriptorW('S:' + $ace, [uint32]1, [ref]$psd, [IntPtr]::Zero)) { $res = 'err ' + $M::GetLastWin32Error(); throw 'x' }
+      try {
+        $present = $false; $sacl = [IntPtr]::Zero; $dflt = $false
+        if (-not $n::GetSecurityDescriptorSacl($psd, [ref]$present, [ref]$sacl, [ref]$dflt)) { $res = 'err ' + $M::GetLastWin32Error(); throw 'x' }
+        $h = $n::CreateFileW($path, [uint32]0xA0000, [uint32]3, [IntPtr]::Zero, [uint32]3, [uint32]0, [IntPtr]::Zero)
+        if ($h.ToInt64() -eq -1) { $res = 'err ' + $M::GetLastWin32Error(); throw 'x' }
+        try {
+          $rc = $n::SetSecurityInfo($h, 6, [uint32]0x10, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, $sacl)
+          if ($rc -ne 0) { $res = 'err ' + $rc; throw 'x' }
+        } finally { [void]$n::CloseHandle($h) }
+      } finally { [void]$n::LocalFree($psd) }
+      $res = 'ok'; throw 'done' # 跳到这一项的结尾（下面的 catch 不改 $res）
+    }
     # 打标签之前看一眼所在的卷：网络盘（DRIVE_REMOTE = 4）和不保存 ACL 的文件系统（没有 FILE_PERSISTENT_ACLS = 8，如 FAT、exFAT）
     # 记 unsupported。命名管道（\\\\.\\pipe\\…）没有卷，不看；看不出来的照常往下走，打不上自然报错
     if ($mode -ne 'clear' -and -not $path.StartsWith('\\\\.\\')) {
@@ -183,7 +204,7 @@ foreach ($ln in $jobs.Split([char]10)) {
 }
 `;
 
-export type LabelMode = 'protect' | 'low' | 'clear';
+export type LabelMode = 'protect' | 'low' | 'clear' | 'pipe';
 export interface LabelJob { mode: LabelMode; path: string }
 export type LabelResult = { path: string; outcome: 'ok' | 'same' | 'unsupported' } | { path: string; outcome: 'err'; code: number };
 
@@ -210,13 +231,18 @@ const LABEL_TIMEOUT_MS = 120_000;
 
 /** 起一个一次性的 PowerShell 打标签。从不拒绝：起不来、超时都按每项 err 返回。 */
 export function applyLabels(jobs: readonly LabelJob[], proc: ProcOpts = {}, timeoutMs = LABEL_TIMEOUT_MS): Promise<LabelResult[]> {
+  return runLabelScript(jobs, proc, timeoutMs).then(r => r.results);
+}
+
+/** 同 applyLabels，另带脚本的原始输出（排查用：含每项读到的现有标签）。 */
+export function runLabelScript(jobs: readonly LabelJob[], proc: ProcOpts = {}, timeoutMs = LABEL_TIMEOUT_MS): Promise<{ results: LabelResult[]; stdout: string }> {
   const spawnImpl = proc.spawnImpl ?? spawn;
   const sysEnv = proc.sysEnv ?? process.env;
   const { script, jobsEnv } = labelInvocation(jobs);
   return new Promise(done => {
     let stdout = '';
     let settled = false;
-    const finish = (): void => { if (settled) return; settled = true; clearTimeout(timer); done(parseLabelOutput(jobs, stdout)); };
+    const finish = (): void => { if (settled) return; settled = true; clearTimeout(timer); done({ results: parseLabelOutput(jobs, stdout), stdout }); };
     const timer = setTimeout(() => { try { child.kill(); } catch { /* 已退出 */ } finish(); }, timeoutMs);
     timer.unref?.();
     const child = spawnImpl(powershellPath(sysEnv), ['-NoProfile', '-NoLogo', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {

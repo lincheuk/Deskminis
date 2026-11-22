@@ -16,7 +16,7 @@ import type { PermissionRequest, ToolContext } from '../src/minisd/tools/types';
 import { ProcSupervisor } from '../src/minisd/proc/owned';
 import {
   LOWER_HOOK_PS, SANDBOX_LABEL_PS, SANDBOX_LOWER_PS, SANDBOX_NATIVE_PS, SANDBOX_REFUSED_EXIT, SANDBOX_REFUSED_TEXT,
-  applyLabels, ensureSandboxDirs, labelInvocation, overrideEnv, parseLabelOutput, sandboxDecision, sandboxEnv,
+  applyLabels, ensureSandboxDirs, labelInvocation, runLabelScript, overrideEnv, parseLabelOutput, sandboxDecision, sandboxEnv,
 } from '../src/minisd/proc/sandbox';
 import { ARM_HOOK_PS } from '../src/minisd/proc/own-script';
 
@@ -275,7 +275,7 @@ describe('② 引擎装配（源码守卫）', () => {
     expect(idx).toContain('const sandboxPlatform = procOpts.platform ?? process.platform;');
     expect(idx).toContain('sandboxDecision({ env: process.env, platform: sandboxPlatform, root, agentRoot: paths.agentRoot, setting: sandboxSetting })');
     expect(idx).toContain("const jobs: LabelJob[] = [{ mode: 'protect', path: root }, { mode: 'low', path: paths.agentRoot }];");
-    expect(idx).toContain("if (bridgePipe !== undefined) jobs.push({ mode: 'low', path: bridgePipe });");
+    expect(idx).toContain("if (bridgePipe !== undefined) jobs.push({ mode: 'pipe', path: bridgePipe });");
     expect(idx).toContain('applyLabels(jobs, procOpts)');
     expect(idx).toContain('shellSandbox = { env, ready, workspace: workspaceLabels ? dir => workspaceLabels.prepare(dir) : undefined };');
     expect(idx).toContain('new ShellManager(procOpts, shellSandbox)');
@@ -394,8 +394,8 @@ describe.runIf(WIN)('④ Windows 真跑', () => {
       const l = await applyLabels([{ mode: 'low', path: agentRoot }]);
       expect(l[0].outcome).toBe('ok');
       expect((await sh.run(probe, 60_000)).output).toMatch(/ERR (EACCES|EPERM)/);
-      const r = await applyLabels([{ mode: 'low', path: pipe }]);
-      expect(r[0].outcome).toBe('ok');
+      const r = await runLabelScript([{ mode: 'pipe', path: pipe }]);
+      expect(r.results[0], `${JSON.stringify(r.results[0])}\n${r.stdout}`).toMatchObject({ outcome: 'ok' });
       expect((await sh.run(probe, 60_000)).output).toContain('GOT hi');
       expect((await sh.run(probe, 60_000)).output).toContain('GOT hi'); // 第二个实例也认这个标签
       expect(conns).toBeGreaterThanOrEqual(2);

@@ -624,9 +624,9 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     const env = sandboxEnv(paths.agentRoot);
     for (const dir of ensureSandboxDirs(env)) console.warn(`命令隔离：建不了 ${dir}，沙箱里用到它的工具会失败`);
     // windows-* 桥的命名管道也打 Low 标签：不然沙箱里的 bridge-cli 连不上（Node 建管道时给不了安全描述符，只能事后打；
-    // 打标签时会以客户端身份连上管道两次，桥服务把这两个空连接当普通断开处理）
+    // 打标签时会以客户端身份连上管道一次，桥服务把这个空连接当普通断开处理）
     const jobs: LabelJob[] = [{ mode: 'protect', path: root }, { mode: 'low', path: paths.agentRoot }];
-    if (bridgePipe !== undefined) jobs.push({ mode: 'low', path: bridgePipe });
+    if (bridgePipe !== undefined) jobs.push({ mode: 'pipe', path: bridgePipe });
     const ready = applyLabels(jobs, procOpts).then(results => {
       if (results[0]?.outcome === 'unsupported') {
         sandboxState = { state: 'unavailable', reason: 'data-root-unsupported' };
