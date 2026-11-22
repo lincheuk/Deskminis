@@ -10,7 +10,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { spawn } from 'node:child_process';
-import { PersistentShell, ShellManager } from '../src/minisd/tools/shell';
+import { PersistentShell, ShellManager, SANDBOX_OUTSIDE_NOTE, makeShellTool } from '../src/minisd/tools/shell';
+import { PermissionGatewayImpl } from '../src/minisd/tools/permissions';
+import type { PermissionRequest, ToolContext } from '../src/minisd/tools/types';
 import { ProcSupervisor } from '../src/minisd/proc/owned';
 import {
   LOWER_HOOK_PS, SANDBOX_LABEL_PS, SANDBOX_LOWER_PS, SANDBOX_NATIVE_PS, SANDBOX_REFUSED_EXIT, SANDBOX_REFUSED_TEXT,
@@ -36,7 +38,7 @@ function fakeSpawn(): { calls: Array<{ args: string[]; env: Record<string, strin
 }
 const tick = (): Promise<void> => new Promise(r => setImmediate(r));
 const scriptOf = (args: string[]): string => Buffer.from(args[args.length - 1], 'base64').toString('utf16le');
-const SBX = (ready: Promise<unknown> = Promise.resolve()) => ({ env: sandboxEnv('C:\\Users\\me\\AppData\\LocalLow\\DeskMinis'), ready });
+const SBX = (ready: Promise<boolean | void> = Promise.resolve()) => ({ env: sandboxEnv('C:\\Users\\me\\AppData\\LocalLow\\DeskMinis'), ready });
 
 describe('① 开关、环境、标签输出', () => {
   const root = 'C:\\Users\\me\\AppData\\Roaming\\DeskMinis';
@@ -198,12 +200,84 @@ describe('② shell 接线', () => {
   });
 });
 
+describe('② 在沙箱外运行', () => {
+  const req = (detail: string, outside = true): PermissionRequest => ({ kind: 'shell', detail, sessionId: 'S1', toolTitle: 't', ...(outside ? { outsideSandbox: true as const } : {}) });
+
+  it('完全访问档也弹卡；「本会话允许」只放这一次；和沙箱内同一条命令的授权分开', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-session'; });
+    g.applyPreset('full');
+    expect(await g.check(req('winget install x', false))).toBe('allow');
+    expect(asked).toBe(0);
+    expect(await g.check(req('winget install x'))).toBe('allow');
+    expect(await g.check(req('winget install x'))).toBe('allow');
+    expect(asked).toBe(2);
+  });
+  it('「每次确认」档：沙箱内批过「本会话允许」不覆盖沙箱外', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-session'; });
+    expect(await g.check(req('npm i -g x', false))).toBe('allow');
+    expect(await g.check(req('npm i -g x', false))).toBe('allow');
+    expect(asked).toBe(1);
+    expect(await g.check(req('npm i -g x'))).toBe('allow');
+    expect(asked).toBe(2);
+  });
+  it('规划档直接拒；危险命令照旧拒，都不弹卡', async () => {
+    let asked = 0;
+    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
+    g.applyPreset('plan');
+    expect(await g.check(req('dir'))).toBe('deny');
+    g.applyPreset('full');
+    expect(await g.check(req('Remove-Item -Recurse C:\\x'))).toBe('deny');
+    expect(asked).toBe(0);
+  });
+
+  const ctxOf = (asks: PermissionRequest[]): ToolContext => ({
+    sessionId: 's1',
+    paths: { workspaceOf: () => 'C:\\ws' },
+    permissions: { decide: async (r: PermissionRequest) => { asks.push(r); return { decision: 'allow', via: 'user-once' }; }, check: async () => 'allow' },
+  } as unknown as ToolContext);
+
+  it('开了命令隔离：sandbox: false 的卡带 outsideSandbox 与说明，命令进不在沙箱里的那个 shell', async () => {
+    const { calls, spawnImpl } = fakeSpawn();
+    const mgr = new ShellManager({ platform: 'win32', spawnImpl, sysEnv: SYS_ENV }, SBX());
+    expect(mgr.sandboxed).toBe(true);
+    const tool = makeShellTool(mgr);
+    const asks: PermissionRequest[] = [];
+    void tool.execute({ command: 'winget install x', tool_title: 't', sandbox: false }, ctxOf(asks));
+    await tick(); await tick(); await tick();
+    expect(asks[0]).toMatchObject({ kind: 'shell', outsideSandbox: true, note: SANDBOX_OUTSIDE_NOTE });
+    expect(calls).toHaveLength(1);
+    expect(scriptOf(calls[0].args)).not.toContain('__minis_lower');
+    expect(calls[0].env.Temp).toBe(SYS_ENV.Temp);
+    void tool.execute({ command: 'dir', tool_title: 't' }, ctxOf(asks));
+    await tick(); await tick(); await tick();
+    expect(asks[1].outsideSandbox).toBeUndefined();
+    expect(calls).toHaveLength(2);
+    expect(scriptOf(calls[1].args)).toContain('__minis_lower');
+  });
+
+  it('没开命令隔离：sandbox: false 不起作用，卡与平常一样', async () => {
+    const { spawnImpl } = fakeSpawn();
+    const mgr = new ShellManager({ platform: 'win32', spawnImpl, sysEnv: SYS_ENV });
+    expect(mgr.sandboxed).toBe(false);
+    const asks: PermissionRequest[] = [];
+    void makeShellTool(mgr).execute({ command: 'dir', tool_title: 't', sandbox: false }, ctxOf(asks));
+    await tick(); await tick();
+    expect(asks[0].outsideSandbox).toBeUndefined();
+    expect(asks[0].note).toBeUndefined();
+  });
+});
+
 describe('② 引擎装配（源码守卫）', () => {
   const idx = readFileSync(resolve(__dirname, '..', 'src', 'minisd', 'index.ts'), 'utf8');
   it('开了沙箱：数据根打 protect、agent 根打 low，标签打完之前 shell 等着；没开时 ShellManager 拿到 undefined', () => {
-    expect(idx).toMatch(/sandboxDecision\(\{ env: process\.env, platform: procOpts\.platform \?\? process\.platform, root, agentRoot: paths\.agentRoot \}\)/);
-    expect(idx).toContain("applyLabels([{ mode: 'protect', path: root }, { mode: 'low', path: paths.agentRoot }], procOpts)");
-    expect(idx).toContain('shellSandbox = { env, ready };');
+    expect(idx).toContain('const sandboxPlatform = procOpts.platform ?? process.platform;');
+    expect(idx).toContain('sandboxDecision({ env: process.env, platform: sandboxPlatform, root, agentRoot: paths.agentRoot, setting: sandboxSetting })');
+    expect(idx).toContain("const jobs: LabelJob[] = [{ mode: 'protect', path: root }, { mode: 'low', path: paths.agentRoot }];");
+    expect(idx).toContain("if (bridgePipe !== undefined) jobs.push({ mode: 'low', path: bridgePipe });");
+    expect(idx).toContain('applyLabels(jobs, procOpts)');
+    expect(idx).toContain('shellSandbox = { env, ready, workspace: workspaceLabels ? dir => workspaceLabels.prepare(dir) : undefined };');
     expect(idx).toContain('new ShellManager(procOpts, shellSandbox)');
   });
 });
@@ -301,6 +375,33 @@ describe.runIf(WIN)('④ Windows 真跑', () => {
       expect((await run(`Get-Content -LiteralPath '${join(root, 'secret.txt')}'`)).output).toContain('TOPSECRET-DATA');
     } finally {
       await sh.dispose('shutdown');
+    }
+  }, 180_000);
+
+  it('命名管道打上 Low 标签之后，沙箱里的进程连得上（windows-* 桥）', async () => {
+    const net = await import('node:net');
+    const pipe = `\\\\.\\pipe\\deskminis-sbx-test-${process.pid}`;
+    let conns = 0;
+    const server = net.createServer(sock => { conns++; sock.on('error', () => {}); sock.end('hi'); });
+    await new Promise<void>(r => server.listen(pipe, r));
+    const base = mkdtempSync(join(tmpdir(), 'sbx-pipe-'));
+    made.push(base);
+    const agentRoot = join(base, 'agent'); const ws = join(agentRoot, 'ws');
+    mkdirSync(ws, { recursive: true });
+    const sh = new PersistentShell(ws, undefined, {}, undefined, { env: sandboxEnv(agentRoot), ready: Promise.resolve() });
+    const probe = `node -e "const s=require('net').connect(process.argv[1]);s.on('data',d=>{console.log('GOT '+d);s.destroy()});s.on('error',e=>{console.log('ERR '+e.code);process.exit(0)})" '${pipe}'`;
+    try {
+      const l = await applyLabels([{ mode: 'low', path: agentRoot }]);
+      expect(l[0].outcome).toBe('ok');
+      expect((await sh.run(probe, 60_000)).output).toMatch(/ERR (EACCES|EPERM)/);
+      const r = await applyLabels([{ mode: 'low', path: pipe }]);
+      expect(r[0].outcome).toBe('ok');
+      expect((await sh.run(probe, 60_000)).output).toContain('GOT hi');
+      expect((await sh.run(probe, 60_000)).output).toContain('GOT hi'); // 第二个实例也认这个标签
+      expect(conns).toBeGreaterThanOrEqual(2);
+    } finally {
+      await sh.dispose('shutdown');
+      await new Promise<void>(r => server.close(() => r()));
     }
   }, 180_000);
 

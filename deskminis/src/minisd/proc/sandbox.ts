@@ -10,8 +10,10 @@
  *    给自己的文件打不高于自身级别的标签不需要管理员。
  *  - Low 进程写不了 %TEMP%、npm / pip 缓存这些 Medium 目录，所以沙箱里的 TEMP、TMP 和几个常见缓存指到 agent 根下（sandboxEnv）。
  *
- * 这一部分只在开发者开关 DESKMINIS_SANDBOX=1 下生效（sandboxDecision），默认关：绑定到别处的工作区还没有打 Low 标签、
- * windows-* 桥的命名管道 Low 进程还连不上、「在沙箱外运行」的卡还没做，这些在第 3 步第二部分。
+ * 开关在设置「权限」页（Beta，默认关，存 settings 表 sandbox.enabled，重启引擎后生效）；开发者另可用 DESKMINIS_SANDBOX=1 / 0
+ * 强制开关（sandboxDecision）。第 3 步第二部分补上了：绑定到 agent 根以外的工作区在沙箱里用到时打 Low 标签、不用了还原
+ * （proc/sandbox-workspace.ts），windows-* 桥的命名管道打 Low 标签，「在沙箱外运行」的卡（tools/shell.ts、tools/permissions.ts），
+ * 数据目录在不支持完整性标签的盘（FAT、exFAT、网络盘）上时不开沙箱。
  * 四个前提（文件上的 NO_READ_UP、凭据管理器与 DPAPI、杀软反应、工具链兼容）要在真机上跑 scripts/sandbox-probe.ps1 验证；
  * 脚本里的三段 PowerShell 与这里逐字相同（tests/exec-isolation-step3.test.ts 钉着）。
  *
@@ -107,7 +109,8 @@ export const LOWER_HOOK_PS = 'if (-not $__minis_low) { $__minis_low = $true; __m
  * 模式：protect = Medium + NO_READ_UP|NO_WRITE_UP，继承给子目录与文件（数据根）；low = Low + NO_WRITE_UP，继承（agent 根）；
  * clear = 去掉显式标签（回到默认的隐式 Medium）。
  * 已经是这个标签（显式、带继承）的不再写一遍：SetNamedSecurityInfo 会把继承来的标签逐个推给已有的子项，大目录要花时间。
- * 每行输出一条结论（纯 ASCII）：__MINIS_LABEL__ <序号> ok | same | err <错误码>。
+ * 每行输出一条结论（纯 ASCII）：__MINIS_LABEL__ <序号> ok | same | unsupported | err <错误码>。
+ * unsupported：所在的卷是网络盘或不保存 ACL（FAT、exFAT），标签打不上或打上也不管用。
  * 0x10 = LABEL_SECURITY_INFORMATION；1 = SE_FILE_OBJECT，也是 SDDL_REVISION_1。
  */
 export const LABEL_MARKER = '__MINIS_LABEL__';
@@ -120,7 +123,10 @@ $n = __minis_sbx_native @(
   @('advapi32.dll', 'ConvertSecurityDescriptorToStringSecurityDescriptorW', [bool], [Type[]]@([IntPtr], [uint32], [uint32], [IntPtr].MakeByRefType(), [IntPtr])),
   @('advapi32.dll', 'GetSecurityDescriptorSacl', [bool], [Type[]]@([IntPtr], [bool].MakeByRefType(), [IntPtr].MakeByRefType(), [bool].MakeByRefType())),
   @('advapi32.dll', 'GetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr], [IntPtr].MakeByRefType())),
-  @('advapi32.dll', 'SetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])))
+  @('advapi32.dll', 'SetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])),
+  @('kernel32.dll', 'GetVolumePathNameW', [bool], [Type[]]@([string], [Text.StringBuilder], [uint32])),
+  @('kernel32.dll', 'GetDriveTypeW', [uint32], [Type[]]@([string])),
+  @('kernel32.dll', 'GetVolumeInformationW', [bool], [Type[]]@([string], [IntPtr], [uint32], [IntPtr], [IntPtr], [uint32].MakeByRefType(), [IntPtr], [uint32])))
 $want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = '' }
 # 比较前两边都过一遍系统的 SDDL 往返：系统写回来的旗标、权限的写法和顺序不一定与这里的字面量相同
 $canon = {
@@ -143,6 +149,16 @@ foreach ($ln in $jobs.Split([char]10)) {
     $mode = $ln.Substring(0, $sp); if (-not $want.ContainsKey($mode)) { throw 'x' }
     $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ln.Substring($sp + 1)))
     $ace = $want[$mode]
+    # 打标签之前看一眼所在的卷：网络盘（DRIVE_REMOTE = 4）和不保存 ACL 的文件系统（没有 FILE_PERSISTENT_ACLS = 8，如 FAT、exFAT）
+    # 记 unsupported。命名管道（\\\\.\\pipe\\…）没有卷，不看；看不出来的照常往下走，打不上自然报错
+    if ($mode -ne 'clear' -and -not $path.StartsWith('\\\\.\\')) {
+      $vb = [Text.StringBuilder]::new(1024)
+      if ($n::GetVolumePathNameW($path, $vb, [uint32]1024)) {
+        $vol = $vb.ToString(); $fl = [uint32]0
+        if ($n::GetDriveTypeW($vol) -eq 4) { $res = 'unsupported'; throw 'x' }
+        if ($n::GetVolumeInformationW($vol, [IntPtr]::Zero, [uint32]0, [IntPtr]::Zero, [IntPtr]::Zero, [ref]$fl, [IntPtr]::Zero, [uint32]0) -and -not ($fl -band 8)) { $res = 'unsupported'; throw 'x' }
+      }
+    }
     $sd = [IntPtr]::Zero
     $rc = $n::GetNamedSecurityInfoW($path, 1, [uint32]0x10, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, [ref]$sd)
     if ($rc -ne 0) { $res = 'err ' + $rc; throw 'x' }
@@ -169,17 +185,17 @@ foreach ($ln in $jobs.Split([char]10)) {
 
 export type LabelMode = 'protect' | 'low' | 'clear';
 export interface LabelJob { mode: LabelMode; path: string }
-export type LabelResult = { path: string; outcome: 'ok' | 'same' } | { path: string; outcome: 'err'; code: number };
+export type LabelResult = { path: string; outcome: 'ok' | 'same' | 'unsupported' } | { path: string; outcome: 'err'; code: number };
 
 /** 解析打标签脚本的输出。没报的一项记 err -1（脚本没跑完）。 */
 export function parseLabelOutput(jobs: readonly LabelJob[], stdout: string): LabelResult[] {
   const out: LabelResult[] = jobs.map(j => ({ path: j.path, outcome: 'err', code: -1 }));
-  const re = new RegExp(`^${LABEL_MARKER} (\\d+) (ok|same|err (\\d+))\\r?$`, 'gm');
+  const re = new RegExp(`^${LABEL_MARKER} (\\d+) (ok|same|unsupported|err (\\d+))\\r?$`, 'gm');
   for (const m of stdout.matchAll(re)) {
     const i = Number(m[1]);
     if (!Number.isSafeInteger(i) || i < 0 || i >= jobs.length) continue;
     const path = jobs[i].path;
-    out[i] = m[2] === 'ok' || m[2] === 'same' ? { path, outcome: m[2] } : { path, outcome: 'err', code: Number(m[3]) };
+    out[i] = m[2] === 'ok' || m[2] === 'same' || m[2] === 'unsupported' ? { path, outcome: m[2] } : { path, outcome: 'err', code: Number(m[3]) };
   }
   return out;
 }
@@ -228,10 +244,15 @@ const sameOrNested = (a: string, b: string, win: boolean): boolean => {
   return inside(x, y) || inside(y, x);
 };
 
-/** 开不开沙箱：只认 DESKMINIS_SANDBOX=1，且只在 Windows 上。agent 根与数据根重叠（老布局：显式给了数据根）时不开——
- *  给数据根打「不许读」会把 agent 自己的工作区一起挡住。 */
-export function sandboxDecision(o: { env: Readonly<Record<string, string | undefined>>; platform: string; root: string; agentRoot: string }): SandboxDecision {
-  if (o.env.DESKMINIS_SANDBOX !== '1') return { enabled: false, reason: 'off' };
+/** 设置里的开关存在 settings 表的这个键下：'1' 开，其余（含没有）关。 */
+export const SANDBOX_SETTING_KEY = 'sandbox.enabled';
+
+/** 开不开沙箱：环境变量 DESKMINIS_SANDBOX=1 / 0 强制开关（开发者用），没设时看设置里的开关（setting，即 SANDBOX_SETTING_KEY 的值）。
+ *  只在 Windows 上开。agent 根与数据根重叠（老布局：显式给了数据根）时不开——给数据根打「不许读」会把 agent 自己的工作区一起挡住。 */
+export function sandboxDecision(o: { env: Readonly<Record<string, string | undefined>>; platform: string; root: string; agentRoot: string; setting?: string }): SandboxDecision {
+  const forced = o.env.DESKMINIS_SANDBOX;
+  const on = forced === '1' || forced === '0' ? forced === '1' : o.setting === '1';
+  if (!on) return { enabled: false, reason: 'off' };
   if (o.platform !== 'win32') return { enabled: false, reason: 'not-windows' };
   if (sameOrNested(o.root, o.agentRoot, true)) return { enabled: false, reason: 'agent-root-overlaps-data-root' };
   return { enabled: true };
@@ -268,8 +289,12 @@ export function overrideEnv(env: Readonly<Record<string, string>>, overrides: Re
   return { ...out, ...overrides };
 }
 
-/** shell 的沙箱配置：开了沙箱时由 index.ts 建好交给 ShellManager。ready 落定之前不起驱动（等标签打完）。 */
+/** shell 的沙箱配置：开了沙箱时由 index.ts 建好交给 ShellManager。ready 落定之前不起驱动（等标签打完）；
+ *  落定为 false 表示这台机器上开不了（数据目录所在的盘不支持标签），shell 照原级别跑。
+ *  workspace：命令要在 dir 里跑之前调一次（给 agent 根以外的工作区打 Low 标签，见 proc/sandbox-workspace.ts），
+ *  返回一句要附在这条命令输出前面的说明（工作区没法打标签时），没有就是 undefined。 */
 export interface ShellSandbox {
   env: Record<string, string>;
-  ready: Promise<unknown>;
+  ready: Promise<boolean | void>;
+  workspace?: (dir: string) => Promise<string | undefined>;
 }

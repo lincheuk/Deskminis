@@ -41,6 +41,7 @@ export const deletionSentinels = {
   retainedSessions: [{ id: 'R1', title: '保留', deletedBy: 'FP', deletedAt: 1, retainedAt: 2, messageCount: 5, unseenCount: 2, annotationCount: 1 }],
   devicesLoaded: true, syncState: 'syncing', syncPaused: true, workspaceRoot: '/project', workspaceIsDefault: false,
   controlPending: [{ kind: 'mcp', key: 'm', fingerprint: 'f', title: 'MCP 服务器 m', preview: '启动命令：x', reason: 'changed' }],
+  sandbox: { setting: true, state: 'on', restartNeeded: false },
 } satisfies Chat['$state'] & Record<keyof Chat['$state'], unknown>;
 
 export function seedDeletion(chat: Chat): void {

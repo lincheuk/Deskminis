@@ -499,7 +499,7 @@ const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
 const BRIDGE_ONCE_TTL_MS = 120_000;
 
 /** 会话授权的键：同一条命令 / 路径 / 能力串原样重复才命中。记授权（decide）与收回授权（revokeGrant）用同一个。 */
-const grantKeyOf = (req: PermissionRequest): string => `${req.sessionId}\u0000${req.kind}\u0000${req.detail}`;
+const grantKeyOf = (req: PermissionRequest): string => `${req.sessionId}\u0000${req.kind}${req.outsideSandbox ? ':outside' : ''}\u0000${req.detail}`;
 
 export class PermissionGatewayImpl implements PermissionGateway {
   private levels: Record<PermissionClass, PermissionLevel>;
@@ -654,6 +654,12 @@ export class PermissionGatewayImpl implements PermissionGateway {
     // 完全访问档下，点到 DeskMinis 数据目录或 AppData 的命令仍询问（隔离方案第 0 步，见 asksInFullMode）。
     // 只把放行改成询问，不会多放；会话授权照常生效，「本会话允许」过的同一条命令不再弹卡
     if (level === 'bypass' && this.preset === 'full' && req.kind === 'shell' && cls === 'gated' && asksInFullMode(req.detail)) level = 'askOnce';
+    // 执行隔离第 3 步：要求在沙箱外运行的命令永远要人点头——完全访问不覆盖（不然被注入的模型写一句 sandbox: false 就绕开了），
+    // 规划档直接拒；危险命令照旧拒
+    if (req.kind === 'shell' && req.outsideSandbox) {
+      if (this.isPlanMode()) level = 'notAllowed';
+      else if (level !== 'notAllowed') level = 'askOnce';
+    }
     if (level === 'bypass') return allowed('level-bypass');
     if (level === 'notAllowed') {
       // 规则直接拦下：不询问。以前这里不留任何痕迹，现在报给宿主记一条审计
@@ -735,7 +741,8 @@ export class PermissionGatewayImpl implements PermissionGateway {
     if (a.kind === 'allow') {
       // 用户亲自作答：清掉这个会话的无人答复计数
       this.unanswered.delete(req.sessionId);
-      if (a.via === 'user-session') this.sessionGrants.add(grantKey);
+      // 沙箱外的命令每次都问：「本会话允许」也只放这一次
+      if (a.via === 'user-session' && !req.outsideSandbox) this.sessionGrants.add(grantKey);
       return allowed(a.via, requestId);
     }
     // 桥卡弹出来了，没等到任何人答复，请求方（管道另一头的 bridge-cli）先走了。与挂满时限超时一样算一段无人答复：
