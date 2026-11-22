@@ -1,10 +1,36 @@
 <script setup lang="ts">
 /** T5：权限档位。档位是**全局默认**，权限卡上还能就地临时改——两处同一份 permTier
  *  镜像，后端 settings 表持久化。这三句话决定用户敢不敢开 full，所以每句都得是真话。 */
+import { computed, onMounted, ref } from 'vue';
 import { useChat } from '../../stores/chat';
 import UiIcon from '../UiIcon.vue';
 
 const chat = useChat();
+
+// 执行隔离第 3 步：命令隔离（Beta）。开关存在引擎的设置里，重启后生效；状态说的是这次启动时的实际情况
+const sbxErr = ref('');
+onMounted(() => { void chat.refreshSandbox(); });
+async function toggleSandbox(e: Event): Promise<void> {
+  const el = e.target as HTMLInputElement;
+  sbxErr.value = '';
+  try { await chat.setSandboxEnabled(el.checked); }
+  catch (err) { el.checked = !el.checked; sbxErr.value = err instanceof Error ? err.message : String(err); }
+}
+const SBX_REASON: Record<string, string> = {
+  'not-windows': '只支持 Windows',
+  'agent-root-overlaps-data-root': 'agent 目录和数据目录重叠（启动时指定了数据目录），开不了',
+  'data-root-unsupported': '数据目录所在的盘不支持完整性标签（FAT、exFAT 或网络盘），开不了',
+};
+const sbxLine = computed(() => {
+  const s = chat.sandbox;
+  if (!s) return '';
+  const now = s.state === 'on' ? '当前：已开启'
+    : s.state === 'starting' ? '当前：正在开启…'
+    : s.state === 'unavailable' ? `当前：没有开启，${SBX_REASON[s.reason ?? ''] ?? s.reason ?? ''}`
+    : s.reason && s.reason !== 'off' ? `当前：没有开启，${SBX_REASON[s.reason] ?? s.reason}` : '当前：未开启';
+  const forced = s.forced === undefined ? '' : ` · 环境变量 DESKMINIS_SANDBOX 强制${s.forced ? '开启' : '关闭'}，这里的开关不起作用`;
+  return `${now}${s.restartNeeded ? ' · 重启 DeskMinis 后生效' : ''}${forced}`;
+});
 type Tier = 'ask' | 'session' | 'plan' | 'full';
 const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: boolean }[] = [
   // T6e-3 补搬：旧设置页写明了「90 秒未响应自动拒绝」，换壳时丢了。用户不知道这一点，
@@ -40,6 +66,21 @@ const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: bo
     <p v-if="chat.permTier === 'full'" class="warnbox t-body">
       完全访问下 agent 会直接改文件、跑命令，不再逐条问你。只在你完全清楚它要做什么时开。
     </p>
+
+    <div v-if="chat.sandbox" class="f-card sbx">
+      <div class="f-row">
+        <label class="f-switch" title="命令隔离">
+          <input type="checkbox" :checked="chat.sandbox.setting" :disabled="chat.sandbox.forced !== undefined" @change="toggleSandbox" />
+          <i></i>
+        </label>
+        <span class="f-label" style="gap:1px">
+          <span>命令隔离 <span class="beta t-aux">Beta</span></span>
+          <span class="f-hint">agent 跑的命令放进低权限沙箱：读写不了 DeskMinis 自己的数据（会话、API key），只能写工作区和临时目录。要在沙箱外跑的命令每次都会问你，完全访问档也问。只支持 Windows，重启 DeskMinis 后生效</span>
+        </span>
+      </div>
+      <p class="statusline t-aux">{{ sbxLine }}</p>
+      <p v-if="sbxErr" class="statusline t-aux bad">{{ sbxErr }}</p>
+    </div>
   </section>
 </template>
 
@@ -59,6 +100,10 @@ const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: bo
 .tier.danger.on :deep(svg) { color: var(--c-err); }
 .ttl { font-size: var(--t-item-size); font-weight: var(--w-md); color: var(--c-ink); }
 .sub { color: var(--c-ink-3); }
+.sbx { margin-top: var(--sp-5); }
+.beta { padding: 0 var(--sp-2); border: 1px solid var(--c-line); border-radius: var(--r-pill); }
+.statusline { margin: var(--sp-3) 0 0; color: var(--c-ink-3); }
+.statusline.bad { color: var(--c-err); }
 .warnbox {
   margin: 0; padding: var(--sp-4) var(--sp-5); border-radius: var(--r-s);
   background: var(--c-err-soft); color: var(--c-err);

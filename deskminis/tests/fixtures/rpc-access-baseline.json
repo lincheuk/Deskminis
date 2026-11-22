@@ -1487,6 +1487,30 @@
       "remote": {
         "allowed": true
       }
+    },
+    "sandbox.setEnabled": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sandbox.setEnabled 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sandbox.status": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sandbox.status 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
     }
   }
 }

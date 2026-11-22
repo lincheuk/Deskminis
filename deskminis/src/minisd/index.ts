@@ -29,7 +29,8 @@ import { officeReadTool, officeWriteTool } from './tools/office';
 import { parseOffice } from './office/parse';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
 import { ShellManager, makeShellTool } from './tools/shell';
-import { applyLabels, ensureSandboxDirs, sandboxDecision, sandboxEnv, type ShellSandbox } from './proc/sandbox';
+import { applyLabels, ensureSandboxDirs, sandboxDecision, sandboxEnv, SANDBOX_SETTING_KEY, type LabelJob, type ShellSandbox } from './proc/sandbox';
+import { SANDBOX_LABELED_KEY, WorkspaceLabels } from './proc/sandbox-workspace';
 import { PsParser } from './tools/ps-parse';
 import { analyzeShellCommand } from './tools/shell-analysis';
 import { powershellPath } from './proc/win-exec';
@@ -596,24 +597,62 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     sessionId => makeBridgeEnv(sessionId, bridgePipe, bridgeCli, bridgeNode), procOpts);
   const filesSvc = new FilesService(paths);
 
-  // 执行隔离第 3 步（一）：低完整性沙箱，开发者开关 DESKMINIS_SANDBOX=1，默认关（proc/sandbox.ts）。
+  // 执行隔离第 3 步：低完整性沙箱（proc/sandbox.ts）。开关在设置「权限」页（Beta，默认关，重启后生效），开发者可用 DESKMINIS_SANDBOX=1 / 0 强制。
   // 开了就给数据根打「Low 进程不许读写」的标签、给 agent 根打 Low 标签；标签打完之前 shell 不起驱动。
-  // 标签没打上照样降级：Low 进程本来就写不了没有标签的数据根，只是还读得到，日志里说清楚
-  const sandboxWanted = sandboxDecision({ env: process.env, platform: procOpts.platform ?? process.platform, root, agentRoot: paths.agentRoot });
+  // 数据根所在的盘不支持标签（FAT、exFAT、网络盘）时开不了：Low 进程照样能读写那里，沙箱就没有意义，shell 照原级别跑。
+  // 别的标签没打上照样降级：Low 进程本来就写不了没有标签的数据根，只是还读得到，日志里说清楚
+  const sandboxPlatform = procOpts.platform ?? process.platform;
+  const sandboxSetting = settings.get(SANDBOX_SETTING_KEY);
+  const sandboxWanted = sandboxDecision({ env: process.env, platform: sandboxPlatform, root, agentRoot: paths.agentRoot, setting: sandboxSetting });
+  /** 给 sandbox.status 用：这次启动时沙箱的实际状态。 */
+  let sandboxState: { state: 'off' | 'starting' | 'on' | 'unavailable'; reason?: string } = sandboxWanted.enabled
+    ? { state: 'starting' } : { state: 'off', reason: sandboxWanted.reason };
+  // agent 根以外的工作区：沙箱里用到时打 Low 标签，没人用了还原（proc/sandbox-workspace.ts）。沙箱没开时也建，启动时把以前打的还原掉
+  const workspaceLabels = sandboxPlatform === 'win32' && paths.agentSeparate ? new WorkspaceLabels({
+    root, agentRoot: paths.agentRoot, home: process.env.USERPROFILE, win: true,
+    systemDirs: [process.env.SystemRoot ?? process.env.windir, process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.ProgramW6432, process.env.ProgramData]
+      .filter((d): d is string => typeof d === 'string' && d !== ''),
+    apply: jobs => applyLabels(jobs, procOpts, 600_000),
+    tracked: {
+      load: () => { try { const v: unknown = JSON.parse(settings.get(SANDBOX_LABELED_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []; } catch { return []; } },
+      save: list => settings.set(SANDBOX_LABELED_KEY, JSON.stringify(list)),
+    },
+    log: m => console.warn(m),
+  }) : undefined;
   let shellSandbox: ShellSandbox | undefined;
   if (sandboxWanted.enabled) {
     const env = sandboxEnv(paths.agentRoot);
     for (const dir of ensureSandboxDirs(env)) console.warn(`命令隔离：建不了 ${dir}，沙箱里用到它的工具会失败`);
-    const ready = applyLabels([{ mode: 'protect', path: root }, { mode: 'low', path: paths.agentRoot }], procOpts).then(results => {
-      for (const r of results) {
-        if (r.outcome === 'err') console.warn(`命令隔离：给 ${r.path} 打标签失败（错误码 ${r.code}）${r.path === root ? '，沙箱里的命令仍写不了数据目录，但读得到' : '，沙箱里的命令可能写不了它'}`);
+    // windows-* 桥的命名管道也打 Low 标签：不然沙箱里的 bridge-cli 连不上（Node 建管道时给不了安全描述符，只能事后打；
+    // 打标签时会以客户端身份连上管道一次，桥服务把这个空连接当普通断开处理）
+    const jobs: LabelJob[] = [{ mode: 'protect', path: root }, { mode: 'low', path: paths.agentRoot }];
+    if (bridgePipe !== undefined) jobs.push({ mode: 'pipe', path: bridgePipe });
+    const ready = applyLabels(jobs, procOpts).then(results => {
+      if (results[0]?.outcome === 'unsupported') {
+        sandboxState = { state: 'unavailable', reason: 'data-root-unsupported' };
+        console.warn(`命令隔离没有开启：数据目录 ${root} 所在的盘不支持完整性标签（FAT、exFAT 或网络盘），shell 照原级别运行`);
+        return false;
       }
+      for (const r of results) {
+        if (r.outcome === 'err' || r.outcome === 'unsupported') console.warn(`命令隔离：给 ${r.path} 打标签${r.outcome === 'err' ? `失败（错误码 ${r.code}）` : '不管用（所在的盘不支持完整性标签）'}${r.path === root ? '，沙箱里的命令仍写不了数据目录，但读得到' : r.path === bridgePipe ? '，沙箱里的 windows-* 桥命令连不上' : '，沙箱里的命令可能写不了它'}`);
+      }
+      sandboxState = { state: 'on' };
       console.log(`命令隔离已开启：shell 跑在低完整性级别下（标签：${results.map(r => r.outcome).join(' / ')}）`);
+      return true;
     });
-    shellSandbox = { env, ready };
+    shellSandbox = { env, ready, workspace: workspaceLabels ? dir => workspaceLabels.prepare(dir) : undefined };
   } else if (sandboxWanted.reason !== 'off') {
     console.warn(`命令隔离没有开启（${sandboxWanted.reason === 'not-windows' ? '只支持 Windows' : 'agent 目录和数据目录重叠'}）`);
   }
+  /** 把以前给工作区打的、现在没有会话在用的 Low 标签还原（沙箱没开或开不了时全部还原）。后台跑，不等。 */
+  const reconcileWorkspaceLabels = (): void => {
+    if (!workspaceLabels) return;
+    void (shellSandbox?.ready ?? Promise.resolve(false)).then(ok => {
+      const inUse = ok === true ? chat.listSessions().flatMap(x => x.workspaceRoot ? [x.workspaceRoot] : []) : [];
+      return workspaceLabels.reconcile(inUse);
+    }).then(cleared => { if (cleared.length > 0) console.log(`命令隔离：还原了 ${cleared.length} 个不再使用的工作区的标签`); }, () => undefined);
+  };
+  reconcileWorkspaceLabels();
   const shells = new ShellManager(procOpts, shellSandbox);
   const tools = new ToolRegistry();
   tools.register(fileReadTool); tools.register(fileWriteTool); tools.register(fileEditTool);
@@ -985,6 +1024,14 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     finally { titling.delete(sessionId); }
   }
 
+  /** 设置里的开关、这次启动时的实际状态、要不要重启才生效。 */
+  const sandboxStatus = () => {
+    const forced = process.env.DESKMINIS_SANDBOX === '1' || process.env.DESKMINIS_SANDBOX === '0' ? process.env.DESKMINIS_SANDBOX === '1' : undefined;
+    const setting = settings.get(SANDBOX_SETTING_KEY) === '1';
+    const wantedNow = sandboxDecision({ env: process.env, platform: sandboxPlatform, root, agentRoot: paths.agentRoot, setting: setting ? '1' : '0' }).enabled;
+    return { setting, forced, ...sandboxState, restartNeeded: wantedNow !== sandboxWanted.enabled };
+  };
+
   const methods = {
     // ---- 工作区可选（用户 2026-08-11 拍板：每会话各自设，新会话继承上次用过的）----
     // 注意：这不是权限边界。resolveGuestPath 对绝对路径本就放行、越界由权限系统把关；
@@ -1004,10 +1051,12 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       if (!statSync(root).isDirectory()) throw new Error(`不是目录: ${root}`);
       chat.setWorkspaceRoot(p.sessionId, root);
       settings.set(WORKSPACE_LAST_KEY, root);   // 新建会话继承这个
+      reconcileWorkspaceLabels();               // 执行隔离第 3 步：换下来的工作区没人用了就还原标签
       return { root: paths.workspaceOf(p.sessionId), isDefault: false };
     },
     'workspace.reset': (p: { sessionId: string }) => {
       chat.setWorkspaceRoot(p.sessionId, undefined);
+      reconcileWorkspaceLabels();
       return { root: paths.workspaceOf(p.sessionId), isDefault: true };
     },
     'chat.sessions.list': () => chat.listSessions(),
@@ -1835,6 +1884,16 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     'permission.respond': (p: { requestId: string; decision: 'allow-once' | 'allow-session' | 'deny' }, conn?: RpcConnection) =>
       permBroker.respond(String(p?.requestId ?? ''), p?.decision, responderOf(conn)),
     // ---- 权限档位预设（permission.preset）：四档真实作用于权限网关 ----
+    // ---- 执行隔离第 3 步：命令隔离（Beta）开关。改了重启后生效；环境变量 DESKMINIS_SANDBOX 强制时界面只读 ----
+    'sandbox.status': () => sandboxStatus(),
+    'sandbox.setEnabled': (p: { enabled: boolean }) => {
+      if (typeof p?.enabled !== 'boolean') throw new Error('enabled 必须是 true 或 false');
+      const prev = settings.get(SANDBOX_SETTING_KEY) === '1';
+      settings.set(SANDBOX_SETTING_KEY, p.enabled ? '1' : '0');
+      // 关掉沙箱是放宽：和切到完全访问一样记审计
+      if (prev !== p.enabled) audit.append('sandbox.setting', { enabled: p.enabled, prev });
+      return sandboxStatus();
+    },
     'permission.getPreset': () => ({ preset: settings.get(PERMISSION_PRESET_KEY) ?? 'ask' }),
     'permission.setPreset': (p: { preset: string }) => {
       const preset = String(p?.preset ?? '');

@@ -136,6 +136,15 @@ interface UiProvider {
 type PermTier = 'ask' | 'session' | 'plan' | 'full';
 interface UiSkill { id: string; name: string; description: string; isEnabled: boolean; useCount: number }
 /** 一项等确认的外部改动（字段同引擎 control/external-changes.ts 的 PendingView）。 */
+/** 执行隔离第 3 步：命令隔离（Beta）的开关与这次启动时的实际状态（sandbox.status）。 */
+export interface UiSandboxStatus {
+  setting: boolean;
+  /** 环境变量 DESKMINIS_SANDBOX 强制开（true）或关（false）；没设是 undefined，界面上开关可用。 */
+  forced?: boolean;
+  state: 'off' | 'starting' | 'on' | 'unavailable';
+  reason?: string;
+  restartNeeded: boolean;
+}
 export interface UiControlPending { kind: 'mcp' | 'skill' | 'memory'; key: string; fingerprint: string; title: string; preview: string; reason: 'new' | 'changed' }
 /** J2 助手（字段对齐后端 AssistantMeta，assistants.list 原样返回）。 */
 interface UiAssistant { id: string; name: string; avatar: string; rules: string; modelBinding?: string; skillIds: string[]; prompts: string[]; sortOrder: number }
@@ -205,6 +214,8 @@ export const useChat = defineStore('chat', {
     /** 执行隔离第 2 步（二）：被 DeskMinis 以外的程序改过、等用户确认的 MCP 配置、技能、记忆（control.pending.list）。
      *  确认之前引擎不连接、不注入；顶栏横幅与设置「权限」页据此提示。旧引擎没有这个接口时一直是空的。 */
     controlPending: [] as UiControlPending[],
+    /** 命令隔离（Beta）的状态；旧引擎没有这个接口时是 null，设置页不显示这一块。 */
+    sandbox: null as UiSandboxStatus | null,
     /** MU6 技能管理页数据源。**与上面的 skills 不是一回事**：那份是斜杠菜单用的，
      *  带 sessionId 时只返回该会话生效的启用集、不带时还过滤掉了禁用项——
      *  管理页必须看得见禁用的技能，否则关掉一个就再也找不回来了。 */
@@ -551,6 +562,13 @@ export const useChat = defineStore('chat', {
         const r = await rpc.call('control.pending.list');
         this.controlPending = Array.isArray(r?.items) ? r.items : [];
       } catch { this.controlPending = []; }
+    },
+    async refreshSandbox() {
+      try { this.sandbox = await rpc.call<UiSandboxStatus>('sandbox.status'); } catch { this.sandbox = null; }
+    },
+    /** 改开关：引擎写进设置，重启后生效。失败抛给调用方显示。 */
+    async setSandboxEnabled(enabled: boolean) {
+      this.sandbox = await rpc.call<UiSandboxStatus>('sandbox.setEnabled', { enabled });
     },
     /** 用户看过内容后确认。指纹对不上（看过之后又被改了）时引擎拒绝，错误抛给调用方显示；之后都重取一遍。 */
     async confirmControlPending(item: UiControlPending) {

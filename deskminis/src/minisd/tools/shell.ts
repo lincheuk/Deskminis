@@ -14,6 +14,9 @@ import { LOWER_HOOK_PS, SANDBOX_LOWER_PS, SANDBOX_NATIVE_PS, SANDBOX_REFUSED_EXI
 
 const MAX_OUTPUT = SHELL_OUTPUT_LIMIT;
 
+/** 「在沙箱外运行」的卡上那句话（执行隔离第 3 步）。 */
+export const SANDBOX_OUTSIDE_NOTE = '要求在命令隔离的沙箱外运行：能读写你的全部文件和 DeskMinis 的数据，完全访问档下也每次询问';
+
 /** 超时/取消杀掉常驻驱动后，下一条命令必须带上这句——cd/环境变量已复位，
  *  模型若还按「跨命令持久」的假设继续，会拿着旧状态做错事。 */
 const RESET_HINT = '[提示：shell 已重启，工作目录与环境变量已复位到初始状态]';
@@ -95,12 +98,13 @@ export class PersistentShell {
     this.sysEnv = opts.sysEnv ?? process.env;
     this.supervisor = opts.supervisor;
     // 执行隔离第 3 步：沙箱只在 Windows 上有意义；标签打完之前（ready）队列里的命令都等着，驱动也不起
+    // ready 落定为 false：这台机器上开不了沙箱（数据目录所在的盘不支持标签），照原级别跑
     this.sandbox = this.platform === 'win32' ? sandbox : undefined;
-    if (this.sandbox) this.queue = this.sandbox.ready.then(() => undefined, () => undefined);
+    if (this.sandbox) this.queue = this.sandbox.ready.then(ok => { if (ok === false) this.sandbox = undefined; }, () => undefined);
   }
 
   /** 执行隔离第 3 步：开了沙箱时驱动在执行第一条命令之前把自己降到低完整性级别（proc/sandbox.ts）。 */
-  private readonly sandbox: ShellSandbox | undefined;
+  private sandbox: ShellSandbox | undefined;
 
   /** 这个 shell 跑在沙箱里吗（开了沙箱且在 Windows 上）。 */
   get sandboxed(): boolean { return this.sandbox !== undefined; }
@@ -283,12 +287,43 @@ export class PersistentShell {
 
 export class ShellManager {
   private shells = new Map<string, PersistentShell>();
+  /** 执行隔离第 3 步：每个会话另有一个不在沙箱里的 shell，只跑用户批准过的「在沙箱外运行」的命令。与沙箱里的那个不共享目录与环境变量。 */
+  private outside = new Map<string, PersistentShell>();
 
   /** opts 原样透传给每个会话的 PersistentShell（测试注入用；生产不传）。
    *  sandbox（执行隔离第 3 步）：开了沙箱时由 index.ts 给，每个会话的 shell 都跑在低完整性级别下。 */
-  constructor(private readonly procOpts: ProcOpts = {}, private readonly sandbox?: ShellSandbox) {}
+  constructor(private readonly procOpts: ProcOpts = {}, private readonly sandbox?: ShellSandbox) {
+    sandbox?.ready.then(ok => { if (ok === false) this.unavailable = true; }, () => undefined);
+  }
 
-  getShell(sessionId: string, cwd: string, env?: Record<string, string>): PersistentShell {
+  /** 沙箱的 ready 落定为 false（这台机器上开不了）。 */
+  private unavailable = false;
+  /** 已经给模型说过的工作区说明（会话 + 目录）：每个只说一次。 */
+  private notesShown = new Set<string>();
+
+  /** 开了命令隔离吗（且在 Windows 上，且没有落定为开不了）。 */
+  get sandboxed(): boolean { return this.sandbox !== undefined && !this.unavailable && (this.procOpts.platform ?? process.platform) === 'win32'; }
+
+  /** 执行隔离第 3 步：沙箱里的命令要在 dir 里跑之前调用（给 agent 根以外的工作区打 Low 标签）。
+   *  返回要附在这条命令输出前面的说明：同一会话同一目录只返回一次。没开沙箱时什么也不做。 */
+  async prepareWorkspace(sessionId: string, dir: string): Promise<string | undefined> {
+    if (!this.sandboxed || !this.sandbox?.workspace) return undefined;
+    await this.sandbox.ready.catch(() => undefined);
+    if (!this.sandboxed) return undefined;
+    const note = await this.sandbox.workspace(dir).catch(() => undefined);
+    if (note === undefined) return undefined;
+    const key = `${sessionId}\0${dir}`;
+    if (this.notesShown.has(key)) return undefined;
+    this.notesShown.add(key);
+    return note;
+  }
+
+  getShell(sessionId: string, cwd: string, env?: Record<string, string>, outside = false): PersistentShell {
+    if (outside && this.sandboxed) {
+      let o = this.outside.get(sessionId);
+      if (!o) { o = new PersistentShell(cwd, env, this.procOpts, { kind: 'shell', sessionId }); this.outside.set(sessionId, o); }
+      return o;
+    }
     let s = this.shells.get(sessionId);
     if (!s) { s = new PersistentShell(cwd, env, this.procOpts, { kind: 'shell', sessionId }, this.sandbox); this.shells.set(sessionId, s); }
     return s;
@@ -304,13 +339,14 @@ export class ShellManager {
    *  getShell 只在首次创建时用 cwd，会话中途改了工作区之后 shell 仍在旧目录里跑。 */
   cwdOf(sessionId: string): string | undefined { return this.shells.get(sessionId)?.cwd; }
 
-  run(sessionId: string, cwd: string, command: string, timeoutMs?: number, env?: Record<string, string>, opts?: RunOptions): Promise<{ output: string; exitCode: number; durationMs: number }> {
-    return this.getShell(sessionId, cwd, env).run(command, timeoutMs, opts);
+  run(sessionId: string, cwd: string, command: string, timeoutMs?: number, env?: Record<string, string>, opts?: RunOptions & { outside?: boolean }): Promise<{ output: string; exitCode: number; durationMs: number }> {
+    return this.getShell(sessionId, cwd, env, opts?.outside === true).run(command, timeoutMs, opts);
   }
 
   /** 会话级中断（取消时由 shell 工具的 abort 监听触发）：杀该会话当前驱动，下条命令自动重建。 */
   interrupt(sessionId: string, cause?: ProcStopCause): void {
     this.shells.get(sessionId)?.interrupt(cause);
+    this.outside.get(sessionId)?.interrupt(cause);
   }
 
   /** 会话级释放（供删除会话调用，W1b-4 接线）：回收该会话驱动的整棵进程树并从表里摘掉。
@@ -318,18 +354,21 @@ export class ShellManager {
    *  返回回收落定的 Promise；删除会话不等它，行为照旧。 */
   dispose(sessionId: string, cause: ProcStopCause = 'session-deleted'): Promise<void> {
     const reaped = this.shells.get(sessionId)?.dispose(cause) ?? Promise.resolve();
+    const reapedOutside = this.outside.get(sessionId)?.dispose(cause) ?? Promise.resolve();
     this.shells.delete(sessionId);
-    return reaped;
+    this.outside.delete(sessionId);
+    return Promise.all([reaped, reapedOutside]).then(() => undefined);
   }
 
   /** 关停收口（W1b-5d）：释放全部会话的驱动，返回全部回收落定的 Promise（从不拒绝），关停第 6 步等它。
    *  一个会话的回收同步抛错只记一笔，其余会话照样回收：不然排在它后面的进程树都没人收。 */
   disposeAll(): Promise<void> {
     const reaped: Promise<void>[] = [];
-    for (const [sessionId, s] of this.shells) {
+    for (const [sessionId, s] of [...this.shells, ...this.outside]) {
       try { reaped.push(s.dispose('shutdown')); } catch (e) { console.warn(`释放 shell（会话 ${sessionId}）失败，继续其余会话:`, e); }
     }
     this.shells.clear();
+    this.outside.clear();
     return Promise.allSettled(reaped).then(() => undefined);
   }
 }
@@ -344,6 +383,7 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       parameters: {
         command: { type: 'string', description: 'PowerShell 命令，可多行' },
         timeout_seconds: { type: 'integer', description: '超时秒数，范围 1–3600，默认 120；超出范围按边界执行，非有限数字按默认值执行' },
+        sandbox: { type: 'boolean', description: '只在开了命令隔离时有意义。命令隔离下 shell 跑在低权限沙箱里：读写不了 DeskMinis 的数据，写不了工作区和临时目录以外的地方。确实要在沙箱外做的事（装系统软件、改用户配置）传 false，每次都要用户确认；没开命令隔离时忽略' },
         tool_title: { type: 'string', description: '这次调用的 5-10 字中文摘要，用于 UI 卡片' },
       },
       required: ['command', 'tool_title'],
@@ -366,7 +406,11 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       // 已取消（用户点了停止）：立即收场，不再发起权限询问、不再启动命令
       if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
       const command = String(input.command);
-      const req = { kind: 'shell' as const, detail: command, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) };
+      // 执行隔离第 3 步：开了命令隔离、模型要求在沙箱外跑——每次都问（完全访问也问），卡上说明
+      const outside = input.sandbox === false && manager.sandboxed;
+      const req = outside
+        ? { kind: 'shell' as const, detail: command, sessionId: ctx.sessionId, toolTitle: String(input.tool_title), outsideSandbox: true as const, note: SANDBOX_OUTSIDE_NOTE }
+        : { kind: 'shell' as const, detail: command, sessionId: ctx.sessionId, toolTitle: String(input.tool_title) };
       const o = await askPermission(ctx, req);
       // 权限等待可长达 90 秒；等待期间点了停止的话，已 abort 的 signal 之后挂监听不会再触发
       // （abort 事件不补发）——必须在闸后重查一次，否则「批准晚于取消」的命令会原样跑完。
@@ -390,8 +434,11 @@ export function makeShellTool(manager: ShellManager, envFor?: (ctx: ToolContext)
       ctx.signal?.addEventListener('abort', onAbort);
       try {
         // 只读白名单里的命令改不了当前目录：跑完不必再问驱动在哪（隔离方案第 1 步）
-        const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx), { keepsLocation: isReadonlyCommand(command) });
-        let output = r.output;
+        // 执行隔离第 3 步：沙箱里第一次在这个工作区跑命令前给它打 Low 标签；打不了的，在输出前面说一句
+        const note = outside ? undefined : await manager.prepareWorkspace(ctx.sessionId, cwd);
+        if (ctx.signal?.aborted) return { output: '[已取消]', success: false };
+        const r = await manager.run(ctx.sessionId, cwd, command, timeoutMs, envFor?.(ctx), { keepsLocation: isReadonlyCommand(command), ...(outside ? { outside } : {}) });
+        let output = note === undefined ? r.output : `${note}\n${r.output}`;
         if (output.length > MAX_OUTPUT) output = output.slice(0, MAX_OUTPUT) + `\n[输出超过 100KB 被截断]`;
         return { output: `${timeoutNote}${output}\n[exit=${r.exitCode}, ${r.durationMs}ms]`, success: r.exitCode === 0 };
       } finally {

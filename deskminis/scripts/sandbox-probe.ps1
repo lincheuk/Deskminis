@@ -97,8 +97,14 @@ $n = __minis_sbx_native @(
   @('advapi32.dll', 'ConvertSecurityDescriptorToStringSecurityDescriptorW', [bool], [Type[]]@([IntPtr], [uint32], [uint32], [IntPtr].MakeByRefType(), [IntPtr])),
   @('advapi32.dll', 'GetSecurityDescriptorSacl', [bool], [Type[]]@([IntPtr], [bool].MakeByRefType(), [IntPtr].MakeByRefType(), [bool].MakeByRefType())),
   @('advapi32.dll', 'GetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr], [IntPtr].MakeByRefType())),
-  @('advapi32.dll', 'SetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])))
-$want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = '' }
+  @('advapi32.dll', 'SetNamedSecurityInfoW', [uint32], [Type[]]@([string], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])),
+  @('kernel32.dll', 'GetVolumePathNameW', [bool], [Type[]]@([string], [Text.StringBuilder], [uint32])),
+  @('kernel32.dll', 'GetDriveTypeW', [uint32], [Type[]]@([string])),
+  @('kernel32.dll', 'GetVolumeInformationW', [bool], [Type[]]@([string], [IntPtr], [uint32], [IntPtr], [IntPtr], [uint32].MakeByRefType(), [IntPtr], [uint32])),
+  @('kernel32.dll', 'CreateFileW', [IntPtr], [Type[]]@([string], [uint32], [uint32], [IntPtr], [uint32], [uint32], [IntPtr])),
+  @('kernel32.dll', 'CloseHandle', [bool], [Type[]]@([IntPtr])),
+  @('advapi32.dll', 'SetSecurityInfo', [uint32], [Type[]]@([IntPtr], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])))
+$want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = ''; pipe = '(ML;;NW;;;LW)' }
 # 比较前两边都过一遍系统的 SDDL 往返：系统写回来的旗标、权限的写法和顺序不一定与这里的字面量相同
 $canon = {
   $p = [IntPtr]::Zero; $o = ''
@@ -120,6 +126,32 @@ foreach ($ln in $jobs.Split([char]10)) {
     $mode = $ln.Substring(0, $sp); if (-not $want.ContainsKey($mode)) { throw 'x' }
     $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ln.Substring($sp + 1)))
     $ace = $want[$mode]
+    if ($mode -eq 'pipe') {
+      # 0xA0000 = READ_CONTROL | WRITE_OWNER；3 = 读写共享 / OPEN_EXISTING；6 = SE_KERNEL_OBJECT
+      $psd = [IntPtr]::Zero
+      if (-not $n::ConvertStringSecurityDescriptorToSecurityDescriptorW('S:' + $ace, [uint32]1, [ref]$psd, [IntPtr]::Zero)) { $res = 'err ' + $M::GetLastWin32Error(); throw 'x' }
+      try {
+        $present = $false; $sacl = [IntPtr]::Zero; $dflt = $false
+        if (-not $n::GetSecurityDescriptorSacl($psd, [ref]$present, [ref]$sacl, [ref]$dflt)) { $res = 'err ' + $M::GetLastWin32Error(); throw 'x' }
+        $h = $n::CreateFileW($path, [uint32]0xA0000, [uint32]3, [IntPtr]::Zero, [uint32]3, [uint32]0, [IntPtr]::Zero)
+        if ($h.ToInt64() -eq -1) { $res = 'err ' + $M::GetLastWin32Error(); throw 'x' }
+        try {
+          $rc = $n::SetSecurityInfo($h, 6, [uint32]0x10, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, $sacl)
+          if ($rc -ne 0) { $res = 'err ' + $rc; throw 'x' }
+        } finally { [void]$n::CloseHandle($h) }
+      } finally { [void]$n::LocalFree($psd) }
+      $res = 'ok'; throw 'done' # 跳到这一项的结尾（下面的 catch 不改 $res）
+    }
+    # 打标签之前看一眼所在的卷：网络盘（DRIVE_REMOTE = 4）和不保存 ACL 的文件系统（没有 FILE_PERSISTENT_ACLS = 8，如 FAT、exFAT）
+    # 记 unsupported。命名管道（\\.\pipe\…）没有卷，不看；看不出来的照常往下走，打不上自然报错
+    if ($mode -ne 'clear' -and -not $path.StartsWith('\\.\')) {
+      $vb = [Text.StringBuilder]::new(1024)
+      if ($n::GetVolumePathNameW($path, $vb, [uint32]1024)) {
+        $vol = $vb.ToString(); $fl = [uint32]0
+        if ($n::GetDriveTypeW($vol) -eq 4) { $res = 'unsupported'; throw 'x' }
+        if ($n::GetVolumeInformationW($vol, [IntPtr]::Zero, [uint32]0, [IntPtr]::Zero, [IntPtr]::Zero, [ref]$fl, [IntPtr]::Zero, [uint32]0) -and -not ($fl -band 8)) { $res = 'unsupported'; throw 'x' }
+      }
+    }
     $sd = [IntPtr]::Zero
     $rc = $n::GetNamedSecurityInfoW($path, 1, [uint32]0x10, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, [ref]$sd)
     if ($rc -ne 0) { $res = 'err ' + $rc; throw 'x' }

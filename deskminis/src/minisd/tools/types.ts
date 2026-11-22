@@ -36,7 +36,10 @@ export interface PermPreview { oldText: string; newText: string }
  *  note 进广播也进审计（审计只剔除 preview 全文）。 */
 export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | 'mcp' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview; note?: string;
   /** 只在网关交给询问函数的请求上：解析器对这条 shell 命令的判断（权限卡的风险显示用）。调用方不填，填了也不参与判定。 */
-  shellClass?: 'danger' | 'readonly' | 'gated' | 'opaque' }
+  shellClass?: 'danger' | 'readonly' | 'gated' | 'opaque';
+  /** 执行隔离第 3 步：这条 shell 命令要求在沙箱外运行（shell_execute 的 sandbox: false，且开了命令隔离）。
+   *  任何档位都要人点头（完全访问也弹卡，规划档直接拒），「本会话允许」也只放这一次；会话授权键与沙箱内的同一条命令分开。 */
+  outsideSandbox?: true }
 /** 粗决定（F04 的 SchedulerEvent 用它）。带原因的结果是 PermissionOutcome（F13，shared/permission.ts）。 */
 export type PermissionDecision = 'allow' | 'deny';
 
