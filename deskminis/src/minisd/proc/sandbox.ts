@@ -10,7 +10,7 @@
  *    给自己的文件打不高于自身级别的标签不需要管理员。
  *  - Low 进程写不了 %TEMP%、npm / pip 缓存这些 Medium 目录，所以沙箱里的 TEMP、TMP 和几个常见缓存指到 agent 根下（sandboxEnv）。
  *
- * 开关在设置「权限」页（Beta，默认关，存 settings 表 sandbox.enabled，重启引擎后生效）；开发者另可用 DESKMINIS_SANDBOX=1 / 0
+ * 开关在设置「权限」页（第 4 步起默认开，存 settings 表 sandbox.enabled，'0' 才是关，重启引擎后生效）；开发者另可用 DESKMINIS_SANDBOX=1 / 0
  * 强制开关（sandboxDecision）。第 3 步第二部分补上了：绑定到 agent 根以外的工作区在沙箱里用到时打 Low 标签、不用了还原
  * （proc/sandbox-workspace.ts），windows-* 桥的命名管道打 Low 标签，「在沙箱外运行」的卡（tools/shell.ts、tools/permissions.ts），
  * 数据目录在不支持完整性标签的盘（FAT、exFAT、网络盘）上时不开沙箱。
@@ -270,14 +270,14 @@ const sameOrNested = (a: string, b: string, win: boolean): boolean => {
   return inside(x, y) || inside(y, x);
 };
 
-/** 设置里的开关存在 settings 表的这个键下：'1' 开，其余（含没有）关。 */
+/** 设置里的开关存在 settings 表的这个键下：'0' 关，其余（含没有）开。执行隔离第 4 步起默认开：没动过开关的人都开，手动关过的照旧关。 */
 export const SANDBOX_SETTING_KEY = 'sandbox.enabled';
 
 /** 开不开沙箱：环境变量 DESKMINIS_SANDBOX=1 / 0 强制开关（开发者用），没设时看设置里的开关（setting，即 SANDBOX_SETTING_KEY 的值）。
  *  只在 Windows 上开。agent 根与数据根重叠（老布局：显式给了数据根）时不开——给数据根打「不许读」会把 agent 自己的工作区一起挡住。 */
 export function sandboxDecision(o: { env: Readonly<Record<string, string | undefined>>; platform: string; root: string; agentRoot: string; setting?: string }): SandboxDecision {
   const forced = o.env.DESKMINIS_SANDBOX;
-  const on = forced === '1' || forced === '0' ? forced === '1' : o.setting === '1';
+  const on = forced === '1' || forced === '0' ? forced === '1' : o.setting !== '0';
   if (!on) return { enabled: false, reason: 'off' };
   if (o.platform !== 'win32') return { enabled: false, reason: 'not-windows' };
   if (sameOrNested(o.root, o.agentRoot, true)) return { enabled: false, reason: 'agent-root-overlaps-data-root' };

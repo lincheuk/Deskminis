@@ -43,9 +43,10 @@ const SBX = (ready: Promise<boolean | void> = Promise.resolve()) => ({ env: sand
 describe('① 开关、环境、标签输出', () => {
   const root = 'C:\\Users\\me\\AppData\\Roaming\\DeskMinis';
   const agentRoot = 'C:\\Users\\me\\AppData\\LocalLow\\DeskMinis';
-  it('只认 DESKMINIS_SANDBOX=1、只在 Windows 上；agent 根与数据根重叠时不开', () => {
-    expect(sandboxDecision({ env: {}, platform: 'win32', root, agentRoot })).toEqual({ enabled: false, reason: 'off' });
-    expect(sandboxDecision({ env: { DESKMINIS_SANDBOX: 'true' }, platform: 'win32', root, agentRoot })).toEqual({ enabled: false, reason: 'off' });
+  it('默认开（第 4 步）、DESKMINIS_SANDBOX=0 强制关、只在 Windows 上；agent 根与数据根重叠时不开', () => {
+    expect(sandboxDecision({ env: {}, platform: 'win32', root, agentRoot })).toEqual({ enabled: true });
+    expect(sandboxDecision({ env: { DESKMINIS_SANDBOX: '0' }, platform: 'win32', root, agentRoot })).toEqual({ enabled: false, reason: 'off' });
+    expect(sandboxDecision({ env: {}, platform: 'win32', root, agentRoot, setting: '0' })).toEqual({ enabled: false, reason: 'off' });
     expect(sandboxDecision({ env: { DESKMINIS_SANDBOX: '1' }, platform: 'linux', root, agentRoot })).toEqual({ enabled: false, reason: 'not-windows' });
     if (WIN) {
       expect(sandboxDecision({ env: { DESKMINIS_SANDBOX: '1' }, platform: 'win32', root, agentRoot })).toEqual({ enabled: true });
@@ -195,7 +196,8 @@ describe('② shell 接线', () => {
     const r = await p;
     expect(r.exitCode).toBe(SANDBOX_REFUSED_EXIT);
     expect(r.output).toContain('步骤 set，错误码 5');
-    expect(r.output).toContain('[命令隔离启动失败，shell 已退出]');
+    expect(r.output).toContain('[命令隔离启动失败，shell 已退出。');
+    expect(r.output).toContain('设置「权限」里关掉「命令隔离」');
     expect(r.output).not.toContain('[shell 进程意外退出]');
   });
 });

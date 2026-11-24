@@ -228,7 +228,7 @@ export class PersistentShell {
         const refused = this.sandbox !== undefined && proc.exitCode === SANDBOX_REFUSED_EXIT;
         const out = unfinishedOutput();
         resolve(refused
-          ? { output: (out.includes(SANDBOX_REFUSED_TEXT) ? out : `${out}\n${SANDBOX_REFUSED_TEXT}`) + '\n[命令隔离启动失败，shell 已退出]', exitCode: SANDBOX_REFUSED_EXIT, durationMs: Date.now() - started }
+          ? { output: (out.includes(SANDBOX_REFUSED_TEXT) ? out : `${out}\n${SANDBOX_REFUSED_TEXT}`) + '\n[命令隔离启动失败，shell 已退出。一直这样的话，可以到设置「权限」里关掉「命令隔离」，重启 DeskMinis 后命令照原样运行]', exitCode: SANDBOX_REFUSED_EXIT, durationMs: Date.now() - started }
           : { output: out + '\n[shell 进程意外退出]', exitCode: 129, durationMs: Date.now() - started });
       };
       const timer = setTimeout(() => {

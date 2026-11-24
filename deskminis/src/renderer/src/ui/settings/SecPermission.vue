@@ -7,7 +7,7 @@ import UiIcon from '../UiIcon.vue';
 
 const chat = useChat();
 
-// 执行隔离第 3 步：命令隔离（Beta）。开关存在引擎的设置里，重启后生效；状态说的是这次启动时的实际情况
+// 执行隔离第 3 步：命令隔离。第 4 步起默认开。开关存在引擎的设置里，重启后生效；状态说的是这次启动时的实际情况
 const sbxErr = ref('');
 onMounted(() => { void chat.refreshSandbox(); });
 async function toggleSandbox(e: Event): Promise<void> {
@@ -74,8 +74,8 @@ const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: bo
           <i></i>
         </label>
         <span class="f-label" style="gap:1px">
-          <span>命令隔离 <span class="beta t-aux">Beta</span></span>
-          <span class="f-hint">agent 跑的命令放进低权限沙箱：读写不了 DeskMinis 自己的数据（会话、API key），只能写工作区和临时目录。要在沙箱外跑的命令每次都会问你，完全访问档也问。只支持 Windows，重启 DeskMinis 后生效</span>
+          <span>命令隔离</span>
+          <span class="f-hint">agent 跑的命令放进低权限沙箱：读写不了 DeskMinis 自己的数据（会话、API key），只能写工作区和临时目录。要在沙箱外跑的命令每次都会问你，完全访问档也问。默认开启，只支持 Windows；改了重启 DeskMinis 后生效。少数工具在沙箱里写不了用户目录下的缓存，遇到时可以让它在沙箱外运行，或在这里关掉</span>
         </span>
       </div>
       <p class="statusline t-aux">{{ sbxLine }}</p>
@@ -101,7 +101,6 @@ const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: bo
 .ttl { font-size: var(--t-item-size); font-weight: var(--w-md); color: var(--c-ink); }
 .sub { color: var(--c-ink-3); }
 .sbx { margin-top: var(--sp-5); }
-.beta { padding: 0 var(--sp-2); border: 1px solid var(--c-line); border-radius: var(--r-pill); }
 .statusline { margin: var(--sp-3) 0 0; color: var(--c-ink-3); }
 .statusline.bad { color: var(--c-err); }
 .warnbox {

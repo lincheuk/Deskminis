@@ -57,6 +57,11 @@ Windows 桌面端的通用 Agent 应用。让模型在你自己的机器上读�
   这类受限只读管道。只读命令一旦点到远程共享路径（`\\主机\共享`、`//主机/共享`）、读 `env:` 或 `$env:` 环境变量、
   点到 DeskMinis 的数据目录（命令里写着 DeskMinis、`%APPDATA%`、`%LOCALAPPDATA%`），或含上级目录段 `..`、`$HOME` / `~\` / `%USERPROFILE%` / `AppData`、8.3 短名、目录段通配，或带着 `-ComputerName` 这类远程参数，
   就改按普通命令过卡。判断只看命令写法，认不出的写法列在 [CHANGELOG.md](CHANGELOG.md) 的「已知边界」。
+- **命令隔离**（默认开，设置「权限」页可关，改了重启后生效；只支持 Windows）：agent 的 shell 跑在 Windows 的低完整性级别下，
+  它和它起的程序读写不了 DeskMinis 的数据目录（会话库、密钥、配置），写不了工作区、附件和临时目录以外的用户文件。
+  会话绑定到别处的文件夹时，第一次在那里跑命令前给它打上沙箱可写的标签，换掉工作区或关掉命令隔离后还原；
+  用户目录本身、整个盘、系统目录不打。确实要在沙箱外做的事由模型声明出来，每次都弹卡，完全访问档也问，只读 / 计划档直接拒绝。
+  它管不住读没有标签的用户文件和联网；数据目录在 FAT、exFAT 或网络盘上时开不了，设置页会写明。
 - **联网**：`web_fetch` / `web_search` 单列一档，前两档下每次确认，完全访问下不问。shell 里会联网或访问别的机器的命令——
   `Invoke-WebRequest`、`curl`、`git clone`、`npm view` / `npm outdated`、点到远程共享路径的命令、带 `-ComputerName` 的查询——
   不单列，按普通命令过卡：前两档弹卡，完全访问下不问。
@@ -169,17 +174,17 @@ npm run dev
 
 ```
 minis.db              会话、消息、压缩摘要、助手、定时任务、注释、审计、设置等（SQLite）
-sessions\<id>\        每会话的沙箱：workspace / attachments / offloads / browser
 memory\               持久记忆（纯 Markdown，可直接编辑）
 skills\               已安装技能
 mcp-servers\          MCP 服务器配置（servers.json；其中的 env / headers 是明文，可能含密钥）
-shared\               各会话共用的目录
-其余几个 .json         模型与搜索服务配置（不含密钥）、模型目录缓存、本机引擎的端口与连接令牌（明文）、配对记录
+secrets.vault         模型与搜索服务的 API key、本机设备身份与配对密钥（加密，解密用的钥匙在 Windows 凭据管理器里）
+其余几个 .json         模型与搜索服务配置（不含密钥）、模型目录缓存、本机引擎的端口、配对记录
 minisd.lock           数据目录锁（运行时存在）
 ```
 
 Electron 自己的缓存与界面偏好（包括自动更新开关 `update-prefs.json`）也在这个目录里。
-模型与搜索服务的 API key、本机的设备身份与配对密钥不在这个目录里，存在 Windows 凭据管理器（服务名 `DeskMinis`）。
+模型与搜索服务的 API key、本机的设备身份与配对密钥加密存在这个目录的 `secrets.vault` 里，解密用的钥匙在 Windows 凭据管理器（服务名 `DeskMinis`）；
+同一个 Windows 用户下的普通程序两样都拿得到，命令隔离挡的是 agent 的 shell。
 **但这个目录里仍有明文的敏感内容**：MCP 服务器的 env / headers（包括在扩展市场确认卡里填的密钥）原样写在
 `mcp-servers\servers.json`；会话库里是全部对话内容（含 agent 读到的文件内容与命令输出）。把这个目录打包发给别人、
 放进网盘或同步盘、做备份之前，先想到这些。
@@ -189,6 +194,7 @@ Electron 自己的缓存与界面偏好（包括自动更新开关 `update-prefs
 
 删除会话会清掉它在库里的记录，但不删磁盘上的 `sessions\<id>\` 目录（在上面的 LocalLow 目录里）。库里会留一条不含内容的删除记录（会话 id、版本号、发起删除的设备、当时的消息 id 清单；清单 90 天后压掉），用来把这次删除同步给已配对的设备，并挡住之后带着旧副本回来的设备。
 卸载不会删除上面这些，也不删 `%LOCALAPPDATA%\deskminis-updater`（安装程序留的自身副本，以及自动更新下载的安装包）。
+开着命令隔离时绑定过别处的工作区的，卸载前先在设置里关掉命令隔离、重启一次 DeskMinis，那些文件夹上的标签会被还原。
 想彻底清干净：删掉 `%APPDATA%\DeskMinis`、`%LOCALAPPDATA%\DeskMinis`、`%USERPROFILE%\AppData\LocalLow\DeskMinis` 与 `%LOCALAPPDATA%\deskminis-updater`，
 再到 Windows 凭据管理器里删掉名字带 `DeskMinis` 的条目。
 
