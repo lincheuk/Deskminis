@@ -249,6 +249,14 @@ if ($env:PROBE_NETWORK -eq '1') {
 
 # 工具链（在工作区里）。进程本来就起在工作区里；Set-Location 在容器里可能因为上级目录读不了而失败（产品的 shell 驱动要靠它跟踪当前目录）
 Add-R 'pwd' 'ok' ($PWD.Path + ' | process ' + [IO.Directory]::GetCurrentDirectory())
+# 排查 Set-Location：哪一步拒绝访问
+Try-Access 'diag-dir-exists' { [IO.Directory]::Exists($ws) }
+Try-Access 'diag-test-path' { Test-Path -LiteralPath $ws }
+Try-Access 'diag-get-item' { (Get-Item -LiteralPath $ws).FullName }
+Try-Access 'diag-root-list' { $r = [IO.Path]::GetPathRoot($ws); $r + ' ' + @([IO.Directory]::GetFileSystemEntries($r)).Count }
+Try-Access 'diag-drives' { (Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name + '=' + $_.Root + '|' + $_.CurrentLocation }) -join ', ' }
+try { Set-Location -LiteralPath $ws; Add-R 'diag-cd-stack' 'ok' '' } catch { Add-R 'diag-cd-stack' 'denied' ($_.Exception.GetType().FullName + ': ' + $_.Exception.ToString().Substring(0, [Math]::Min(1500, $_.Exception.ToString().Length))) }
+Save-R
 Try-Access 'cd-ws' { Set-Location -LiteralPath $ws; $PWD.Path }
 Try-Access 'cd-actemp' { Set-Location -LiteralPath $env:TEMP; $p = $PWD.Path; Set-Location -LiteralPath ([IO.Directory]::GetCurrentDirectory()) -ErrorAction SilentlyContinue; $p }
 Try-Access 'cd-sub' { New-Item -ItemType Directory -Force -Path (Join-Path $ws 'sub') | Out-Null; Push-Location (Join-Path $ws 'sub'); Pop-Location; 'ok' }
