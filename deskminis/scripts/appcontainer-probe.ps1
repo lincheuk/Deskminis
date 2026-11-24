@@ -246,8 +246,10 @@ if ($env:PROBE_NETWORK -eq '1') {
   if ($env:PROBE_PROXY) { Try-Access 'net-proxy' { $r = Invoke-WebRequest -UseBasicParsing -Uri 'https://registry.npmjs.org/is-number' -TimeoutSec 20 -Proxy $env:PROBE_PROXY -ErrorAction Stop; 'HTTP ' + $r.StatusCode } }
 }
 
-# 工具链（在工作区里）
-Set-Location -LiteralPath $ws
+# 工具链（在工作区里）。进程本来就起在工作区里；Set-Location 在容器里可能因为上级目录读不了而失败（产品的 shell 驱动要靠它跟踪当前目录）
+Add-R 'pwd' 'ok' ($PWD.Path + ' | process ' + [IO.Directory]::GetCurrentDirectory())
+Try-Access 'cd-ws' { Set-Location -LiteralPath $ws; $PWD.Path }
+Try-Access 'cd-sub' { New-Item -ItemType Directory -Force -Path (Join-Path $ws 'sub') | Out-Null; Push-Location (Join-Path $ws 'sub'); Pop-Location; 'ok' }
 Try-Tool 'cmd' 'cmd' { cmd /c echo ok }
 Try-Tool 'git' 'git' { git init -q ('repo-' + $env:PROBE_RUN); git -C ('repo-' + $env:PROBE_RUN) -c user.name=probe -c user.email=probe@example.invalid commit --allow-empty -q -m probe; git -C ('repo-' + $env:PROBE_RUN) log --oneline }
 Try-Tool 'node' 'node' { node -e "require('fs').writeFileSync('node.txt', process.version); console.log(process.version)" }
