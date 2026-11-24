@@ -144,6 +144,16 @@ export interface UiSandboxStatus {
   state: 'off' | 'starting' | 'on' | 'unavailable';
   reason?: string;
   restartNeeded: boolean;
+  /** 执行隔离第 5 步：沙箱不许读的位置（只在 Windows 上有）。 */
+  sensitive?: UiSensitiveStatus;
+}
+/** 一个位置现在的情况：protected 已挡住；pending 正在打标签；missing 这台电脑上没有；off 没勾；inactive 命令隔离没开；
+ *  unsupported 所在的盘不支持标签；failed 打标签失败；rejected 不能设（problem 是原因）。 */
+export interface UiSensitivePath { path: string; state: 'protected' | 'pending' | 'missing' | 'off' | 'inactive' | 'unsupported' | 'failed' | 'rejected'; code?: number; problem?: string }
+export interface UiSensitiveStatus {
+  items: Array<{ id: string; label: string; note?: string; defaultOn: boolean; enabled: boolean; paths: UiSensitivePath[] }>;
+  extra: UiSensitivePath[];
+  busy: boolean;
 }
 export interface UiControlPending { kind: 'mcp' | 'skill' | 'memory'; key: string; fingerprint: string; title: string; preview: string; reason: 'new' | 'changed' }
 /** J2 助手（字段对齐后端 AssistantMeta，assistants.list 原样返回）。 */
@@ -569,6 +579,14 @@ export const useChat = defineStore('chat', {
     /** 改开关：引擎写进设置，重启后生效。失败抛给调用方显示。 */
     async setSandboxEnabled(enabled: boolean) {
       this.sandbox = await rpc.call<UiSandboxStatus>('sandbox.setEnabled', { enabled });
+    },
+    /** 勾选 / 取消一项沙箱不许读的位置：马上生效。失败抛给调用方显示。 */
+    async setSandboxSensitive(id: string, enabled: boolean) {
+      this.sandbox = await rpc.call<UiSandboxStatus>('sandbox.setSensitive', { id, enabled });
+    },
+    /** 自己加的不许读路径（整份替换）。路径不能设时引擎拒绝，错误抛给调用方显示。 */
+    async setSandboxSensitiveExtra(paths: string[]) {
+      this.sandbox = await rpc.call<UiSandboxStatus>('sandbox.setSensitiveExtra', { paths });
     },
     /** 用户看过内容后确认。指纹对不上（看过之后又被改了）时引擎拒绝，错误抛给调用方显示；之后都重取一遍。 */
     async confirmControlPending(item: UiControlPending) {

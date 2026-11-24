@@ -10,7 +10,7 @@
  *
  * 还原：自己打上的（结论是 ok 的）记在 settings 表里（tracked）。reconcile(正在用的) 把记着的、已经没有会话在用的去掉标签
  * 再从记录里删掉。启动时跑一次（沙箱没开就按「都不用了」全部还原），改工作区之后也跑。原本就是这个标签的（same）不记，也不去动。
- * 打标签与还原排成一队，不会对同一个目录一边打一边去。
+ * 打标签与还原排成一队，不会对同一个目录一边打一边去。敏感目录的标签（proc/sandbox-sensitive.ts）排在同一队里（LabelQueue）。
  */
 import { posix, win32 } from 'node:path';
 import type { LabelJob, LabelResult } from './sandbox';
@@ -19,7 +19,7 @@ import type { LabelJob, LabelResult } from './sandbox';
 export const SANDBOX_LABELED_KEY = 'sandbox.labeledWorkspaces';
 
 /** 不打标签的原因。agent-root 是本来就在 agent 根里（已经可写），不用说明。 */
-export type WorkspaceSkip = 'agent-root' | 'data-root' | 'ancestor' | 'drive-root' | 'home' | 'system';
+export type WorkspaceSkip = 'agent-root' | 'data-root' | 'ancestor' | 'drive-root' | 'home' | 'system' | 'sensitive';
 
 export interface WorkspaceScope {
   root: string;
@@ -30,9 +30,21 @@ export interface WorkspaceScope {
   systemDirs?: readonly string[];
   /** 按 Windows 的规矩比较路径（不分大小写、反斜杠）。 */
   win: boolean;
+  /** 设成「沙箱不许读」的目录（proc/sandbox-sensitive.ts）：在它们里面的工作区不打 Low 标签。随设置变，所以是函数。 */
+  sensitive?: () => readonly string[];
 }
 
-function pathOps(win: boolean): { norm: (p: string) => string; inside: (child: string, parent: string) => boolean; isDriveRoot: (p: string) => boolean } {
+/** 打标签的进程排成一队：同一时刻只有一个打标签的 PowerShell，先排的先做完。工作区与敏感目录共用一个。 */
+export class LabelQueue {
+  private chain: Promise<unknown> = Promise.resolve();
+  run<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(fn, fn);
+    this.chain = next.catch(() => undefined);
+    return next;
+  }
+}
+
+export function pathOps(win: boolean): { norm: (p: string) => string; inside: (child: string, parent: string) => boolean; isDriveRoot: (p: string) => boolean } {
   const P = win ? win32 : posix;
   const norm = (p: string): string => { const r = P.resolve(p); return win ? r.toLowerCase() : r; };
   const inside = (child: string, parent: string): boolean => {
@@ -52,6 +64,7 @@ export function workspaceLabelSkip(dir: string, s: WorkspaceScope): WorkspaceSki
   if (isDriveRoot(dir)) return 'drive-root';
   if (s.home !== undefined && s.home !== '' && inside(s.home, dir)) return 'home';
   if ((s.systemDirs ?? []).some(d => d !== '' && inside(dir, d))) return 'system';
+  if ((s.sensitive?.() ?? []).some(d => d !== '' && inside(dir, d))) return 'sensitive';
   return undefined;
 }
 
@@ -61,6 +74,7 @@ const SKIP_TEXT: Record<Exclude<WorkspaceSkip, 'agent-root'>, string> = {
   'drive-root': '是整个盘的根目录',
   home: '是用户目录或它的上级',
   system: '在系统目录里',
+  sensitive: '在设为「沙箱不许读」的目录里',
 };
 const OUTSIDE_HINT = '确实要在这里写，用 sandbox: false 在沙箱外运行（每次都要用户确认）';
 
@@ -77,21 +91,19 @@ export interface WorkspaceLabelDeps extends WorkspaceScope {
   /** 自己打过标签、还没还原的目录（生产存在 settings 表里）。 */
   tracked: { load(): string[]; save(list: string[]): void };
   log?: (m: string) => void;
+  /** 和敏感目录共用的队列；不给就自己建一个。 */
+  queue?: LabelQueue;
 }
 
 export class WorkspaceLabels {
-  private chain: Promise<unknown> = Promise.resolve();
+  private readonly q: LabelQueue;
   /** 已经处理过（或正在处理）的目录：键是规范化后的路径，值是要附的说明。 */
   private done = new Map<string, Promise<string | undefined>>();
   private readonly ops: ReturnType<typeof pathOps>;
 
-  constructor(private readonly d: WorkspaceLabelDeps) { this.ops = pathOps(d.win); }
+  constructor(private readonly d: WorkspaceLabelDeps) { this.ops = pathOps(d.win); this.q = d.queue ?? new LabelQueue(); }
 
-  private queue<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.chain.then(fn, fn);
-    this.chain = next.catch(() => undefined);
-    return next;
-  }
+  private queue<T>(fn: () => Promise<T>): Promise<T> { return this.q.run(fn); }
 
   private loadTracked(): string[] {
     try { const l = this.d.tracked.load(); return Array.isArray(l) ? l.filter(x => typeof x === 'string' && x !== '') : []; } catch { return []; }
