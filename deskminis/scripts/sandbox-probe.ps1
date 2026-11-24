@@ -104,7 +104,7 @@ $n = __minis_sbx_native @(
   @('kernel32.dll', 'CreateFileW', [IntPtr], [Type[]]@([string], [uint32], [uint32], [IntPtr], [uint32], [uint32], [IntPtr])),
   @('kernel32.dll', 'CloseHandle', [bool], [Type[]]@([IntPtr])),
   @('advapi32.dll', 'SetSecurityInfo', [uint32], [Type[]]@([IntPtr], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])))
-$want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = ''; pipe = '(ML;;NW;;;LW)' }
+$want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = ''; pipe = '(ML;;NW;;;LW)'; secret = '(ML;OICI;NRNW;;;ME)'; 'secret-force' = '(ML;OICI;NRNW;;;ME)' }
 # 比较前两边都过一遍系统的 SDDL 往返：系统写回来的旗标、权限的写法和顺序不一定与这里的字面量相同
 $canon = {
   $p = [IntPtr]::Zero; $o = ''
@@ -126,6 +126,8 @@ foreach ($ln in $jobs.Split([char]10)) {
     $mode = $ln.Substring(0, $sp); if (-not $want.ContainsKey($mode)) { throw 'x' }
     $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ln.Substring($sp + 1)))
     $ace = $want[$mode]
+    # 敏感位置可能是文件（.npmrc、.git-credentials）：文件上的标签不带继承旗标
+    if ($mode.StartsWith('secret') -and -not [IO.Directory]::Exists($path)) { $ace = '(ML;;NRNW;;;ME)' }
     if ($mode -eq 'pipe') {
       # 0xA0000 = READ_CONTROL | WRITE_OWNER；3 = 读写共享 / OPEN_EXISTING；6 = SE_KERNEL_OBJECT
       $psd = [IntPtr]::Zero
@@ -158,7 +160,7 @@ foreach ($ln in $jobs.Split([char]10)) {
     $cur = ''; $str = [IntPtr]::Zero
     if ($n::ConvertSecurityDescriptorToStringSecurityDescriptorW($sd, [uint32]1, [uint32]0x10, [ref]$str, [IntPtr]::Zero)) { $cur = $M::PtrToStringUni($str); [void]$n::LocalFree($str) }
     [void]$n::LocalFree($sd)
-    $same = (& $explicit $cur) -eq (& $explicit (& $canon ('S:' + $ace)))
+    $same = $mode -ne 'secret-force' -and ((& $explicit $cur) -eq (& $explicit (& $canon ('S:' + $ace))))
     [Console]::Out.WriteLine('__MINIS_LABEL_CUR__ ' + $i + ' ' + $cur)
     if ($same) { $res = 'same' } else {
       $psd = [IntPtr]::Zero

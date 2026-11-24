@@ -1500,6 +1500,30 @@
         "allowed": true
       }
     },
+    "sandbox.setSensitive": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sandbox.setSensitive 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
+    "sandbox.setSensitiveExtra": {
+      "local": {
+        "allowed": true
+      },
+      "pairing": {
+        "allowed": false,
+        "error": "sandbox.setSensitiveExtra 在 pairing 模式下不可用（配对期仅可调 remote.pair.complete）"
+      },
+      "remote": {
+        "allowed": true
+      }
+    },
     "sandbox.status": {
       "local": {
         "allowed": true

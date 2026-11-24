@@ -14,6 +14,7 @@
  * 强制开关（sandboxDecision）。第 3 步第二部分补上了：绑定到 agent 根以外的工作区在沙箱里用到时打 Low 标签、不用了还原
  * （proc/sandbox-workspace.ts），windows-* 桥的命名管道打 Low 标签，「在沙箱外运行」的卡（tools/shell.ts、tools/permissions.ts），
  * 数据目录在不支持完整性标签的盘（FAT、exFAT、网络盘）上时不开沙箱。
+ * 第 5 步：用户目录下放凭据的位置（.ssh、.aws……）打和数据根一样的「不许读」标签（proc/sandbox-sensitive.ts）。
  * 四个前提（文件上的 NO_READ_UP、凭据管理器与 DPAPI、杀软反应、工具链兼容）要在真机上跑 scripts/sandbox-probe.ps1 验证；
  * 脚本里的三段 PowerShell 与这里逐字相同（tests/exec-isolation-step3.test.ts 钉着）。
  *
@@ -109,7 +110,9 @@ export const LOWER_HOOK_PS = 'if (-not $__minis_low) { $__minis_low = $true; __m
  * 模式：protect = Medium + NO_READ_UP|NO_WRITE_UP，继承给子目录与文件（数据根）；low = Low + NO_WRITE_UP，继承（agent 根）；
  * pipe = Low + NO_WRITE_UP，给已经建好的命名管道（windows-* 桥）：以客户端身份连上一次，经句柄按内核对象写（SetSecurityInfo），
  * 不走按名字写的那条路（那条路要按文件算继承），也不比较现有标签（管道每次启动都是新建的）；
- * clear = 去掉显式标签（回到默认的隐式 Medium）。
+ * clear = 去掉显式标签（回到默认的隐式 Medium）；
+ * secret = 同 protect，给用户目录下的敏感位置（proc/sandbox-sensitive.ts）：是文件时不带继承旗标；
+ * secret-force = 同 secret，但不比较现有标签、照样写一遍（上次打到一半被打断：顶层已经是这个标签，子项可能还没推到）。
  * 已经是这个标签（显式、带继承）的不再写一遍：SetNamedSecurityInfo 会把继承来的标签逐个推给已有的子项，大目录要花时间。
  * 每行输出一条结论（纯 ASCII）：__MINIS_LABEL__ <序号> ok | same | unsupported | err <错误码>。
  * unsupported：所在的卷是网络盘或不保存 ACL（FAT、exFAT），标签打不上或打上也不管用。
@@ -132,7 +135,7 @@ $n = __minis_sbx_native @(
   @('kernel32.dll', 'CreateFileW', [IntPtr], [Type[]]@([string], [uint32], [uint32], [IntPtr], [uint32], [uint32], [IntPtr])),
   @('kernel32.dll', 'CloseHandle', [bool], [Type[]]@([IntPtr])),
   @('advapi32.dll', 'SetSecurityInfo', [uint32], [Type[]]@([IntPtr], [int], [uint32], [IntPtr], [IntPtr], [IntPtr], [IntPtr])))
-$want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = ''; pipe = '(ML;;NW;;;LW)' }
+$want = @{ protect = '(ML;OICI;NRNW;;;ME)'; low = '(ML;OICI;NW;;;LW)'; clear = ''; pipe = '(ML;;NW;;;LW)'; secret = '(ML;OICI;NRNW;;;ME)'; 'secret-force' = '(ML;OICI;NRNW;;;ME)' }
 # 比较前两边都过一遍系统的 SDDL 往返：系统写回来的旗标、权限的写法和顺序不一定与这里的字面量相同
 $canon = {
   $p = [IntPtr]::Zero; $o = ''
@@ -154,6 +157,8 @@ foreach ($ln in $jobs.Split([char]10)) {
     $mode = $ln.Substring(0, $sp); if (-not $want.ContainsKey($mode)) { throw 'x' }
     $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ln.Substring($sp + 1)))
     $ace = $want[$mode]
+    # 敏感位置可能是文件（.npmrc、.git-credentials）：文件上的标签不带继承旗标
+    if ($mode.StartsWith('secret') -and -not [IO.Directory]::Exists($path)) { $ace = '(ML;;NRNW;;;ME)' }
     if ($mode -eq 'pipe') {
       # 0xA0000 = READ_CONTROL | WRITE_OWNER；3 = 读写共享 / OPEN_EXISTING；6 = SE_KERNEL_OBJECT
       $psd = [IntPtr]::Zero
@@ -186,7 +191,7 @@ foreach ($ln in $jobs.Split([char]10)) {
     $cur = ''; $str = [IntPtr]::Zero
     if ($n::ConvertSecurityDescriptorToStringSecurityDescriptorW($sd, [uint32]1, [uint32]0x10, [ref]$str, [IntPtr]::Zero)) { $cur = $M::PtrToStringUni($str); [void]$n::LocalFree($str) }
     [void]$n::LocalFree($sd)
-    $same = (& $explicit $cur) -eq (& $explicit (& $canon ('S:' + $ace)))
+    $same = $mode -ne 'secret-force' -and ((& $explicit $cur) -eq (& $explicit (& $canon ('S:' + $ace))))
     [Console]::Out.WriteLine('__MINIS_LABEL_CUR__ ' + $i + ' ' + $cur)
     if ($same) { $res = 'same' } else {
       $psd = [IntPtr]::Zero
@@ -204,7 +209,7 @@ foreach ($ln in $jobs.Split([char]10)) {
 }
 `;
 
-export type LabelMode = 'protect' | 'low' | 'clear' | 'pipe';
+export type LabelMode = 'protect' | 'low' | 'clear' | 'pipe' | 'secret' | 'secret-force';
 export interface LabelJob { mode: LabelMode; path: string }
 export type LabelResult = { path: string; outcome: 'ok' | 'same' | 'unsupported' } | { path: string; outcome: 'err'; code: number };
 

@@ -30,7 +30,11 @@ import { parseOffice } from './office/parse';
 import { fileListTool, fileGlobTool, fileGrepTool } from './tools/search';
 import { ShellManager, makeShellTool } from './tools/shell';
 import { applyLabels, ensureSandboxDirs, sandboxDecision, sandboxEnv, SANDBOX_SETTING_KEY, type LabelJob, type ShellSandbox } from './proc/sandbox';
-import { SANDBOX_LABELED_KEY, WorkspaceLabels } from './proc/sandbox-workspace';
+import { LabelQueue, SANDBOX_LABELED_KEY, WorkspaceLabels, pathOps, type WorkspaceScope } from './proc/sandbox-workspace';
+import {
+  SANDBOX_PROTECTED_KEY, SANDBOX_SENSITIVE_KEY, SENSITIVE_EXTRA_MAX, SENSITIVE_ITEMS, SensitiveLabels, listSensitive, parseSensitivePrefs,
+  sensitivePathProblem, wantedSensitive, type ProtectedEntry, type SensitiveState,
+} from './proc/sandbox-sensitive';
 import { PsParser } from './tools/ps-parse';
 import { analyzeShellCommand } from './tools/shell-analysis';
 import { powershellPath } from './proc/win-exec';
@@ -607,11 +611,41 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   /** 给 sandbox.status 用：这次启动时沙箱的实际状态。 */
   let sandboxState: { state: 'off' | 'starting' | 'on' | 'unavailable'; reason?: string } = sandboxWanted.enabled
     ? { state: 'starting' } : { state: 'off', reason: sandboxWanted.reason };
-  // agent 根以外的工作区：沙箱里用到时打 Low 标签，没人用了还原（proc/sandbox-workspace.ts）。沙箱没开时也建，启动时把以前打的还原掉
-  const workspaceLabels = sandboxPlatform === 'win32' && paths.agentSeparate ? new WorkspaceLabels({
+  // 用户目录下放凭据的位置（.ssh、.aws……）：开了沙箱就打「不许读」的标签，取消勾选或沙箱没开时还原（proc/sandbox-sensitive.ts）
+  const labelScope: WorkspaceScope = {
     root, agentRoot: paths.agentRoot, home: process.env.USERPROFILE, win: true,
     systemDirs: [process.env.SystemRoot ?? process.env.windir, process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.ProgramW6432, process.env.ProgramData]
       .filter((d): d is string => typeof d === 'string' && d !== ''),
+  };
+  const sensitiveBases = { home: process.env.USERPROFILE, appData: process.env.APPDATA };
+  const sensitiveListing = () => listSensitive(parseSensitivePrefs(settings.get(SANDBOX_SENSITIVE_KEY)), sensitiveBases, labelScope, existsSync);
+  const labelQueue = new LabelQueue();
+  const sensitiveLabels = sandboxPlatform === 'win32' && paths.agentSeparate ? new SensitiveLabels({
+    apply: jobs => applyLabels(jobs, procOpts, 600_000),
+    tracked: {
+      load: () => { try { const v: unknown = JSON.parse(settings.get(SANDBOX_PROTECTED_KEY) ?? '[]'); return Array.isArray(v) ? v as ProtectedEntry[] : []; } catch { return []; } },
+      save: list => settings.set(SANDBOX_PROTECTED_KEY, JSON.stringify(list)),
+    },
+    win: true, queue: labelQueue, log: m => console.warn(m),
+  }) : undefined;
+  /** 上一次打标签的结果（给 sandbox.status），和正在打的次数。 */
+  let sensitiveResults = new Map<string, SensitiveState>();
+  let sensitiveBusy = 0;
+  /** on：照设置打上；否则全部还原。 */
+  const syncSensitive = async (on: boolean): Promise<void> => {
+    if (!sensitiveLabels) return;
+    sensitiveBusy++;
+    try {
+      const r = await sensitiveLabels.sync(on ? wantedSensitive(sensitiveListing(), true) : []);
+      sensitiveResults = r.results;
+      if (r.cleared.length > 0) console.log(`命令隔离：还原了 ${r.cleared.length} 个位置的「不许读」标签`);
+    } finally { sensitiveBusy--; }
+  };
+  // agent 根以外的工作区：沙箱里用到时打 Low 标签，没人用了还原（proc/sandbox-workspace.ts）。沙箱没开时也建，启动时把以前打的还原掉
+  const workspaceLabels = sandboxPlatform === 'win32' && paths.agentSeparate ? new WorkspaceLabels({
+    ...labelScope,
+    sensitive: () => wantedSensitive(sensitiveListing(), true),
+    queue: labelQueue,
     apply: jobs => applyLabels(jobs, procOpts, 600_000),
     tracked: {
       load: () => { try { const v: unknown = JSON.parse(settings.get(SANDBOX_LABELED_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []; } catch { return []; } },
@@ -627,22 +661,27 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     // 打标签时会以客户端身份连上管道一次，桥服务把这个空连接当普通断开处理）
     const jobs: LabelJob[] = [{ mode: 'protect', path: root }, { mode: 'low', path: paths.agentRoot }];
     if (bridgePipe !== undefined) jobs.push({ mode: 'pipe', path: bridgePipe });
-    const ready = applyLabels(jobs, procOpts).then(results => {
+    const ready = applyLabels(jobs, procOpts).then(async results => {
       if (results[0]?.outcome === 'unsupported') {
         sandboxState = { state: 'unavailable', reason: 'data-root-unsupported' };
         console.warn(`命令隔离没有开启：数据目录 ${root} 所在的盘不支持完整性标签（FAT、exFAT 或网络盘），shell 照原级别运行`);
+        void syncSensitive(false);
         return false;
       }
       for (const r of results) {
         if (r.outcome === 'err' || r.outcome === 'unsupported') console.warn(`命令隔离：给 ${r.path} 打标签${r.outcome === 'err' ? `失败（错误码 ${r.code}）` : '不管用（所在的盘不支持完整性标签）'}${r.path === root ? '，沙箱里的命令仍写不了数据目录，但读得到' : r.path === bridgePipe ? '，沙箱里的 windows-* 桥命令连不上' : '，沙箱里的命令可能写不了它'}`);
       }
+      // 敏感位置的「不许读」标签打完才起驱动：不然第一条命令可能赶在标签之前读到 .ssh
+      await syncSensitive(true);
       sandboxState = { state: 'on' };
-      console.log(`命令隔离已开启：shell 跑在低完整性级别下（标签：${results.map(r => r.outcome).join(' / ')}）`);
+      console.log(`命令隔离已开启：shell 跑在低完整性级别下（标签：${results.map(r => r.outcome).join(' / ')}；不许读的位置 ${[...sensitiveResults.values()].filter(r => r.state === 'protected').length} 个）`);
       return true;
     });
     shellSandbox = { env, ready, workspace: workspaceLabels ? dir => workspaceLabels.prepare(dir) : undefined };
-  } else if (sandboxWanted.reason !== 'off') {
-    console.warn(`命令隔离没有开启（${sandboxWanted.reason === 'not-windows' ? '只支持 Windows' : 'agent 目录和数据目录重叠'}）`);
+  } else {
+    if (sandboxWanted.reason !== 'off') console.warn(`命令隔离没有开启（${sandboxWanted.reason === 'not-windows' ? '只支持 Windows' : 'agent 目录和数据目录重叠'}）`);
+    // 沙箱没开：以前打的「不许读」标签全部还原
+    void syncSensitive(false);
   }
   /** 把以前给工作区打的、现在没有会话在用的 Low 标签还原（沙箱没开或开不了时全部还原）。后台跑，不等。 */
   const reconcileWorkspaceLabels = (): void => {
@@ -1029,7 +1068,34 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     const forced = process.env.DESKMINIS_SANDBOX === '1' || process.env.DESKMINIS_SANDBOX === '0' ? process.env.DESKMINIS_SANDBOX === '1' : undefined;
     const setting = settings.get(SANDBOX_SETTING_KEY) !== '0';
     const wantedNow = sandboxDecision({ env: process.env, platform: sandboxPlatform, root, agentRoot: paths.agentRoot, setting: setting ? '1' : '0' }).enabled;
-    return { setting, forced, ...sandboxState, restartNeeded: wantedNow !== sandboxWanted.enabled };
+    return { setting, forced, ...sandboxState, restartNeeded: wantedNow !== sandboxWanted.enabled, ...(sensitiveLabels ? { sensitive: sensitiveView() } : {}) };
+  };
+  /** 设置页上「沙箱不许读的位置」：每项每个路径现在的情况。 */
+  const sensitiveView = () => {
+    const l = sensitiveListing();
+    const on = sandboxState.state === 'on';
+    const stateOf = (v: { path: string; exists: boolean; problem?: string }, enabled: boolean) => {
+      if (v.problem) return { path: v.path, state: 'rejected', problem: v.problem };
+      if (!v.exists) return { path: v.path, state: 'missing' };
+      if (!enabled) return { path: v.path, state: 'off' };
+      if (!on) return { path: v.path, state: 'inactive' };
+      const r = sensitiveResults.get(pathOps(true).norm(v.path));
+      if (!r || sensitiveBusy > 0) return { path: v.path, state: r?.state === 'protected' ? 'protected' : 'pending' };
+      return { path: v.path, ...r };
+    };
+    return {
+      items: l.items.map(i => ({ id: i.id, label: i.label, note: i.note, defaultOn: i.defaultOn, enabled: i.enabled, paths: i.paths.map(v => stateOf(v, i.enabled)) })),
+      extra: l.extra.map(v => stateOf(v, true)),
+      busy: sensitiveBusy > 0,
+    };
+  };
+  const saveSensitivePrefs = (f: (p: ReturnType<typeof parseSensitivePrefs>) => void): void => {
+    const p = parseSensitivePrefs(settings.get(SANDBOX_SENSITIVE_KEY));
+    f(p);
+    settings.set(SANDBOX_SENSITIVE_KEY, JSON.stringify(p));
+    // 改了马上照新设置打标签 / 还原（沙箱开着时；没开时以前打的启动时已经还原了）
+    // 正在开启时也排一次：开启那一次读到的可能还是旧设置
+    if (sandboxState.state === 'on' || sandboxState.state === 'starting') void syncSensitive(true);
   };
 
   const methods = {
@@ -1892,6 +1958,28 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       settings.set(SANDBOX_SETTING_KEY, p.enabled ? '1' : '0');
       // 关掉沙箱是放宽：和切到完全访问一样记审计
       if (prev !== p.enabled) audit.append('sandbox.setting', { enabled: p.enabled, prev });
+      return sandboxStatus();
+    },
+    // ---- 执行隔离第 5 步：沙箱不许读的位置。改了马上生效；取消勾选是放宽，记审计 ----
+    'sandbox.setSensitive': (p: { id: string; enabled: boolean }) => {
+      const item = SENSITIVE_ITEMS.find(i => i.id === p?.id);
+      if (!item) throw new Error(`不认识的位置：${String(p?.id)}`);
+      if (typeof p?.enabled !== 'boolean') throw new Error('enabled 必须是 true 或 false');
+      let prev = item.defaultOn;
+      saveSensitivePrefs(prefs => { prev = prefs.on[item.id] ?? item.defaultOn; prefs.on[item.id] = p.enabled; });
+      if (prev !== p.enabled) audit.append('sandbox.sensitive', { id: item.id, enabled: p.enabled, prev });
+      return sandboxStatus();
+    },
+    'sandbox.setSensitiveExtra': (p: { paths: string[] }) => {
+      if (!Array.isArray(p?.paths) || p.paths.some(x => typeof x !== 'string')) throw new Error('paths 必须是字符串数组');
+      const list = [...new Map(p.paths.map(x => x.trim()).filter(x => x !== '').map(x => [x.toLowerCase(), x] as const)).values()];
+      if (list.length > SENSITIVE_EXTRA_MAX) throw new Error(`最多 ${SENSITIVE_EXTRA_MAX} 条`);
+      for (const x of list) { const why = sensitivePathProblem(x, labelScope); if (why) throw new Error(`${x}：${why}`); }
+      let prev: string[] = [];
+      saveSensitivePrefs(prefs => { prev = prefs.extra; prefs.extra = list; });
+      const removed = prev.filter(x => !list.some(y => y.toLowerCase() === x.toLowerCase()));
+      const added = list.filter(x => !prev.some(y => y.toLowerCase() === x.toLowerCase()));
+      if (removed.length > 0 || added.length > 0) audit.append('sandbox.sensitive', { added, removed });
       return sandboxStatus();
     },
     'permission.getPreset': () => ({ preset: settings.get(PERMISSION_PRESET_KEY) ?? 'ask' }),
