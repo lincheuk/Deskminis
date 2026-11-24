@@ -166,7 +166,9 @@ function Try-Tool($id, $exe, [scriptblock]$b) {
   try {
     $global:LASTEXITCODE = 0
     $o = (& $b 2>&1 | Out-String).Trim()
-    $last = (($o -split "`r?`n") | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 3) -join ' | '
+    $lines = @(($o -split "`r?`n") | Where-Object { $_.Trim() -ne '' -and $_ -notmatch '^\s*(\+|At line|CategoryInfo|FullyQualifiedErrorId)' })
+    $err = @($lines | Where-Object { $_ -match 'fatal|error|denied|EACCES|EPERM' } | Select-Object -First 2)
+    $last = (@($err) + @($lines | Select-Object -Last 2)) -join ' | '
     if ($LASTEXITCODE -eq 0) { Add-R $id 'ok' ($c.Source + ' | ' + $last) } else { Add-R $id 'fail' ($c.Source + ' | exit ' + $LASTEXITCODE + ': ' + $last) }
   } catch { Add-R $id 'fail' ($c.Source + ' | ' + $_.Exception.Message) }
   $ErrorActionPreference = 'Stop'
@@ -262,6 +264,8 @@ Try-Access 'cd-actemp' { Set-Location -LiteralPath $env:TEMP; $p = $PWD.Path; Se
 Try-Access 'cd-sub' { New-Item -ItemType Directory -Force -Path (Join-Path $ws 'sub') | Out-Null; Push-Location (Join-Path $ws 'sub'); Pop-Location; 'ok' }
 Try-Tool 'cmd' 'cmd' { cmd /c echo ok }
 Try-Tool 'git' 'git' { git init -q ('repo-' + $env:PROBE_RUN); git -C ('repo-' + $env:PROBE_RUN) -c user.name=probe -c user.email=probe@example.invalid commit --allow-empty -q -m probe; git -C ('repo-' + $env:PROBE_RUN) log --oneline }
+# git 读不了用户目录下的全局配置时会直接 fatal：把 HOME / XDG_CONFIG_HOME 指到工作区再试一次
+Try-Tool 'git-home' 'git' { $env:HOME = $ws; $env:XDG_CONFIG_HOME = Join-Path $ws '.config'; try { git init -q ('repoh-' + $env:PROBE_RUN); git -C ('repoh-' + $env:PROBE_RUN) -c user.name=probe -c user.email=probe@example.invalid commit --allow-empty -q -m probe; git -C ('repoh-' + $env:PROBE_RUN) log --oneline } finally { Remove-Item Env:HOME, Env:XDG_CONFIG_HOME -ErrorAction SilentlyContinue } }
 Try-Tool 'node' 'node' { node -e "require('fs').writeFileSync('node.txt', process.version); console.log(process.version)" }
 Try-Tool 'npm' 'npm' { npm --version }
 if ($env:PROBE_NETWORK -eq '1') {
