@@ -41,10 +41,11 @@ const scriptOf = (args: string[]): string => Buffer.from(args[args.length - 1], 
 
 describe('① 开关与不支持标签的卷', () => {
   const root = '/data/root'; const agentRoot = '/data/agent';
-  it('没设环境变量时看设置；DESKMINIS_SANDBOX=1 / 0 强制开关', () => {
+  it('没设环境变量时看设置（第 4 步起默认开，只有 \'0\' 是关）；DESKMINIS_SANDBOX=1 / 0 强制开关', () => {
     expect(SANDBOX_SETTING_KEY).toBe('sandbox.enabled');
     const d = (env: Record<string, string>, setting?: string) => sandboxDecision({ env, platform: 'win32', root, agentRoot, setting });
-    expect(d({})).toEqual({ enabled: false, reason: 'off' });
+    expect(d({})).toEqual({ enabled: true });
+    expect(d({}, '')).toEqual({ enabled: true });
     expect(d({}, '0')).toEqual({ enabled: false, reason: 'off' });
     expect(d({}, '1')).toEqual({ enabled: true });
     expect(d({ DESKMINIS_SANDBOX: '0' }, '1')).toEqual({ enabled: false, reason: 'off' });
@@ -260,7 +261,8 @@ describe('④ 引擎装配与设置页（源码守卫）', () => {
   });
   it('设置「权限」页有命令隔离开关，环境变量强制时开关不可用，写明重启后生效', () => {
     const vue = readFileSync(resolve(__dirname, '..', 'src', 'renderer', 'src', 'ui', 'settings', 'SecPermission.vue'), 'utf8');
-    expect(vue).toContain('命令隔离 <span class="beta t-aux">Beta</span>');
+    expect(vue).toContain('<span>命令隔离</span>');
+    expect(vue).toContain('默认开启');
     expect(vue).toContain(':disabled="chat.sandbox.forced !== undefined"');
     expect(vue).toContain('chat.setSandboxEnabled(el.checked)');
     expect(vue).toContain('重启 DeskMinis 后生效');

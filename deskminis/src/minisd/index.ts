@@ -597,7 +597,7 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     sessionId => makeBridgeEnv(sessionId, bridgePipe, bridgeCli, bridgeNode), procOpts);
   const filesSvc = new FilesService(paths);
 
-  // 执行隔离第 3 步：低完整性沙箱（proc/sandbox.ts）。开关在设置「权限」页（Beta，默认关，重启后生效），开发者可用 DESKMINIS_SANDBOX=1 / 0 强制。
+  // 执行隔离第 3 步：低完整性沙箱（proc/sandbox.ts）。开关在设置「权限」页（第 4 步起默认开，重启后生效），开发者可用 DESKMINIS_SANDBOX=1 / 0 强制。
   // 开了就给数据根打「Low 进程不许读写」的标签、给 agent 根打 Low 标签；标签打完之前 shell 不起驱动。
   // 数据根所在的盘不支持标签（FAT、exFAT、网络盘）时开不了：Low 进程照样能读写那里，沙箱就没有意义，shell 照原级别跑。
   // 别的标签没打上照样降级：Low 进程本来就写不了没有标签的数据根，只是还读得到，日志里说清楚
@@ -1027,7 +1027,7 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   /** 设置里的开关、这次启动时的实际状态、要不要重启才生效。 */
   const sandboxStatus = () => {
     const forced = process.env.DESKMINIS_SANDBOX === '1' || process.env.DESKMINIS_SANDBOX === '0' ? process.env.DESKMINIS_SANDBOX === '1' : undefined;
-    const setting = settings.get(SANDBOX_SETTING_KEY) === '1';
+    const setting = settings.get(SANDBOX_SETTING_KEY) !== '0';
     const wantedNow = sandboxDecision({ env: process.env, platform: sandboxPlatform, root, agentRoot: paths.agentRoot, setting: setting ? '1' : '0' }).enabled;
     return { setting, forced, ...sandboxState, restartNeeded: wantedNow !== sandboxWanted.enabled };
   };
@@ -1884,11 +1884,11 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     'permission.respond': (p: { requestId: string; decision: 'allow-once' | 'allow-session' | 'deny' }, conn?: RpcConnection) =>
       permBroker.respond(String(p?.requestId ?? ''), p?.decision, responderOf(conn)),
     // ---- 权限档位预设（permission.preset）：四档真实作用于权限网关 ----
-    // ---- 执行隔离第 3 步：命令隔离（Beta）开关。改了重启后生效；环境变量 DESKMINIS_SANDBOX 强制时界面只读 ----
+    // ---- 执行隔离第 3 步：命令隔离开关（第 4 步起默认开）。改了重启后生效；环境变量 DESKMINIS_SANDBOX 强制时界面只读 ----
     'sandbox.status': () => sandboxStatus(),
     'sandbox.setEnabled': (p: { enabled: boolean }) => {
       if (typeof p?.enabled !== 'boolean') throw new Error('enabled 必须是 true 或 false');
-      const prev = settings.get(SANDBOX_SETTING_KEY) === '1';
+      const prev = settings.get(SANDBOX_SETTING_KEY) !== '0';
       settings.set(SANDBOX_SETTING_KEY, p.enabled ? '1' : '0');
       // 关掉沙箱是放宽：和切到完全访问一样记审计
       if (prev !== p.enabled) audit.append('sandbox.setting', { enabled: p.enabled, prev });
