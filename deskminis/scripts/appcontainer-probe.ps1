@@ -9,7 +9,8 @@
     1. 建一个临时的应用容器（CreateAppContainerProfile，名字 DeskMinisProbe.<随机>），在 %TEMP% 下建一个「工作区」，
        只给这个工作区加上容器的访问权限；在 %APPDATA% 下放一个不给权限的「用户文件」。
     2. 用 cmdkey 往凭据管理器里存一条测试凭据，用 DPAPI 加密一小段文字；本进程开一个回环端口和一个命名管道。
-    3. 在容器里起两次 PowerShell：一次不给任何能力，一次只给 internetClient（能出站联网）。每次逐项试：
+    3. 在容器里起三次 PowerShell：一次不给任何能力，一次只给 internetClient（能出站联网），第三次同样只给 internetClient、
+       另给工作区的各级上级目录（不含盘根）临时加上容器的「列目录」权限，跑完马上去掉。每次逐项试：
        读写工作区、读用户文件、列「文档」、写 HKCU、读那条测试凭据、DPAPI 解密、联网、同进程 / 同容器 / 连本机别的进程的回环、
        连本进程的命名管道，以及 git、node、npm、python 能不能用、装在哪。
     4. 打印结论，写一份 JSON，删掉它建的所有东西（容器、目录、测试凭据）。
@@ -249,6 +250,7 @@ if ($env:PROBE_NETWORK -eq '1') {
 # 工具链（在工作区里）。进程本来就起在工作区里；Set-Location 在容器里可能因为上级目录读不了而失败（产品的 shell 驱动要靠它跟踪当前目录）
 Add-R 'pwd' 'ok' ($PWD.Path + ' | process ' + [IO.Directory]::GetCurrentDirectory())
 Try-Access 'cd-ws' { Set-Location -LiteralPath $ws; $PWD.Path }
+Try-Access 'cd-actemp' { Set-Location -LiteralPath $env:TEMP; $p = $PWD.Path; Set-Location -LiteralPath ([IO.Directory]::GetCurrentDirectory()) -ErrorAction SilentlyContinue; $p }
 Try-Access 'cd-sub' { New-Item -ItemType Directory -Force -Path (Join-Path $ws 'sub') | Out-Null; Push-Location (Join-Path $ws 'sub'); Pop-Location; 'ok' }
 Try-Tool 'cmd' 'cmd' { cmd /c echo ok }
 Try-Tool 'git' 'git' { git init -q ('repo-' + $env:PROBE_RUN); git -C ('repo-' + $env:PROBE_RUN) -c user.name=probe -c user.email=probe@example.invalid commit --allow-empty -q -m probe; git -C ('repo-' + $env:PROBE_RUN) log --oneline }
@@ -263,6 +265,7 @@ Save-R
 
 # ---------------------------------------------------------------- 父进程（原级别）
 $tag = [Guid]::NewGuid().ToString('N').Substring(0, 8)
+$sid = $null; $ancestors = @()
 $name = 'DeskMinisProbe.' + $tag
 $base = Join-Path $env:TEMP ('DeskMinisAcProbe-' + $tag)
 $ws = Join-Path $base 'workspace'
@@ -299,7 +302,11 @@ try {
 
   $childFile = Join-Path $ws 'child.ps1'
   [IO.File]::WriteAllText($childFile, $ChildPs, [Text.UTF8Encoding]::new($true))
-  $runs = [ordered]@{ none = @(); internetClient = @('S-1-15-3-1') }
+  $runs = [ordered]@{ none = @(); internetClient = @('S-1-15-3-1'); ancestors = @('S-1-15-3-1') }
+  # 第三次：给工作区的各级上级目录（不含盘根）只加「列目录」（RD，不继承），看 PowerShell 的 Set-Location 是不是卡在上级目录列不出来。跑完去掉
+  $ancestors = @(); $a = Split-Path -Parent $base
+  while ($a -and (Split-Path -Parent $a)) { $ancestors += $a; $a = Split-Path -Parent $a }
+  $report.ancestors = $ancestors
   # 容器进程继承本进程的环境变量：先改，跑完还原
   $saved = @{}
   foreach ($k in @('TEMP', 'TMP', 'npm_config_cache', 'PROBE_WS', 'PROBE_USERFILE', 'PROBE_TAG', 'PROBE_CRED', 'PROBE_DPAPI', 'PROBE_HOSTPORT', 'PROBE_PIPE', 'PROBE_NETWORK', 'PROBE_PROXY', 'PROBE_OUT', 'PROBE_RUN')) { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
@@ -312,12 +319,14 @@ try {
       $outFile = Join-Path $ws ('result-' + $run + '.json')
       $env:PROBE_OUT = $outFile; $env:PROBE_RUN = $run
       $entry = [ordered]@{ capabilities = @($runs[$run]) }
+      if ($run -eq 'ancestors') { foreach ($d in $ancestors) { $entry.grant += @((& icacls $d /grant ('*' + $sid + ':(RD)') /Q 2>&1 | Out-String).Trim()) } }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       try {
         $entry.exit = [DeskMinisAcProbe]::Run($sid, [string[]]@($runs[$run]), $ps, ('"' + $ps + '" -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File "' + $childFile + '"'), $ws, 300000)
       } catch { $entry.launchError = $_.Exception.Message }
       $entry.ms = $sw.ElapsedMilliseconds
       if (Test-Path -LiteralPath $outFile) { $entry.child = (Get-Content -LiteralPath $outFile -Raw -Encoding UTF8 | ConvertFrom-Json) }
+      if ($run -eq 'ancestors') { foreach ($d in $ancestors) { $entry.ungrant += @((& icacls $d /remove ('*' + $sid) /Q 2>&1 | Out-String).Trim()) } }
       $report.runs[$run] = $entry
     }
     # PowerShell 起不来时，看看最简单的 cmd 能不能在容器里起来
@@ -333,6 +342,8 @@ try {
   if ($listener) { try { $listener.Stop() } catch { } }
   if ($pipe) { try { $pipe.Dispose() } catch { } }
   try { & cmdkey "/delete:$credTarget" | Out-Null } catch { }
+  # 上级目录上临时加的「列目录」：正常情况跑完第三次就去掉了，中途出错的话这里再去一遍
+  if ($sid -and $ancestors) { foreach ($d in $ancestors) { try { & icacls $d /remove ('*' + $sid) /Q 2>&1 | Out-Null } catch { } } }
   try { $report.deleteProfile = [DeskMinisAcProbe]::DeleteProfile($name) } catch { }
   foreach ($d in @($base, $userDir)) { try { if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force } } catch { $report.cleanupFailed += @($d) } }
 }
@@ -348,14 +359,14 @@ $expect = [ordered]@{
   'loop-self' = @('?', '同一进程里连自己开的回环端口'); 'loop-sibling' = @('?', '同一容器里另一个进程连回环端口');
   'loop-host' = @('denied', '连容器外进程开的回环端口'); 'pipe-host' = @('denied', '连容器外进程开的命名管道（默认权限）');
 }
-$netExpect = @{ none = 'denied'; internetClient = 'allowed' }
+$netExpect = @{ none = 'denied'; internetClient = 'allowed'; ancestors = 'allowed' }
 Write-Host ''
 Write-Host ('系统：' + $report.os + ' ' + $report.build + '，PowerShell ' + $report.ps + $(if ($proxy) { '，系统代理 ' + $proxy } else { '，没有系统代理' }))
 if ($report.error) { Write-Host ('出错：' + $report.error) -ForegroundColor Red }
 foreach ($run in $report.runs.Keys) {
   $e = $report.runs[$run]
   Write-Host ''
-  Write-Host ('== 容器能力：' + $(if ($run -eq 'none') { '无' } else { $run }) + '，退出码 ' + $e.exit + '，用时 ' + $e.ms + ' ms')
+  Write-Host ('== 容器能力：' + $(if ($run -eq 'none') { '无' } elseif ($run -eq 'ancestors') { 'internetClient，上级目录可列' } else { $run }) + '，退出码 ' + $e.exit + '，用时 ' + $e.ms + ' ms')
   if ($e.launchError) { Write-Host ('  起不来：' + $e.launchError) -ForegroundColor Red; continue }
   if (-not $e.child) { Write-Host '  PowerShell 没有写出任何结果（多半是在容器里没起来）' -ForegroundColor Red; continue }
   $byId = @{}; foreach ($r in $e.child.results) { $byId[$r.id] = $r }

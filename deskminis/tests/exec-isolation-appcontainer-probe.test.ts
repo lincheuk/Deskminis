@@ -13,9 +13,10 @@ describe('AppContainer 原型脚本', () => {
   it('带 UTF-8 BOM（Windows PowerShell 5.1 没有 BOM 时按 ANSI 读，中文会坏）', () => {
     expect(src.charCodeAt(0)).toBe(0xfeff);
   });
-  it('起容器进程用 SECURITY_CAPABILITIES 属性；两次运行：不给能力、只给 internetClient；跑完删掉容器与测试凭据', () => {
+  it('起容器进程用 SECURITY_CAPABILITIES 属性；三次运行：不给能力、只给 internetClient、再加上级目录可列；跑完去掉加的权限、删掉容器与测试凭据', () => {
     expect(src).toContain('(IntPtr)0x00020009');
-    expect(src).toContain("$runs = [ordered]@{ none = @(); internetClient = @('S-1-15-3-1') }");
+    expect(src).toContain("$runs = [ordered]@{ none = @(); internetClient = @('S-1-15-3-1'); ancestors = @('S-1-15-3-1') }");
+    expect(src).toContain("& icacls $d /remove ('*' + $sid) /Q");
     expect(src).toContain('[DeskMinisAcProbe]::DeleteProfile($name)');
     expect(src).toContain('& cmdkey "/delete:$credTarget"');
     for (const id of ['started', 'token', 'ws-write', 'user-read', 'cred-read', 'dpapi', 'loop-self', 'loop-sibling', 'loop-host', 'pipe-host', 'net-direct', 'npm-install']) {
@@ -41,6 +42,6 @@ describe.runIf(WIN)('Windows 真跑 AppContainer 原型', () => {
     console.log(`__AC_PROBE_REPORT__ ${JSON.stringify(JSON.parse(raw))}`);
     const report = JSON.parse(raw);
     expect(report.error, report.error).toBeUndefined();
-    expect(Object.keys(report.runs)).toEqual(['none', 'internetClient']);
+    expect(Object.keys(report.runs)).toEqual(['none', 'internetClient', 'ancestors']);
   }, 960_000);
 });
