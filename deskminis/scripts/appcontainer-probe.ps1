@@ -136,12 +136,30 @@ $R = [System.Collections.ArrayList]::new()
 $started = Get-Date
 function Add-R($id, $result, $detail) { [void]$R.Add([ordered]@{ id = $id; result = $result; detail = [string]$detail }) }
 function Save-R { [IO.File]::WriteAllText($env:PROBE_OUT, (@{ ms = [int]((Get-Date) - $started).TotalMilliseconds; results = $R } | ConvertTo-Json -Compress -Depth 4), [Text.UTF8Encoding]::new($false)) }
+# 没接住的错误：记下来再退出，不然只看得到退出码 1
+trap { Add-R 'crash' 'error' ($_.Exception.Message + ' @ ' + $_.InvocationInfo.PositionMessage); Save-R; exit 2 }
 function Try-Access($id, [scriptblock]$b) {
   try { $o = & $b; Add-R $id 'allowed' $o } catch { Add-R $id 'denied' $_.Exception.Message }
   Save-R
 }
+# P/Invoke 用 Reflection.Emit 在内存里定义（容器里起 csc.exe 不一定行）。每项：dll, 函数名, 返回类型, 形参类型
+function New-Native($defs) {
+  $ab = [AppDomain]::CurrentDomain.DefineDynamicAssembly([System.Reflection.AssemblyName]::new('AcProbeNative'), [System.Reflection.Emit.AssemblyBuilderAccess]::Run)
+  $tb = $ab.DefineDynamicModule('AcProbeNative').DefineType('AcProbeNative.N' + [Guid]::NewGuid().ToString('N'), [System.Reflection.TypeAttributes]'Public,Class,Abstract,Sealed')
+  $di = [System.Runtime.InteropServices.DllImportAttribute]
+  $ctor = $di.GetConstructor([Type[]]@([string]))
+  $fl = [System.Reflection.FieldInfo[]]@($di.GetField('SetLastError'), $di.GetField('CharSet'))
+  $fv = [object[]]@($true, [System.Runtime.InteropServices.CharSet]::Unicode)
+  foreach ($d in $defs) {
+    $mb = $tb.DefineMethod($d[1], [System.Reflection.MethodAttributes]'Public,Static,PinvokeImpl', $d[2], $d[3])
+    $mb.SetCustomAttribute([System.Reflection.Emit.CustomAttributeBuilder]::new($ctor, [object[]]@($d[0]), $fl, $fv))
+    $mb.SetImplementationFlags([System.Reflection.MethodImplAttributes]::PreserveSig)
+  }
+  $tb.CreateType()
+}
 function Try-Tool($id, $exe, [scriptblock]$b) {
-  $c = Get-Command $exe -ErrorAction SilentlyContinue
+  $c = $null
+  try { $c = Get-Command $exe -ErrorAction SilentlyContinue } catch { Add-R $id 'error' ('Get-Command: ' + $_.Exception.Message); Save-R; return }
   if (-not $c) { Add-R $id 'absent' ''; Save-R; return }
   $ErrorActionPreference = 'Continue'
   try {
@@ -153,14 +171,25 @@ function Try-Tool($id, $exe, [scriptblock]$b) {
   $ErrorActionPreference = 'Stop'
   Save-R
 }
-Add-R 'started' 'ok' $PSVersionTable.PSVersion.ToString()
+Add-R 'started' 'ok' ($PSVersionTable.PSVersion.ToString() + ' | TEMP=' + $env:TEMP)
 Save-R
 
+# 令牌：TokenIsAppContainer = 29；TokenIntegrityLevel = 25（TOKEN_MANDATORY_LABEL 开头是 SID 指针）
 try {
-  $g = (whoami /groups) -join ' '
-  $ac = [regex]::Match($g, 'S-1-15-2-[\d-]+').Value
-  $il = if ($g -match 'S-1-16-4096') { 'low' } elseif ($g -match 'S-1-16-8192') { 'medium' } else { 'other' }
-  Add-R 'token' $(if ($ac) { 'appcontainer' } else { 'not-appcontainer' }) ($il + ' ' + $ac)
+  $T = New-Native @(
+    @('kernel32.dll', 'GetCurrentProcess', [IntPtr], [Type[]]@()),
+    @('advapi32.dll', 'OpenProcessToken', [bool], [Type[]]@([IntPtr], [uint32], [IntPtr].MakeByRefType())),
+    @('advapi32.dll', 'GetTokenInformation', [bool], [Type[]]@([IntPtr], [int], [IntPtr], [uint32], [uint32].MakeByRefType())))
+  $M = [Runtime.InteropServices.Marshal]
+  $tok = [IntPtr]::Zero
+  if (-not $T::OpenProcessToken($T::GetCurrentProcess(), [uint32]8, [ref]$tok)) { throw ('OpenProcessToken ' + $M::GetLastWin32Error()) }
+  $buf = $M::AllocHGlobal(256); $len = [uint32]0
+  try {
+    [void]$T::GetTokenInformation($tok, 29, $buf, [uint32]256, [ref]$len); $isAc = $M::ReadInt32($buf) -ne 0
+    $il = ''
+    if ($T::GetTokenInformation($tok, 25, $buf, [uint32]256, [ref]$len)) { $il = [System.Security.Principal.SecurityIdentifier]::new($M::ReadIntPtr($buf, 0)).Value }
+  } finally { $M::FreeHGlobal($buf) }
+  Add-R 'token' $(if ($isAc) { 'appcontainer' } else { 'not-appcontainer' }) ('IL ' + $il)
 } catch { Add-R 'token' 'error' $_.Exception.Message }
 Save-R
 
@@ -169,28 +198,17 @@ Try-Access 'ws-write' { Set-Content -LiteralPath (Join-Path $ws ('w-' + $env:PRO
 Try-Access 'ws-read' { (Get-Content -LiteralPath (Join-Path $ws 'given.txt') -Raw).Length }
 Try-Access 'temp-write' { $f = [IO.Path]::GetTempFileName(); Remove-Item -LiteralPath $f; $f }
 Try-Access 'user-read' { (Get-Content -LiteralPath $env:PROBE_USERFILE -Raw).Length }
-Try-Access 'docs-list' { @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('MyDocuments')) -Force).Count }
+Try-Access 'docs-list' { @(Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE 'Documents') -Force).Count }
 Try-Access 'profile-list' { @(Get-ChildItem -LiteralPath $env:USERPROFILE -Force).Count }
 Try-Access 'hkcu-read' { (Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop').PSChildName }
 Try-Access 'hkcu-write' { New-Item -Path ('HKCU:\Software\DeskMinisAcProbe-' + $env:PROBE_TAG) -Force | Out-Null; Remove-Item -Path ('HKCU:\Software\DeskMinisAcProbe-' + $env:PROBE_TAG) -Force; 'written' }
 
-# 凭据管理器：读父进程用 cmdkey 存的那条（CRED_TYPE_GENERIC = 1）。P/Invoke 用 Reflection.Emit 在内存里定义（容器里起 csc.exe 不一定行）
+# 凭据管理器：读父进程用 cmdkey 存的那条（CRED_TYPE_GENERIC = 1）
 try {
-  $ab = [AppDomain]::CurrentDomain.DefineDynamicAssembly([System.Reflection.AssemblyName]::new('AcProbeNative'), [System.Reflection.Emit.AssemblyBuilderAccess]::Run)
-  $tb = $ab.DefineDynamicModule('AcProbeNative').DefineType('AcProbeNative.N', [System.Reflection.TypeAttributes]'Public,Class,Abstract,Sealed')
-  $di = [System.Runtime.InteropServices.DllImportAttribute]
-  $ctor = $di.GetConstructor([Type[]]@([string]))
-  $fl = [System.Reflection.FieldInfo[]]@($di.GetField('SetLastError'), $di.GetField('CharSet'))
-  $fv = [object[]]@($true, [System.Runtime.InteropServices.CharSet]::Unicode)
-  foreach ($d in @(
-      @('CredReadW', [bool], [Type[]]@([string], [uint32], [uint32], [IntPtr].MakeByRefType())),
-      @('CredEnumerateW', [bool], [Type[]]@([IntPtr], [uint32], [uint32].MakeByRefType(), [IntPtr].MakeByRefType())),
-      @('CredFree', [void], [Type[]]@([IntPtr])))) {
-    $mb = $tb.DefineMethod($d[0], [System.Reflection.MethodAttributes]'Public,Static,PinvokeImpl', $d[1], $d[2])
-    $mb.SetCustomAttribute([System.Reflection.Emit.CustomAttributeBuilder]::new($ctor, [object[]]@('advapi32.dll'), $fl, $fv))
-    $mb.SetImplementationFlags([System.Reflection.MethodImplAttributes]::PreserveSig)
-  }
-  $C = $tb.CreateType()
+  $C = New-Native @(
+    @('advapi32.dll', 'CredReadW', [bool], [Type[]]@([string], [uint32], [uint32], [IntPtr].MakeByRefType())),
+    @('advapi32.dll', 'CredEnumerateW', [bool], [Type[]]@([IntPtr], [uint32], [uint32].MakeByRefType(), [IntPtr].MakeByRefType())),
+    @('advapi32.dll', 'CredFree', [void], [Type[]]@([IntPtr])))
   $M = [Runtime.InteropServices.Marshal]
   $p = [IntPtr]::Zero
   if ($C::CredReadW($env:PROBE_CRED, [uint32]1, [uint32]0, [ref]$p)) { $C::CredFree($p); Add-R 'cred-read' 'allowed' '' }
