@@ -10,7 +10,7 @@
        只给这个工作区加上容器的访问权限；在 %APPDATA% 下放一个不给权限的「用户文件」。
     2. 用 cmdkey 往凭据管理器里存一条测试凭据，用 DPAPI 加密一小段文字；本进程开一个回环端口和一个命名管道。
     3. 在容器里起三次 PowerShell：一次不给任何能力，一次只给 internetClient（能出站联网），第三次同样只给 internetClient、
-       另给工作区的各级上级目录（不含盘根）临时加上容器的「列目录」权限，跑完马上去掉。每次逐项试：
+       另给工作区的各级上级目录（不含盘根）临时加上容器的「列目录、读属性」权限，跑完马上去掉。每次逐项试：
        读写工作区、读用户文件、列「文档」、写 HKCU、读那条测试凭据、DPAPI 解密、联网、同进程 / 同容器 / 连本机别的进程的回环、
        连本进程的命名管道，以及 git、node、npm、python 能不能用、装在哪。
     4. 打印结论，写一份 JSON，删掉它建的所有东西（容器、目录、测试凭据）。
@@ -311,7 +311,8 @@ try {
   $childFile = Join-Path $ws 'child.ps1'
   [IO.File]::WriteAllText($childFile, $ChildPs, [Text.UTF8Encoding]::new($true))
   $runs = [ordered]@{ none = @(); internetClient = @('S-1-15-3-1'); ancestors = @('S-1-15-3-1') }
-  # 第三次：给工作区的各级上级目录（不含盘根）只加「列目录」（RD，不继承），看 PowerShell 的 Set-Location 是不是卡在上级目录列不出来。跑完去掉
+  # 第三次：给工作区的各级上级目录（不含盘根）只加「列目录、读属性」（RD,RA，不继承）。PowerShell 规范化路径时对每一级调
+  # GetFileAttributes（NativeFileExists），容器读不了上级目录的属性就报拒绝访问，$PWD 也是空的。跑完去掉
   $ancestors = @(); $a = Split-Path -Parent $base
   while ($a -and (Split-Path -Parent $a)) { $ancestors += $a; $a = Split-Path -Parent $a }
   $report.ancestors = $ancestors
@@ -327,7 +328,7 @@ try {
       $outFile = Join-Path $ws ('result-' + $run + '.json')
       $env:PROBE_OUT = $outFile; $env:PROBE_RUN = $run
       $entry = [ordered]@{ capabilities = @($runs[$run]) }
-      if ($run -eq 'ancestors') { foreach ($d in $ancestors) { $entry.grant += @((& icacls $d /grant ('*' + $sid + ':(RD)') /Q 2>&1 | Out-String).Trim()) } }
+      if ($run -eq 'ancestors') { foreach ($d in $ancestors) { $entry.grant += @((& icacls $d /grant ('*' + $sid + ':(RD,RA)') /Q 2>&1 | Out-String).Trim()) } }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       try {
         $entry.exit = [DeskMinisAcProbe]::Run($sid, [string[]]@($runs[$run]), $ps, ('"' + $ps + '" -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File "' + $childFile + '"'), $ws, 300000)
