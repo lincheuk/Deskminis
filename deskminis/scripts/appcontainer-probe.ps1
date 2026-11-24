@@ -267,6 +267,14 @@ Try-Tool 'git' 'git' { git init -q ('repo-' + $env:PROBE_RUN); git -C ('repo-' +
 # Git for Windows 把 /dev/null 映射到 NUL 设备：容器里打不打得开
 Try-Access 'nul-open' { $f = [IO.File]::Open('\\.\NUL', [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite); $f.Dispose(); 'opened' }
 Try-Access 'nul-redirect' { 'x' | Out-File -FilePath 'NUL'; 'ok' }
+Try-Tool 'cmd-nul' 'cmd' { cmd /c "echo x>nul && echo ok" }
+# git 只在 0/1/2 号句柄没开时才去开 /dev/null 补上（setup.c sanitize_stdfds）。本进程起的时候没给标准句柄：看看三个句柄，再给 git 接上 stdin 管道重试
+try {
+  $H = New-Native @(,@('kernel32.dll', 'GetStdHandle', [IntPtr], [Type[]]@([int])))
+  Add-R 'stdio' 'ok' ((@(-10, -11, -12) | ForEach-Object { '' + $H::GetStdHandle($_) }) -join ',')
+} catch { Add-R 'stdio' 'error' $_.Exception.Message }
+Save-R
+Try-Tool 'git-stdin' 'git' { '' | git init -q ('repos-' + $env:PROBE_RUN); '' | git -C ('repos-' + $env:PROBE_RUN) -c user.name=probe -c user.email=probe@example.invalid commit --allow-empty -q -m probe; '' | git -C ('repos-' + $env:PROBE_RUN) log --oneline }
 # git 读不了用户目录下的全局配置时会直接 fatal：把 HOME / XDG_CONFIG_HOME 指到工作区再试一次
 Try-Tool 'git-home' 'git' { $env:HOME = $ws; $env:XDG_CONFIG_HOME = Join-Path $ws '.config'; try { git init -q ('repoh-' + $env:PROBE_RUN); git -C ('repoh-' + $env:PROBE_RUN) -c user.name=probe -c user.email=probe@example.invalid commit --allow-empty -q -m probe; git -C ('repoh-' + $env:PROBE_RUN) log --oneline } finally { Remove-Item Env:HOME, Env:XDG_CONFIG_HOME -ErrorAction SilentlyContinue } }
 Try-Tool 'node' 'node' { node -e "require('fs').writeFileSync('node.txt', process.version); console.log(process.version)" }
