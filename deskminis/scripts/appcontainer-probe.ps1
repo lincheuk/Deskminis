@@ -264,6 +264,9 @@ Try-Access 'cd-actemp' { Set-Location -LiteralPath $env:TEMP; $p = $PWD.Path; Se
 Try-Access 'cd-sub' { New-Item -ItemType Directory -Force -Path (Join-Path $ws 'sub') | Out-Null; Push-Location (Join-Path $ws 'sub'); Pop-Location; 'ok' }
 Try-Tool 'cmd' 'cmd' { cmd /c echo ok }
 Try-Tool 'git' 'git' { git init -q ('repo-' + $env:PROBE_RUN); git -C ('repo-' + $env:PROBE_RUN) -c user.name=probe -c user.email=probe@example.invalid commit --allow-empty -q -m probe; git -C ('repo-' + $env:PROBE_RUN) log --oneline }
+# Git for Windows 把 /dev/null 映射到 NUL 设备：容器里打不打得开
+Try-Access 'nul-open' { $f = [IO.File]::Open('\\.\NUL', [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite); $f.Dispose(); 'opened' }
+Try-Access 'nul-redirect' { 'x' | Out-File -FilePath 'NUL'; 'ok' }
 # git 读不了用户目录下的全局配置时会直接 fatal：把 HOME / XDG_CONFIG_HOME 指到工作区再试一次
 Try-Tool 'git-home' 'git' { $env:HOME = $ws; $env:XDG_CONFIG_HOME = Join-Path $ws '.config'; try { git init -q ('repoh-' + $env:PROBE_RUN); git -C ('repoh-' + $env:PROBE_RUN) -c user.name=probe -c user.email=probe@example.invalid commit --allow-empty -q -m probe; git -C ('repoh-' + $env:PROBE_RUN) log --oneline } finally { Remove-Item Env:HOME, Env:XDG_CONFIG_HOME -ErrorAction SilentlyContinue } }
 Try-Tool 'node' 'node' { node -e "require('fs').writeFileSync('node.txt', process.version); console.log(process.version)" }
