@@ -58,18 +58,11 @@ describe('网关：回落后按 gated 的档位走', () => {
     expect(prompted).toEqual(['Get-Content $env:APPDATA\\DeskMinis\\minis.db']);
   });
 
-  it('full 档：点到数据目录的仍弹卡（执行隔离方案第 0 步；以前跟随档位放行）', async () => {
+  it('full 档：gated 跟随档位放行（数据目录由命令隔离挡住，不靠这里）', async () => {
     const prompted: string[] = [];
     const gw = new PermissionGatewayImpl(async (r) => { prompted.push(r.detail); return 'deny'; });
     gw.applyPreset('full');
-    expect(await gw.check(req('Get-Content $env:APPDATA\\DeskMinis\\minis.db'))).toBe('deny');
-    expect(prompted).toEqual(['Get-Content $env:APPDATA\\DeskMinis\\minis.db']);
-  });
-
-  it('full 档：回落询问、但没点到数据目录的只读命令跟随档位放行', async () => {
-    const prompted: string[] = [];
-    const gw = new PermissionGatewayImpl(async (r) => { prompted.push(r.detail); return 'deny'; });
-    gw.applyPreset('full');
+    expect(await gw.check(req('Get-Content $env:APPDATA\\DeskMinis\\minis.db'))).toBe('allow');
     expect(await gw.check(req('gci env:'))).toBe('allow');
     expect(prompted).toEqual([]);
   });
