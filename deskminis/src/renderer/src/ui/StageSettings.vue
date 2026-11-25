@@ -4,7 +4,7 @@
  *
  *  形态：左侧一列小节 + 右侧定宽内容（不是弹窗）。弹窗放不下七节，
  *  且设置是「进去待一会儿」的地方，不是「点一下就走」的地方。 */
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
 import UiIcon from './UiIcon.vue';
 import SecModels from './settings/SecModels.vue';
 import SecModelGroups from './settings/SecModelGroups.vue';
@@ -15,7 +15,6 @@ import SecSearch from './settings/SecSearch.vue';
 import SecLook from './settings/SecLook.vue';
 import SecDiagnostics from './settings/SecDiagnostics.vue';
 import SecAbout from './settings/SecAbout.vue';
-import ControlPending from './settings/ControlPending.vue';
 
 type Sec = 'models' | 'perm' | 'skills' | 'mcp' | 'search' | 'look' | 'diagnostics' | 'about';
 const SECS: { k: Sec; icon: string; label: string }[] = [
@@ -28,11 +27,7 @@ const SECS: { k: Sec; icon: string; label: string }[] = [
   { k: 'diagnostics', icon: 'check', label: '诊断' },
   { k: 'about', icon: 'alert', label: '关于' },
 ];
-/** 从别处跳进来时要打开的小节（顶栏「外部改动」横幅点「去查看」→ 权限）。 */
-const props = defineProps<{ initialSec?: Sec; jump?: number }>();
-const sec = ref<Sec>(props.initialSec ?? 'models');
-// 已经在设置页时再点一次横幅：jump 变了就再跳一次
-watch(() => props.jump, () => { if (props.initialSec) sec.value = props.initialSec; });
+const sec = ref<Sec>('models');
 </script>
 
 <template>
@@ -49,8 +44,7 @@ watch(() => props.jump, () => { if (props.initialSec) sec.value = props.initialS
       <div class="secol">
         <!-- Z4：模型组挂在 provider 列表之后——组的成员就是上面这些 provider，放在一页里才看得出关系 -->
         <div v-if="sec === 'models'" class="secstack"><SecModels /><SecModelGroups /></div>
-        <!-- 执行隔离第 2 步（二）：外部改动的确认放在权限页，跟「agent 能做什么」放在一起 -->
-        <div v-else-if="sec === 'perm'" class="secstack"><SecPermission /><ControlPending /></div>
+        <SecPermission v-else-if="sec === 'perm'" />
         <SecSkills v-else-if="sec === 'skills'" />
         <SecMcp v-else-if="sec === 'mcp'" />
         <SecSearch v-else-if="sec === 'search'" />

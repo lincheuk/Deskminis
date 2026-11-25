@@ -3,7 +3,7 @@
  *  文本规则（permissions.ts 的 classifyShellCommand）照旧先判；这里拿解析器的结果再看三件事：
  *  1. 危险：命令名经引号、反引号转义写出来的（& "Re`move-Item"）、参数拼回来之后命中危险规则的、.NET 删除调用（含实例上的 .Delete()）。
  *  2. 看不透（opaque）：命令名或代码要运行时才拼出来——& $x、Invoke-Expression、[scriptblock]::Create、动态方法名、
- *     powershell -Command $x 这类。危险规则认不出拼出来的东西，所以完全访问档下也询问。
+ *     powershell -Command $x 这类。危险规则认不出拼出来的东西，询问时卡上写明原因（完全访问档照常放行）。
  *  3. 只读免问收紧：每个参数都按路径解析，只有都落在工作区里、当前目录也在工作区里才免问；
  *     反过来，用 ; 或换行串起来的几条只读命令也认作只读（文本规则一律拒绝 ;）。
  *
@@ -13,7 +13,7 @@ import { posix, win32 } from 'node:path';
 import { asksEvenIfReadonly, classifyShellCommand, expandNestedShells, isReadonlyCommand, matchesDanger, type ShellAnalysis } from './permissions';
 import type { PsArg, PsCommand, PsParser, PsSummary } from './ps-parse';
 
-export const OPAQUE_NOTE = 'DeskMinis 看不出这条命令具体会执行什么（命令名或代码是运行时才拼出来的），完全访问档下也要你确认。';
+export const OPAQUE_NOTE = 'DeskMinis 看不出这条命令具体会执行什么（命令名或代码是运行时才拼出来的）。';
 export const OUTSIDE_NOTE = '这条命令只读，但会读取工作区以外的位置（或者要运行时才知道读哪里），所以要你确认。';
 
 export interface AnalyzeEnv {

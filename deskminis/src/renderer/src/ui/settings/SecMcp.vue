@@ -28,8 +28,6 @@ onMounted(() => { void chat.fetchMcpServers(); window.addEventListener('focus', 
 onBeforeUnmount(() => { window.removeEventListener('focus', onWindowFocus); });
 const list = computed(() => chat.mcpServers.servers);
 const statusOf = (name: string) => chat.mcpServers.statuses.find(s => s.name === name);
-/** 执行隔离第 2 步（二）：配置被 DeskMinis 以外改过、还没确认（确认在「权限」页）。 */
-const unconfirmed = (name: string): boolean => !!chat.controlPending?.some(i => i.kind === 'mcp' && i.key === name);
 
 function startNew(): void { Object.assign(form, blank); orig.value = undefined; err.value = ''; open.value = true; }
 function startEdit(s: McpOrig): void {
@@ -125,7 +123,6 @@ async function test(): Promise<void> {
         <span class="mname">{{ s.name }}</span>
         <span class="mmeta t-aux">{{ s.transport === 'stdio' ? (s.command || '（未填命令）') : (s.url || '（未填地址）') }}</span>
       </span>
-      <span v-if="unconfirmed(s.name)" class="f-tag err" title="到设置的「权限」页查看并确认">外部改动待确认</span>
       <span
         v-if="statusOf(s.name)" class="f-tag"
         :class="{ ok: statusOf(s.name)!.status === 'connected', err: statusOf(s.name)!.status === 'error', 'has-skips': statusOf(s.name)!.status === 'connected' && (statusOf(s.name)!.limitSkipped?.length || statusOf(s.name)!.collisionSkipped?.length) }"

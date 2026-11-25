@@ -151,7 +151,7 @@ describe('MU2b Task 2 进度 tab（ProgressPanel 替换 TasksPanel，8 例）', 
     await settleStore();
     expect(fetch.mock.calls).toEqual([[]]);
     expect(_rpcCall.mock.calls).toEqual([
-      ['chat.sessions.list'], ['provider.instances.list'], ['provider.getDefault'], ['modelgroup.list'], ['assistants.list'], ['skills.list', {}], ['control.status'], ['permission.getPreset'], ['control.pending.list'], ['skills.list', { sessionId: 'A' }], ['chat.contextInfo', { sessionId: 'A' }], ['chat.sessions.listRetained', {}],
+      ['chat.sessions.list'], ['provider.instances.list'], ['provider.getDefault'], ['modelgroup.list'], ['assistants.list'], ['skills.list', {}], ['control.status'], ['permission.getPreset'], ['skills.list', { sessionId: 'A' }], ['chat.contextInfo', { sessionId: 'A' }], ['chat.sessions.listRetained', {}],
     ]);
     expect(chat.contextInfo).toEqual({ windowTokens: 64000, usedTokens: 100, remaining: 63900 });
     // A 的应答挂住后切 B，等应答完成才证明没有写回；B 自己的值与失败缓存也核对。

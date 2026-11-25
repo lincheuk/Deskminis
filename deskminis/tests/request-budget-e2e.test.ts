@@ -570,10 +570,6 @@ describe('F02 端到端：上下文条、最终请求、落库 usage 用同一�
     writeFileSync(join(mem, 'SOUL.md'), 'PERSONA-MARK you are a careful assistant.');
     writeFileSync(join(mem, 'GLOBAL.md'), `MEMORY-MARK the user prefers short answers. ${'remember this detail. '.repeat(60)}`);
     const c = rpcClient(srv.port, srv.authToken); await c.ready;
-    // 执行隔离第 2 步（二）：引擎起来之后才写进去的记忆文件算外部改动，用户确认之后才注入
-    for (const it of (await c.call('control.pending.list', {})).result.items as Array<{ kind: string; key: string; fingerprint: string }>) {
-      expect((await c.call('control.pending.confirm', { kind: it.kind, key: it.key, fingerprint: it.fingerprint })).result).toEqual({ ok: true });
-    }
     const inst = (await c.call('provider.instances.create', {
       name: 'Claude 中转', kind: 'anthropic', baseUrl: base('claude/hold-e12'), modelId: 'claude-relay', apiKey: 'test-key', contextWindow: 200_000,
     })).result as { id: string };

@@ -45,13 +45,7 @@ export interface McpManagerOptions {
   factories?: (entry: McpServerEntry) => McpClientLike;
   /** F09：进程树的登记与托管，只交给缺省工厂起的 stdio client（见 defaultClientFactory）。不传则同 F09 之前。 */
   supervisor?: ProcSupervisor;
-  /** 执行隔离第 2 步（二）：这一台现在的配置用户认可过没有（被 DeskMinis 以外改过、还没确认的不连接、不调用）。
-   *  不传则全部放行（同之前）。 */
-  allow?: (entry: McpServerEntry) => boolean;
 }
-
-/** 配置被外部改过、用户还没确认时调用工具得到的句子。 */
-export const MCP_UNCONFIRMED_REFUSAL = '该 MCP server 的配置被 DeskMinis 以外的程序改过，用户在设置里确认之前不会使用';
 
 export interface McpServerStatus {
   name: string;
@@ -147,11 +141,7 @@ export class McpManager {
   /** run 开始处调用：对每台 enabled 且未连接（或 stale）的 server 并行 connect + listTools。
    *  单台失败只记 error + 中文 lastError，不抛不阻塞其余台——MCP 是增强能力，坏一台不该毁整个 run。 */
   async ensureForRun(): Promise<void> {
-    const allow = this.opts.allow ?? (() => true);
-    const all = this.opts.store.list();
-    // 配置被外部改过、还没确认的：已经连着的断开（连接用的是改之前的配置，也不该再留着），这次不连
-    for (const e of all) if (!allow(e) && this.runtime.has(e.name)) this.forget(e.name);
-    const enabled = all.filter(e => e.enabled && allow(e));
+    const enabled = this.opts.store.list().filter(e => e.enabled);
     // 阶段一并行连接/重列（结果暂存）；阶段二按 store 顺序注册——
     // 全局 120 上限的截断结果才确定性（谁先注册完谁占坑不能看网络谁快）。
     const listed = await Promise.all(enabled.map(async entry => {
@@ -399,7 +389,6 @@ export class McpManager {
     const cfg = this.opts.store.list().find(e => e.name === server);
     if (!cfg) return { outcome: { output: '该 MCP server 已不在配置中', success: false }, cause: 'mcp-removed' };
     if (!cfg.enabled) return { outcome: { output: '该 MCP server 已停用', success: false }, cause: 'mcp-disabled' };
-    if (this.opts.allow && !this.opts.allow(cfg)) return { outcome: { output: MCP_UNCONFIRMED_REFUSAL, success: false }, cause: 'mcp-config-changed' };
     // 会话禁用硬执行：现查而非 run 快照——run 开始后用户仍可关掉这台（§5.2 修坑点）
     if (this.opts.chatStore.getMcpDisabled(sessionId).includes(server)) {
       return { outcome: { output: '该 MCP server 已在本会话禁用', success: false }, cause: 'mcp-session-disabled' };

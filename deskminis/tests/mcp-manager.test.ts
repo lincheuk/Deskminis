@@ -898,12 +898,6 @@ describe('RPC 集成（W1a-6）：mcp.servers.upsert / remove 之后下一回合
     expect(await statusOf('fx2')).toBe('idle');
     handAdd('fx');
     expect(await statusOf('fx')).toBe('idle');
-    // 执行隔离第 2 步（二）：手改文件加回来的 fx 是 DeskMinis 以外写的，用户确认之前不连接
-    expect((await c.call('mcp.servers.list', {})).result.unconfirmed).toEqual(['fx']);
-    await runOnce();
-    expect(await statusOf('fx')).toBe('idle');
-    const pend = (await c.call('control.pending.list', {})).result.items.find((x: any) => x.kind === 'mcp' && x.key === 'fx');
-    expect((await c.call('control.pending.confirm', { kind: 'mcp', key: 'fx', fingerprint: pend.fingerprint })).result).toEqual({ ok: true });
 
     // ③ 删除：同上，删掉再手改加回来，旧连接不会「复活」
     await runOnce();
@@ -912,5 +906,5 @@ describe('RPC 集成（W1a-6）：mcp.servers.upsert / remove 之后下一回合
     handAdd('fx');
     expect(await statusOf('fx')).toBe('idle');
     c.close();
-  }, 30_000);
+  }, 20_000);
 });
