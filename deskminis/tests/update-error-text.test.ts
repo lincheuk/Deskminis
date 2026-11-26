@@ -27,7 +27,7 @@ import {
 } from '../src/main/update-status';
 
 const OWNER = 'lincheuk';
-const REPO = 'deskminis-releases';
+const REPO = 'Deskminis';
 const BASE = `/${OWNER}/${REPO}/releases`;
 const TAG = 'v0.3.1';
 /** 三跳各自的请求路径（github.com 上的网页端点，不走 API）。 */

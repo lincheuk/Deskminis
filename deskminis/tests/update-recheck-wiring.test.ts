@@ -59,7 +59,7 @@ const pending = (): Promise<string[]> => new Promise<string[]>(() => {});
 /** 下载失败：与 electron-updater 一样先发 'error'，再 reject 同一个错误 */
 const failing = (): Promise<string[]> => (async () => {
   await sleep(10);
-  const e = new Error(`Cannot download "https://github.com/lincheuk/deskminis-releases/releases/download/v${V}/DeskMinis-${V}-Setup.exe", status 404: Not Found`);
+  const e = new Error(`Cannot download "https://github.com/lincheuk/Deskminis/releases/download/v${V}/DeskMinis-${V}-Setup.exe", status 404: Not Found`);
   emit('error', e);
   throw e;
 })();

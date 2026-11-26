@@ -87,11 +87,11 @@ describe('自动更新 · 开关归主进程（3 例）', () => {
 });
 
 // ── W2b-9：更新源改公开发布仓库、错误给人话、便携版不检查、托盘手动检查有回音 ──────────────
-// 设计稿 §2「自动更新源」落定 github provider 指向公开仓库 lincheuk/deskminis-releases；
+// 更新源：github provider 指向源码仓 lincheuk/Deskminis 的 Releases（源码仓 2026-11 起公开）；
 // 侦察 release.md「W2b-update」与 open_questions 第 1、10、12 条；cross.md S27。
 // 源码守卫一律先剥注释再认调用形态（交接 §2 第 10 条）：注释里留着旧写法或散文不能把断言喂饱。
 const mainCode = stripComments(main);
-/** electron-builder.yml 去掉 # 注释：注释里写「以前是 Deskminis」不能让 repo 断言红，写「改成 deskminis-releases」也不能让它绿。 */
+/** electron-builder.yml 去掉 # 注释：注释里写着别的仓库名不能让 repo 断言变红或变绿。 */
 const builderCode = builder.replace(/(^|\s)#.*$/gm, '$1');
 const aboutTpl = about.slice(about.indexOf('<template>'), about.lastIndexOf('</template>')).replace(/<!--[\s\S]*?-->/g, '');
 /** 用共用的 stripComments：它连行尾 // 也剥（整行注释之外，`disabled: '…', // portable: '…'` 这种行尾注释同样喂不饱断言），且保留 ://。 */
@@ -118,14 +118,12 @@ function fnBody(name: string): string {
   return open < 0 ? '' : balanced(mainCode, at + open, '{', '}');
 }
 
-describe('W2b-9 · 更新源是公开发布仓库', () => {
-  it('publish 段：github provider，owner lincheuk，repo deskminis-releases（不再是私仓 Deskminis）', () => {
+describe('W2b-9 · 更新源是源码仓的 Releases', () => {
+  it('publish 段：github provider，owner lincheuk，repo Deskminis', () => {
     const pub = builderCode.slice(builderCode.search(/^publish:/m));
     expect(pub).toMatch(/^\s+provider:\s*github\s*$/m);
     expect(/^\s+owner:\s*(\S+)/m.exec(pub)?.[1]).toBe('lincheuk');
-    expect(/^\s+repo:\s*(\S+)/m.exec(pub)?.[1]).toBe('deskminis-releases');
-    // 私仓的 Release 资产要 token 才能下，装进用户机器的 feed 永远 404——0.1.1 就是这样一次更新都没收到
-    expect(builderCode).not.toMatch(/^\s+repo:\s*Deskminis\s*$/m);
+    expect(/^\s+repo:\s*(\S+)/m.exec(pub)?.[1]).toBe('Deskminis');
   });
 });
 
@@ -190,13 +188,13 @@ describe('W2b-9 · 托盘手动「检查更新…」给回执，自动检查维�
 });
 
 describe('W2b-9 · 设置→关于的文案跟上新更新源', () => {
-  it('删掉「仓库私有、检查会 404 是预期的」——feed 已经是公开仓库，这句话会让用户对真故障视而不见', () => {
+  it('不写「仓库私有、检查会 404 是预期的」——仓库是公开的，这句话会让用户对真故障视而不见', () => {
     expect(about).not.toContain('私有');
     expect(about).not.toContain('404');
   });
 
-  it('提示写明去哪查：GitHub 上的 lincheuk/deskminis-releases', () => {
-    expect(aboutTpl).toMatch(/<span class="f-hint">[^<]*lincheuk\/deskminis-releases[^<]*<\/span>/);
+  it('提示写明去哪查：GitHub 上的 lincheuk/Deskminis', () => {
+    expect(aboutTpl).toMatch(/<span class="f-hint">[^<]*lincheuk\/Deskminis[^<]*<\/span>/);
   });
 
   // 下面两例只在 STATUS_TEXT 对象字面量里找（W2b-9 第二轮审查变异 M-A）：整段脚本里 checkNow 的 catch

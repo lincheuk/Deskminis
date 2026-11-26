@@ -203,7 +203,7 @@ const GH_HEADERS = {
 };
 /** 响应头里的东西一样都不能出现在日志原文里 */
 const HEADER_TEXT = /set-cookie|_gh_sess|SESSIONVALUE|_octo|logged_in|x-github-request-id|"server"|content-type/;
-const RELEASES = '/lincheuk/deskminis-releases/releases';
+const RELEASES = '/lincheuk/Deskminis/releases';
 /** 同 builder-util-runtime 的 HttpExecutor.handleResponse：createHttpError，描述里带请求地址，随后是 Headers 的 JSON */
 function httpFail(status: number, statusMessage: string, path: string, headers: object = GH_HEADERS): Error {
   return createHttpError({ statusCode: status, statusMessage, headers } as unknown as IncomingMessage, `method: GET url: https://github.com${path}`);
@@ -223,7 +223,7 @@ async function providerError(replies: Record<string, string | Error>): Promise<u
     },
   };
   const updater = { allowPrerelease: false, channel: null, fullChangelog: false, currentVersion: null } as unknown as AppUpdater;
-  const provider = new GitHubProvider({ provider: 'github', owner: 'lincheuk', repo: 'deskminis-releases' }, updater,
+  const provider = new GitHubProvider({ provider: 'github', owner: 'lincheuk', repo: 'Deskminis' }, updater,
     { isUseMultipleRangeRequest: false, platform: 'win32', executor } as unknown as ConstructorParameters<typeof GitHubProvider>[2]);
   try { await provider.getLatestVersion(); } catch (e) { return e; }
   throw new Error('期望检查失败，实际成功了');

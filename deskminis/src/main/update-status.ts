@@ -7,7 +7,7 @@ export interface UpdateState { status: string; version?: string; error?: string 
 
 /** 发布页：与 electron-builder.yml 的 publish 段同一个 owner/repo（tests/update-error-text.test.ts 核对两边一致）。
  *  写死在这里而不是运行时读 app-update.yml：对话框里给用户看的地址不该取决于安装目录里一个文件在不在。 */
-export const RELEASES_PAGE_URL = 'https://github.com/lincheuk/deskminis-releases/releases';
+export const RELEASES_PAGE_URL = 'https://github.com/lincheuk/Deskminis/releases';
 
 const TEXT = {
   notFound: '发布页上还没有可用的版本（发布仓库不存在，或还没发过正式版）',
