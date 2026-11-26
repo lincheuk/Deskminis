@@ -12,6 +12,7 @@
  *          'full' 档下跟随档位放行——设计稿 §2 落定），另带一句 note 给权限卡。
  *          开了命令隔离时，沙箱里的命令同样读不到、写不了的位置另带 outside：请求按「在沙箱外」走，
  *          任何档位每次都问（permissions.ts 的 outsideSandbox）——完全访问对文件工具的免问只到沙箱的边界为止。
+ *          工作区整个算在边界以内：它绑在用户目录、盘根这类打不了沙箱可写标签的位置时，里面的写入照旧免问。
  *
  * 判定顺序：数据根规则优先于工作区规则——工作区绑到数据根或它的祖先时，数据根里的路径仍按数据根判；
  * 工作区绑到数据根里某处（例如别的会话的桶）时也一样，按那一处的数据根规则判。
@@ -253,9 +254,9 @@ export function dataRootSkipper(base: string, root: string, opts: DataGateOption
 
 /** Q15：dataRootSkipper 的数据形态。遍历放进了 worker，函数过不去，过去的是这条规则：
  *  target 是数据根相对基准的路径（正斜杠；win32 下已小写、已剥流名与尾部的点和空格），win 说明比较前要不要同样折叠。 */
-export interface SkipRule { target: string; win: boolean; /** 另外要跳的目录（执行隔离第 2 步：agent 根），同样的写法。 */ more?: string[] }
+export interface SkipRule { target: string; win: boolean; /** 另外要跳的位置（agent 根、凭据文件、「沙箱不许读」的位置），同样的写法。 */ more?: string[] }
 
-/** root 可以给多个（执行隔离第 2 步：数据根与 agent 根），落在基准之下的都跳。 */
+/** root 可以给多个（数据根、agent 根，以及凭据文件和「沙箱不许读」的位置，目录、文件都行），落在基准之下的都跳。 */
 export function dataRootSkipRule(base: string, root: string | readonly string[], opts: DataGateOptions = {}): SkipRule | undefined {
   const env = gateEnv(opts);
   const b = env.norm(base);

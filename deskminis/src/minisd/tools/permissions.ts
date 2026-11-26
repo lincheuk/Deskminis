@@ -658,8 +658,10 @@ export class PermissionGatewayImpl implements PermissionGateway {
     if (this.sessionGrants.has(grantKey)) return allowed('session-grant');
 
     // 桥双段合并授权（决策 4c）：精确 key 之后、prompt 之前；先会话级按 kind，再一次性计数消费。
-    // 沙箱外的桥操作（windows-open 打开本机文件）不认合并授权：shell 卡批的是沙箱里的那条命令
-    if (req.kind.startsWith('bridge-') && !req.outsideSandbox) {
+    // 沙箱外的桥操作（windows-open 打开本机文件）不认合并授权：shell 卡批的是沙箱里的那条命令。
+    // 为它发的那一次性授权照样算用掉，不留给后面的调用
+    if (req.outsideSandbox && req.kind.startsWith('bridge-')) this.revokeBridgeOnce(req.sessionId, req.kind as BridgePermissionKind);
+    else if (req.kind.startsWith('bridge-')) {
       const bKey = `${req.sessionId}\u0000${req.kind}`;
       if (this.sessionBridgeGrants.has(bKey)) return allowed('bridge-grant');
       const once = this.bridgeOnce.get(bKey);

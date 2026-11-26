@@ -9,9 +9,9 @@
  * 开着命令隔离时任何档位都弹卡，「本会话允许」也只放这一次；没开命令隔离时一切照旧。
  */
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { makeBridgeDispatcher, openOutsideNote, type BridgeRequest, type PsRunner } from '../src/minisd/bridge/handlers';
 import { dataGate, DATA_GATE_NOTES, type DataGateScope } from '../src/minisd/tools/data-gate';
 import { guardRead, guardWrite } from '../src/minisd/tools/files';
@@ -303,5 +303,21 @@ describe('网关：沙箱外的标记对三类请求一视同仁', () => {
     expect(await gateway.decide(req('file-write', 'D:\\a.txt'))).toMatchObject({ decision: 'deny', reason: 'rule-blocked' });
     expect(await gateway.decide(req('bridge-open', 'windows-open open'))).toMatchObject({ decision: 'deny', reason: 'rule-blocked' });
     expect(asked).toHaveLength(1);
+  });
+
+  it('shell 卡为这次打开发的一次性桥授权：沙箱外的打开照样弹卡，授权算用掉，不留给后面的网址', async () => {
+    const { gateway, asked } = gatewayOf('ask', 'allow-once');
+    gateway.grantBridgeOnce('S1', 'bridge-open');
+    expect((await gateway.decide(req('bridge-open', 'windows-open open'))).decision).toBe('allow');
+    expect(asked).toHaveLength(1);
+    expect(gateway.hasBridgeGrant('S1')).toBe(false);
+  });
+});
+
+describe('接线（源码守卫）', () => {
+  it('引擎把命令隔离的实际状态交给桥分发器和文件工具（不交就等于没开）', () => {
+    const idx = readFileSync(resolve(__dirname, '..', 'src', 'minisd', 'index.ts'), 'utf8');
+    expect(idx).toContain('sandboxed: () => shells.sandboxed');
+    expect(idx).toContain('sandboxNoRead: () => shells.sandboxed ? wantedSensitive(sensitiveListing(), true) : undefined');
   });
 });

@@ -89,7 +89,7 @@ export function walkDirSync(base: string, opts: { entryLimit?: number; signal?: 
   return walkTree(base, opts.entryLimit ?? WALK_ENTRY_LIMIT, { readdirSync, lstatSync }, { join }, opts.skipDir, () => opts.signal?.aborted === true);
 }
 
-/** 交给 worker 的活。skip 是数据根的跳过规则（data-gate.ts 的 dataRootSkipRule），没有就不跳。 */
+/** 交给 worker 的活。skip 是跳过规则（data-gate.ts 的 dataRootSkipRule：数据根、凭据文件、「沙箱不许读」的位置），没有就不跳。 */
 interface WalkJob { base: string; entryLimit: number; skip?: SkipRule }
 
 const WORKER_SOURCE = `
