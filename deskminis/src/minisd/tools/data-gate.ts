@@ -93,7 +93,7 @@ export const DATA_GATE_NOTES = {
   mcpRead: '将读取 MCP 服务配置（可能含密钥）',
   appDataRead: '将读取 DeskMinis 的应用数据',
   otherSessionRead: (id: string) => `将读取其它会话（${id}）的文件`,
-  outsideWrite: '这个位置在工作区之外，命令隔离的沙箱里写不了它，完全访问档下也每次询问',
+  outsideWrite: '这个位置在工作区和 agent 目录之外，按沙箱之外处理，完全访问档下也每次询问',
   noReadPlace: '这个位置设成了「沙箱不许读」，完全访问档下也每次询问',
 } as const;
 
@@ -232,7 +232,7 @@ export function dataGate(abs: string, scope: DataGateScope, op: DataGateOp, opts
   // 两个根之外。开了命令隔离时先看「沙箱不许读」的位置（.ssh 这类）：沙箱里的命令读写都不行，在不在工作区里都一样
   const noRead = scope.sandboxNoRead?.();
   if (noRead?.some(p => under(env.norm(p), target))) return { verdict: 'ask', note: DATA_GATE_NOTES.noReadPlace, outside: true };
-  // 绑定的工作区里免审（绑定动作本身就是授权），其余照旧走卡；开了命令隔离时沙箱写不了工作区和 agent 根以外的地方，写入算沙箱之外
+  // 绑定的工作区里免审（绑定动作本身就是授权），其余照旧走卡；开了命令隔离时工作区和 agent 根以外的写入算沙箱之外
   if (under(env.norm(scope.workspace), target)) return FREE;
   return noRead !== undefined && op === 'write' ? { verdict: 'ask', note: DATA_GATE_NOTES.outsideWrite, outside: true } : { verdict: 'ask' };
 }

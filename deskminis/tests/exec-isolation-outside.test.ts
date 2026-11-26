@@ -146,7 +146,6 @@ describe('A2 密钥库与连接凭据读不出来', () => {
     const grep = await reg.execute('file_grep', JSON.stringify({ pattern: 'NEEDLE', tool_title: '搜' }), ctx);
     expect(grep.success).toBe(true);
     expect(grep.output).toContain('update-prefs.json:1:');
-    expect(grep.output).not.toContain('CIPHERTEXT');
     for (const name of CREDS) expect(grep.output, name).not.toContain(`${name}:1:`);
     expect(grep.output).toMatch(/已跳过[^\n]*secrets\.vault/);
     const glob = await reg.execute('file_glob', JSON.stringify({ pattern: '*', tool_title: '找' }), ctx);

@@ -121,7 +121,7 @@ const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: bo
         </label>
         <span class="f-label" style="gap:1px">
           <span>命令隔离</span>
-          <span class="f-hint">agent 跑的命令放进低权限沙箱：读写不了 DeskMinis 自己的数据（会话、API key），只能写工作区和临时目录。要在沙箱外跑的命令每次都会问你，完全访问档也问。默认开启，只支持 Windows；改了重启 DeskMinis 后生效。少数工具在沙箱里写不了用户目录下的缓存，遇到时可以让它在沙箱外运行，或在这里关掉</span>
+          <span class="f-hint">agent 跑的命令放进低权限沙箱：读写不了 DeskMinis 自己的数据（会话、API key），只能写工作区和临时目录。沙箱之外的操作每次都会问你，完全访问档也问：要在沙箱外跑的命令、打开本机文件，以及文件工具写工作区和 agent 目录以外的位置、读写 DeskMinis 数据目录里要确认的内容和下面「不许读」的位置。默认开启，只支持 Windows；改了重启 DeskMinis 后生效。少数工具在沙箱里写不了用户目录下的缓存，遇到时可以让它在沙箱外运行，或在这里关掉</span>
         </span>
       </div>
       <p class="statusline t-aux">{{ sbxLine }}</p>
