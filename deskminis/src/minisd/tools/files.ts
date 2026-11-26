@@ -50,14 +50,15 @@ export function guestPathClaims(mode: ResourceMode, fallback?: string) {
 
 type GuardCtx = Parameters<ToolExecutor['execute']>[1];
 
-/** dataGate 的判定范围：数据根、会话、该会话的实际工作目录（认每会话覆盖值）。 */
+/** dataGate 的判定范围：数据根、会话、该会话的实际工作目录（认每会话覆盖值），以及开了命令隔离时「沙箱不许读」的位置。 */
 function gateScope(ctx: GuardCtx): DataGateScope {
-  return { root: ctx.paths.root, agentRoot: ctx.paths.agentRoot, sessionId: ctx.sessionId, workspace: ctx.paths.workspaceOf(ctx.sessionId) };
+  return { root: ctx.paths.root, agentRoot: ctx.paths.agentRoot, sessionId: ctx.sessionId, workspace: ctx.paths.workspaceOf(ctx.sessionId), sandboxNoRead: ctx.sandboxNoRead };
 }
 
 /** 写入的权限门（U4 起 office 工具复用同一道门——不给新工具开后门）。
  *  W1b-2 起先过 dataGate（tools/data-gate.ts）：核心数据与凭据直接拒绝、不进网关（'full' 档也照拒）；
  *  当前会话各桶、shared 与绑定工作区免审；应用配置、其它会话与其余应用数据走卡，并把一句说明放进 note。
+ *  开了命令隔离时，沙箱里的命令同样写不了的位置（gate.outside）按「在沙箱外」走卡：任何档位每次都问。
  *  buildPreview 惰性构造：免审的写入（绝大多数）根本不过网关，提前读原文件构造差分纯属白读；
  *  只在确认要弹权限卡时才求值。 */
 export async function guardWrite(absPath: string, ctx: GuardCtx, toolTitle: string, buildPreview?: () => PermPreview): Promise<string | undefined> {
@@ -74,6 +75,7 @@ export async function guardWrite(absPath: string, ctx: GuardCtx, toolTitle: stri
   const req: PermissionRequest = { kind: 'file-write', detail: absPath, sessionId: ctx.sessionId, toolTitle, preview: buildPreview?.() };
   // note 只在有说明时才带：数据根外的普通走卡请求与以前逐字段一致，广播与审计里不多出一个空的 note 键
   if (gate.note !== undefined) req.note = gate.note;
+  if (gate.outside) req.outsideSandbox = true;
   const o = await askPermission(ctx, req);
   // 先看取消、再看拒绝（W1b-5）：关停 / 删除会话时后台先了结卡片、紧接着 abort，那不是用户拒绝的；
   // 写成「被用户拒绝」的话，重开会话时界面与模型都以为是用户点了拒绝。MCP 调用一直是这个顺序
@@ -85,14 +87,16 @@ export async function guardWrite(absPath: string, ctx: GuardCtx, toolTitle: stri
 /**
  * 读取的权限门：静默 shell 只读层已取消后，无门的 file_read 会成为静默外泄通道（~/.ssh/id_rsa、浏览器 cookie 库）。
  * W1b-2 起数据根内也用白名单：当前会话各桶、shared、skills、memory 免审，
- * minis.db、其它会话、MCP 配置、凭据与其余应用数据走卡带 note——旧注释点名 minis.db 是外泄通道，代码却对整个数据根免审。
+ * minis.db、其它会话、MCP 配置与其余应用数据走卡带 note——旧注释点名 minis.db 是外泄通道，代码却对整个数据根免审。
+ * 密钥库与本机连接凭据直接拒绝（'full' 档也照拒）。开了命令隔离时，沙箱里的命令同样读不到的位置（gate.outside：数据根里走卡的、
+ * 设成「沙箱不许读」的 .ssh 这类）按「在沙箱外」走卡：任何档位每次都问。
  * 用户显式绑定为工作区的真实项目目录（workspaceOf）仍免询问：绑定动作本身就是授权语义，
  * 否则会话绑定项目后每个新文件路径都会触发一次权限确认，确认沦为噪音。
  * 未绑定会话时 workspaceOf 回落当前会话的沙箱桶，由数据根规则判为免审，行为不变。
  */
 export async function guardRead(absPath: string, ctx: GuardCtx, toolTitle: string): Promise<string | undefined> {
   const gate = dataGate(absPath, gateScope(ctx), 'read');
-  // 读取没有硬拒类（dataGate 只对写入给 deny），这里照样接住，判定表以后加了也不会漏成放行
+  // 密钥库与本机连接凭据由规则直接拦下、不进网关
   if (gate.verdict === 'deny') {
     reportDenied(ctx.permissions, { kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle }, denied('rule-blocked', 'core-data'));
     return gate.reason;
@@ -100,6 +104,7 @@ export async function guardRead(absPath: string, ctx: GuardCtx, toolTitle: strin
   if (gate.verdict === 'free') return undefined;
   const req: PermissionRequest = { kind: 'file-read', detail: absPath, sessionId: ctx.sessionId, toolTitle };
   if (gate.note !== undefined) req.note = gate.note;
+  if (gate.outside) req.outsideSandbox = true;
   const o = await askPermission(ctx, req);
   // 先看取消、再看拒绝：理由同 guardWrite
   if (ctx.signal?.aborted) return '[已取消]';

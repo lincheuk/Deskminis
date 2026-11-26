@@ -155,7 +155,7 @@ describe('Q15 工具对 worker 出岔子的交代', () => {
     await vi.waitFor(() => expect(made).toHaveLength(1));
     made[0].emit('message', { files: ['b.txt', 'a.md', 'sub/c.txt'], dirs: ['sub', 'z.txt'], hitLimit: true, skipped: ['Data'] });
     expect(await p).toEqual({
-      output: ['b.txt', 'sub/c.txt', 'z.txt', `[已截断: 遍历条目达上限 ${WALK_ENTRY_LIMIT}，结果可能不全]`, '[已跳过 DeskMinis 数据目录：Data]'].join('\n'),
+      output: ['b.txt', 'sub/c.txt', 'z.txt', `[已截断: 遍历条目达上限 ${WALK_ENTRY_LIMIT}，结果可能不全]`, '[已跳过 DeskMinis 数据目录与设为不许读的位置：Data]'].join('\n'),
       success: true,
     });
   });

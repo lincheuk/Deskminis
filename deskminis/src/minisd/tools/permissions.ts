@@ -641,10 +641,10 @@ export class PermissionGatewayImpl implements PermissionGateway {
     }
     // plan 仍询问只因路径等敏感字样回落的只读命令；其它三档沿用原分类与档位。
     let level = this.isPlanMode() && cls === 'gated' && isReadonlyCommand(req.detail) ? 'askOnce' : this.levels[cls];
-    // 执行隔离第 3 步：要求在沙箱外运行的命令永远要人点头——完全访问不覆盖（不然被注入的模型写一句 sandbox: false 就绕开了），
-    // 规划档直接拒；危险命令照旧拒
-    if (req.kind === 'shell' && req.outsideSandbox) {
-      if (this.isPlanMode()) level = 'notAllowed';
+    // 执行隔离第 3 步：沙箱之外的操作永远要人点头——完全访问不覆盖（不然被注入的模型写一句 sandbox: false、
+    // 或者改用文件工具、windows-open 桥就绕开了）。沙箱外的命令规划档直接拒；危险命令照旧拒
+    if (req.outsideSandbox) {
+      if (req.kind === 'shell' && this.isPlanMode()) level = 'notAllowed';
       else if (level !== 'notAllowed') level = 'askOnce';
     }
     if (level === 'bypass') return allowed('level-bypass');
@@ -658,7 +658,10 @@ export class PermissionGatewayImpl implements PermissionGateway {
     if (this.sessionGrants.has(grantKey)) return allowed('session-grant');
 
     // 桥双段合并授权（决策 4c）：精确 key 之后、prompt 之前；先会话级按 kind，再一次性计数消费。
-    if (req.kind.startsWith('bridge-')) {
+    // 沙箱外的桥操作（windows-open 打开本机文件）不认合并授权：shell 卡批的是沙箱里的那条命令。
+    // 为它发的那一次性授权照样算用掉，不留给后面的调用
+    if (req.outsideSandbox && req.kind.startsWith('bridge-')) this.revokeBridgeOnce(req.sessionId, req.kind as BridgePermissionKind);
+    else if (req.kind.startsWith('bridge-')) {
       const bKey = `${req.sessionId}\u0000${req.kind}`;
       if (this.sessionBridgeGrants.has(bKey)) return allowed('bridge-grant');
       const once = this.bridgeOnce.get(bKey);
@@ -728,7 +731,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
     if (a.kind === 'allow') {
       // 用户亲自作答：清掉这个会话的无人答复计数
       this.unanswered.delete(req.sessionId);
-      // 沙箱外的命令每次都问：「本会话允许」也只放这一次
+      // 沙箱外的操作每次都问：「本会话允许」也只放这一次
       if (a.via === 'user-session' && !req.outsideSandbox) this.sessionGrants.add(grantKey);
       return allowed(a.via, requestId);
     }

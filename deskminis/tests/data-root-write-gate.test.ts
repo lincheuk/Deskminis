@@ -185,10 +185,9 @@ describe('⑤ 数据根内的读取白名单与其它会话', () => {
     expect(w.asked[0].note ?? '').toContain('S2');
   });
 
-  it('mcp-servers、凭据文件、其余根层文件与数据根本身的读取都走卡（白名单之外一律问）', async () => {
+  it('mcp-servers、其余根层文件与数据根本身的读取都走卡（白名单之外一律问）', async () => {
     const cases: [string, string][] = [
       [join(root, 'mcp-servers', 'servers.json'), 'MCP'],
-      [join(root, 'minisd-port.json'), '凭据'],
       [join(root, 'providers.json'), '应用数据'],
       [join(root, 'models-dev-cache.json'), '应用数据'],
       [join(root, 'electron', 'Local State'), '应用数据'],
@@ -200,6 +199,14 @@ describe('⑤ 数据根内的读取白名单与其它会话', () => {
       await guardRead(p, { ...ctx, permissions: g }, '读');
       expect(g.asked, p).toHaveLength(1);
       expect(g.asked[0].note ?? '', p).toContain(word);
+    }
+  });
+
+  it('凭据文件的读取直接拒，不弹卡', async () => {
+    for (const f of ['minisd-port.json', 'vault.json', 'secrets.vault']) {
+      const g = new RecordingGateway('allow');
+      expect(await guardRead(join(root, f), { ...ctx, permissions: g }, '读'), f).toContain('读取被拒绝');
+      expect(g.asked, f).toEqual([]);
     }
   });
 

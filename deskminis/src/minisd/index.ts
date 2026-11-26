@@ -579,7 +579,8 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   let bridge: BridgeServer | undefined;
   let bridgePipe: string | undefined;
   try {
-    bridge = new BridgeServer(makeBridgeDispatcher({ permissions: gateway, paths }));
+    // sandboxed 是延迟执行的闭包，引用后面才声明的 shells
+    bridge = new BridgeServer(makeBridgeDispatcher({ permissions: gateway, paths, sandboxed: () => shells.sandboxed }));
     await bridge.listen(pipePath);
     bridgePipe = pipePath;
   } catch (e) {
@@ -1553,6 +1554,8 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
               sessionId, paths, permissions: gateway,
               // F08：写前检查点的保存方。内置文件 / Office 写入在落盘之前先经它存下原始字节；存不下就不写
               checkpoints: checkpointStore,
+              // 执行隔离：开了命令隔离时，文件工具读写沙箱之外的位置每次都问（完全访问也问），「不许读」的位置由这里给
+              sandboxNoRead: () => shells.sandboxed ? wantedSensitive(sensitiveListing(), true) : undefined,
               // 取消信号透传：chat.cancel 只 abort 循环层不够，正在跑的 shell/文件写必须能立即停下
               signal: controller.signal,
               // use_count 采集点（Task 4 钩子）：仅恰好命中 <skillsRoot>/<id>/SKILL.md 的成功读取计数

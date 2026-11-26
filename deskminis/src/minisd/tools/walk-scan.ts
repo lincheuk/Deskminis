@@ -25,7 +25,7 @@ export interface WalkDirResult {
   dirs: string[];
   /** 是否因访问条目达硬上限提前停止（结果可能不全，调用方需注明） */
   hitLimit: boolean;
-  /** 被跳过的目录（相对 base 的正斜杠路径），调用方据此写尾注 */
+  /** 被跳过的目录与文件（相对 base 的正斜杠路径），调用方据此写尾注 */
   skipped: string[];
 }
 
@@ -38,7 +38,7 @@ interface WalkFs {
  *  「基准目录一次授权即覆盖全部遍历」的安全前提就在这里：
  *  - 一律 lstat，symlink/junction 目录绝不进入——跟随链接可越出已授权的工作区边界，也可能成环；
  *  - 指向文件的符号链接也整体排除——grep 若读它，目标可以指向基准之外，一次授权就盖不住了。
- *  skipDir 返回 true 的目录整棵不进、也不列入结果，记进 skipped。 */
+ *  skipDir 返回 true 的目录整棵不进、也不列入结果，记进 skipped；返回 true 的文件同样不列入（密钥库、.git-credentials 这类单个文件）。 */
 function walkTree(
   base: string,
   entryLimit: number,
@@ -73,6 +73,7 @@ function walkTree(
         dirs.push(childRel);
         queue.push({ abs: path.join(abs, name), rel: childRel });
       } else if (st.isFile()) {
+        if (skipDir?.(childRel)) { skipped.push(childRel); continue; }
         files.push(childRel);
       }
     }
@@ -88,7 +89,7 @@ export function walkDirSync(base: string, opts: { entryLimit?: number; signal?: 
   return walkTree(base, opts.entryLimit ?? WALK_ENTRY_LIMIT, { readdirSync, lstatSync }, { join }, opts.skipDir, () => opts.signal?.aborted === true);
 }
 
-/** 交给 worker 的活。skip 是数据根的跳过规则（data-gate.ts 的 dataRootSkipRule），没有就不跳。 */
+/** 交给 worker 的活。skip 是跳过规则（data-gate.ts 的 dataRootSkipRule：数据根、凭据文件、「沙箱不许读」的位置），没有就不跳。 */
 interface WalkJob { base: string; entryLimit: number; skip?: SkipRule }
 
 const WORKER_SOURCE = `
