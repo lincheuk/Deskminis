@@ -127,7 +127,7 @@ describe('判定表（posix，词法）', () => {
     expect(g('/r', 'write')).toEqual({ verdict: 'ask', note: '将修改 DeskMinis 的应用数据' });
   });
 
-  it('读：当前会话桶、shared、skills、memory 免审；其余走卡（minis.db / 其它会话 / MCP / 凭据 / 其余）', () => {
+  it('读：当前会话桶、shared、skills、memory 免审；密钥库与连接凭据硬拒；其余走卡（minis.db / 其它会话 / MCP / 其余）', () => {
     for (const p of ['/r/sessions/S1/offloads/T1.txt', '/r/sessions/S1/attachments/a.png', '/r/shared/a', '/r/skills/x/SKILL.md', '/r/memory/GLOBAL.md']) {
       expect(g(p, 'read'), p).toEqual({ verdict: 'free' });
     }
@@ -135,7 +135,8 @@ describe('判定表（posix，词法）', () => {
     expect(g('/r/minis.db-shm', 'read')).toEqual({ verdict: 'ask', note: '将读取 DeskMinis 会话数据库（含全部会话内容）' });
     expect(g('/r/sessions/S2/workspace/a', 'read')).toEqual({ verdict: 'ask', note: '将读取其它会话（S2）的文件' });
     expect(g('/r/mcp-servers/servers.json', 'read')).toEqual({ verdict: 'ask', note: '将读取 MCP 服务配置（可能含密钥）' });
-    expect(g('/r/minisd-port.json', 'read')).toEqual({ verdict: 'ask', note: expect.stringContaining('凭据') });
+    expect(g('/r/minisd-port.json', 'read')).toEqual({ verdict: 'deny', reason: expect.stringContaining('本机连接凭据') });
+    expect(g('/r/secrets.vault', 'read')).toEqual({ verdict: 'deny', reason: expect.stringContaining('本机密钥库') });
     expect(g('/r/providers.json', 'read')).toEqual({ verdict: 'ask', note: '将读取 DeskMinis 的应用数据' });
     expect(g('/r/models-dev-cache.json', 'read')).toEqual({ verdict: 'ask', note: '将读取 DeskMinis 的应用数据' });
   });

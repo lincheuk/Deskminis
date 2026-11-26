@@ -2,7 +2,7 @@ import { readdirSync, lstatSync, type Dirent, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolContext, ToolExecutor, ToolOutcome } from './types';
 import { guardRead, guestPathClaims } from './files';
-import { dataRootSkipRule, type SkipRule } from './data-gate';
+import { credentialFilePaths, dataRootSkipRule, type SkipRule } from './data-gate';
 import { grepInWorker, GREP_LIMITS } from './grep-scan';
 import { walkDirAsync, walkDirSync, WALK_ENTRY_LIMIT, type WalkDirResult } from './walk-scan';
 
@@ -53,7 +53,7 @@ export function globToRegExp(pattern: string): RegExp {
 export interface WalkDirOptions {
   entryLimit?: number;
   signal?: AbortSignal;
-  /** 返回 true 的目录（相对 base 的正斜杠路径）整棵不进、也不列入结果。
+  /** 返回 true 的目录（相对 base 的正斜杠路径）整棵不进、也不列入结果；返回 true 的文件同样不列入。
    *  W1b-2：基准是数据根的祖先时用来跳过数据根（见 data-gate.ts 的 dataRootSkipper）。 */
   skipDir?: (rel: string) => boolean;
 }
@@ -65,9 +65,9 @@ export function walkDir(base: string, opts: WalkDirOptions = {}): WalkDirResult 
   return walkDirSync(base, opts);
 }
 
-/** 跳过数据根时的尾注：告诉模型结果里少了一块、少的是什么，免得它以为那里真的没有匹配。 */
+/** 跳过数据根、「沙箱不许读」的位置时的尾注：告诉模型结果里少了一块、少的是什么，免得它以为那里真的没有匹配。 */
 function skippedNote(skipped: string[]): string[] {
-  return skipped.length === 0 ? [] : [`[已跳过 DeskMinis 数据目录：${skipped.join('、')}]`];
+  return skipped.length === 0 ? [] : [`[已跳过 DeskMinis 数据目录与设为不许读的位置：${skipped.join('、')}]`];
 }
 
 /** file_list/file_glob/file_grep 的公共闸：解析基准 → 权限判定（仅基准一次）→ 取消复查 → 确认是目录。
@@ -86,8 +86,13 @@ async function resolveBaseDir(guestPath: string, ctx: ToolContext, toolTitle: st
   let st: Stats;
   try { st = lstatSync(abs); } catch { return { fail: { output: `路径不存在: ${abs}`, success: false } }; }
   if (!st.isDirectory()) return { fail: { output: `不是目录: ${abs}`, success: false } };
-  // 数据根与 agent 根（执行隔离第 2 步，别的会话的桶在那里）落在基准之下时都整棵跳过
-  return { abs, skip: dataRootSkipRule(abs, ctx.paths.agentSeparate ? [ctx.paths.root, ctx.paths.agentRoot] : ctx.paths.root) };
+  // 数据根与 agent 根（执行隔离第 2 步，别的会话的桶在那里）落在基准之下时都整棵跳过。
+  // 同一条规则再带上两样，不然换成搜索就绕过了 file_read 的判定：读取硬拒的凭据文件（基准就是数据根时它们在遍历结果里）；
+  // 开了命令隔离时设成「沙箱不许读」的位置（基准是用户目录这类上级目录时，.ssh 就在基准之下）
+  return { abs, skip: dataRootSkipRule(abs, [
+    ctx.paths.root, ...(ctx.paths.agentSeparate ? [ctx.paths.agentRoot] : []),
+    ...credentialFilePaths(ctx.paths.root), ...(ctx.sandboxNoRead?.() ?? []),
+  ]) };
 }
 
 /** file_glob / file_grep 的遍历：不占住引擎的事件循环（Q15；大目录放在 worker 里走，见 walk-scan.ts），遍历中途点停止立即返回 [已取消]。 */

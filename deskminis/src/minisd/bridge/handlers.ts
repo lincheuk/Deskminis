@@ -143,10 +143,16 @@ async function clipboard(req: BridgeRequest, deps: HandlerDeps): Promise<BridgeE
   return err(req, 'INVALID_ARGS', `未知 action: ${req.action}`);
 }
 
+const isHttpUrl = (target: string): boolean => /^https?:\/\//i.test(target);
+
+/** windows-open 打开本机文件时卡上那句话（执行隔离）：目标写在卡上，用户看得到要打开的是什么。 */
+export const openOutsideNote = (target: string): string =>
+  `要在命令隔离的沙箱外打开本机文件：${target}。程序和脚本会直接运行，完全访问档下也每次询问`;
+
 async function open(req: BridgeRequest, deps: HandlerDeps): Promise<BridgeEnvelope> {
   const target = req.args.target;
   if (!target) return err(req, 'INVALID_ARGS', 'open 需要 --target');
-  const isUrl = /^https?:\/\//i.test(target);
+  const isUrl = isHttpUrl(target);
   const isExisting = existsSync(target);
   if (!isUrl && !isExisting) return err(req, 'INVALID_ARGS', `目标既非 http(s) 网址也不存在: ${target}`);
   const r = await deps.runPs(OPEN_SCRIPT, JSON.stringify({ target }));
@@ -202,6 +208,8 @@ export interface BridgeDeps {
   permissions: PermissionGateway;
   paths: MinisPaths;
   runPs?: PsRunner; // 测试注入；运行时默认 runPowerShell
+  /** 开了命令隔离吗（index.ts 给 ShellManager.sandboxed）。不给 = 没开。 */
+  sandboxed?: () => boolean;
 }
 
 /** handler 实际接收的 deps：runPs 已由分发器解析为必填（BridgeDeps.runPs 是可选，供调用方省略走默认）。 */
@@ -238,6 +246,14 @@ export function makeBridgeDispatcher(deps: BridgeDeps): (req: BridgeRequest, ctl
       sessionId: req.sessionId,
       toolTitle: route.toolTitle,
     };
+    // 执行隔离：桥是引擎在沙箱外执行的。windows-open 打开本机文件就是在沙箱外启动它——沙箱里的命令写一个 .cmd 再让桥打开，
+    // 它就以引擎的级别运行。所以开了命令隔离时，本机文件目标按「在沙箱外运行」的同一条规则走：每次都问（完全访问也问），
+    // 卡上写明目标。网址照旧；没带目标的请求交给下面的 handler 报参数错
+    const target = req.args?.target;
+    if (route.kind === 'bridge-open' && typeof target === 'string' && target !== '' && !isHttpUrl(target) && deps.sandboxed?.() === true) {
+      preq.outsideSandbox = true;
+      preq.note = openOutsideNote(target);
+    }
     // F13：请求方（管道另一头的 bridge-cli）已经走了就不问、不执行。shell 命令超时被杀、终端里按了 Ctrl+C 之后，
     // 以前卡还挂着，用户再点「允许」照常打开链接 / 写剪贴板 / 朗读——没有任何人在等这个结果。
     const goneErr = (): BridgeEnvelope =>

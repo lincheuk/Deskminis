@@ -37,8 +37,9 @@ export interface PermPreview { oldText: string; newText: string }
 export interface PermissionRequest { kind: 'shell' | 'file-write' | 'file-read' | 'web-fetch' | 'web-search' | 'mcp' | BridgePermissionKind; detail: string; sessionId: string; toolTitle: string; preview?: PermPreview; note?: string;
   /** 只在网关交给询问函数的请求上：解析器对这条 shell 命令的判断（权限卡的风险显示用）。调用方不填，填了也不参与判定。 */
   shellClass?: 'danger' | 'readonly' | 'gated' | 'opaque';
-  /** 执行隔离第 3 步：这条 shell 命令要求在沙箱外运行（shell_execute 的 sandbox: false，且开了命令隔离）。
-   *  任何档位都要人点头（完全访问也弹卡，规划档直接拒），「本会话允许」也只放这一次；会话授权键与沙箱内的同一条命令分开。 */
+  /** 执行隔离第 3 步：这次操作在命令隔离的沙箱之外（只在开了命令隔离时才有）。三种：shell_execute 的 sandbox: false；
+   *  windows-open 桥打开本机文件（bridge/handlers.ts）；文件工具读写沙箱里的命令同样读不到、写不了的位置（data-gate.ts 的 outside）。
+   *  任何档位都要人点头（完全访问也弹卡；沙箱外的命令规划档直接拒），「本会话允许」也只放这一次；会话授权键与沙箱内的同一个请求分开。 */
   outsideSandbox?: true }
 /** 粗决定（F04 的 SchedulerEvent 用它）。带原因的结果是 PermissionOutcome（F13，shared/permission.ts）。 */
 export type PermissionDecision = 'allow' | 'deny';
@@ -127,6 +128,9 @@ export interface ToolContext {
   /** 会话级取消信号（chat.cancel 的 controller.signal）。工具收到后应立即中止：
    *  shell 长命令/文件写入不理会它的话，用户点了停止 UI 已空闲而动作还在跑。 */
   signal?: AbortSignal;
+  /** 执行隔离：开了命令隔离时返回设成「沙箱不许读」的位置（proc/sandbox-sensitive.ts，可以是空的），没开返回 undefined。
+   *  文件工具据此认出沙箱之外的读写（data-gate.ts）。生产由 index.ts 传入；不传 = 没开命令隔离。 */
+  sandboxNoRead?: () => readonly string[] | undefined;
   /** F08：调度器填。 */
   call?: ToolCallIdentity;
   /** F08：生产由 index.ts 传入。不传时 commitFileWrite 照常原子写入、不建检查点（旧调用方与单测）；

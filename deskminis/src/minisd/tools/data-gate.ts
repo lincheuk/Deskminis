@@ -6,10 +6,12 @@
  * 只要路径在数据根内就一律免审，这些东西 agent 都能静默读写；工作区绑到数据根或它的祖先时更是全开。
  *
  * 这里只做判定，不弹卡。files.ts 的 guardWrite / guardRead 按结果处理：
- *   deny → 直接返回拒绝串，不进网关，'full' 档也照拒（核心数据与凭据）；
+ *   deny → 直接返回拒绝串，不进网关，'full' 档也照拒（写核心数据；读密钥库与连接凭据）；
  *   free → 放行；
  *   ask  → 进网关，kind 不变（仍是 file-write / file-read，所以档位、会话授权键、卡片标题都不用动，
  *          'full' 档下跟随档位放行——设计稿 §2 落定），另带一句 note 给权限卡。
+ *          开了命令隔离时，沙箱里的命令同样读不到、写不了的位置另带 outside：请求按「在沙箱外」走，
+ *          任何档位每次都问（permissions.ts 的 outsideSandbox）——完全访问对文件工具的免问只到沙箱的边界为止。
  *
  * 判定顺序：数据根规则优先于工作区规则——工作区绑到数据根或它的祖先时，数据根里的路径仍按数据根判；
  * 工作区绑到数据根里某处（例如别的会话的桶）时也一样，按那一处的数据根规则判。
@@ -26,11 +28,12 @@ export type DataGateOp = 'read' | 'write';
 export type DataGateVerdict =
   | { verdict: 'free' }
   | { verdict: 'deny'; reason: string }
-  | { verdict: 'ask'; note?: string };
+  | { verdict: 'ask'; note?: string; outside?: true };
 
 /** root：数据根；workspace：该会话的实际工作目录（paths.workspaceOf 的结果，未绑定时就是沙箱桶）。
- *  agentRoot（执行隔离第 2 步）：agent 根，会话的桶与 shared 在这里；不给或与数据根相同时就是第 2 步之前的布局。 */
-export interface DataGateScope { root: string; sessionId: string; workspace: string; agentRoot?: string }
+ *  agentRoot（执行隔离第 2 步）：agent 根，会话的桶与 shared 在这里；不给或与数据根相同时就是第 2 步之前的布局。
+ *  sandboxNoRead：同 ToolContext.sandboxNoRead——开了命令隔离时返回设成「沙箱不许读」的位置，没开返回 undefined。 */
+export interface DataGateScope { root: string; sessionId: string; workspace: string; agentRoot?: string; sandboxNoRead?: () => readonly string[] | undefined }
 
 export interface DataGateOptions {
   /** 按哪个平台的路径语义判定，默认本机。win32 下大小写不敏感，并剥掉 ADS 流名与尾部的点和空格。 */
@@ -70,7 +73,8 @@ const CORE = new Map<string, { label: string; selfManaged: boolean }>(
   ]),
 );
 
-/** 读取时单独点名的两类：会话数据库（含全部会话内容），本机连接凭据（minisd-port.json 明文带 authToken）。 */
+/** 读取时单独点名的两类：会话数据库（含全部会话内容）走卡；密钥库与本机连接凭据硬拒——agent 没有读它们的正当理由，
+ *  而解密的钥匙在凭据管理器里、沙箱里的命令读得到（store/secret-file-vault.ts），密文再交出去就等于交出全部 API key。 */
 const DB_FILES = new Set(['minis.db', 'minis.db-wal', 'minis.db-shm', 'minis.db-journal'].flatMap(n => [n, `${n}.tmp`]));
 const CREDENTIAL_FILES = new Set(['minisd-port.json', 'vault.json', 'secrets.vault'].flatMap(n => [n, `${n}.tmp`]));
 
@@ -86,9 +90,10 @@ export const DATA_GATE_NOTES = {
   otherSessionWrite: (id: string) => `将修改其它会话（${id}）的文件`,
   dbRead: '将读取 DeskMinis 会话数据库（含全部会话内容）',
   mcpRead: '将读取 MCP 服务配置（可能含密钥）',
-  credentialRead: '将读取 DeskMinis 的本机连接凭据',
   appDataRead: '将读取 DeskMinis 的应用数据',
   otherSessionRead: (id: string) => `将读取其它会话（${id}）的文件`,
+  outsideWrite: '这个位置在工作区之外，命令隔离的沙箱里写不了它，完全访问档下也每次询问',
+  noReadPlace: '这个位置设成了「沙箱不许读」，完全访问档下也每次询问',
 } as const;
 
 const FREE: DataGateVerdict = Object.freeze({ verdict: 'free' });
@@ -104,9 +109,9 @@ const GLOBAL_RULES: Record<GlobalDir, Record<DataGateOp, () => DataGateVerdict>>
   'mcp-servers': { read: () => ask(DATA_GATE_NOTES.mcpRead), write: () => ask(DATA_GATE_NOTES.mcpWrite) },
 };
 
-function denyReason(abs: string, core: { label: string; selfManaged: boolean }): string {
+function denyReason(abs: string, core: { label: string; selfManaged: boolean }, op: DataGateOp): string {
   const next = core.selfManaged ? '它由 DeskMinis 自己维护。' : '如需调整，请让用户在 DeskMinis 界面里操作。';
-  return `写入被拒绝：${abs} 是 DeskMinis 的核心数据（${core.label}），agent 不能修改。${next}`;
+  return `${op === 'write' ? '写入' : '读取'}被拒绝：${abs} 是 DeskMinis 的核心数据（${core.label}），agent 不能${op === 'write' ? '修改' : '读取'}。${next}`;
 }
 
 // ---------- 规范化 ----------
@@ -173,9 +178,9 @@ function gateEnv(opts: DataGateOptions): { win: boolean; norm: (p: string) => No
 
 function judgeInRoot(abs: string, rel: { cmp: string[]; disp: string[] }, sessionId: string, op: DataGateOp): DataGateVerdict {
   const [top, second, third] = rel.cmp;
-  if (op === 'write' && top !== undefined) {
+  if (top !== undefined) {
     const core = CORE.get(top);
-    if (core) return { verdict: 'deny', reason: denyReason(abs, core) };
+    if (core && (op === 'write' || CREDENTIAL_FILES.has(top))) return { verdict: 'deny', reason: denyReason(abs, core, op) };
   }
   if (top === 'sessions' && second !== undefined) {
     if (second !== sessionId) {
@@ -187,9 +192,8 @@ function judgeInRoot(abs: string, rel: { cmp: string[]; disp: string[] }, sessio
     if (third !== undefined && BUCKETS.has(third)) return FREE;
   } else if (top !== undefined && Object.prototype.hasOwnProperty.call(GLOBAL_RULES, top)) {
     return GLOBAL_RULES[top as GlobalDir][op]();
-  } else if (op === 'read' && top !== undefined) {
-    if (DB_FILES.has(top)) return ask(DATA_GATE_NOTES.dbRead);
-    if (CREDENTIAL_FILES.has(top)) return ask(DATA_GATE_NOTES.credentialRead);
+  } else if (op === 'read' && top !== undefined && DB_FILES.has(top)) {
+    return ask(DATA_GATE_NOTES.dbRead);
   }
   return ask(op === 'write' ? DATA_GATE_NOTES.appDataWrite : DATA_GATE_NOTES.appDataRead);
 }
@@ -215,14 +219,26 @@ export function dataGate(abs: string, scope: DataGateScope, op: DataGateOp, opts
   const target = env.norm(abs);
   const sid = env.win ? scope.sessionId.toLowerCase() : scope.sessionId;
   const inRoot = under(env.norm(scope.root), target);
-  if (inRoot) return judgeInRoot(abs, inRoot, sid, op);
+  if (inRoot) {
+    const v = judgeInRoot(abs, inRoot, sid, op);
+    // 开了命令隔离：数据根打了「沙箱不许读写」的标签，这里走卡的都在沙箱之外
+    return v.verdict === 'ask' && scope.sandboxNoRead?.() !== undefined ? { ...v, outside: true } : v;
+  }
   if (scope.agentRoot !== undefined) {
     const inAgent = under(env.norm(scope.agentRoot), target);
     if (inAgent) return judgeInAgentRoot(inAgent, sid, op);
   }
-  // 数据根之外：绑定的工作区里免审（绑定动作本身就是授权），其余照旧走卡、不带 note
+  // 两个根之外。开了命令隔离时先看「沙箱不许读」的位置（.ssh 这类）：沙箱里的命令读写都不行，在不在工作区里都一样
+  const noRead = scope.sandboxNoRead?.();
+  if (noRead?.some(p => under(env.norm(p), target))) return { verdict: 'ask', note: DATA_GATE_NOTES.noReadPlace, outside: true };
+  // 绑定的工作区里免审（绑定动作本身就是授权），其余照旧走卡；开了命令隔离时沙箱写不了工作区和 agent 根以外的地方，写入算沙箱之外
   if (under(env.norm(scope.workspace), target)) return FREE;
-  return { verdict: 'ask' };
+  return noRead !== undefined && op === 'write' ? { verdict: 'ask', note: DATA_GATE_NOTES.outsideWrite, outside: true } : { verdict: 'ask' };
+}
+
+/** 读取硬拒的凭据文件在数据根里的完整路径。搜索的基准就是数据根时，遍历靠它把这几个文件跳过（search.ts）。 */
+export function credentialFilePaths(root: string): string[] {
+  return [...CREDENTIAL_FILES].map(name => nodePath.join(root, name));
 }
 
 /** 搜索三件套用：数据根落在基准目录之内、且基准本身不在数据根内时，返回一个判定器，
