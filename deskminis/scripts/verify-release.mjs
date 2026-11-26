@@ -8,14 +8,14 @@
 // 为什么要它：发布资产传错，坏的是所有已装用户，而且只有在用户机器上才暴露——
 //   latest.yml 的 sha512 与安装包对不上，electron-updater 下载完就报 ERR_CHECKSUM_MISMATCH 丢弃；
 //   漏了 latest.yml，检查更新永远查不到；漏了 blockmap，下一版没法差分下载；
-//   app-update.yml 还指着私有源码仓，装出去的应用检查更新永远 404，而且装上就改不了；
+//   app-update.yml 与 publish 段不一致，装出去的应用去错的地方查更新，而且装上就改不了；
 //   安装包里没有 LICENSE 与第三方署名，违反 MIT / Apache-2.0 / OFL 的随附要求。
 //
 // 依次检查（逐项打印 PASS / FAIL / SKIP，最后汇总）：
 //   ① latest.yml 存在；② 按 electron-builder 的输出形状解析它，认不出的结构直接 FAIL，不去猜；
 //   ③ version 与本次要发的版本一致；④ files[0] 是本版安装包，每个条目的文件都在、大小与 sha512（流式计算）都对，
 //      顶层 path/sha512 与 files[0] 一致；⑤ 每个 .exe 条目都有 gzip 的 blockmap，块长之和等于安装包大小；
-//   ⑥ 便携版在且非空；⑦ win-unpacked/resources/app-update.yml 与 electron-builder.yml 的 publish 段一致、不是私有源码仓；
+//   ⑥ 便携版在且非空；⑦ win-unpacked/resources/app-update.yml 与 electron-builder.yml 的 publish 段一致；
 //   ⑧ 随包的 LICENSE.txt 与 THIRD-PARTY-NOTICES.md 在，且与仓库根的原件一致。
 //   ⑦⑧ 只在有 win-unpacked/resources 时查：下载回来的发布资产只有四件，这两项写明原因后 SKIP。
 //
@@ -29,8 +29,6 @@ import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
-/** 私有源码仓：0.1.1 写死的更新源就是它，外人拿不到它的 Release（设计稿 §2「自动更新源」）。 */
-const PRIVATE_SOURCE_REPO = 'lincheuk/Deskminis';
 /** app-update.yml 与 publish 段要逐项一致的键：github 看 owner/repo，将来换 generic 看 url。 */
 const FEED_KEYS = ['provider', 'owner', 'repo', 'url'];
 /** latest.yml 顶层要读的标量；其余标量键（如 stagingPercentage）忽略。 */
@@ -341,16 +339,9 @@ export async function verifyRelease({ distDir, version, versionFrom = 'package.j
     const publish = readPublishSection(readFileSync(builderFile, 'utf8'));
     if (!publish || !publish.provider) { fail(label, '看不懂 electron-builder.yml 的 publish 段（应是 provider / owner / repo 的映射）'); return; }
     const where = (c) => (c.provider === 'github' ? `github ${c.owner ?? '?'}/${c.repo ?? '?'}` : `${c.provider ?? '?'} ${c.url ?? ''}`.trim());
-    const isPrivate = (c) => c.provider === 'github' && `${c.owner}/${c.repo}`.toLowerCase() === PRIVATE_SOURCE_REPO.toLowerCase();
-    const problems = [];
     if (FEED_KEYS.some((k) => (feed[k] ?? '') !== (publish[k] ?? ''))) {
-      problems.push(`app-update.yml 的更新源（${where(feed)}）与 electron-builder.yml 的 publish 段（${where(publish)}）不一致——dist 是改 publish 之前打的包，重新 npm run dist`);
-    }
-    if (isPrivate(feed) || isPrivate(publish)) {
-      problems.push(`更新源指向私有源码仓 ${PRIVATE_SOURCE_REPO}——私仓的 Release 外人拿不到，装出去的应用检查更新永远 404；应为公开发布仓库（止血设计稿 §2）`);
-    }
-    if (problems.length > 0) fail(label, problems.join('；'));
-    else pass(label, `${where(feed)}，与 publish 段一致`);
+      fail(label, `app-update.yml 的更新源（${where(feed)}）与 electron-builder.yml 的 publish 段（${where(publish)}）不一致——dist 是改 publish 之前打的包，重新 npm run dist`);
+    } else pass(label, `${where(feed)}，与 publish 段一致`);
   }
 
   // ⑧ MIT 要求副本附版权与许可声明，Apache-2.0 §4(a)(d) 要求给接收者许可副本与署名，随包字体的 OFL 也要求随附

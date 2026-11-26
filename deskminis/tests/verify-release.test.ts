@@ -3,7 +3,7 @@
  *
  * 为什么要它：发布资产一旦传错，坏的是所有已装用户——latest.yml 的 sha512 与安装包对不上，
  * electron-updater 下载完就报 ERR_CHECKSUM_MISMATCH 丢弃；漏传 latest.yml，更新永远查不到；
- * 漏了 blockmap，下一版没法差分下载；app-update.yml 还指着私有源码仓，装出去的应用永远 404；
+ * 漏了 blockmap，下一版没法差分下载；app-update.yml 与 publish 段不一致，装出去的应用去错的地方查更新；
  * 安装包里没有 LICENSE 与第三方署名，违反 MIT / Apache-2.0 / OFL 的随附要求。
  * 这些在 Windows 真机上打包之后才看得见，所以脚本只读 dist 目录、零依赖，在 Linux 上用假 dist 就能钉住。
  *
@@ -109,7 +109,7 @@ function makeDist(opts: { root?: string; version?: string; owner?: string; repo?
   const resources = join(dir, 'win-unpacked', 'resources');
   mkdirSync(resources, { recursive: true });
   writeFileSync(join(resources, 'app-update.yml'),
-    `owner: ${opts.owner ?? 'lincheuk'}\nrepo: ${opts.repo ?? 'deskminis-releases'}\nprovider: github\nupdaterCacheDirName: deskminis-updater\n`);
+    `owner: ${opts.owner ?? 'lincheuk'}\nrepo: ${opts.repo ?? 'Deskminis'}\nprovider: github\nupdaterCacheDirName: deskminis-updater\n`);
   copyFileSync(join(repoRoot, 'LICENSE'), join(resources, 'LICENSE.txt'));
   copyFileSync(join(repoRoot, 'THIRD-PARTY-NOTICES.md'), join(resources, 'THIRD-PARTY-NOTICES.md'));
   return { dir, setupName, setupPath, ymlPath, blockmapPath, portablePath, resources };
@@ -157,7 +157,7 @@ describe('verify-release：正例', () => {
       releaseDate: new Date().toISOString(),
     }));
     writeFileSync(join(d.resources, 'app-update.yml'), serializeToYaml({
-      owner: 'lincheuk', repo: 'deskminis-releases', provider: 'github', updaterCacheDirName: 'deskminis-updater',
+      owner: 'lincheuk', repo: 'Deskminis', provider: 'github', updaterCacheDirName: 'deskminis-updater',
     }));
     const r = run(['--dist', d.dir]);
     expect(r.fails, r.out).toEqual([]);
@@ -365,7 +365,7 @@ describe('verify-release：反例各自失败并给出中文原因', () => {
     expect(r.fails[0]).toContain('与 electron-builder.yml 的 publish 段');
     expect(r.fails[0]).toContain('不一致');
     expect(r.fails[0]).toContain('lincheuk/deskminis-release）');
-    expect(r.fails[0]).toContain('lincheuk/deskminis-releases）');
+    expect(r.fails[0]).toContain('lincheuk/Deskminis）');
   });
 
   it('app-update.yml 的 owner 与 publish 段不一致（仓库名相同）：退出 1，两边都点出来', () => {
@@ -376,16 +376,8 @@ describe('verify-release：反例各自失败并给出中文原因', () => {
     expect(r.fails, r.out).toHaveLength(1);
     expect(r.fails[0]).toContain('与 electron-builder.yml 的 publish 段');
     expect(r.fails[0]).toContain('不一致');
-    expect(r.fails[0]).toContain('someone-else/deskminis-releases）');
-    expect(r.fails[0]).toContain('lincheuk/deskminis-releases）');
-  });
-
-  it('app-update.yml 还指着私有源码仓 Deskminis：退出 1，说明外人拿不到', () => {
-    const d = makeDist({ repo: 'Deskminis' });
-    const r = run(['--dist', d.dir]);
-    expect(r.code, r.out).toBe(1);
-    expect(r.fails, r.out).toHaveLength(1);
-    expect(r.fails[0]).toContain('私有源码仓');
+    expect(r.fails[0]).toContain('someone-else/Deskminis）');
+    expect(r.fails[0]).toContain('lincheuk/Deskminis）');
   });
 
   it('本地打包的 dist 有 win-unpacked 却缺 app-update.yml：退出 1', () => {
@@ -424,18 +416,17 @@ describe('verify-release：反例各自失败并给出中文原因', () => {
     expect(r.fails[0]).toContain('与仓库根的 THIRD-PARTY-NOTICES.md 不一致');
   });
 
-  it('版本缺省取 cwd 下的 package.json；publish 段本身指着私有源码仓也拦', () => {
+  it('版本缺省取 cwd 下的 package.json，dist 缺省取 <cwd>/dist', () => {
     const root = tempDir('dm-verify-proj-');
     const proj = join(root, 'proj');
     mkdirSync(proj);
     writeFileSync(join(proj, 'package.json'), JSON.stringify({ name: 'x', version: '9.9.9' }));
     writeFileSync(join(proj, 'electron-builder.yml'),
       'appId: x\n# 更新源\npublish:\n  provider: github  # 行尾注释\n  owner: lincheuk\n  repo: Deskminis\n');
-    makeDist({ root: join(proj, 'dist'), version: '9.9.9', repo: 'Deskminis' });
+    makeDist({ root: join(proj, 'dist'), version: '9.9.9' });
     const r = run([], proj);
-    expect(r.code, r.out).toBe(1);
-    expect(r.fails, r.out).toHaveLength(1);
-    expect(r.fails[0]).toContain('私有源码仓');
+    expect(r.fails, r.out).toEqual([]);
+    expect(r.code, r.out).toBe(0);
     // ③ 过了，说明版本取的是 cwd 下 package.json 的 9.9.9，dist 也是缺省的 <cwd>/dist
     expect(r.out).toMatch(/^PASS\s+\[③[^\n]*9\.9\.9/m);
   });

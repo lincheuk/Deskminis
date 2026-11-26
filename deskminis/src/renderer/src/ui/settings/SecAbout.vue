@@ -80,7 +80,7 @@ async function checkNow(): Promise<void> {
         </label>
         <span class="f-label" style="gap:1px">
           <span>自动检查更新</span>
-          <span class="f-hint">启动时到 GitHub 上的 lincheuk/deskminis-releases 查一次新版本</span>
+          <span class="f-hint">启动时到 GitHub 上的 lincheuk/Deskminis 查一次新版本</span>
         </span>
         <button class="f-btn" type="button" :disabled="checking" @click="checkNow">
           {{ checking ? '检查中…' : '现在检查' }}

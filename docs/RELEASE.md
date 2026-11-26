@@ -4,20 +4,16 @@
 >（版本号 / 图标 / CHANGELOG / 打包结构与 asar 态冒烟全验证过），
 > 但安装包必须在 Windows 上构建——electron-builder 在 Linux 交叉构建
 > Windows 目标需要 wine（已实测确认不可行），且随包桥 / keyring 均为 Windows 原生件。
->
-> ⚠️ **云端的打包结构验证是 R 波（0.2.0）那个快照做的，之后又落了 S–Z 各波（界面整体重建、新增 Office 模块）
-> 与发版前的止血波 W1a–W2b（进程树回收、单实例与数据目录锁、优雅退出、更新源改公开仓库、许可随包等）。
-> 0.3.0 发布前第 2 节的 `e2e:m5` 必须重跑，不能沿用旧结论。**
 
 ## 0. 发版总清单（0.3.0，照着做）
 
 按顺序做，每一步的细节在后面对应的节里。任何一步有 FAIL 就停下，先处理再往下走。
 
-1. [ ] **首次**：在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`（只放发布资产），
-       放进仓库根的 `README.md`、`LICENSE`、`THIRD-PARTY-NOTICES.md`、`CHANGELOG.md` 四个文件（第 4 节第 1 步）。
+1. [ ] **0.3.0 这次先做**：删掉源码仓 Releases 里那个 v0.3.0 草稿——它构建自本地 master `6ca4ad6`（没推到远端），
+       比 main 少了 11 月的命令执行隔离，不能拿来发。
 2. [ ] Windows 真机上构建并自测（第 1 节）：`npm ci` → `npm test`（Linux 上跑不了的 52 例 Windows 专属用例在这里也要全绿）
        → `npm run typecheck` → `npm run dist`。`npm run dist` 之前先 `git status` 确认没有未提交的改动，再记下当时的源码仓 commit（`git rev-parse --short HEAD`），
-       Release 说明里写的就是它（第 4 节第 2 步）。
+       Release 说明里写的就是它（第 4 节第 1 步）。
 3. [ ] 打包验收（第 2 节）：`npm run e2e:m5`、`npm run verify:release`，全 PASS。
 4. [ ] 发版冒烟（第 2 节「发版冒烟」）：设好 `ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY` 后跑 `npm run smoke:release`，
        结果表里没有 FAIL（退出码 0；「清理」那一行也要是 PASS）。它替代以前手工做的四件事：Anthropic 官方端点跑 Fable 5.1 / Opus 5.5
@@ -25,10 +21,10 @@
        shell 里起 `ping -t` 后点停止不留残留。
 5. [ ] 手动冒烟（第 3 节）：装好安装版与便携版各点一遍。
 6. [ ] 把根 `CHANGELOG.md` 里 `## 0.3.0 — 待发布` 的「待发布」改成发布当天的日期，提交到源码仓。
-7. [ ] 在公开仓库建 Release `v0.3.0`（不能是 draft、不能勾 pre-release），上传 `Setup.exe`、`Setup.exe.blockmap`、
-       `portable.exe`、`latest.yml` 四件（第 4 节第 2–4 步）；同步更新公开仓库里的四个文件（第 4 节第 1 步）。
-8. [ ] 把 Release 的四件下载回空目录，再跑一次 `npm run verify:release -- --dist <目录>`（第 4 节第 5 步）。
-9. [ ] 在装好的新版里点「设置 → 关于 → 现在检查」，应显示「已是最新」（第 4 节第 6 步）。
+7. [ ] 在源码仓建 Release `v0.3.0`（不能是 draft、不能勾 pre-release），上传 `Setup.exe`、`Setup.exe.blockmap`、
+       `portable.exe`、`latest.yml` 四件（第 4 节第 1–3 步）。
+8. [ ] 把 Release 的四件下载回空目录，再跑一次 `npm run verify:release -- --dist <目录>`（第 4 节第 4 步）。
+9. [ ] 在装好的新版里点「设置 → 关于 → 现在检查」，应显示「已是最新」（第 4 节第 5 步）。
 
 ## 1. 构建
 
@@ -108,8 +104,8 @@ FAIL 后面写着中文原因；有 FAIL 退出码 1，**有一项 FAIL 就不�
    顶层 `path` / `sha512` 与 `files[0]` 一致——sha512 不符照样上传，所有用户下载完都会报 `ERR_CHECKSUM_MISMATCH`；
 5. `Setup.exe.blockmap` 在、是 gzip、块长之和等于安装包大小（不是旧安装包的块表）——缺了下一版没法差分下载；
 6. 便携版 `DeskMinis-<版本>-win-x64-portable.exe` 在且非空；
-7. `win-unpacked/resources/app-update.yml`（装到用户机器上的更新源）与 `electron-builder.yml` 的 `publish` 段一致，
-   且不是私有源码仓 `lincheuk/Deskminis`——这一项装上就改不了，是最后一道闸；
+7. `win-unpacked/resources/app-update.yml`（装到用户机器上的更新源）与 `electron-builder.yml` 的 `publish` 段一致——
+   这一项装上就改不了，是最后一道闸；
 8. 随包的 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md` 在 `win-unpacked/resources/` 下，且与仓库根的原件一致。
 
 四件必须出自同一次 `npm run dist`：**不要单独重新打包其中一件**（比如只重打安装包），`latest.yml` 与 blockmap 记的是那一次的安装包。
@@ -162,7 +158,7 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 
 - [ ] 干净机器 / 干净目录安装 `DeskMinis-<版本>-Setup.exe`；SmartScreen「未知发布者」
       属预期（未签名，README 已注明）。
-- [ ] **覆盖安装运行中的 0.1.1**（老用户唯一的升级路径：0.1.1 查不到新源，只能手动装）：装 0.1.1（私有源码仓 Release 里的安装包），
+- [ ] **覆盖安装运行中的 0.1.1**（手动升级这条路；自动更新那条见第 4 节第 5 步）：装 0.1.1（源码仓 Release `v0.1.1` 里的安装包），
       建两个会话、配一个 key，关窗藏到托盘；然后运行这一版的 Setup.exe。应当：安装选项页默认「仅为我安装」；
       提示「DeskMinis 正在运行」，点确定后旧版被结束（0.1.1 没有优雅退出，这里是硬结束）；装完两个会话与 key 都在（数据库迁移跑过）；
       开始菜单与桌面各只有一个快捷方式，「应用和功能」里只有一条 DeskMinis、版本是这一版。
@@ -195,8 +191,7 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
       脚本自带临时数据目录与 `--user-data-dir`，不碰正式数据。通过口径：退出码 0（没有残留、没有误伤无关进程、没有「没有结论」的格子）；
       证据 JSON 里每棵树的根 `protection` 是 `job`；`main-kill` 各格引擎自己退出。退出码 2 是环境问题（机器太忙、没等到），单独重跑那一格。
       诊断里「进程托管」一项显示已停用或带原因时，把原因记下来——那台机器上强杀后的回收不受保证。
-- [ ] 「设置 → 关于 → 现在检查」：这时公开仓库里还没有这一版，显示「更新失败 · 发布页上还没有可用的版本…」
-      或「已是最新」都属预期；发布之后按第 4 节第 6 步再核一次。
+- [ ] 「设置 → 关于 → 现在检查」：这时 Releases 里还没有这一版，显示「已是最新」属预期；发布之后按第 4 节第 5 步再核一次。
 - [ ] 便携版同机再冒烟一次：**先从托盘「退出」安装版**——便携版与安装版共用 `%APPDATA%\DeskMinis`，
       安装版还在托盘里时双击便携版，只会把安装版的窗口叫出来。
 - [ ] 便携版的「设置 → 关于 → 现在检查」显示「便携版不自动更新，请到发布页下载新版」，且不下载任何东西
@@ -219,11 +214,11 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
       7. 卸载演练版，重新装回正式的这一版（数据保留，`app-update.yml` 随安装恢复）；`dist-rehearsal` 删掉，别传上去。
 - [ ] 断网后点「现在检查」：状态行是「更新失败 · 连不上更新服务器（离线或网络受限）」这样一句中文，
       没有英文堆栈和响应头。
-- [ ] 更新出错的日志不带响应头：把装好的 `resources\app-update.yml` 里的 `repo:` 临时改成不存在的名字（例如 `deskminis-releases-nope`），
+- [ ] 更新出错的日志不带响应头：把装好的 `resources\app-update.yml` 里的 `repo:` 临时改成不存在的名字（例如 `Deskminis-nope`），
       从托盘退出再打开（这份文件一个进程只读一次），点「现在检查」（状态行说「发布页上还没有可用的版本……」），
       然后改回原样、再退出打开一次。当天按天日志里这次检查写下的 `[update]` 原文
       有 `HttpError: 404` 与请求地址，响应头一段只剩 `Headers: （响应头略）`，这之后写的行里搜不到 `set-cookie`
-      （同一天早些时候旧版本写的行不算；发布仓库在但还没发过版时，检查拿到的是空的 feed，不是 HTTP 错误，看不到这一段）。
+      （同一天早些时候旧版本写的行不算）。
 - [ ] 安装目录 `resources\` 下有 `LICENSE.txt` 与 `THIRD-PARTY-NOTICES.md`（W1a-1 起随包；
       `extraResources` 的 `from: ../` 指向工程目录之外，缺了就退回在 `deskminis/` 下放拷贝并加一致性测试）。
       `verify:release` 第 8 项查的是 `win-unpacked`，这一条确认装出来的也有。
@@ -233,62 +228,53 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
       `%USERPROFILE%\AppData\LocalLow\DeskMinis`（会话工作区与附件）与
       `%LOCALAPPDATA%\deskminis-updater`（安装程序留的自身副本与自动更新下载的安装包）也还在——README「数据存在哪」的彻底清理写的就是这几处。
 
-## 4. 发布到公开发布仓库 `lincheuk/deskminis-releases`
+## 4. 发布到源码仓的 Releases
 
-源码仓 `lincheuk/Deskminis` 是私有的，发布资产**不再**传到它的 Releases；安装包里写死的更新源是公开仓库
-`lincheuk/deskminis-releases`（`deskminis/electron-builder.yml` 的 `publish` 段，2026-09-24 止血设计稿 §2 落定）。
+安装包里写死的更新源是源码仓 `lincheuk/Deskminis` 自己的 Releases（`deskminis/electron-builder.yml` 的 `publish` 段）。
+源码仓是公开的，github provider 匿名就能读，不需要 token。
 
-1. **首次**：在 GitHub 新建**公开**仓库 `lincheuk/deskminis-releases`（只放发布资产，不放源码），
-   把仓库根的 `README.md`、`LICENSE`、`THIRD-PARTY-NOTICES.md`、`CHANGELOG.md` 拷进去——
-   源码仓外人看不到，这里是唯一的对外入口，Apache-2.0 与 MIT 的声明也应该在分发处可见。
-   以后每次发版同步更新这四个文件。
-   - **对外 README 就是根 `README.md` 原样拷贝**，不用另写一份：它的相对链接只指向 `LICENSE`、`THIRD-PARTY-NOTICES.md`、
-     `CHANGELOG.md` 这三个同样拷过去的文件；提到源码仓 `docs/` 的地方写的是纯文本路径，在公开仓库里不会变成死链。
-     以后改 README 时保持这一点（要链到 `docs/` 就写成纯文本路径），拷贝才不用手改。
-   - README 的 Releases 链接必须指向这个公开仓库——`deskminis/tests/readme-claims.test.ts` 核对它与 `publish` 段一致。
-   - **发布账号就是更新的信任根**：安装包没有签名，electron-updater 也就不核对签名（没有 `publisherName`）——
-     谁能往这个仓库传资产，谁就能给所有装了 DeskMinis 的机器推送安装包。发布前确认 GitHub 账号开了两步验证，
-     仓库没有别的写权限者，也没有第三方应用拿着写授权。
-2. 在**公开仓库**新建 Release：tag 填 `v<版本>`（如 `v0.3.0`），发布时 GitHub 自动创建该 tag；
+- **发布账号就是更新的信任根**：安装包没有签名时，electron-updater 也就不核对签名——
+  谁能往这个仓库的 Release 传资产，谁就能给所有装了 DeskMinis 的机器推送安装包。发布前确认 GitHub 账号开了两步验证，
+  仓库没有别的写权限者，也没有第三方应用拿着写授权。签名之后的变化见第 7 节。
+
+1. 新建 Release：tag 填 `v<版本>`（如 `v0.3.0`），发布时 GitHub 自动创建该 tag；
    Release 说明里写上打出这份 `dist/` 的源码仓 commit——第 0 节第 2 步 `npm run dist` 之前记下的那个；
-   第 6 步改 CHANGELOG 日期的那次提交只动文档、在它之后，不算（历史：0.1.1 → `6c48c8b`，发在私有源码仓的 Releases，
-   外人看不到；0.2.0 没有发布过）。
+   第 6 步改 CHANGELOG 日期的那次提交只动文档、在它之后，不算（历史：0.1.1 → `6c48c8b`；0.2.0 没有发布过）。
+   正文直接取根 `CHANGELOG.md` 对应版本段（日期已从「待发布」改成发布日）。
    **不能是 draft，也不能勾 pre-release**：electron-updater 走 `github.com/<owner>/<repo>/releases/latest`
    找最新正式版，草稿和预发布它看不见。（云端侧实测 tag 推送被 403 拒——凭据只放行分支推送，
    故 tag 统一走 Release 发布这条路。）
-3. Release notes 直接取根 `CHANGELOG.md` 对应版本段（日期已从「待发布」改成发布日，见第 0 节第 6 步）。
-4. 上传 **四个**资产到公开仓库 `lincheuk/deskminis-releases` 的这个 Release（都在 `deskminis/dist/`，
-   上传前 `npm run verify:release` 必须全 PASS，见第 2 节）：
+2. 上传 **四个**资产（都在 `deskminis/dist/`，上传前 `npm run verify:release` 必须全 PASS，见第 2 节）：
    - `DeskMinis-<版本>-Setup.exe`
    - `DeskMinis-<版本>-Setup.exe.blockmap`——差分下载靠它；旧版本的 blockmap 要留在旧 Release 下，
      所以**旧 Release 不要删**，删了老用户就只能整包下载
    - `DeskMinis-<版本>-win-x64-portable.exe`
    - **`latest.yml`**——electron-updater 的版本清单，**漏传 = 自动更新永远查不到新版**；
      里面记着 Setup.exe 的文件名、sha512 与大小，资产不能改名、不能重新打包后只换其中一个
-5. **上传后再验一遍**：把这个 Release 的四件下载回一个空的临时目录，对它跑校验——
+3. **上传后再验一遍**：把这个 Release 的四件下载回一个空的临时目录，对它跑校验——
    本地 `dist/` 自洽，不等于传上去的也对（上传中断被截断、传成了上一版的文件、漏传 `latest.yml` 或 blockmap，都只在这一步看得见）：
    ```powershell
    $d = Join-Path $env:TEMP "deskminis-release-check"
    Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory $d | Out-Null
-   gh release download v<版本> --repo lincheuk/deskminis-releases --dir $d   # 没装 gh 就在网页上把四件下载进 $d
+   gh release download v<版本> --repo lincheuk/Deskminis --dir $d   # 没装 gh 就在网页上把四件下载进 $d
    npm run verify:release -- --dist $d
    ```
    第 7、8 项会 SKIP 并写明原因（下载回来的只有四件，没有 `win-unpacked`，属正常），其余必须全 PASS；
    有 FAIL 就删掉出错的资产、从同一个 `dist/` 重传，再验一遍。
-6. 发布后在装好的新版里点「设置 → 关于 → 现在检查」，应显示「已是最新」（不是「更新失败」）；
-   从 0.3.1 起，再用一台装着上一版的机器检查一次，应显示「有新版本 · <版本>」并开始下载。
-   （0.3.0 是第一个走新源的版本，装着 0.1.1 的机器查不到它，见 §5。）
+4. 发布后在装好的新版里点「设置 → 关于 → 现在检查」，应显示「已是最新」（不是「更新失败」）。
+5. 再用一台装着上一版的机器检查一次，应显示「有新版本 · <版本>」并开始下载。0.3.0 这一次用装着 0.1.1 的机器：
+   0.1.1 写死的更新源也是这个仓库，当时仓库私有、检查一直 404，公开后应当能收到 0.3.0——这一跳没有验证过，
+   收不到就把原因记下来，并在 CHANGELOG「已知边界」写明 0.1.1 要手动装一次。
 
 ## 5. 自动更新须知
 
 - 更新源写死在安装目录的 `resources\app-update.yml`（打包时由 `publish` 段生成）：github provider，
-  `lincheuk/deskminis-releases`。检查走 github.com 的 `releases.atom` 与 `/releases/latest` 两个网页端点，
+  `lincheuk/Deskminis`。检查走 github.com 的 `releases.atom` 与 `/releases/latest` 两个网页端点，
   不走 API、不需要 token。**要换更新源，只能先在旧源发一个带新 `publish` 配置的过渡版**——装在用户机器上的旧版只认旧源。
   改源时 `deskminis/src/main/update-status.ts` 的 `RELEASES_PAGE_URL` 一起改（`tests/update-error-text.test.ts` 核对两边一致），
   根 `README.md` 的 Releases 链接也一起改（`tests/readme-claims.test.ts` 核对）。
-- **0.1.1 的用户收不到自动更新**：0.1.1 写死的是私有源码仓，检查永远 404，需要手动下载安装一次 0.3.0，之后才走新源。
-- 公开仓库建好、还没发第一个正式 Release 时，检查会显示「发布页上还没有可用的版本」——这是预期，不是坏了。
-  已经发过版却也显示这句，先看最新那个 Release 是不是误勾了 pre-release、是不是还停在 draft、`latest.yml` 有没有传上去。
+- 已经发过版却显示「发布页上还没有可用的版本」，先看最新那个 Release 是不是误勾了 pre-release、是不是还停在 draft、
+  `latest.yml` 有没有传上去。
 - 失败原因由主进程译成一句中文（`src/main/update-status.ts` 的 `describeUpdateError`）；原始错误（状态行、请求地址、
   服务器回的错误正文——404 没有、限流与 5xx 有——堆栈与错误码）写进主进程的 stderr 与按天日志
   `%LOCALAPPDATA%\DeskMinis\logs\minisd-<日期>.log`，每行带 `[update]`。服务器回的响应头不写（GitHub 匿名访问也回会话 cookie），
@@ -313,3 +299,18 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
   改依赖先征得用户点头，再同步改快照，并在 commit 正文申报；随包的间接依赖跟着变时，
   照 `tests/license-consistency.test.ts` 的提示同步根 `THIRD-PARTY-NOTICES.md` 第 6 节（非 MIT 的包与没带许可文件的包逐个登记）。
 - README 不写死测试例数（`tests/readme-claims.test.ts` 会拦）；例数与 Linux 失败基线写在提交正文里。
+
+## 7. 代码签名（有证书之后）
+
+现在的安装包没有签名。签名不需要改代码或配置，只要在第 1 节 `npm run dist` 之前，在同一个 PowerShell 里设好两个环境变量，
+electron-builder 就会给安装版、便携版和里面的 exe 签名：
+
+```powershell
+$env:CSC_LINK = "C:\路径\证书.pfx"          # Windows 代码签名证书（OV 或 EV），导出成带私钥的 .pfx
+$env:CSC_KEY_PASSWORD = "<pfx 的密码>"
+```
+
+- 证书要自己买（向证书颁发机构申请 OV 或 EV 代码签名证书）；`.pfx` 和密码不要进仓库，也不要放进 CI。
+- 签名之后，electron-builder 从证书里取发布者名称写进 `app-update.yml`，装了这一版的机器之后**只接受同一发布者签名的更新**。
+  所以一旦开始签，之后每一版都要签，证书续期时发布者名称（证书主题里的 CN）要保持不变。没签名的旧版不核对，照常能更新到签名版。
+- 签了之后，README「安装」一节和 CHANGELOG「已知边界」里「安装包没有代码签名」那两句要一起改掉，第 3 节第一条的 SmartScreen 说明也是。

@@ -121,7 +121,7 @@ describe('日志里不留响应头（W3-updd）', () => {
     const e = createHttpError({
       statusCode: 429, statusMessage: 'Too Many Requests',
       headers: { server: 'github.com', 'set-cookie': ['_gh_sess=SESSIONVALUE; path=/; secure; HttpOnly'] },
-    } as unknown as IncomingMessage, 'method: GET url: https://github.com/lincheuk/deskminis-releases/releases.atom');
+    } as unknown as IncomingMessage, 'method: GET url: https://github.com/lincheuk/Deskminis/releases.atom');
     const logger = h.autoUpdater?.logger as { error(m: unknown): void } | undefined;
     expect(logger, '主进程没有设 autoUpdater.logger').toBeDefined();
     const { lines, stderr } = during(() => {
@@ -133,7 +133,7 @@ describe('日志里不留响应头（W3-updd）', () => {
     expect(all).not.toMatch(/set-cookie|_gh_sess|SESSIONVALUE/);
     expect(stderr).not.toMatch(/set-cookie|_gh_sess|SESSIONVALUE/);
     expect(lines.filter(l => l.includes('Headers: （响应头略）')), '两份原文各留一句说明').toHaveLength(2);
-    expect(all).toContain('url: https://github.com/lincheuk/deskminis-releases/releases.atom');
+    expect(all).toContain('url: https://github.com/lincheuk/Deskminis/releases.atom');
     expect(all).toContain('错误码：HTTP_ERROR_429');
   });
 });
