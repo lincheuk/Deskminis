@@ -71,7 +71,7 @@ class LegacyGateway implements PermissionGateway {
       this.levels = {
         danger: 'notAllowed',
         readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
-        opaque: 'askOnce', // 同上，只为类型齐全
+        opaque: 'bypass', // 同上，只为类型齐全
         'web-fetch': 'bypass',
         'web-search': 'bypass',
         'mcp': 'bypass',
@@ -386,7 +386,7 @@ describe('G2b 金表：三档 × 每个类目，期望写死在这里', () => {
     'bridge-open': 'ask', 'bridge-speak': 'ask', 'bridge-screenshot': 'ask',
   };
   const FULL_ROW: Record<PermissionClass, Cell> = {
-    danger: 'deny', readonly: 'allow', gated: 'allow', opaque: 'ask', 'file-write': 'allow', 'file-read': 'allow', 'web-fetch': 'allow', 'web-search': 'allow', mcp: 'allow',
+    danger: 'deny', readonly: 'allow', gated: 'allow', opaque: 'allow', 'file-write': 'allow', 'file-read': 'allow', 'web-fetch': 'allow', 'web-search': 'allow', mcp: 'allow',
     'bridge-device': 'allow', 'bridge-notify': 'allow', 'bridge-clipboard-read': 'allow', 'bridge-clipboard-write': 'allow',
     'bridge-open': 'allow', 'bridge-speak': 'allow', 'bridge-screenshot': 'allow',
   };

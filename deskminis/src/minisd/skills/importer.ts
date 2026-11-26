@@ -156,9 +156,6 @@ export async function unzipToMemory(buf: Buffer, limits: ZipLimits = SKILL_ZIP_L
 
 export class SkillImporter {
   private tasks = new Map<string, ImportProgress>();
-  /** 执行隔离第 2 步（二）：导入（用户在设置页或市场里点的）把一个技能目录整个写好之后调用，
-   *  外面据此把它记成用户认可过的。孤儿回收（agent 自己写进技能目录的）不调用：那正是要用户确认的。 */
-  onInstalled?: (id: string) => void;
 
   constructor(
     private skillsRoot: string,
@@ -210,10 +207,6 @@ export class SkillImporter {
     return adopted;
   }
 
-  private installed(id: string): void {
-    try { this.onInstalled?.(id); } catch (e) { console.warn('记录技能的认可状态失败:', e); }
-  }
-
   private emit(t: ImportProgress): void {
     this.onProgress?.({ ...t, succeeded: [...t.succeeded], failures: [...t.failures] });
   }
@@ -224,7 +217,6 @@ export class SkillImporter {
     const id = this.store.uniqueId(meta.name ?? fallbackName);
     copyDirRecursive(dir, join(this.skillsRoot, id));
     this.store.upsert({ id, meta, fallbackName, importSource });
-    this.installed(id);
     return id;
   }
 
@@ -244,7 +236,6 @@ export class SkillImporter {
       writeFileSync(dest, data);
     }
     this.store.upsert({ id, meta, fallbackName, importSource });
-    this.installed(id);
     return id;
   }
 

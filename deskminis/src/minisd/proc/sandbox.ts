@@ -15,8 +15,7 @@
  * （proc/sandbox-workspace.ts），windows-* 桥的命名管道打 Low 标签，「在沙箱外运行」的卡（tools/shell.ts、tools/permissions.ts），
  * 数据目录在不支持完整性标签的盘（FAT、exFAT、网络盘）上时不开沙箱。
  * 第 5 步：用户目录下放凭据的位置（.ssh、.aws……）打和数据根一样的「不许读」标签（proc/sandbox-sensitive.ts）。
- * 四个前提（文件上的 NO_READ_UP、凭据管理器与 DPAPI、杀软反应、工具链兼容）要在真机上跑 scripts/sandbox-probe.ps1 验证；
- * 脚本里的三段 PowerShell 与这里逐字相同（tests/exec-isolation-step3.test.ts 钉着）。
+ * 四个前提（文件上的 NO_READ_UP、凭据管理器与 DPAPI、杀软反应、工具链兼容）2026-11-22 在真机上验过（当时的验证脚本已删，见 git 历史）。
  *
  * Win32 调用沿用 F09 的做法（proc/own-script.ts）：Reflection.Emit 在内存里定义 P/Invoke，不落盘、不起 csc.exe；
  * 脚本是产品常量，路径之类的输入经环境变量传入，不拼进脚本文本。

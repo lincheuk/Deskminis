@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { asksInFullMode, classifyShellCommand, expandNestedShells, PermissionGatewayImpl } from '../src/minisd/tools/permissions';
+import { classifyShellCommand, expandNestedShells, PermissionGatewayImpl } from '../src/minisd/tools/permissions';
 import type { PermissionRequest } from '../src/minisd/tools/types';
 import { persistAuthTokenEnabled, startMinisd } from '../src/minisd/index';
 import { restoreEngineBuiltins } from './engine-wiring';
@@ -56,6 +56,9 @@ describe('嵌套 shell 的里层命令', () => {
     'C:\\Windows\\System32\\cmd.exe /c del x',
     '& "C:\\Windows\\System32\\cmd.exe" /c del x',
     'npm run build; cmd /c "rd /s /q dist"',
+    'echo y | cmd /c del x',
+    'start cmd /c del x',
+    'Start-Process "C:\\Program Files\\PowerShell\\7\\pwsh.exe" -c "rm -r x"',
     'powershell -NoProfile -Command "rm -r x"',
     'powershell -c "ri x"',
     'pwsh -nop -c \'del x\'',
@@ -83,6 +86,8 @@ describe('嵌套 shell 的里层命令', () => {
     ['rg "cmd /c" src', 'readonly'],
     ['rg powershell src', 'readonly'],
     ['git log --oneline', 'readonly'],
+    ['git commit -m "用 cmd /c del 清理"', 'gated'], // 参数里提到的不算调用
+    ['echo "powershell -c rm x"', 'gated'],
     ['npm test', 'gated'],
   ])('%s → %s（不误伤）', (cmd, cls) => {
     expect(classifyShellCommand(cmd)).toBe(cls);
@@ -102,61 +107,24 @@ describe('嵌套 shell 的里层命令', () => {
   });
 });
 
-describe('完全访问档下点到数据目录的命令仍询问', () => {
-  it.each([
-    ['Set-Content $env:APPDATA\\DeskMinis\\providers.json x', true],
-    ['Get-Content C:\\Users\\u\\AppData\\Roaming\\DeskMinis\\minisd-port.json', true],
-    ['setx DESKMINIS_PERSIST_AUTH_TOKEN 1', true],
-    ['node -e "require(\'fs\').readFileSync(process.env.APPDATA)"', true],
-    ["[Environment]::GetFolderPath('ApplicationData')", true],
-    ['type %LOCALAPPDATA%\\x', true],
-    ['Get-Content "$env:App""Data\\x"', true], // 引号拆开的写法去掉引号再认
-    [`powershell -enc ${enc('gc $env:APPDATA\\DeskMinis\\providers.json')}`, true],
-    ['npm test', false],
-    ['$env:NODE_ENV = "test"; npm test', false],
-    ['git commit -am "fix"', false],
-  ])('%s → %s', (cmd, asks) => {
-    expect(asksInFullMode(cmd)).toBe(asks);
-  });
-
+describe('完全访问档', () => {
   const req = (detail: string): PermissionRequest => ({ kind: 'shell', detail, sessionId: 'S1', toolTitle: 't' });
 
-  it('full 档：点到数据目录的弹卡，其余照旧免问', async () => {
+  it('点到数据目录的命令不再额外询问（数据目录由命令隔离挡住）', async () => {
     let asked = 0;
     const g = new PermissionGatewayImpl(async () => { asked++; return 'deny'; });
     g.applyPreset('full');
     expect(await g.check(req('npm install'))).toBe('allow');
+    expect(await g.check(req('Set-Content $env:APPDATA\\DeskMinis\\providers.json x'))).toBe('allow');
     expect(asked).toBe(0);
-    expect(await g.check(req('Set-Content $env:APPDATA\\DeskMinis\\providers.json x'))).toBe('deny');
-    expect(asked).toBe(1);
-    // 只读命令点到数据目录，原本就回落 gated，full 档下同样弹卡
-    expect(await g.check(req('Get-Content $env:APPDATA\\DeskMinis\\minisd-port.json'))).toBe('deny');
-    expect(asked).toBe(2);
   });
 
-  it('full 档：用户点了「本会话允许」后同一条命令不再弹卡', async () => {
-    let asked = 0;
-    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-session'; });
-    g.applyPreset('full');
-    const cmd = req('Copy-Item $env:APPDATA\\DeskMinis\\skills\\a C:\\backup -Recurse');
-    expect(await g.check(cmd)).toBe('allow');
-    expect(await g.check(cmd)).toBe('allow');
-    expect(asked).toBe(1);
-  });
-
-  it('危险命令在 full 档仍直接拒绝、不弹卡', async () => {
+  it('危险命令仍直接拒绝、不弹卡', async () => {
     let asked = 0;
     const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
     g.applyPreset('full');
     expect(await g.check(req('cmd /c del /s /q C:\\proj'))).toBe('deny');
     expect(asked).toBe(0);
-  });
-
-  it('ask 档行为不变：点到数据目录的命令照常弹卡', async () => {
-    let asked = 0;
-    const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
-    expect(await g.check(req('Set-Content $env:APPDATA\\DeskMinis\\x.txt y'))).toBe('allow');
-    expect(asked).toBe(1);
   });
 });
 

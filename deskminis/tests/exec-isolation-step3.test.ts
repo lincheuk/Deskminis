@@ -1,7 +1,6 @@
 /** 执行隔离第 3 步（一）：低完整性沙箱的核心（src/minisd/proc/sandbox.ts）。
  *  ① 开关、环境改道、标签输出的解析（各平台都跑）。
  *  ② shell 接线：开了沙箱时驱动带降级函数、降级排在归属之后；标签打完之前不起驱动；降级失败如实报出、不当成普通崩溃。
- *  ③ 真机验证脚本 scripts/sandbox-probe.ps1 里的三段 PowerShell 与产品逐字相同。
  *  ④ Windows 上真跑：打标签、驱动降到 Low 之后读不到也写不了数据目录，工作区和临时目录照常可写，git、node 照常能用。 */
 import { describe, it, expect, afterAll } from 'vitest';
 import { EventEmitter } from 'node:events';
@@ -284,28 +283,6 @@ describe('② 引擎装配（源码守卫）', () => {
   });
 });
 
-describe('③ 真机验证脚本与产品同步', () => {
-  const probe = readFileSync(resolve(__dirname, '..', 'scripts', 'sandbox-probe.ps1'), 'utf8');
-  const region = (name: string): string => {
-    const m = new RegExp(`\\$${name} = @'\\r?\\n([\\s\\S]*?)\\r?\\n'@`).exec(probe);
-    expect(m, `脚本里没有 $${name}`).not.toBeNull();
-    return m![1].replace(/\r\n/g, '\n');
-  };
-  it('带 UTF-8 BOM（Windows PowerShell 5.1 没有 BOM 时按 ANSI 读，中文会坏）', () => {
-    expect(probe.charCodeAt(0)).toBe(0xfeff);
-  });
-  it('三段 PowerShell 与 sandbox.ts 逐字相同', () => {
-    expect(region('NativePs')).toBe(SANDBOX_NATIVE_PS.trimEnd());
-    expect(region('LowerPs')).toBe(SANDBOX_LOWER_PS.trimEnd());
-    expect(region('LabelPs')).toBe(SANDBOX_LABEL_PS.trimEnd());
-  });
-  it('Low 进程里试的项目覆盖四个前提', () => {
-    for (const id of ['data-read', 'data-list', 'data-write', 'nested-read', 'cred-read', 'dpapi', 'git', 'node', 'npm-install', 'python', 'dotnet', 'ssh-agent', 'profile-cache-write', 'hkcu-write']) {
-      expect(probe).toContain(`'${id}'`);
-    }
-  });
-});
-
 describe.runIf(WIN)('④ Windows 真跑', () => {
   const made: string[] = [];
   afterAll(async () => {
@@ -406,22 +383,4 @@ describe.runIf(WIN)('④ Windows 真跑', () => {
       await new Promise<void>(r => server.close(() => r()));
     }
   }, 180_000);
-
-  it('真机验证脚本跑得通：降到 Low，数据目录与打了标签的子目录读不到，工作区可写（凭据与 DPAPI 的结果打到日志里）', async () => {
-    const base = mkdtempSync(join(tmpdir(), 'sbx-probe-'));
-    made.push(base);
-    const out = join(base, 'probe.json');
-    const { spawnSync } = await import('node:child_process');
-    const r = spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolve(__dirname, '..', 'scripts', 'sandbox-probe.ps1'), '-Out', out, '-SkipNetwork'],
-      { encoding: 'utf8', timeout: 600_000, windowsHide: true });
-    console.log(r.stdout, r.stderr);
-    const report = JSON.parse(readFileSync(out, 'utf8').replace(/^\uFEFF/, ''));
-    const byId = new Map<string, string>((report.child?.results ?? []).map((x: { id: string; result: string }) => [x.id, x.result]));
-    expect(report.childExit).toBe(0);
-    expect(byId.get('il')).toBe('low');
-    for (const id of ['data-read', 'data-list', 'data-write', 'nested-read', 'nested-write', 'docs-write', 'hkcu-write']) expect(byId.get(id), id).toBe('denied');
-    for (const id of ['ws-write', 'temp-write', 'user-read']) expect(byId.get(id), id).toBe('allowed');
-    expect(report.labels).toMatchObject({ data: 'ok', agentRoot: 'ok', nested: 'ok', dataAgain: 'same' });
-  }, 660_000);
 });

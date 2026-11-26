@@ -204,9 +204,6 @@ export class McpServersStore {
    *  写前与设置页拉列表前拿它对比磁盘，变了就整份重读，手改的内容才不会被旧副本盖掉。
    *  比字节不比解码后的文本：非 UTF-8 的字节一律解码成 U+FFFD，只改了这些字节时文本对比看不出变化。 */
   private lastDisk: Buffer | null | undefined;
-  /** 执行隔离第 2 步（二）：DeskMinis 自己每写一次（设置页增删改、启停、市场安装与更新）就告诉外面写前写后各是什么，
-   *  外面据此把自己写的内容记成用户认可过的（control/external-changes.ts）。改名时带上新旧名。 */
-  onSaved?: (before: ReadonlyMap<string, McpServerEntry>, after: ReadonlyMap<string, McpServerEntry>, rename?: { from: string; to: string }) => void;
 
   constructor(paths: MinisPaths) {
     this.dir = paths.globalDir('mcp-servers');
@@ -313,7 +310,7 @@ export class McpServersStore {
    *  单条形态见 encodeEntry：extra 先铺、识别字段后盖——未识别字段原样合并，写回不丢数据。
    *  写的是调用方给的新 Map，**落盘成功后才换进内存**：写盘失败时内存仍与磁盘一致，
    *  设置页开关失败后重拉列表拿到的才是真相（否则界面会显示一个磁盘上并不存在的状态）。 */
-  private save(next: Map<string, McpServerEntry> = this.entries, rename?: { from: string; to: string }): void {
+  private save(next: Map<string, McpServerEntry> = this.entries): void {
     // 第二道防线：以后新增的写路径即使忘了在入口调 assertWritable，也覆盖不了读坏的文件
     this.assertWritable();
     // 撞名时以识别出的为准（新建或改名到了一个认不出的条目的名字上）：同名的原文这次不写，
@@ -327,13 +324,10 @@ export class McpServersStore {
     const tmp = this.file + '.tmp';
     writeFileSync(tmp, text, 'utf8');
     renameSync(tmp, this.file);
-    const prev = this.entries;
     this.entries = next;
     this.rawUnknown = unknown;
     // 记下自己写出的原文：下次对比时它不算外部修改
     this.lastDisk = Buffer.from(text, 'utf8');
-    const before = prev;
-    try { this.onSaved?.(before, next, rename); } catch (e) { console.warn('记录 MCP 配置的认可状态失败:', e); }
   }
 
   /** 文件序（插入序）；返回副本，调用方改不到 store 内部状态 */
@@ -354,7 +348,7 @@ export class McpServersStore {
    *  - createdAt 取 base 的；没有 base 时用输入的或当下。updatedAt 一律当下。
    *  - renameFrom 是控制键：在合并前剥掉（否则会被收进 extra 写进 servers.json），原位换键名，一次写盘完成。
    *  同名新建会合并进旧条目——由设置页在前端拦（设计稿 §2），后端不加控制键：市场同名时正是更新流程，要的就是合并。 */
-  private compose(input: Record<string, unknown>): { entry: McpServerEntry; next: Map<string, McpServerEntry>; renameFrom?: string } {
+  private compose(input: Record<string, unknown>): { entry: McpServerEntry; next: Map<string, McpServerEntry> } {
     const name = typeof input.name === 'string' ? input.name.trim() : '';
     if (name === '') throw new Error('MCP server 名称不能为空');
     const { name: _name, renameFrom: rawRenameFrom, ...rest } = input;
@@ -410,7 +404,7 @@ export class McpServersStore {
       next = new Map(this.entries);
       next.set(name, entry); // 已有键原位替换，Map 保持原插入序
     }
-    return { entry, next, ...(renameFrom !== undefined ? { renameFrom } : {}) };
+    return { entry, next };
   }
 
   /** 新增或打补丁（规则见 compose）。写前先对比磁盘（W1a-5），读坏时拒写（W1a-4）。 */
@@ -419,8 +413,8 @@ export class McpServersStore {
     this.syncFromDisk();
     // 拒写排在名称校验之前：配置读坏时，用户先要知道的是「为什么什么都写不进去」
     this.assertWritable();
-    const { entry, next, renameFrom } = this.compose(input);
-    this.save(next, renameFrom !== undefined ? { from: renameFrom, to: entry.name } : undefined);
+    const { entry, next } = this.compose(input);
+    this.save(next);
     return { ...entry };
   }
 

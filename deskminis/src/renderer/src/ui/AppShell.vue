@@ -63,15 +63,6 @@ const activeTab = computed(() => (reviewId.value ? undefined : previewPath.value
 /** 主视图：chat（欢迎/会话由 activeId 决定）| cron | assistants | settings | devices */
 const view = ref<'chat' | 'search' | 'cron' | 'assistants' | 'market' | 'settings' | 'devices'>('chat');
 
-/** 执行隔离第 2 步（二）：顶部横幅「有 N 项被外部改过」点「去查看」→ 设置的权限页。
- *  settingsJump > 0 时设置页打开在权限页；离开设置页就归零，下次从左栏进设置照旧打开在第一节。 */
-const settingsJump = ref(0);
-function openControlReview(): void {
-  view.value = 'settings';
-  settingsJump.value += 1;
-}
-watch(view, v => { if (v !== 'settings') settingsJump.value = 0; });
-
 /** 会话态 = 选中了会话且它已有消息；否则欢迎态。 */
 const inChat = computed(() => !!chat.activeId && chat.messages.length > 0);
 
@@ -203,10 +194,6 @@ onScopeDispose(() => {
       <NavRail v-show="railOpen" :view="view" :compact="!!previewPath" @view="v => (view = v)" />
 
       <main class="stage">
-        <div v-if="chat.controlPending.length && view !== 'settings'" class="ctlbanner t-body" role="status">
-          <span>有 {{ chat.controlPending.length }} 项 MCP 配置、技能或记忆被 DeskMinis 以外的程序改过，你确认之前不会使用。</span>
-          <button class="f-btn" type="button" @click="openControlReview">去查看</button>
-        </div>
         <template v-if="view === 'chat'">
           <template v-if="inChat">
             <TabBar
@@ -233,7 +220,7 @@ onScopeDispose(() => {
         <StageAssistants v-else-if="view === 'assistants'" />
         <StageMarket v-else-if="view === 'market'" />
         <StageDevices v-else-if="view === 'devices'" />
-        <StageSettings v-else :initial-sec="settingsJump ? 'perm' : undefined" :jump="settingsJump" />
+        <StageSettings v-else />
         <TerminalPane v-if="termOpen" @close="termOpen = false" />
       </main>
 
@@ -250,11 +237,6 @@ onScopeDispose(() => {
 .shell { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .body { flex: 1; min-height: 0; display: flex; }
 .stage { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--c-bg); overflow: hidden; }
-.ctlbanner {
-  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-6); background: var(--c-warn-soft); color: var(--c-ink);
-  border-bottom: 1px solid var(--c-line);
-}
 /* 舞台分栏：无预览时对话独占（内容自己定宽居中）；有预览时对话收成左边一条固定宽，
    预览吃掉剩余——产出物是主角 */
 .split { position: relative; flex: 1; min-height: 0; display: flex; }

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, statSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { agentRootFromEnv, dataRoot, logRootFromEnv, MinisPaths } from './paths';
 import { migrateAgentDirs, rewriteCheckpointPaths } from './store/agent-dirs-migrate';
@@ -77,7 +77,6 @@ import { createDiagnosticsMethods } from './diagnostics';
 import { createHash, randomUUID } from 'node:crypto';
 import { SkillStore, skillIdFromPath } from './skills/store';
 import { buildSkillsBlock } from './skills/prompt';
-import { ControlGuard, FileFingerprints, SkillFingerprints, clip, mcpFingerprint, mcpPreview, pendingView, sha256, skillPreview, CONTROL_KINDS, type ControlKind } from './control/external-changes';
 import { AssistantStore, applyAssistantPreset } from './assistants/store';
 import { buildAssistantBlock } from './assistants/prompt';
 import { CronStore, type CronJob } from './cron/store';
@@ -189,8 +188,7 @@ export async function resolveAndPersistPort(
 
 /** 端口文件里要不要带 authToken：只认 DESKMINIS_PERSIST_AUTH_TOKEN=1（主进程 fork 引擎时原样带上外层环境）。
  *  DESKMINIS_ 前缀的变量不会传给 shell、终端与 MCP 子进程（proc/child-env.ts），agent 在 shell 里看不到它。
- *  同一账户的进程仍能用 setx 之类写用户环境变量、等下次启动生效：这样的命令带着 DeskMinis 字样，完全访问档下也要询问
- *  （tools/permissions.ts 的 asksInFullMode）；按写法认的门槛挡不住换了写法的，真正的边界要等沙箱。 */
+ *  同一账户的进程仍能用 setx 之类写用户环境变量、等下次启动生效；开着命令隔离时沙箱里的命令写不了 HKCU，挡得住。 */
 export function persistAuthTokenEnabled(env: Readonly<Record<string, string | undefined>>): boolean {
   return env.DESKMINIS_PERSIST_AUTH_TOKEN === '1';
 }
@@ -704,15 +702,13 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   // web_search 照常注册（未配置时调用返回引导文案），密钥经 resolve() 闭包内部消费、不外流
   tools.register(makeWebSearchTool(() => searchProviderStore.resolve()));
   // D5 MCP 管理器：run 开始连接 enabled server，其工具以 mcp__<server>__<tool> 动态进出本 registry
-  // 执行隔离第 2 步（二）：配置被 DeskMinis 以外改过、用户还没确认的服务器不连接（controlGuard 在下面技能装配之后建好，run 起跑时才会用到）
-  const mcpManager = new McpManager({ store: mcpServers, chatStore: chat, registry: tools, supervisor: procSupervisor, allow: e => controlGuard.isApproved('mcp', e.name, mcpFingerprint(e)) });
+  const mcpManager = new McpManager({ store: mcpServers, chatStore: chat, registry: tools, supervisor: procSupervisor });
   // F04：工具调度器——本引擎实例唯一，所有会话的 run 共用一张资源锁表（两个会话写同一文件、同一工作区里各跑 shell 都要排队）
   const toolScheduler = new ToolScheduler({ lockWaitTimeoutMs: opts?.toolLockWaitTimeoutMs });
 
   // 记忆 + 压缩 + 卸载 引擎（设计 §3.4 + §4.2）
   const memoryStore = new MemoryStore(paths.globalDir('memory'));
-  // 被 DeskMinis 以外改过、用户还没确认的记忆文件不注入（见 controlGuard）
-  const memoryInjector = new MemoryInjector(memoryStore, (file, content) => controlGuard.isApproved('memory', file, sha256(content)));
+  const memoryInjector = new MemoryInjector(memoryStore);
   // M4 Task 2：stable 段缓存（按 sessionId+modelId+bridgeGranted 三元组，内存态）
   const stableCache = createStableCache();
   const contextPolicy = new ContextPolicy(catalog);
@@ -726,52 +722,6 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
   const importer = new SkillImporter(skillsRoot, skillStore, undefined, t => rpc.broadcast('skills.import.progress', t));
   // agent 直写目录的孤儿回收（设计 §5.1）：skillsRoot 下存在但不在表里的含 SKILL.md 目录入库
   importer.adoptOrphans();
-
-  // ---- 执行隔离第 2 步（二）：MCP 配置、技能、记忆被 DeskMinis 以外改过时，先让用户确认再用（control/external-changes.ts）----
-  const skillFps = new SkillFingerprints();
-  const memoryFps = new FileFingerprints();
-  const memoryDir = memoryStore.dir;
-  const MEMORY_FILE_RE = /^(SOUL|GLOBAL|\d{4}-\d{2}-\d{2})\.md$/;
-  const controlGuard = new ControlGuard({
-    store: settings,
-    sources: {
-      mcp: () => mcpServers.list().map(e => ({
-        kind: 'mcp' as const, key: e.name, fingerprint: mcpFingerprint(e), title: `MCP 服务器 ${e.name}`, preview: () => mcpPreview(e),
-      })),
-      skill: () => skillStore.list().map(sk => {
-        const dir = join(skillsRoot, sk.id);
-        const { fingerprint, files } = skillFps.of(dir);
-        return { kind: 'skill' as const, key: sk.id, fingerprint, title: `技能 ${sk.name}`, preview: () => skillPreview(dir, files) };
-      }),
-      memory: () => {
-        let names: string[] = [];
-        try { names = readdirSync(memoryDir).filter(n => MEMORY_FILE_RE.test(n)).sort(); } catch { /* 还没有记忆目录 */ }
-        return names.flatMap(n => {
-          const path = join(memoryDir, n);
-          const fingerprint = memoryFps.of(path);
-          if (fingerprint === undefined) return [];
-          const title = n === 'SOUL.md' ? '记忆 SOUL.md（人设，按指令注入）' : `记忆 ${n}`;
-          const preview = (): string => { try { return clip(`文件：${path}\n\n${readFileSync(path, 'utf8')}`); } catch { return `文件：${path}`; } };
-          return [{ kind: 'memory' as const, key: n, fingerprint, title, preview }];
-        });
-      },
-    },
-    onPendingChanged: p => rpc?.broadcast('control.pending.changed', { count: p.length }),
-  });
-  // DeskMinis 自己写的记成认可（写之前就没被认可的照旧不认可，见 recordOwnWrite）
-  mcpServers.onSaved = (before, after, rename) => {
-    if (rename) controlGuard.recordOwnRename('mcp', rename.from, rename.to);
-    for (const name of new Set([...before.keys(), ...after.keys()])) {
-      if (rename && name === rename.from && !after.has(name)) continue; // 已随改名处理
-      const b = rename && name === rename.to ? before.get(rename.from) : before.get(name);
-      const a = after.get(name);
-      const fb = b && mcpFingerprint(b);
-      const fa = a && mcpFingerprint(a);
-      if (fb !== fa) controlGuard.recordOwnWrite('mcp', name, fb, fa);
-    }
-  };
-  memoryStore.onWrite = (file, before, after) => controlGuard.recordOwnWrite('memory', file, before === null ? undefined : sha256(before), sha256(after));
-  importer.onInstalled = id => controlGuard.recordOwnWrite('skill', id, undefined, skillFps.of(join(skillsRoot, id)).fingerprint);
 
   // ---- J1 助手体系：命名预设目录 + 一次性种子 ----
   const assistantStore = new AssistantStore(db);
@@ -902,9 +852,7 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       const stable = sendTools
         ? stableCache.get(ctx.sessionId, { bridgeGranted, modelId: ctx.modelId, config: promptConfig, disciplineBlock })
         : STABLE_IDENTITY_NO_TOOLS;
-      // 被 DeskMinis 以外改过、用户还没确认的技能不进索引
-      const okSkills = sendTools ? controlGuard.approvedKeys('skill') : new Set<string>();
-      const skillsBlock = sendTools ? buildSkillsBlock(skillStore.listEnabledForSession(ctx.sessionId).filter(sk => okSkills.has(sk.id)), skillsRoot, skillStore.nowEpoch()) : '';
+      const skillsBlock = sendTools ? buildSkillsBlock(skillStore.listEnabledForSession(ctx.sessionId), skillsRoot, skillStore.nowEpoch()) : '';
       // J1：助手规则块置 stable 后、技能块前（设计稿 §4）；每轮实时读表——会话中改助手规则下一轮生效。
       // 助手规则与下面的记忆注入是用户内容，不是工具指令：不带工具时照旧带上
       const assistantBlock = buildAssistantBlock(assistantOf(ctx.sessionId));
@@ -1835,25 +1783,10 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
     // 写坏又修好的文件（拒写态随之解除），都不用重启——横幅「修好后回到这页即可」靠的就是这一步。
     'mcp.servers.list': () => {
       mcpServers.refresh();
-      // 执行隔离第 2 步（二）：配置被外部改过、还没确认的服务器名单，只在有的时候带（同 configErrorKind）
-      const unconfirmed = mcpServers.list().filter(e => !controlGuard.isApproved('mcp', e.name, mcpFingerprint(e))).map(e => e.name);
-      if (unconfirmed.length) controlGuard.pending();
       return {
         servers: mcpServers.list(), statuses: mcpManager.statuses(), configError: Boolean(mcpServers.loadError),
         ...(mcpServers.loadErrorKind ? { configErrorKind: mcpServers.loadErrorKind } : {}),
-        ...(unconfirmed.length ? { unconfirmed } : {}),
       };
-    },
-    // ---- 执行隔离第 2 步（二）：被 DeskMinis 以外改过、等用户确认的 MCP 配置、技能、记忆 ----
-    'control.pending.list': () => ({ items: controlGuard.pending().map(pendingView) }),
-    'control.pending.confirm': (p: { kind?: unknown; key?: unknown; fingerprint?: unknown }) => {
-      const kind = p?.kind;
-      if (typeof kind !== 'string' || !(CONTROL_KINDS as readonly string[]).includes(kind)) throw new Error('kind 必须是 mcp、skill 或 memory');
-      if (typeof p.key !== 'string' || p.key === '') throw new Error('key 不能为空');
-      if (typeof p.fingerprint !== 'string' || p.fingerprint === '') throw new Error('fingerprint 不能为空');
-      controlGuard.confirm(kind as ControlKind, p.key, p.fingerprint);
-      if (kind === 'skill') rpc.broadcast('skills.changed', {});
-      return { ok: true };
     },
     // W1a-6「改动即时生效」成真：ensureForRun 只连还没连上的服务器，已连上的不会因为配置改了而重连——
     // 改完 env 要等 10 分钟空闲驱逐或重启才生效。所以写成功后让 manager 忘掉这台（断开、摘工具、回 idle），
@@ -2130,7 +2063,6 @@ async function assembleMinisd(root: string, lock: DataRootLock, opts?: StartMini
       // 先删目录再删表行：顺序反过来时，目录删除失败留下的残骸会在下次启动被孤儿回收「复活」
       rmSync(join(skillsRoot, p.id), { recursive: true, force: true });
       skillStore.delete(p.id); // 表行 + 会话覆盖（事务）
-      controlGuard.recordOwnWrite('skill', p.id, undefined, undefined);
       rpc.broadcast('skills.changed', {});
       return { ok: true };
     },

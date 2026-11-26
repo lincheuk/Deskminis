@@ -23,13 +23,6 @@ function formatLocalTs(d: Date): string {
 export class MemoryStore {
   constructor(private memoryDir: string) {}
 
-  /** 执行隔离第 2 步（二）：memory_write 每写一次日志就告诉外面写前写后的内容（写前没有这个文件时为 null），
-   *  外面据此把自己写的内容记成认可过的（control/external-changes.ts）。 */
-  onWrite?: (file: string, before: string | null, after: string) => void;
-
-  /** 记忆目录（列待确认、算指纹用）。 */
-  get dir(): string { return this.memoryDir; }
-
   readGlobal(): string {
     try { return readFileSync(join(this.memoryDir, 'GLOBAL.md'), 'utf8'); } catch { return ''; }
   }
@@ -69,13 +62,11 @@ export class MemoryStore {
     const entry: MemoryEntry = { timestamp: ts, markdown };
     const entryText = `<!-- ${ts} -->\n${markdown}\n\n`;
     const filePath = join(this.memoryDir, `${date}.md`);
-    const had = existsSync(filePath);
-    const existing = had ? readFileSync(filePath, 'utf8') : '';
+    const existing = existsSync(filePath) ? readFileSync(filePath, 'utf8') : '';
     // 原子写：tmp + rename（对齐 providers.json / models-dev-cache.json 模式）
     const tmp = filePath + '.tmp';
     writeFileSync(tmp, entryText + existing, 'utf8');
     renameSync(tmp, filePath);
-    try { this.onWrite?.(`${date}.md`, had ? existing : null, entryText + existing); } catch (e) { console.warn('记录记忆的认可状态失败:', e); }
     return entry;
   }
 }

@@ -6,7 +6,7 @@ import {
 
 /** 危险层保留：这些命令即使用户想批准也硬拦截（不可逆/系统级/影子命名原语）。
  *  opaque（隔离方案第 1 步）：PowerShell 解析器看出命令名或代码要运行时才拼出来（Invoke-Expression、& $x、[scriptblock]::Create……），
- *  看不出它会做什么——完全访问档下也询问。只有解析器给出结果时才会有这一类，文本规则不产出它。 */
+ *  看不出它会做什么——询问档的卡上写明原因，规划档拒绝，完全访问档放行（边界是命令隔离，不靠这一条）。只有解析器给出结果时才会有这一类，文本规则不产出它。 */
 export type CommandClass = 'danger' | 'readonly' | 'gated' | 'opaque';
 
 /** 宿主对一条 shell 命令的进一步判断（隔离方案第 1 步，见 shell-analysis.ts）。note 写在权限卡上，说明为什么要问。 */
@@ -351,9 +351,10 @@ export function asksEvenIfReadonly(c: string): boolean {
 /** 递归展开的层数上限：超过的按「解不开」处理。 */
 const NESTED_MAX_DEPTH = 4;
 
-/** 找 cmd / powershell / pwsh 的调用：前面是行首、空白、分隔符、引号、@ 或路径分隔符（C:\Windows\System32\cmd.exe）。
- *  argument 里恰好出现这几个词（git commit -m "用 cmd /c del 清理"）也会被当成调用，里层若命中危险规则整条会被拒——宁可多拒。 */
-const NESTED_SHELL_RE = /(?:^|[\s;|&(@"'\\/\u2018-\u201e])(cmd|powershell|pwsh)(?:\.exe)?(?=["'\s\u2018-\u201e]|$)/gi;
+/** 找 cmd / powershell / pwsh 的调用，只认命令位：行首或 ; | & ( 换行之后，可带调用符 & / .、start / Start-Process、
+ *  cmd 的 @、引号和路径（C:\Windows\System32\cmd.exe、"C:\Program Files\PowerShell\7\pwsh.exe"）。
+ *  参数里提到这几个词（git commit -m "用 cmd /c del 清理"）不算调用。 */
+const NESTED_SHELL_RE = /(?:^|[;|&(\n])\s*(?:[&.]\s*)?(?:(?:start|start-process|saps)\s+)?@?(?:["'\u2018-\u201e][^"'\u2018-\u201e]*?[\\/]|["'\u2018-\u201e]|[^\s"';|&()]*[\\/])?(cmd|powershell|pwsh)(?:\.exe)?(?=["'\s\u2018-\u201e]|$)/gi;
 
 /** cmd 的开关：/c、/k、/r 之后的全部文本就是要执行的命令；之前可以有 /s /q /d /v:on 这类开关。 */
 const CMD_SWITCHES_RE = /^\s*(?:\/[a-z](?::\S*)?\s+)*?\/[ckr](?=[\s"]|$)\s*([\s\S]*)$/i;
@@ -446,16 +447,6 @@ export function matchesDanger(c: string): boolean {
   return DANGER_ANYWHERE.some(r => r.test(c)) || DANGER_AT_COMMAND_POSITION.some(r => r.test(c));
 }
 
-/** 完全访问档下仍要询问的命令（隔离方案第 0 步）：命令文本（含展开出来的里层命令）点到 DeskMinis 的数据目录或 AppData。
- *  完全访问本来什么都不问，但数据目录里是会话库、模型密钥、MCP 配置（启动命令会被执行）和本机连接凭据——
- *  改了它们，权限设置本身就可能被改掉。这是按写法认的门槛，不是边界：换个写法（拼接路径、环境变量间接取值）仍然认不出。
- *  applicationdata 认的是 [Environment]::GetFolderPath('ApplicationData') / 'LocalApplicationData' 这种取法。 */
-const FULL_MODE_ASK_RE = /deskminis|appdata|applicationdata|%localappdata%/i;
-
-export function asksInFullMode(command: string): boolean {
-  return expandNestedShells(command.trim()).texts.some(t => FULL_MODE_ASK_RE.test(t) || FULL_MODE_ASK_RE.test(t.replace(QUOTE_CHARS_RE, '')));
-}
-
 export function classifyShellCommand(command: string): CommandClass {
   const c = command.trim();
   // 危险层两个表原样先行：readonly 判定绝不允许越过 danger（Remove-Item 开头必是 danger）。
@@ -474,7 +465,7 @@ const DEFAULT_LEVELS: Record<PermissionClass, PermissionLevel> = {
   // 只读免批：保守子集判定通过即静默放行——查目录/看 git status 这类高频只读不再打断用户
   readonly: 'bypass',
   gated: 'askOnce', 'file-write': 'askOnce', 'file-read': 'askOnce',
-  // 看不透的命令（命令名或代码运行时才拼出来）：和 gated 一样询问；不同在完全访问档下也询问
+  // 看不透的命令（命令名或代码运行时才拼出来）：和 gated 一样询问，卡上写明原因
   opaque: 'askOnce',
   // web 抓取默认过卡：URL 的查询串/路径可携带会话内外传数据，是现成的静默外泄通道
   'web-fetch': 'askOnce',
@@ -557,8 +548,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
         // 危险规则按命令写法认（DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），拦不住所有不可逆操作——设置页副标题照此如实写
         danger: 'notAllowed',
         readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
-        // 看不透的命令完全访问档下也询问（隔离方案第 1 步）：危险规则按写法认，拼出来的命令名它认不出
-        opaque: 'askOnce',
+        opaque: 'bypass',
         'web-fetch': 'bypass',
         'web-search': 'bypass',
         'mcp': 'bypass',
@@ -651,9 +641,6 @@ export class PermissionGatewayImpl implements PermissionGateway {
     }
     // plan 仍询问只因路径等敏感字样回落的只读命令；其它三档沿用原分类与档位。
     let level = this.isPlanMode() && cls === 'gated' && isReadonlyCommand(req.detail) ? 'askOnce' : this.levels[cls];
-    // 完全访问档下，点到 DeskMinis 数据目录或 AppData 的命令仍询问（隔离方案第 0 步，见 asksInFullMode）。
-    // 只把放行改成询问，不会多放；会话授权照常生效，「本会话允许」过的同一条命令不再弹卡
-    if (level === 'bypass' && this.preset === 'full' && req.kind === 'shell' && cls === 'gated' && asksInFullMode(req.detail)) level = 'askOnce';
     // 执行隔离第 3 步：要求在沙箱外运行的命令永远要人点头——完全访问不覆盖（不然被注入的模型写一句 sandbox: false 就绕开了），
     // 规划档直接拒；危险命令照旧拒
     if (req.kind === 'shell' && req.outsideSandbox) {

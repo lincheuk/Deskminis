@@ -3,7 +3,7 @@
  *  1. 解析进程（ps-parse.ts）：只解析不执行；超时、退出、输出不对一律给 undefined，连续失败到上限后不再尝试。
  *  2. 按语法树判断（shell-analysis.ts）：认出更多危险写法；命令名或代码运行时才拼出来的归「看不透」；
  *     只读免问要求参数与当前目录都在工作区里；; 串起来的只读命令也算只读。
- *  3. 网关接上钩子之后：看不透的命令完全访问档下也询问，只读 / 计划档拒绝；权限卡带上原因。
+ *  3. 网关接上钩子之后：看不透的命令询问时卡上带原因，完全访问档放行，只读 / 计划档拒绝。
  *  4. Windows 上用真的 powershell.exe 跑一遍解析脚本与当前目录查询（其它平台跳过）。 */
 import { describe, it, expect, afterAll } from 'vitest';
 import { EventEmitter } from 'node:events';
@@ -226,13 +226,15 @@ describe('网关接上钩子', () => {
     return { g, asked, hookCalls: () => hookCalls };
   };
 
-  it('看不透的命令：完全访问档下也询问，卡上带原因', async () => {
+  it('看不透的命令：询问档弹卡、卡上带原因；完全访问档放行', async () => {
     const t = gw({ cls: 'opaque', note: OPAQUE_NOTE });
-    t.g.applyPreset('full');
     expect(await t.g.check(req('iex $c'))).toBe('deny');
     expect(t.asked).toHaveLength(1);
     expect(t.asked[0].note).toBe(OPAQUE_NOTE);
     expect(t.asked[0].shellClass).toBe('opaque');
+    t.g.applyPreset('full');
+    expect(await t.g.check(req('iex $c'))).toBe('allow');
+    expect(t.asked).toHaveLength(1);
   });
 
   it('看不透的命令：只读 / 计划档直接拒绝', async () => {
@@ -244,7 +246,6 @@ describe('网关接上钩子', () => {
 
   it('「本会话允许」过的看不透命令，同一条不再询问', async () => {
     const t = gw({ cls: 'opaque' }, 'allow-session');
-    t.g.applyPreset('full');
     expect(await t.g.check(req('iex $c'))).toBe('allow');
     expect(await t.g.check(req('iex $c'))).toBe('allow');
     expect(t.asked).toHaveLength(1);
