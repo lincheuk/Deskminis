@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { existsSync, renameSync, rmSync } from 'node:fs';
 
 /** schema 对齐 OpenMinis ChatStore（设计 §3.1）；M1 只建用到的表，同步表列先留出。
  *  导出 + 冻结是给 tests/db-migrations-immutable.test.ts 的 sha256 钉用的：已发布的条目一个字符都不能改，
@@ -495,15 +496,43 @@ export function runMigrations(db: Database.Database, migrations: readonly string
   }
 }
 
+/** 升级前留的那份库：和库文件放在一起，只留最近一次的。 */
+export const dbBackupPath = (filePath: string): string => `${filePath}.bak`;
+
+/** 旧版本写的库要补跑迁移之前，先把它整份留一份。迁移过的库旧版本拒绝打开（DbNewerThanAppError），
+ *  新版本有问题想装回旧版时，靠这一份回到升级前。
+ *  VACUUM INTO 由 SQLite 读出一份一致的副本（还没并回主文件的 WAL 也在里面），不改原库。先写 .tmp 再改名：写到一半失败不会顶掉上一次的备份。
+ *  .tmp 还在说明上一次没做完——多半是库太大，主进程等不到引擎就绪把它结束了；这一次不再备份，不然每次启动都卡在这里。
+ *  备份只是保险：做不成（磁盘满之类）记一行警告，升级照常。 */
+function backupBeforeMigration(db: Database.Database, filePath: string): void {
+  const target = dbBackupPath(filePath);
+  const tmp = `${target}.tmp`;
+  try {
+    if (!existsSync(tmp)) {
+      db.prepare('VACUUM INTO ?').run(tmp);
+      renameSync(tmp, target);
+      return;
+    }
+    console.warn(`上一次升级前的数据库备份没有做完，这次不再备份，直接升级（${target} 如果在，是更早的一份）`);
+  } catch (e) {
+    console.warn(`升级前备份数据库失败，升级照常进行（${target}）:`, e);
+  }
+  try { rmSync(tmp, { force: true }); } catch { /* 删不掉就留着：下一次要迁移时按「上次没做完」处理 */ }
+}
+
 export function openDb(filePath: string): Database.Database {
   const db = new Database(filePath);
   try {
     // 先只读版本、判新旧，再切 WAL：库若来自更新版本，本应用一个字节都不该写（切 journal_mode 本身就是写）。
     const current = readUserVersion(db);
     if (current > MIGRATIONS.length) throw new DbNewerThanAppError(current, MIGRATIONS.length);
+    // 版本 0 是刚建的空库，没有可留的
+    if (current > 0 && current < MIGRATIONS.length) backupBeforeMigration(db, filePath);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
-    runMigrations(db);
+    // 要补跑的迁移整批提交（runMigrations 里每条的事务在这里成了保存点）：中途失败或进程被结束，库整个停在升级前的版本——
+    // 旧版本照常能开，再启动一次时留的备份也还是升级前那一份，不会被迁移到一半的库顶掉。
+    db.transaction(() => runMigrations(db))();
     return db;
   } catch (e) {
     // 失败先关连接再抛：不关的话 -wal/-shm 留在盘上、Windows 上库文件被这个死连接一直锁着。
