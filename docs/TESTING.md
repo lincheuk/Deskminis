@@ -60,7 +60,7 @@ Remove-Item Env:DESKMINIS_F09_FULL
 
 | CI job | 内容 | 失败时 |
 |---|---|---|
-| Typecheck, build, test | `npm ci`、`npm run typecheck`、`npm run build`，以及 `node scripts/ci-test.mjs stable`（默认档减去「已知受高负载影响的用例」中的 8 个文件） | 阻塞合并，失败时上传 vitest JSON 报告 |
-| Load-sensitive tests (non-blocking) | `node scripts/ci-test.mjs load-sensitive`：只跑这 8 个文件，逐个文件串行 | 不阻塞合并；发出警告并上传 JSON 报告，不重试 |
+| Typecheck, build, test | `npm ci`、`npm run typecheck`、`npm run build`，以及 `node scripts/ci-test.mjs stable`（默认档减去「已知受高负载影响的用例」中的 8 个文件） | PR 检查显示失败，上传 vitest JSON 报告；拦不拦合并取决于 main 的分支保护有没有把它设为必需检查 |
+| Load-sensitive tests (non-blocking) | `node scripts/ci-test.mjs load-sensitive`：只跑这 8 个文件，逐个文件串行 | job 本身不判失败；发出警告并上传 JSON 报告，不重试 |
 
 「已知受高负载影响的用例」增删文件时，同步修改 `ci-test.mjs` 中的 `LOAD_SENSITIVE`。CI 不替代上面的完整交付要求：剪贴板档、完整进程档与发布验收仍须在 Windows 桌面会话中执行。负载敏感 job 的失败同样按上文约定保留日志并复验，不能因为它不阻塞就忽略。

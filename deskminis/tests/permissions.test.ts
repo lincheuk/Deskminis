@@ -102,7 +102,7 @@ describe('classifyShellCommand', () => {
     ['gci | tee-object x', 'gated'], // tee 会写盘，不在白名单
     ['gci |', 'gated'], // 尾随管道 → 空段结构不明
     ['git log | select-object --output=x', 'gated'], // --output 后门规则对管道段同样生效
-    // 反例 danger：DANGER 两表先行且扫整条命令（含管道右侧），readonly 判定不可越过
+    // 反例 danger：危险规则先行且扫整条命令（含管道右侧），readonly 判定不可越过
     ['remove-item x | select-object', 'danger'],
     ['gci | remove-item', 'danger'],
     ['gci | select-object; rm x', 'danger'], // ; 后 rm 命中命令位危险表 → danger 先行（; 的 gated 形态见上）
@@ -118,6 +118,66 @@ describe('classifyShellCommand', () => {
     ['git log --pretty=oneline', 'readonly'],
     ['rg --pretty pattern src', 'readonly'],
   ])('%s → %s', (cmd, cls) => { expect(classifyShellCommand(cmd)).toBe(cls); });
+});
+
+describe('危险命令只在命令位认', () => {
+  it.each([
+    // 参数里提到危险命令的名字：搜它、查它的帮助、读同名文件、写进提交说明，都不是在执行它
+    ['rg taskkill', 'readonly'],
+    ['rg "Remove-Item" src', 'readonly'],
+    ['Get-Help Remove-Item', 'readonly'],
+    ['Get-Command shutdown', 'readonly'],
+    ['Get-Content shutdown.ps1', 'readonly'],
+    ['git log --grep Stop-Process', 'readonly'],
+    ['git commit -m "去掉 Remove-Item 残留"', 'gated'],
+    ['npm run stop-service', 'gated'],
+    ['echo "format d: 会清空磁盘"', 'gated'],
+    ['Write-Output "reg delete 要小心"', 'gated'],
+    ['Select-String -Pattern "sc delete" -Path a.log', 'readonly'],
+    ['git log --grep=shutdown', 'readonly'],
+    ['Start-Process -FilePath node -ArgumentList taskkill.js', 'gated'],
+    ['do { npm test } while ($LASTEXITCODE -ne 0)', 'gated'],
+    // 名字更长的是别的命令
+    ['.\\scripts\\shutdown-vm.ps1', 'gated'],
+    ['Remove-ItemSafely x', 'gated'],
+  ])('%s → %s', (cmd, cls) => { expect(classifyShellCommand(cmd)).toBe(cls); });
+
+  it.each([
+    'Remove-Item x',
+    'dir; Remove-Item x',
+    'gci | Stop-Process',
+    'npm test && taskkill /f /im node.exe',
+    'Get-Content $(Stop-Service x)',
+    'if (Test-Path dist) { Remove-Item dist -Recurse }',
+    'gci *.tmp | ForEach-Object { Remove-Item $_ }',
+    'cd build\nRemove-Item * -Recurse',
+    // 块收尾之后可以直接接下一条语句；赋值的右边也是在执行命令
+    'if ($clean) { $n++ } Remove-Item dist -Recurse',
+    '$r = taskkill /f /im node.exe',
+    '$env:OUT=Stop-Service spooler',
+    '$log += cmd /c del x',
+    '& "Remove-Item" x',
+    '. Stop-Computer',
+    'Microsoft.PowerShell.Management\\Remove-Item x',
+    'C:\\Windows\\System32\\taskkill.exe /f /im node.exe',
+    '& "C:\\Windows\\System32\\shutdown.exe" /s /t 0',
+    'Start-Process taskkill -ArgumentList "/f","/im","node.exe"',
+    'Start-Process -FilePath taskkill -ArgumentList "/f","/im","node.exe" -Wait',
+    'Start-Process -FilePath "robocopy" -ArgumentList "src dst /MIR" -Wait -PassThru',
+    'Remove-ItemProperty HKCU:\\Software\\x -Name y',
+    'reg.exe delete HKCU\\Software\\x /f',
+    'cipher.exe /w:C:\\',
+    'cmd /c shutdown /s',
+    'cmd /c "reg delete HKCU\\Software\\x /f"',
+    'powershell -c "Stop-Service spooler"',
+    'if (Test-Path build) { cmd /c rd /s /q build }',
+    // cmd 的 for … do：按端口结束进程的惯用写法
+    'cmd /c "for /f "tokens=5" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a"',
+    // 读文本不认引号：引号里跟在分隔符后面、或另起一行的词仍算在命令位
+    'rg "taskkill|shutdown" src',
+    'git commit -m "fix(shutdown): flush logs before exit"',
+    'git commit -m "fix: graceful exit\n\nShutdown now waits for in-flight requests"',
+  ])('%s → danger', (cmd) => { expect(classifyShellCommand(cmd)).toBe('danger'); });
 });
 
 describe('isReadonlyCommand（保守子集结构过滤）', () => {
@@ -252,7 +312,7 @@ describe('PermissionGatewayImpl', () => {
   it('file-read 的 detail 是路径，不走 shell 分类器（含危险词的路径仍然只是询问）', async () => {
     let asked = 0;
     const g = new PermissionGatewayImpl(async () => { asked++; return 'allow-once'; });
-    // 作为 shell 命令这条会被判 danger（\bdiskpart\b）→ 若路由错误就会静默 deny 且从不询问
+    // 作为 shell 命令这条会被判 danger（路径里有一段是 diskpart）→ 若路由错误就会静默 deny 且从不询问
     expect(await g.check(fr('C:\\tools\\diskpart\\notes.txt'))).toBe('allow');
     expect(asked).toBe(1);
   });

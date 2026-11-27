@@ -115,6 +115,7 @@ describe('判定表（posix，词法）', () => {
   it('写：核心硬拒 / 当前会话桶与 shared 免审 / 应用配置、其它会话、其余走卡', () => {
     expect(g('/r/providers.json', 'write').verdict).toBe('deny');
     expect(g('/r/minis.db-journal', 'write').verdict).toBe('deny');
+    expect(g('/r/minis.db.bak', 'write').verdict).toBe('deny'); // 升级前留的那份库
     expect(g('/r/sessions/S1/workspace/a', 'write')).toEqual({ verdict: 'free' });
     expect(g('/r/sessions/S1/browser/a', 'write')).toEqual({ verdict: 'free' });
     expect(g('/r/shared/a', 'write')).toEqual({ verdict: 'free' });
@@ -133,6 +134,7 @@ describe('判定表（posix，词法）', () => {
     }
     expect(g('/r/minis.db', 'read')).toEqual({ verdict: 'ask', note: '将读取 DeskMinis 会话数据库（含全部会话内容）' });
     expect(g('/r/minis.db-shm', 'read')).toEqual({ verdict: 'ask', note: '将读取 DeskMinis 会话数据库（含全部会话内容）' });
+    expect(g('/r/minis.db.bak', 'read')).toEqual({ verdict: 'ask', note: '将读取 DeskMinis 会话数据库（含全部会话内容）' });
     expect(g('/r/sessions/S2/workspace/a', 'read')).toEqual({ verdict: 'ask', note: '将读取其它会话（S2）的文件' });
     expect(g('/r/mcp-servers/servers.json', 'read')).toEqual({ verdict: 'ask', note: '将读取 MCP 服务配置（可能含密钥）' });
     expect(g('/r/minisd-port.json', 'read')).toEqual({ verdict: 'deny', reason: expect.stringContaining('本机连接凭据') });

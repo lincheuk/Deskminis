@@ -57,6 +57,8 @@ const CORE_ENTRIES: ReadonlyArray<readonly [name: string, label: string, selfMan
   ['minis.db-wal', '会话数据库', false],
   ['minis.db-shm', '会话数据库', false],
   ['minis.db-journal', '会话数据库', false],
+  // 升级前留的那份库（store/db.ts 的 dbBackupPath）：内容就是会话数据库
+  ['minis.db.bak', '会话数据库', false],
   ['pairing-index.json', '设备配对记录', false],
   ['peer-addresses.json', '设备配对记录', false],
   ['minisd-port.json', '本机连接凭据', true],
@@ -76,7 +78,7 @@ const CORE = new Map<string, { label: string; selfManaged: boolean }>(
 
 /** 读取时单独点名的两类：会话数据库（含全部会话内容）走卡；密钥库与本机连接凭据硬拒——agent 没有读它们的正当理由，
  *  而解密的钥匙在凭据管理器里、沙箱里的命令读得到（store/secret-file-vault.ts），密文再交出去就等于交出全部 API key。 */
-const DB_FILES = new Set(['minis.db', 'minis.db-wal', 'minis.db-shm', 'minis.db-journal'].flatMap(n => [n, `${n}.tmp`]));
+const DB_FILES = new Set(['minis.db', 'minis.db-wal', 'minis.db-shm', 'minis.db-journal', 'minis.db.bak'].flatMap(n => [n, `${n}.tmp`]));
 const CREDENTIAL_FILES = new Set(['minisd-port.json', 'vault.json', 'secrets.vault'].flatMap(n => [n, `${n}.tmp`]));
 
 const BUCKETS = new Set<string>(SESSION_BUCKETS);

@@ -414,7 +414,7 @@ ipcMain.handle('minisd:port', () => minisdPort);
 ipcMain.handle('minisd:info', () => ({ port: minisdPort, token: minisdToken, alive: minisd !== undefined && minisdExit?.exited !== true }));
 
 // W2b-3 断线横幅的「重启应用」（设计稿 §3 第 7 条、§2「生命周期」）：重启整个应用，不单独重启引擎——
-// 渲染端的 rpc 不重连、没有代次（W6），只换引擎的话界面状态与新引擎对不上。
+// 主进程不重启引擎（握手只认第一条）；渲染端的断线重连（F06）救的是引擎还在、连接断了的情况，引擎退出之后只有这一条路。
 // 只认主窗口发来的请求：别的 webContents（被导航走的页面、将来别的窗口）不该有权让应用重启。
 // app.relaunch 只是登记「本进程退出后再起一份」，退出本身走 app.quit()：before-quit 里 quitGate 先请 minisd 有序关停
 // （它已经崩了就立即放行），关库放锁都在那条路上——这里不另停、不 kill、不 app.exit。新实例在旧进程退出后才起，

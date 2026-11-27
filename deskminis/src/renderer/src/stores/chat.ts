@@ -1751,8 +1751,8 @@ export const useChat = defineStore('chat', {
         }
       }
     },
-    /** W2b-3：断线横幅的「重启应用」。重启整个应用（设计稿 §2「生命周期」）：渲染端的 rpc 不重连、没有代次（W6），
-     *  只重启引擎的话界面状态与新引擎对不上。桥的访问形态与 pickWorkspaceFolder 相同；走不通就说清楚出路——
+    /** W2b-3：断线横幅的「重启应用」。重启整个应用（设计稿 §2「生命周期」）：主进程不单独重启引擎，
+     *  断线重连（F06）救的是引擎还在、连接断了的情况，引擎退出之后只有这一条路。桥的访问形态与 pickWorkspaceFolder 相同；走不通就说清楚出路——
      *  横幅的按钮不接 catch，这里不能往外抛。 */
     async relaunchApp() {
       const b = (window as any).deskminis;

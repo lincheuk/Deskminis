@@ -163,14 +163,14 @@
 
 ### Backlog（MU6 执行期再次兑现代价）
 
-- **`.vue` 不在 typecheck 覆盖内，这一轮直接造成一次「全绿但界面空白」**：
+- **`.vue` 不在 typecheck 覆盖内，这一轮直接造成一次「全绿但界面空白」**（已解决：2026-11 起 `npm run typecheck` 是 `vue-tsc --noEmit`，.vue 都在检查范围内）：
   `v-for` 挂在 `.scard` 而非包住兄弟节点的 `<template>` 上，`renderList` 抛错、整个会话列表渲染挂掉。
   1068 例源码守卫全绿、typecheck 零错误、build 成功，**只有 e2e 真跑起来才暴露**。
   换 `vue-tsc` 仍是新依赖（各轮红线 3 一直禁），但代价已经兑现两次，值得单独立项评估。
 
 ### Backlog（MU5 执行期发现）
 
-- **`.vue` 不在类型检查覆盖内**：`npm run typecheck` 是 `tsc --noEmit`，而 `tsc` 只解析
+- **`.vue` 不在类型检查覆盖内**（已解决，同上）：`npm run typecheck` 是 `tsc --noEmit`，而 `tsc` 只解析
   `.ts/.tsx/.d.ts`——`include` 里的 `.vue` 被静默跳过。约 2900 行 SFC 代码零类型保护。
   MU5 期间就此漏过一个真 bug（托盘回调引用已删除的 `rightOpen`，改名后成悬空引用，
   测试与 build 都没报）。修法是把 typecheck 换成 `vue-tsc`，但那是新依赖（MU5 红线 3 禁止），

@@ -54,7 +54,7 @@ function expectRuleBlocked(r: { output: string; success: boolean }): void {
   expect(r.output).toContain('任何权限档位也不会放行');
   expect(r.output).not.toContain('被用户拒绝');
   expect(r.output).not.toContain('可在设置-权限中调整');
-  // 危险规则按整段文本认，读 shutdown.ps1、搜 Stop-Process 字样也会被拦（W1b-2g 审查）：
+  // 危险规则读文本、不认引号，搜索模式里分隔符后面的字样（rg "taskkill|shutdown"）仍会被拦：
   // 给模型一条不经 shell 的出路，免得它把无害的读、搜推给用户
   expect(r.output).toContain('file_read');
   expect(r.output).toContain('file_grep');
@@ -71,7 +71,7 @@ describe('危险命令被规则拦下：如实说是规则，不说用户拒绝'
     });
   }
 
-  it('网关桩一律回 deny：命令位的 rm（DANGER_AT_COMMAND_POSITION）同样说是规则拦下', async () => {
+  it('网关桩一律回 deny：命令位的 rm 同样说是规则拦下', async () => {
     const stub: PermissionGateway = { check: async (): Promise<PermissionDecision> => 'deny', hasBridgeGrant: () => false };
     const r = await run('rm -r node_modules', stub);
     expectRuleBlocked(r);
