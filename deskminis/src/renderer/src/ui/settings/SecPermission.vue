@@ -88,9 +88,10 @@ const TIERS: { tier: Tier; icon: string; title: string; sub: string; danger?: bo
   { tier: 'session', icon: 'clock', title: '本会话沿用', sub: '批准过的命令原样重复时不再询问' },
   { tier: 'plan', icon: 'shield', title: '只读 / 计划', sub: '可以读文件、跑只读命令，联网会问你；写文件、会改动的命令、MCP 和通知、打开、朗读、写剪贴板一律直接拒绝，适合先让它出方案' },
   // W1b-2g：旧副标题许诺「不可逆的系统操作仍拦截」，言过其实。危险规则是 minisd/tools/permissions.ts 的两张表
-  // （DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），按命令写法匹配：完全访问下，换个写法的删除（[IO.File]::Delete）、
-  // 表里没有的 Format-Volume 照样会执行。举的例子必须真在表里（tests/renderer-settings-modal.test.ts 逐个交给分类器判）
-  { tier: 'full', icon: 'alert', title: '完全访问', sub: '除了点到 DeskMinis 数据目录或 AppData 的命令、看不出会执行什么的命令，不再询问；危险规则只按命令写法拦截（如 Remove-Item、reg delete），拦不住所有不可逆操作', danger: true },
+  // （DANGER_COMMANDS、DANGER_OTHER），按命令写法匹配：完全访问下，换个写法的不可逆操作（脚本文件里的、运行时拼出来的命令名）
+  // 照样会执行。举的例子必须真在表里（tests/renderer-settings-modal.test.ts 逐个交给分类器判）。
+  // 「沙箱之外的操作仍每次询问」是网关里 outsideSandbox 那条规则，开着命令隔离才有；细目写在下面命令隔离的说明里
+  { tier: 'full', icon: 'alert', title: '完全访问', sub: '不再询问；开着命令隔离时，沙箱之外的操作仍每次询问（见下方「命令隔离」）；危险规则只按命令写法拦截（如 Remove-Item、reg delete），拦不住所有不可逆操作', danger: true },
 ];
 </script>
 

@@ -77,7 +77,7 @@ describe('MU2b Task 5 设置模态：lib/settings/theme 纯模块（3 例）', (
 
 describe('W1b-2g「完全访问」副标题如实：危险规则只按命令写法认', () => {
   // 旧副标题「不再询问任何操作；不可逆的系统操作仍拦截」言过其实：危险规则是 permissions.ts 的两张表
-  // （DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），按命令写法匹配，换个写法的不可逆操作照样会执行。
+  // （DANGER_COMMANDS、DANGER_OTHER），按命令写法匹配，换个写法的不可逆操作照样会执行。
   // 剥注释后再认（sfcBlocks 按语法树剥）：注释里提到旧文案或举例都不算数。
   const perm = fs.readFileSync(path.join(root, 'src/renderer/src/ui/settings/SecPermission.vue'), 'utf8');
   const script = sfcBlocks(perm, 'SecPermission.vue').script;
@@ -90,6 +90,11 @@ describe('W1b-2g「完全访问」副标题如实：危险规则只按命令写�
     expect(fullSub).toMatch(/不再询问/);
     expect(fullSub).toMatch(/按命令写法/);
     expect(fullSub).toMatch(/拦不住所有不可逆操作/);
+  });
+
+  it('不再提已经删掉的两道门槛（点到数据目录 / AppData 的命令、看不出会执行什么的命令），写明沙箱之外的操作仍每次询问', () => {
+    expect(fullSub).not.toMatch(/AppData|看不出会执行什么/);
+    expect(fullSub).toMatch(/沙箱之外的操作仍每次询问/);
   });
 
   it('模板里也没有旧说法（有人把许诺挪进模板同样不行）', () => {

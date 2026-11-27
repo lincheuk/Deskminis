@@ -11,7 +11,7 @@
 
 1. [ ] **0.3.0 这次先做**：删掉源码仓 Releases 里那个 v0.3.0 草稿——它构建自本地 master `6ca4ad6`（没推到远端），
        比 main 少了 11 月的命令执行隔离，不能拿来发。
-2. [ ] Windows 真机上构建并自测（第 1 节）：`npm ci` → `npm test`（Linux 上跑不了的 52 例 Windows 专属用例在这里也要全绿）
+2. [ ] Windows 真机上构建并自测（第 1 节）：`npm ci` → `npm test`（Linux 上跑不了的 Windows 专属用例在这里也要全绿）
        → `npm run typecheck` → `npm run dist`。`npm run dist` 之前先 `git status` 确认没有未提交的改动，再记下当时的源码仓 commit（`git rev-parse --short HEAD`），
        Release 说明里写的就是它（第 4 节第 1 步）。
 3. [ ] 打包验收（第 2 节）：`npm run e2e:m5`、`npm run verify:release`，全 PASS。
@@ -31,7 +31,7 @@
 ```powershell
 git clone https://github.com/lincheuk/Deskminis && cd Deskminis/deskminis
 npm ci            # postinstall 自动 electron-rebuild better-sqlite3
-npm test          # Windows 上应全绿（Linux 上有 52 例平台性失败是正常的，Windows 上这 52 例也必须过）
+npm test          # Windows 上应全绿（Linux 上有两百多例平台性失败是正常的，Windows 上它们也必须过）
 npm run typecheck
 npm run dist      # 产物在 dist/：Setup.exe + Setup.exe.blockmap + portable.exe + latest.yml
 npm run verify:release   # 紧接着核对 dist/ 这四件与随包文件，全 PASS 才往下走（见第 2 节）
