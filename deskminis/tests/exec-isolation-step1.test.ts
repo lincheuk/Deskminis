@@ -131,6 +131,12 @@ describe('按语法树认出更多危险写法', () => {
     expect(cls(command, s)).toEqual({ cls: 'danger' });
   });
 
+  it('参数里提到危险命令的名字不算（拼回来的文本同样只认命令位）', () => {
+    expect(cls('rg taskkill', sum('rg taskkill', [C('rg', S('taskkill'))]))).toEqual({ cls: 'readonly' });
+    const c = 'git commit -m "去掉 Remove-Item 残留"';
+    expect(cls(c, sum(c, [C('git', S('commit'), S('-m'), S('去掉 Remove-Item 残留'))]))).toEqual({ cls: 'gated' });
+  });
+
   it('文本规则已判危险的，不看语法树', () => {
     expect(cls('Remove-Item x', undefined)).toEqual({ cls: 'danger' });
     expect(cls('Remove-Item x', sum('Remove-Item x', [C('Remove-Item', S('x'))]))).toEqual({ cls: 'danger' });

@@ -43,38 +43,55 @@ export const MAX_UNANSWERED_STREAK = 2;
 /** 权限选择器四档预设：ask/session 差异只在前端预选；plan 只读；full 放行除 danger 外全部。 */
 export type PermissionPreset = 'ask' | 'session' | 'plan' | 'full';
 
-/** 危险：不可逆或系统级操作，顺序无关。 */
-const DANGER_ANYWHERE = [
-  /\b(remove-item|remove-itemproperty|clear-content|clear-item)\b/i,
-  /\bformat(\.com)?\s+[a-z]:/i,
-  /\breg(\.exe)?\s+(add|delete|import)\b/i,
-  /\b(shutdown|restart-computer|stop-computer|logoff)\b/i,
-  /\b(diskpart|bcdedit|takeown)\b/i,
-  /\bcipher\b[\s\S]*\/w/i,
-  /\bicacls\b[\s\S]*\/(grant|deny|setowner)/i,
-  /\bsc(\.exe)?\s+(stop|delete|config|create)\b/i,
-  /\b(stop-service|remove-service|new-service|set-service)\b/i,
-  /\bset-executionpolicy\b/i,
-  /\b(stop-process|taskkill)\b/i,
+/** 命令位（危险命令与嵌套 shell 共用）：行首，; | & ( { } 换行之后，赋值的右边（$r = taskkill …），cmd 的 for … do 之后；
+ *  可带调用符 & / .、start / Start-Process（含 -FilePath）、cmd 的 @、引号和路径
+ *  （C:\Windows\System32\cmd.exe、"C:\Program Files\PowerShell\7\pwsh.exe"、Microsoft.PowerShell.Management\Remove-Item）。
+ *  参数里提到的词不在命令位：rg taskkill、Get-Help Remove-Item、git commit -m "去掉 Remove-Item 残留" 都不算。
+ *  这是读文本，不认引号：引号里跟在这些起点后面的词（rg "taskkill|shutdown"、提交说明里的 fix(shutdown): …、另起一行的）仍然算在命令位。
+ *  那几个分隔符都不在「不带引号的路径」那一支里，起点后面的空白也不跨换行（换行自己就是起点）：否则一长串花括号或空行会让每个起点都往后扫到头。 */
+const COMMAND_POSITION = String.raw`(?:^|[;|&({}\n]|\$[\w:.]+\s*\+?=|\bdo(?=\s))[^\S\n]*(?:[&.]\s*)?(?:(?:start|start-process|saps)\s+(?:-filepath\s+)?)?@?(?:["'\u2018-\u201e][^"'\u2018-\u201e]*?[\\/]|["'\u2018-\u201e]|[^\s"';|&(){}]*[\\/])?`;
+
+/** 命令名到此为止：后面不能再接字母、数字、下划线或连字符（shutdown-vm.ps1、Remove-ItemProperty 是别的命令）。 */
+const NAME_END = String.raw`(?![\w-])`;
+
+const atCommandPosition = (rest: string): RegExp => new RegExp(COMMAND_POSITION + rest, 'i');
+const commandNamed = (...names: string[]): RegExp => atCommandPosition(`(?:${names.join('|')})${NAME_END}`);
+
+/** 危险命令：不可逆或系统级操作、重绑名字的 cmdlet。只在命令位认。 */
+const DANGER_COMMANDS = [
+  commandNamed('remove-item', 'remove-itemproperty', 'clear-content', 'clear-item'),
+  atCommandPosition(String.raw`format(?:\.com)?\s+[a-z]:`),
+  atCommandPosition(String.raw`reg(?:\.exe)?\s+(?:add|delete|import)\b`),
+  commandNamed('shutdown', 'restart-computer', 'stop-computer', 'logoff'),
+  commandNamed('diskpart', 'bcdedit', 'takeown'),
+  atCommandPosition(String.raw`cipher${NAME_END}[\s\S]*\/w`),
+  atCommandPosition(String.raw`icacls${NAME_END}[\s\S]*\/(?:grant|deny|setowner)`),
+  atCommandPosition(String.raw`sc(?:\.exe)?\s+(?:stop|delete|config|create)\b`),
+  commandNamed('stop-service', 'remove-service', 'new-service', 'set-service'),
+  commandNamed('set-executionpolicy'),
+  commandNamed('stop-process', 'taskkill'),
   // 磁盘与分区级的破坏性 cmdlet（隔离方案第 0 步）：格式化、清盘、重新初始化、删分区
-  /\b(format-volume|clear-disk|initialize-disk|remove-partition)\b/i,
+  commandNamed('format-volume', 'clear-disk', 'initialize-disk', 'remove-partition'),
+  // robocopy 的镜像与清除会把目标目录里源目录没有的东西全部删掉
+  atCommandPosition(String.raw`robocopy${NAME_END}[\s\S]*\s[/-](?:mir|purge)\b`),
+  // 名字绑定原语：影子命名（把无害名字重绑为任意行为）。含常见别名 nal/sal。
+  commandNamed('set-alias', 'new-alias', 'nal', 'sal'),
+  atCommandPosition(String.raw`(?:set-item|new-item)${NAME_END}[\s\S]*\b(?:alias|function):`),
+  atCommandPosition(String.raw`set-content\s+function:`),
+];
+
+/** 其余危险写法，各带各的位置要求。 */
+const DANGER_OTHER = [
+  // 短别名歧义大（"del old code" 散文会误伤）：位置比上面更窄，只认行首与 ; | & ( 之后，不带路径和引号
+  /(^|[;|&(]\s*)(rm|ri|del|erase|rd|rmdir)\b/i,
+  // 定义函数 / 过滤器 / 工作流同样是名字绑定原语；关键字前面不会有路径或调用符
+  /(^|[;|&(]\s*)(function|filter|workflow)\s/i,
+  // 下面三条是表达式和变量，没有「命令位」，出现在哪里都算。
   // .NET 静态删除调用绕开了 cmdlet 名：[IO.File]::Delete、[System.IO.Directory]::Delete，
   // 以及 VB 的 [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile / DeleteDirectory
   /\[\s*(system\s*\.\s*)?io\s*\.\s*(file|directory)\s*\]\s*::\s*delete\b/i,
   /::\s*delete(file|directory)\b/i,
-  // robocopy 的镜像与清除会把目标目录里源目录没有的东西全部删掉
-  /\brobocopy(\.exe)?\b[\s\S]*\s[/-](mir|purge)\b/i,
-  // 名字绑定原语：影子命名（把无害名字重绑为任意行为）。含常见别名 nal/sal。
-  /(^|[;|&(]\s*)(function|filter|workflow)\s/i,
-  /\b(set-alias|new-alias|nal|sal)\b/i,
-  /\b(set-item|new-item)\b[\s\S]*\b(alias|function):/i,
-  /\bset-content\b\s+function:/i,
   /\$(function|alias):/i,
-];
-
-/** 短别名歧义大（"del old code" 散文会误伤），仅在命令位匹配。 */
-const DANGER_AT_COMMAND_POSITION = [
-  /(^|[;|&(]\s*)(rm|ri|del|erase|rd|rmdir)\b/i,
 ];
 
 /** 只读免批白名单（保守子集）：首 token 小写精确命中才可能免批。
@@ -351,10 +368,9 @@ export function asksEvenIfReadonly(c: string): boolean {
 /** 递归展开的层数上限：超过的按「解不开」处理。 */
 const NESTED_MAX_DEPTH = 4;
 
-/** 找 cmd / powershell / pwsh 的调用，只认命令位：行首或 ; | & ( 换行之后，可带调用符 & / .、start / Start-Process、
- *  cmd 的 @、引号和路径（C:\Windows\System32\cmd.exe、"C:\Program Files\PowerShell\7\pwsh.exe"）。
+/** 找 cmd / powershell / pwsh 的调用，只认命令位（COMMAND_POSITION）。
  *  参数里提到这几个词（git commit -m "用 cmd /c del 清理"）不算调用。 */
-const NESTED_SHELL_RE = /(?:^|[;|&(\n])\s*(?:[&.]\s*)?(?:(?:start|start-process|saps)\s+)?@?(?:["'\u2018-\u201e][^"'\u2018-\u201e]*?[\\/]|["'\u2018-\u201e]|[^\s"';|&()]*[\\/])?(cmd|powershell|pwsh)(?:\.exe)?(?=["'\s\u2018-\u201e]|$)/gi;
+const NESTED_SHELL_RE = new RegExp(COMMAND_POSITION + String.raw`(cmd|powershell|pwsh)(?:\.exe)?(?=["'\s\u2018-\u201e]|$)`, 'gi');
 
 /** cmd 的开关：/c、/k、/r 之后的全部文本就是要执行的命令；之前可以有 /s /q /d /v:on 这类开关。 */
 const CMD_SWITCHES_RE = /^\s*(?:\/[a-z](?::\S*)?\s+)*?\/[ckr](?=[\s"]|$)\s*([\s\S]*)$/i;
@@ -444,13 +460,13 @@ export function expandNestedShells(command: string, depth = 0): { texts: string[
 }
 
 export function matchesDanger(c: string): boolean {
-  return DANGER_ANYWHERE.some(r => r.test(c)) || DANGER_AT_COMMAND_POSITION.some(r => r.test(c));
+  return DANGER_COMMANDS.some(r => r.test(c)) || DANGER_OTHER.some(r => r.test(c));
 }
 
 export function classifyShellCommand(command: string): CommandClass {
   const c = command.trim();
-  // 危险层两个表原样先行：readonly 判定绝不允许越过 danger（Remove-Item 开头必是 danger）。
-  // 经 cmd /c、powershell -Command / -EncodedCommand 嵌进去的里层命令同样要过这两个表；认出是编码命令却解不开的按危险拒绝
+  // 危险规则先行：readonly 判定绝不允许越过 danger（Remove-Item 开头必是 danger）。
+  // 经 cmd /c、powershell -Command / -EncodedCommand 嵌进去的里层命令同样要过危险规则；认出是编码命令却解不开的按危险拒绝
   const nested = expandNestedShells(c);
   if (nested.undecodable || nested.texts.some(matchesDanger)) return 'danger';
   if (isReadonlyCommand(c)) return asksEvenIfReadonly(c) ? 'gated' : 'readonly';
@@ -545,7 +561,7 @@ export class PermissionGatewayImpl implements PermissionGateway {
     if (preset === 'full') {
       this.levels = {
         // 命中危险规则的命令不随「完全访问」放行，shell 回给模型的话也据此说「换任何档位都不放行」（W1b-2g）。
-        // 危险规则按命令写法认（DANGER_ANYWHERE、DANGER_AT_COMMAND_POSITION），拦不住所有不可逆操作——设置页副标题照此如实写
+        // 危险规则按命令写法认（DANGER_COMMANDS、DANGER_OTHER），拦不住所有不可逆操作——设置页副标题照此如实写
         danger: 'notAllowed',
         readonly: 'bypass', gated: 'bypass', 'file-write': 'bypass', 'file-read': 'bypass',
         opaque: 'bypass',
