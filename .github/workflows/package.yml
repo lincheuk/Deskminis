@@ -1,0 +1,211 @@
+name: Package
+
+# 打 Windows 安装包并验收（docs/RELEASE.md 第 1、2 节）。main 上每次推送和每个 PR 都跑，产物留在这次运行的 Artifacts 里。
+# 手动触发并勾上 draft_release 时，再用同一份产物在 Releases 建一个草稿：正式发出去的安装包只来自 main 上 CI 验收过的提交。
+# 草稿不会自己公开，发布那一下由人在 Releases 页面点（docs/RELEASE.md 第 0 节）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      draft_release:
+        description: 验收通过后用这份产物建草稿 Release（只能在 main 上；不会公开发布）
+        type: boolean
+        default: false
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: deskminis
+
+env:
+  # 与 ci.yml 相同：README 中 Windows x64 已验收的组合
+  NODE_VERSION: '24.19.0'
+  NPM_VERSION: '10.9.4'
+
+jobs:
+  preflight:
+    # 建草稿之前先把不用等打包就能知道的条件查完，免得打了十几分钟的包才发现发不了。
+    name: Release preflight
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.draft_release }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # 只读令牌列不出草稿 Release，查「这个版本是不是已经有 Release」要写权限
+      checks: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check release preconditions
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          version=$(node -p "require('./package.json').version")
+
+          [ "$GITHUB_REF" = "refs/heads/main" ] || fail "草稿 Release 只能从 main 建，这次选的是 $GITHUB_REF_NAME。"
+
+          ci=$(gh api -X GET "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" -f check_name='Typecheck, build, test' \
+            --jq '.check_runs[0].conclusion // "还没跑完"')
+          [ "$ci" = "success" ] || fail "这个提交的 CI「Typecheck, build, test」不是通过（现在是：$ci）。等它变绿再触发。"
+
+          existing=$(gh api -X GET "repos/$GITHUB_REPOSITORY/releases" -f per_page=100 \
+            --jq "[.[] | select(.tag_name == \"v$version\")] | length")
+          [ "$existing" = "0" ] || fail "Releases 里已经有 v$version（草稿也算）。已发布的版本号不能复用；是旧草稿就先删掉它再触发。"
+
+          heading=$(grep -m1 -E "^## ${version//./\\.}( |$)" ../CHANGELOG.md) || fail "CHANGELOG.md 里没有「## $version」这一段。"
+          case "$heading" in *待发布*) fail "CHANGELOG.md 的「$heading」还写着待发布。先改成发布日期并合并到 main。" ;; esac
+
+  package:
+    name: Package and verify installer
+    needs: preflight
+    # preflight 只在建草稿时跑；它被跳过（平时的推送和 PR）时这里照常跑，它失败时不跑。
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: deskminis/package-lock.json
+
+      - name: Cache Electron and electron-builder downloads
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\.electron-gyp
+            ~\AppData\Local\electron-builder\Cache
+          key: package-${{ runner.os }}-${{ hashFiles('deskminis/package-lock.json') }}
+
+      - name: Use a long-path temp directory
+        # 同 ci.yml：runner 默认的 TEMP 是 8.3 短名，验收脚本把临时安装放在 TEMP 下并按路径核对安装登记。
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
+      - name: Install npm ${{ env.NPM_VERSION }}
+        run: npm install -g npm@${{ env.NPM_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build installer (unsigned)
+        run: npm run dist
+
+      - name: Packaging acceptance (install, probe, uninstall)
+        env:
+          DESKMINIS_M5_PROBE_DIR: ${{ runner.temp }}\m5-probe
+        run: npm run e2e:m5
+
+      - name: Upload packaged-probe evidence
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: m5-probe-evidence
+          path: ${{ runner.temp }}/m5-probe/
+          if-no-files-found: ignore
+
+      - name: Verify release files
+        run: npm run verify:release
+
+      - name: Upload installer files
+        uses: actions/upload-artifact@v6
+        with:
+          name: deskminis-windows
+          path: |
+            deskminis/dist/DeskMinis-*-Setup.exe
+            deskminis/dist/DeskMinis-*-Setup.exe.blockmap
+            deskminis/dist/DeskMinis-*-win-x64-portable.exe
+            deskminis/dist/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Build update-rehearsal installer (never published)
+        # 更新交接演练（docs/RELEASE.md 第 3 节）要用的高一版安装包，只放在这次运行的 Artifacts 里。
+        # 用 bash：PowerShell 会把没加引号的 -c.extraMetadata.version=… 在点号处拆开。
+        if: ${{ inputs.draft_release }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          next=$(node -p "const [a, b, c] = require('./package.json').version.split('.'); [a, b, +c + 1].join('.') + '-rehearsal.1'")
+          npx electron-builder --win nsis --publish never \
+            -c.extraMetadata.version="$next" -c.detectUpdateChannel=false -c.directories.output=dist-rehearsal
+          test -f dist-rehearsal/latest.yml
+
+      - name: Upload update-rehearsal installer
+        if: ${{ inputs.draft_release }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: update-rehearsal
+          path: |
+            deskminis/dist-rehearsal/DeskMinis-*-Setup.exe
+            deskminis/dist-rehearsal/DeskMinis-*-Setup.exe.blockmap
+            deskminis/dist-rehearsal/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  draft-release:
+    # needs 里有 preflight：它被跳过时这个作业也跟着跳过，所以只有手动勾了 draft_release 才会走到这里。
+    name: Create draft release
+    needs: [preflight, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: deskminis-windows
+          path: release-files
+
+      - name: Create draft release
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "构建自 [${GITHUB_SHA:0:7}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)，由 [CI 打包并验收]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)。"
+            awk -v v="$version" '$1 == "##" { on = ($2 == v); next } on' ../CHANGELOG.md
+          } > "$notes"
+          url=$(gh release create "v$version" --draft --target "$GITHUB_SHA" --title "DeskMinis v$version" \
+            --notes-file "$notes" ../release-files/*)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE_URL=$url" >> "$GITHUB_ENV"
+
+      - name: Verify the uploaded files
+        # 把草稿里的四件下载回来再核对一遍：本地自洽不等于传上去的也对（docs/RELEASE.md 第 4 节）。
+        # 这一步失败：删掉刚建的草稿，再「Re-run failed jobs」。
+        run: |
+          set -euo pipefail
+          gh release download "v$VERSION" --dir "$RUNNER_TEMP/release-check"
+          node scripts/verify-release.mjs --dist "$RUNNER_TEMP/release-check"
+
+      - name: Summarize
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          草稿 Release 已建好，还没有公开：$RELEASE_URL
+
+          接着照 docs/RELEASE.md 第 0 节往下做：从草稿里下载安装包做手动冒烟，用这次运行 Artifacts 里的
+          \`update-rehearsal\` 做更新交接演练，都过了再到草稿页点 Publish release（不要勾 pre-release）。
+          EOF

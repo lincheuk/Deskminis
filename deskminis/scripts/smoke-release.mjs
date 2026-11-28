@@ -2,8 +2,8 @@
 // DeskMinis 发版冒烟（W3-smoke · 止血设计稿 §5 第 3 条、§5.1）。
 //
 // 用法：
-//   npm run smoke:release                    先构建（electron-vite build），再跑下面四个用例；缺 key 的用例标「跳过（缺 XXX）」
-//   npm run smoke:release -- --mock          用例 1、2 改连脚本内起的假端点（Anthropic 与 OpenAI 兼容各一个），不要 key、不花钱
+//   npm run smoke:release                    先构建（electron-vite build），再跑下面五个用例；缺 key 的用例标「跳过（缺 XXX）」
+//   npm run smoke:release -- --mock          用例 1、2、3 改连脚本内起的假端点（Anthropic 与 OpenAI 兼容各一个），不要 key、不花钱
 //   npm run smoke:release -- --mock --only deepseek,mcp-spaces   几个选项都写在同一个 -- 后面（npm 只吃掉第一个 --）
 //   node scripts/smoke-release.mjs [--mock] [--memory-vault] [--only 用例,…] [--help]   （不先构建，用现有的 out/）
 //
@@ -17,24 +17,32 @@
 //      memory_write 之后下一步的系统提示变了（记忆注入），正是新账号前缀绑定 400 的场景；官方端点靠 drop_block 过（W2a-3）。
 //   2. deepseek（DEEPSEEK_API_KEY）：DeepSeek V4（缺省 deepseek-v4-flash，DEEPSEEK_MODEL 可改，须是 V4 族）同样三轮；
 //      第二次请求起历史里带着工具调用，不回放 reasoning_content 就 400（W2a-4）。有 400 就有 error 事件，判失败。
-//   3. mcp-spaces：把最小 stdio MCP 服务器写进带空格的目录，参数里再带一个 C:\Program Files\… 形状的路径；
+//   3. compact（ANTHROPIC_API_KEY 或 DEEPSEEK_API_KEY，有哪个跑哪个）：上下文压缩。每个模型一个四轮会话：第一轮带一大段填充文字和一个暗号；
+//      第一轮过后按实测的请求大小把这个 provider 的上下文窗口手动改小（余量不足的那一档），第四轮开头就会压缩第一轮。
+//      要求真的写下了压缩记录（摘要过了格式与结构校验，没有 compactFailed）、每轮正常结束、压缩之后还答得出第一轮的暗号。
+//      压缩失败一次，本次运行就不再压缩，用户最后会落到「上下文已满」——这条路此前没在真模型上验过。
+//   4. mcp-spaces：把最小 stdio MCP 服务器写进带空格的目录，参数里再带一个 C:\Program Files\… 形状的路径；
 //      用裸名 node（Windows 上经 cmd.exe 包裹）与 node 的绝对路径（Windows 上多在 C:\Program Files\nodejs\）各登记一台并试连，要列出工具。
-//   4. shell-stop：假端点让模型调用 shell_execute 跑长命令（Windows ping -t 127.0.0.1，其它平台 ping 127.0.0.1），进程表里看到
+//   5. shell-stop：假端点让模型调用 shell_execute 跑长命令（Windows ping -t 127.0.0.1，其它平台 ping 127.0.0.1），进程表里看到
 //      引擎名下的 ping 之后 chat.cancel，断言 5 秒内这些 ping 都没了。非 Windows 上 shell_execute 也起 powershell.exe，本机没有就跳过。
+//      Windows 上先确认命令隔离开着（见下）：用户默认是开着的，这一条要在它开着时测。
 //
-// 隔离：数据根与日志目录是新建的临时目录（DESKMINIS_DATA_DIR / DESKMINIS_LOG_DIR）。Windows 上凭据写进系统凭据库的
+// 隔离：数据根、agent 根与日志目录是新建的临时目录（DESKMINIS_DATA_DIR / DESKMINIS_AGENT_DIR / DESKMINIS_LOG_DIR）。agent 根单独给：
+//   只给数据根的话两者是同一个目录，引擎就不开命令隔离（src/minisd/proc/sandbox.ts 的 sandboxDecision），冒烟测的不是用户默认的形态。
+//   命令隔离开着时引擎会给用户目录下放凭据的位置（.ssh、.aws……）打「沙箱不许读」的标签，所以 USERPROFILE / APPDATA 也指到临时目录里，
+//   真实用户目录下的这些位置一个不碰。Windows 上凭据写进系统凭据库的
 //   DeskMinis-smoke-<pid> 服务名下（DESKMINIS_KEYRING_SERVICE），结束时删掉本次写进去的条目并核对；选库、交给引擎、清理三处都先核对
 //   服务名确是 DeskMinis-smoke-<进程号>，不是就一条也不碰（正式版 DeskMinis、开发态 DeskMinis-dev 下是用户真实的凭据）。其它平台或 --memory-vault 时
 //   引擎用内存凭据库（既有的 DESKMINIS_TEST=1，e2e 脚本一直这么用）——Linux 的 Secret Service / keyutils 在容器与无桌面环境里
 //   靠不住（实测首次写入报 AccessDenied、枚举报没有 D-Bus），而引擎起动就要往凭据库写设备身份。绝不碰用户真实的数据根与凭据。
 //   key 只经 RPC 交给引擎（不进命令行、不进引擎的环境变量）；打印的每一行都先把 key 换成 [已隐藏]；结束前扫一遍临时目录，有明文 key 判失败。
 //
-// 输出一张 PASS / FAIL / SKIP 表（四个用例外加一行「清理」）。退出码：任一 FAIL 退 1；参数错误或没有构建产物退 2；否则 0。
+// 输出一张 PASS / FAIL / SKIP 表（五个用例外加一行「清理」）。退出码：任一 FAIL 退 1；参数错误或没有构建产物退 2；否则 0。
 // 中途被 Ctrl+C、Ctrl+Break、关掉窗口或 SIGTERM 打断时不再开始新的工作（不开新用例、不再给引擎发新请求），照样清理
 //   （先清凭据库，再停引擎并结束它名下没跟着退的进程、删临时目录），再以 128+信号号退出（Ctrl+C 为 130）。
 // 零新依赖：只用 node 内置模块与已有的 ws、electron、@napi-rs/keyring。照 scripts/e2e-*.mjs 的写法用 electron 以 node 模式起
 //   out/main/minisd.js（DESKMINIS_STANDALONE=1），握手行与致命行的解析照 src/main/index.ts，经 ws 走 JSON-RPC。
-// 导出纯函数、假端点与和引擎、凭据库打交道的几段（connectRpc、runTurn、engineGone、engineCrashed、runToolSession、caseShellStop、
+// 导出纯函数、假端点与和引擎、凭据库打交道的几段（connectRpc、runTurn、engineGone、engineCrashed、runToolSession、runCompactSession、caseShellStop、
 //   chooseVault、reapTree、cleanup，连同整条 runSmoke）供 tests/smoke-release.test.ts 直接调用或经小驱动调用。
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -52,7 +60,7 @@ import WebSocket from 'ws';
 
 const require = createRequire(import.meta.url);
 
-export const CASE_NAMES = ['anthropic', 'deepseek', 'mcp-spaces', 'shell-stop'];
+export const CASE_NAMES = ['anthropic', 'deepseek', 'compact', 'mcp-spaces', 'shell-stop'];
 /** 新一代 Claude：src/minisd/providers/anthropic.ts 的 BINDING_MODELS 里，官方端点要发 drop_block 的模型（设计稿 §2 拍板）。 */
 export const ANTHROPIC_MODELS = ['claude-fable-5-1', 'claude-opus-5-5'];
 export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash';
@@ -70,12 +78,13 @@ const MINISD_ENTRY = fileURLToPath(new URL('../out/main/minisd.js', import.meta.
 const USAGE = [
   '用法：npm run smoke:release -- [--mock] [--memory-vault] [--only <用例,…>]',
   '      node scripts/smoke-release.mjs [同样的参数]       （不先构建，用现有的 out/）',
-  '  --mock          用例 anthropic、deepseek 改连脚本内起的假端点（Anthropic 与 OpenAI 兼容各一个），不要 key，Linux 上也能自测',
+  '  --mock          用例 anthropic、deepseek、compact 改连脚本内起的假端点（Anthropic 与 OpenAI 兼容各一个），不要 key，Linux 上也能自测',
   '  --memory-vault  不碰系统凭据库：引擎用内存凭据库（DESKMINIS_TEST=1），key 只在引擎进程内存里',
   `  --only          只跑列出的用例（逗号分隔）：${CASE_NAMES.join(', ')}`,
   '环境变量：',
   '  ANTHROPIC_API_KEY  用例 anthropic：官方端点，claude-fable-5-1 与 claude-opus-5-5 各一个三轮会话；缺了标跳过',
   `  DEEPSEEK_API_KEY   用例 deepseek：${DEEPSEEK_BASE_URL}；缺了标跳过`,
+  '                     用例 compact（上下文压缩）用上面两把 key 里有的那些模型各跑一个四轮会话；两把都缺才标跳过',
   `  DEEPSEEK_MODEL     可选，缺省 ${DEEPSEEK_DEFAULT_MODEL}；须是 deepseek-v4 族（不回放 reasoning_content 就 400 的那一族）`,
   '退出码：0 没有 FAIL（跳过不算失败）；1 有 FAIL；2 参数错误或没有构建产物',
   '        中途被 Ctrl+C、Ctrl+Break、关掉窗口或 SIGTERM 打断：照样清凭据库、停引擎（连同它名下没跟着退的进程）、删临时目录，',
@@ -121,6 +130,7 @@ export function skipReason(name, { mock, env, platform, which, only }) {
   const has = (k) => typeof env[k] === 'string' && env[k].trim() !== '';
   if (name === 'anthropic' && !mock && !has('ANTHROPIC_API_KEY')) return '跳过（缺 ANTHROPIC_API_KEY）';
   if (name === 'deepseek' && !mock && !has('DEEPSEEK_API_KEY')) return '跳过（缺 DEEPSEEK_API_KEY）';
+  if (name === 'compact' && !mock && !has('ANTHROPIC_API_KEY') && !has('DEEPSEEK_API_KEY')) return '跳过（缺 ANTHROPIC_API_KEY 与 DEEPSEEK_API_KEY，有一把就跑）';
   if (name === 'shell-stop' && platform !== 'win32') {
     // Windows 上产品按 System32 下的绝对路径起 powershell.exe，ping.exe 也在 System32；别的平台 tools/shell.ts 起的是裸名 powershell.exe
     if (!which('powershell.exe')) return '跳过（本机找不到 powershell.exe——shell_execute 在非 Windows 上也起 powershell.exe（src/minisd/tools/shell.ts），测不了）';
@@ -173,21 +183,28 @@ const NOT_SMOKE_SERVICE = '不是冒烟专用的 DeskMinis-smoke-<进程号>';
 const REAL_VAULTS = '正式版的 DeskMinis、开发态的 DeskMinis-dev 下存着用户真实的凭据';
 
 /** 这些变量不交给引擎：key 只经 RPC 交给 provider 存进凭据库；外层 shell 残留的 DESKMINIS_* 会改掉数据根、凭据库或打开假 provider；
- *  MINISD_HOST 会让冒烟用的引擎监听局域网。引擎的子进程（shell、MCP）继承引擎的环境，在这里剥一处就都干净。 */
-const DROP_ENV_RE = /^(?:DESKMINIS_.*|ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|MINISD_HOST|ELECTRON_RUN_AS_NODE)$/i;
+ *  MINISD_HOST 会让冒烟用的引擎监听局域网；USERPROFILE / APPDATA 换成临时目录里的（见 buildMinisdEnv）。
+ *  引擎的子进程（shell、MCP）继承引擎的环境，在这里剥一处就都干净。 */
+const DROP_ENV_RE = /^(?:DESKMINIS_.*|ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|MINISD_HOST|ELECTRON_RUN_AS_NODE|USERPROFILE|APPDATA)$/i;
 
 /**
- * 引擎的环境：剥掉上面那些，再写临时数据根、日志目录（不写的话以后按天日志会落进用户真实的 LOCALAPPDATA）与凭据库选择。
+ * 引擎的环境：剥掉上面那些，再写临时数据根、agent 根、日志目录（不写的话以后按天日志会落进用户真实的 LOCALAPPDATA）与凭据库选择。
+ * agent 根单独给（不与数据根重叠），Windows 上引擎才开命令隔离。开了之后它按 USERPROFILE / APPDATA 找用户放凭据的位置
+ * （.ssh、.aws……）打「沙箱不许读」的标签，打过哪些记在数据根的库里——库随临时目录删掉，真实用户目录上的标签就没人还原了。
+ * 所以这两个变量指到临时目录里的空目录：那些位置都不存在，一个也不打。
  * 凭据库服务名不是冒烟专用的就抛错、不起引擎：引擎会在那个服务名下读写设备身份与 provider 的 key；空白也不行——
  * 引擎读到空白回落正式版的 DeskMinis（src/minisd/store/provider-store.ts 的 keyringServiceFromEnv）。
  */
-export function buildMinisdEnv(base, { dataRoot, logDir, keyringService }) {
+export function buildMinisdEnv(base, { dataRoot, agentRoot, homeDir, logDir, keyringService }) {
   const env = {};
   for (const [k, v] of Object.entries(base)) if (typeof v === 'string' && !DROP_ENV_RE.test(k)) env[k] = v;
   env.ELECTRON_RUN_AS_NODE = '1'; // 以 node 模式跑引擎，不拉 GUI
   env.DESKMINIS_STANDALONE = '1'; // 走 standalone 分支，stdout 写握手行
   env.DESKMINIS_DATA_DIR = dataRoot;
+  env.DESKMINIS_AGENT_DIR = agentRoot;
   env.DESKMINIS_LOG_DIR = logDir;
+  env.USERPROFILE = homeDir;
+  env.APPDATA = join(homeDir, 'AppData', 'Roaming');
   if (keyringService) {
     if (!isSmokeService(keyringService)) throw new Error(`凭据库服务名「${keyringService}」${NOT_SMOKE_SERVICE}，不交给引擎（${REAL_VAULTS}）`);
     env.DESKMINIS_KEYRING_SERVICE = keyringService;
@@ -401,6 +418,31 @@ export function smokePrompts(nonce) {
   };
 }
 
+/** compact 第一轮带的填充文字要多大（按产品的估算口径，ASCII 每 4 个字符算 1 token）：压缩只在「这一次能摘走的」不少于
+ *  COMPACT_MIN_GAIN（4096）时才发，校准系数最低 0.5，所以取两倍多一点。 */
+const COMPACT_FILLER_LINES = 420;
+
+/**
+ * 压缩用例的剧本：四轮都不用工具。第一轮带填充文字和暗号；第四轮问暗号——那时第一轮的原文已经不在请求里，只剩摘要那条消息
+ * （模型写的摘要，后面接程序记录），答得出来说明压缩之后会话还接得上。暗号写在最前面：摘要请求里单条消息只留头 4000 字、尾 2000 字
+ * （src/minisd/agent/compact.ts 的 renderMessageForSummary），程序记录里较早的用户原话只留头 600 字、尾 200 字（compact-meta.ts 的 collectEvidence）。
+ * 所以这一问测的是「压缩之后还记得」，不是模型摘要写得好不好：模型的摘要漏了暗号，程序记录里的原话开头也带着它。
+ */
+export function compactPrompts(nonce) {
+  const marker = `SMOKE-${nonce.toUpperCase()}-RECALL`;
+  const filler = Array.from({ length: COMPACT_FILLER_LINES }, (_, i) => `Line ${String(i + 1).padStart(4, '0')}: filler text for the DeskMinis release smoke test, it carries no meaning.`).join('\n');
+  return {
+    marker,
+    turns: [
+      `DeskMinis 发版前的自动冒烟测试（上下文压缩）。请记住暗号 \`${marker}\`，后面会问到。下面是一段没有含义的填充文字，不用读、不用总结；`
+        + `看完只回复「收到」，不要调用任何工具。\n\n${filler}`,
+      '第二步：1 加 1 等于几？只回答数字，不要调用任何工具。',
+      '第三步：2 加 2 等于几？只回答数字，不要调用任何工具。',
+      '最后一步：一开始让你记住的 `暗号` 是什么？只回答它本身，不要调用任何工具。',
+    ],
+  };
+}
+
 export function shellStopPrompt(command) {
   return `DeskMinis 发版前的自动冒烟测试。请调用 \`shell_execute\` 运行 \`${command}\`，timeout_seconds 设为 600；它会一直运行，等我点停止。`;
 }
@@ -409,6 +451,9 @@ export function shellStopPrompt(command) {
 export function pingCommand(platform) {
   return platform === 'win32' ? 'ping -t 127.0.0.1' : 'ping 127.0.0.1';
 }
+
+/** 压缩用例的暗号（compactPrompts）。假端点写摘要、答暗号时在请求里找它。 */
+const RECALL_MARKER_RE = /SMOKE-[0-9A-Z]+-RECALL/;
 
 export function parseDirective(text) {
   const tokens = [...String(text).matchAll(/`([^`\n]+)`/g)].map((m) => m[1]);
@@ -421,6 +466,9 @@ export function parseDirective(text) {
   }
   if (tokens.includes('memory_write')) return { kind: 'memory', markdown: tokens.find((t) => /^SMOKE-[0-9A-Z]+-MEMORY$/.test(t)) };
   if (tokens.includes('shell_execute')) return { kind: 'shell', command: tokens.find((t) => t !== 'shell_execute') };
+  const marker = tokens.find((t) => RECALL_MARKER_RE.test(t));
+  if (marker) return { kind: 'remember', marker };
+  if (tokens.includes('暗号')) return { kind: 'recall' };
   return { kind: 'text' };
 }
 
@@ -461,6 +509,38 @@ export function assessToolSession(turns, { file, fileMarker, memMarker, workspac
   if (!String(memoryText ?? '').includes(memMarker)) problems.push(`记忆文件里没有 ${memMarker}`);
   for (const c of tools) if (!c.success) notes.push(`${c.name} 有一次失败：${clip(c.output, 120)}`);
   return { ok: problems.length === 0, problems, notes, toolCount: tools.length };
+}
+
+/**
+ * 压缩用例里把上下文窗口改成多大。budget 是第一轮之后 chat.contextInfo 给的预算（下一次请求里除新消息以外的部分，已按实测校准）。
+ * 产品的规则（src/shared/request-budget.ts 的 buildRequestBudget）：窗口减去输入与余量，剩下的输出空间不到窗口的四分之一就算余量不足，
+ * 循环先修剪、再压缩。这里让剩下的输出空间约为窗口的 15%：够后面几轮短回答用，又稳稳落在「余量不足」里、不到「放不下」。
+ */
+export function tightWindow(budget) {
+  return Math.floor((budget.input.tokens + budget.safetyMargin) / 0.85);
+}
+
+/**
+ * 压缩用例的判定：每轮正常结束、没有 error 事件；没有压缩失败；真的写下了压缩记录；压缩之后的最后一轮答出了暗号。
+ * 有回合出错时只报回合的错（后面的都是它的后果）。
+ */
+export function assessCompactSession(turns, { marker, expectedTurns }) {
+  const problems = [];
+  turns.forEach((t, i) => {
+    const terminal = t.terminal ?? { kind: '无终态' };
+    if (terminal.kind !== 'turnEnd') problems.push(`第 ${i + 1} 轮以错误结束：${clip(terminal.message ?? terminal.kind)}`);
+    for (const e of t.errors ?? []) if (e !== terminal.message) problems.push(`第 ${i + 1} 轮有 error 事件：${clip(e)}`);
+  });
+  if (problems.length === 0) {
+    const failures = turns.flatMap((t) => t.compactFailures ?? []);
+    const compacted = turns.reduce((n, t) => n + (t.compacted ?? 0), 0);
+    if (failures.length > 0) problems.push(`压缩失败：${clip(failures[0])}`);
+    else if (compacted === 0) problems.push('没有触发压缩');
+    else if (turns.length === expectedTurns && !String(turns[turns.length - 1].text ?? '').includes(marker)) {
+      problems.push(`压缩成功，但压缩之后没答出第一轮的暗号（回答：${clip(turns[turns.length - 1].text, 80) || '空'}）——摘要那条消息（模型的摘要加程序记录）里没带上，或者它没进之后的请求`);
+    }
+  }
+  return { ok: problems.length === 0, problems };
 }
 
 /** 权限卡应答：只放行本用例登记过的那一条（同会话、同类、同内容），其余一律拒绝——真模型越出剧本时，冒烟脚本不替用户点「允许」。 */
@@ -716,12 +796,25 @@ function splitText(s, n) {
   return out.length > 0 ? out : [''];
 }
 
+/** 假端点写的摘要：照 src/minisd/agent/compact-meta.ts 的 summaryPrompt 要的七个小节，请求里有暗号就记进【约束】。 */
+function mockSummary(requestText) {
+  const marker = RECALL_MARKER_RE.exec(requestText)?.[0];
+  return [
+    '【目标】', '- 完成 DeskMinis 发版前的上下文压缩冒烟',
+    '【约束】', marker ? `- 记住暗号 ${marker}，之后会问到` : '- （无）',
+    '【已完成】', '- （无）', '【进行中】', '- （无）', '【待办】', '- （无）', '【关键决策】', '- （无）', '【涉及文件】', '- （无）',
+  ].join('\n');
+}
+
 /**
  * 剧本「模型」：transcript 是归一后的历史 [{role, text, toolNames}]。找最后一条带正文的用户消息当指令（工具结果不算），
- * 看它之后已经发过哪些工具调用，决定下一步。没有工具的请求是自动取标题。
+ * 看它之后已经发过哪些工具调用，决定下一步。没有工具的请求有两种：压缩的摘要请求（正文里有「【新增对话】」），其余是自动取标题。
  */
 function decideStep(transcript, hasTools) {
-  if (!hasTools) return { kind: 'title', text: '发版冒烟' };
+  if (!hasTools) {
+    const text = transcript[transcript.length - 1]?.text ?? '';
+    return text.includes('【新增对话】') ? { kind: 'summary', text: mockSummary(text) } : { kind: 'title', text: '发版冒烟' };
+  }
   let at = -1;
   for (let i = transcript.length - 1; i >= 0; i--) {
     if (transcript[i].role === 'user' && transcript[i].text.trim() !== '') { at = i; break; }
@@ -740,12 +833,24 @@ function decideStep(transcript, hasTools) {
     case 'shell':
       if (!issued.includes('shell_execute')) return tool('shell_execute', { command: directive.command, timeout_seconds: 600, tool_title: '跑一条长命令' });
       return { kind: 'text', text: '命令结束了。' };
+    case 'remember':
+      return { kind: 'text', text: '收到。' };
+    case 'recall': {
+      // 压缩之后第一轮已经不在请求里：暗号只可能来自摘要那条消息
+      const found = RECALL_MARKER_RE.exec(transcript.map((m) => m.text).join('\n'));
+      return { kind: 'text', text: found ? found[0] : '不记得了。' };
+    }
     default: {
       // 追问文件名：从更早的指令里找
       const earlier = transcript.map((m) => (m.role === 'user' ? parseDirective(m.text) : undefined)).find((d) => d?.kind === 'write-read');
       return { kind: 'text', text: earlier?.file ?? '好的。' };
     }
   }
+}
+
+/** 没带工具的请求（取标题、摘要）：产品发它们时关着思考，假端点也不回思考块与推理。 */
+function isBareStep(step) {
+  return step.kind === 'title' || step.kind === 'summary';
 }
 
 function anthropicContent(m) {
@@ -794,7 +899,7 @@ function streamAnthropic(res, model, step, newSignature, newToolId) {
   const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
   ev('message_start', { message: { id: `msg_mock_${randomBytes(6).toString('hex')}`, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 42, output_tokens: 1 } } });
   let index = 0;
-  if (step.kind !== 'title') {
+  if (!isBareStep(step)) {
     // 新一代 Claude 缺省自适应思考：每步先回一个带签名的思考块，provider 下次回放时由 checkAnthropicRequest 核对签名
     ev('content_block_start', { index, content_block: { type: 'thinking', thinking: '', signature: '' } });
     ev('content_block_delta', { index, delta: { type: 'thinking_delta', thinking: '（假思考）按剧本走下一步。' } });
@@ -893,7 +998,7 @@ function streamOpenAI(res, body, step, withReasoning, newCallId) {
   const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
   const chunk = (delta, finish = null) => ({ id, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta, logprobs: null, finish_reason: finish }] });
   send(chunk({ role: 'assistant', content: '' }));
-  if (withReasoning && step.kind !== 'title') {
+  if (withReasoning && !isBareStep(step)) {
     // V4 思考模式：推理在 delta.reasoning_content，先于正文与工具调用
     for (const piece of splitText('（假推理）按剧本走下一步。', 2)) send(chunk({ reasoning_content: piece }));
   }
@@ -1082,10 +1187,10 @@ async function promptWithRetry(client, params) {
 
 /**
  * 从现在起收这个会话的 chat.event，直到 turnEnd 或 error。先挂监听再发 chat.prompt（chat.prompt 立即返回，事件随后才到）。
- * rec.tools 按 toolStart 的顺序记，toolEnd 回填结果。
+ * rec.tools 按 toolStart 的顺序记，toolEnd 回填结果。compacted 数这一轮写下了几条压缩记录，compactFailures 记压缩失败的说明。
  */
 function watchTurn(client, sessionId, timeoutMs) {
-  const rec = { terminal: undefined, errors: [], tools: [], retries: 0, text: '' };
+  const rec = { terminal: undefined, errors: [], tools: [], retries: 0, text: '', compacted: 0, compactFailures: [] };
   const byId = new Map();
   let stop;
   const done = new Promise((resolvePromise, reject) => {
@@ -1110,6 +1215,8 @@ function watchTurn(client, sessionId, timeoutMs) {
         const t = byId.get(ev.toolUseId);
         if (t) Object.assign(t, { success: ev.success === true, output: String(ev.output ?? ''), ended: true });
       } else if (ev.kind === 'retry') rec.retries++;
+      else if (ev.kind === 'compacted') rec.compacted++;
+      else if (ev.kind === 'compactFailed') rec.compactFailures.push(String(ev.message ?? ev.reason ?? ''));
       else if (ev.kind === 'error') rec.errors.push(String(ev.message ?? ''));
       if (ev.kind === 'turnEnd' || ev.kind === 'error') {
         clearTimeout(timer);
@@ -1156,7 +1263,7 @@ function readMemoryText(dir) {
 }
 
 // ---------------------------------------------------------------------------
-// 四个用例
+// 五个用例
 
 /** 用例 1、2 共用：建 provider 与会话，照剧本跑三轮，读回工作区文件与记忆文件，按 assessToolSession 判定；收尾删会话与 provider（连同凭据库里的 key）。
  *  建好就把 provider:<id> 记进 ctx.accounts：provider 删不成（引擎半路没了）时，清理靠这份清单核对、删掉凭据库里用户的 key。 */
@@ -1175,8 +1282,8 @@ export async function runToolSession(ctx, label, providerParams) {
       ctx.say(`  ${label} 第 ${i + 1} 轮：${describeTurn(t)}`);
       if (t.terminal?.kind !== 'turnEnd') break; // 这一轮都没过，后面的轮次缺前提，问了也只是多花钱
     }
-    // 引擎半路退出时这个调用也会失败：退回缺省工作区（sessions/<id>/workspace）照样判，结论里留着回合报的真正原因
-    const wsRoot = await client.call('workspace.get', { sessionId }).then((w) => w.root, () => join(ctx.dataRoot, 'sessions', sessionId, 'workspace'));
+    // 引擎半路退出时这个调用也会失败：退回缺省工作区（agent 根下的 sessions/<id>/workspace）照样判，结论里留着回合报的真正原因
+    const wsRoot = await client.call('workspace.get', { sessionId }).then((w) => w.root, () => join(ctx.agentRoot, 'sessions', sessionId, 'workspace'));
     const a = assessToolSession(turns, {
       file: pr.file, fileMarker: pr.fileMarker, memMarker: pr.memMarker,
       workspaceFileText: readTextIfExists(join(wsRoot, pr.file)),
@@ -1237,6 +1344,90 @@ async function caseDeepseek(ctx) {
     return { status: r.ok ? 'PASS' : 'FAIL', detail: lines.join('\n') };
   } finally {
     await server?.close();
+  }
+}
+
+/**
+ * 压缩用例里一个模型的会话：建 provider 与会话，第一轮（带填充文字与暗号）之后按实测把这个 provider 的上下文窗口改小，
+ * 再跑完余下三轮——第四轮开头凑齐「最近三个用户回合之前还有东西可摘」，引擎就会压缩第一轮。收尾同 runToolSession。
+ */
+export async function runCompactSession(ctx, label, providerParams) {
+  const { client } = ctx;
+  const created = await client.call('provider.instances.create', providerParams);
+  ctx.accounts.add(`provider:${created.id}`);
+  let sessionId;
+  try {
+    sessionId = (await client.call('chat.sessions.create', { title: `冒烟 压缩 ${label}` })).id;
+    // chat.contextInfo 按会话绑定找模型，不认 chat.prompt 带的 providerId
+    await client.call('chat.sessions.setModelBinding', { sessionId, binding: `provider:${created.id}` });
+    const pr = compactPrompts(hex(3));
+    const turns = [];
+    let window;
+    for (let i = 0; i < pr.turns.length; i++) {
+      const t = await runTurn(ctx, sessionId, pr.turns[i], created.id);
+      turns.push(t);
+      ctx.say(`  ${label} 第 ${i + 1} 轮：${describeTurn(t)}${t.compacted ? ' · 已压缩' : ''}${t.compactFailures.length ? ' · 压缩失败' : ''}`);
+      if (t.terminal?.kind !== 'turnEnd') break;
+      if (i === 0) {
+        const { budget } = await client.call('chat.contextInfo', { sessionId });
+        if (!budget) throw new Error('chat.contextInfo 没有给出请求预算，定不了要改成多大的窗口');
+        window = tightWindow(budget);
+        await client.call('provider.instances.update', { id: created.id, contextWindow: window });
+        ctx.say(`  ${label}：请求约 ${budget.input.tokens} token，上下文窗口临时改为 ${window}`);
+      }
+    }
+    const a = assessCompactSession(turns, { marker: pr.marker, expectedTurns: pr.turns.length });
+    const denied = ctx.denied.filter((d) => d.sessionId === sessionId).map((d) => `越出剧本的权限请求已拒绝（${d.kind}：${clip(d.detail, 80)}）`);
+    const summary = a.ok
+      ? `${turns.length} 轮都正常结束；窗口改为 ${window} 之后触发压缩并写下压缩记录，压缩之后答出了第一轮的暗号`
+      : a.problems.slice(0, 4).join('；');
+    return { ok: a.ok, summary: denied.length > 0 ? `${summary}（另：${denied.slice(0, 3).join('；')}）` : summary };
+  } finally {
+    if (sessionId) await client.call('chat.sessions.delete', { sessionId, confirm: true }, 20_000).catch(() => {});
+    await client.call('provider.instances.delete', { id: created.id, confirm: true }).catch(() => {});
+  }
+}
+
+/** 压缩：有哪把 key 就跑哪边的模型（--mock 两边都跑假端点）。每个模型的结论各占一行，同 caseAnthropic。 */
+async function caseCompact(ctx) {
+  const has = (k) => typeof ctx.env[k] === 'string' && ctx.env[k].trim() !== '';
+  const mockKey = (prefix) => { const key = `${prefix}${hex(8)}`; ctx.secrets.push(key); return key; };
+  const servers = [];
+  try {
+    const targets = [];
+    if (ctx.mock || has('ANTHROPIC_API_KEY')) {
+      const key = ctx.mock ? mockKey('sk-ant-smoke-mock-') : ctx.env.ANTHROPIC_API_KEY.trim();
+      const server = ctx.mock ? await startMockAnthropic({ apiKey: key }) : undefined;
+      if (server) servers.push(server);
+      for (const model of ANTHROPIC_MODELS) targets.push({ model, params: { kind: 'anthropic', modelId: model, apiKey: key, ...(server ? { baseUrl: server.url } : {}) } });
+    }
+    if (ctx.mock || has('DEEPSEEK_API_KEY')) {
+      const key = ctx.mock ? mockKey('sk-smoke-mock-') : ctx.env.DEEPSEEK_API_KEY.trim();
+      const server = ctx.mock ? await startMockOpenAI({ apiKey: key, requireReasoningEcho: true }) : undefined;
+      if (server) servers.push(server);
+      targets.push({ model: ctx.deepseekModel, params: { kind: 'openai-compat', modelId: ctx.deepseekModel, apiKey: key, baseUrl: server ? server.url : DEEPSEEK_BASE_URL } });
+    }
+    const lines = [];
+    let ok = true;
+    for (const { model, params } of targets) {
+      const gone = await engineGone(ctx, '已在前面');
+      if (gone) { ok = false; lines.push(`${model}：没有跑：${gone}`); continue; }
+      try {
+        const r = await runCompactSession(ctx, model, { name: `冒烟 压缩 ${model}`, ...params });
+        lines.push(`${model}：${r.summary}`);
+        if (!r.ok) ok = false;
+      } catch (e) {
+        ok = false;
+        lines.push(`${model}：异常：${firstLine(e)}`);
+      }
+    }
+    if (servers.length > 0) {
+      const hits = servers.flatMap((sv) => sv.hits);
+      lines.push(`（假端点共收到 ${hits.length} 次请求，其中摘要请求 ${hits.filter((h) => h.action === 'summary').length} 次，非 200 的 ${hits.filter((h) => h.status !== 200).length} 次）`);
+    }
+    return { status: ok ? 'PASS' : 'FAIL', detail: lines.join('\n') };
+  } finally {
+    for (const sv of servers) await sv.close();
   }
 }
 
@@ -1326,6 +1517,14 @@ export async function reapTree(tree, { isAlive, snapshot, kill, graceMs = 500, d
 export async function caseShellStop(ctx) {
   const { client, platform } = ctx;
   const command = pingCommand(platform);
+  if (platform === 'win32') {
+    // 命令隔离只在 Windows 上有。引擎起动后要先打完标签才算开着（starting → on），打不上就是 unavailable
+    const sandbox = await waitFor(async () => { const st = await client.call('sandbox.status'); return st?.state === 'starting' ? undefined : st; }, 60_000, 250);
+    if (sandbox?.state !== 'on') {
+      const why = sandbox ? `${sandbox.state}${sandbox.reason ? `：${sandbox.reason}` : ''}` : '等了 60 秒还在打标签';
+      return { status: 'FAIL', detail: `命令隔离没有开着（${why}）——用户默认是开着的，这一条要在它开着时测` };
+    }
+  }
   const server = await startMockOpenAI({ requireReasoningEcho: false });
   let providerId;
   let sessionId;
@@ -1372,7 +1571,7 @@ export async function caseShellStop(ctx) {
     const terminal = !rec ? 'chat.cancel 之后 20 秒回合没收尾'
       : rec.terminal?.kind === 'error' ? `回合以「${clip(rec.terminal.message, 40)}」收尾` : `回合以 ${rec.terminal?.kind} 收尾`;
     const pidList = pings.map((p) => p.pid).join(', ');
-    if (reap.ok) return { status: 'PASS', detail: `chat.cancel 后 ${goneMs}ms 内引擎名下的 ping 全部退出（pid ${pidList}）；${terminal}` };
+    if (reap.ok) return { status: 'PASS', detail: `chat.cancel 后 ${goneMs}ms 内引擎名下的 ping 全部退出（pid ${pidList}）；${terminal}${platform === 'win32' ? '；命令隔离开着' : ''}` };
     const killed = reap.killed.length > 0 ? `已由冒烟脚本结束 pid ${reap.killed.join(', ')}` : '核对不了身份，没有替你结束，请到任务管理器里看一眼';
     return { status: 'FAIL', detail: `chat.cancel 后 ${PING_GONE_DEADLINE_MS / 1000} 秒 ping 仍在（pid ${pidList}），进程树没回收干净；${killed}。${terminal}` };
   } finally {
@@ -1386,7 +1585,7 @@ export async function caseShellStop(ctx) {
   }
 }
 
-const CASES = { anthropic: caseAnthropic, deepseek: caseDeepseek, 'mcp-spaces': caseMcpSpaces, 'shell-stop': caseShellStop };
+const CASES = { anthropic: caseAnthropic, deepseek: caseDeepseek, compact: caseCompact, 'mcp-spaces': caseMcpSpaces, 'shell-stop': caseShellStop };
 
 // ---------------------------------------------------------------------------
 // 清理：清凭据库 → 记下引擎名下的进程 → 停引擎 → 再清一遍凭据库 → 结束没跟着引擎退的进程 → 扫明文 key → 删临时目录。
@@ -1576,7 +1775,7 @@ export async function cleanup(ctx) {
 }
 
 /**
- * 跑完整个冒烟，返回 { results, say, interrupted }：results 是结果表（四个用例 + 清理），print 收到的每一行都已脱敏。
+ * 跑完整个冒烟，返回 { results, say, interrupted }：results 是结果表（五个用例 + 清理），print 收到的每一行都已脱敏。
  * 中途收到 cleanupSignals 里的信号（Ctrl+C、SIGTERM、关终端或控制台窗口的 SIGHUP、Windows 的 Ctrl+Break）时不再开始新的工作
  * （连接不再给引擎发新请求，余下的用例不开），照样清理（清凭据库、停引擎并结束它名下没跟着退的进程、删临时目录），
  * 打出清理那一行，等输出写完再以 128+信号号退出；这时 interrupted 是那个信号，结果表不完整，调用方不该再打它。
@@ -1588,12 +1787,13 @@ export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSE
   const say = (line) => print(redactSecrets(line, secrets));
   const tempRoot = mkdtempSync(join(tmpdir(), 'dm-smoke-'));
   const dataRoot = join(tempRoot, 'data');
+  const agentRoot = join(tempRoot, 'agent');
+  const homeDir = join(tempRoot, 'home');
   const logDir = join(tempRoot, 'logs');
-  mkdirSync(dataRoot, { recursive: true });
-  mkdirSync(logDir, { recursive: true });
+  for (const dir of [dataRoot, agentRoot, join(homeDir, 'AppData', 'Roaming'), logDir]) mkdirSync(dir, { recursive: true });
   const vault = chooseVault({ memoryVault, platform, service: keyringServiceName(process.pid), loadKeyring });
   const ctx = {
-    mock, env, platform, deepseekModel, tempRoot, dataRoot, secrets, say, vault,
+    mock, env, platform, deepseekModel, tempRoot, dataRoot, agentRoot, secrets, say, vault,
     turnTimeoutMs: mock ? 60_000 : 240_000,
     engine: { child: undefined, exit: undefined, booted: false, stopping: false, tail: tailBuffer() },
     client: undefined,
@@ -1623,7 +1823,7 @@ export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSE
   for (const sig of signals) process.on(sig, onSignal);
 
   say('═'.repeat(64));
-  say(`  DeskMinis 发版冒烟${mock ? '（--mock：anthropic、deepseek 连脚本内起的假端点）' : '（真 key）'}`);
+  say(`  DeskMinis 发版冒烟${mock ? '（--mock：anthropic、deepseek、compact 连脚本内起的假端点）' : '（真 key）'}`);
   say('═'.repeat(64));
   say(`临时目录：${tempRoot}`);
   say(vault.kind === 'keyring'
@@ -1636,7 +1836,7 @@ export async function runSmoke({ mock, memoryVault, only, deepseekModel = DEEPSE
   let bootError;
   if (plan.some((p) => !p.skip)) {
     try {
-      const minisdEnv = buildMinisdEnv(env, { dataRoot, logDir, keyringService: vault.kind === 'keyring' ? vault.service : undefined });
+      const minisdEnv = buildMinisdEnv(env, { dataRoot, agentRoot, homeDir, logDir, keyringService: vault.kind === 'keyring' ? vault.service : undefined });
       const hs = await startMinisd(electronBin, minisdEntry, minisdEnv, ctx.engine, engineCwd(process.platform, tempRoot));
       ctx.engine.booted = true;
       ctx.client = await connectRpc(hs.port, hs.token);
