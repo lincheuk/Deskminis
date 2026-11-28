@@ -138,7 +138,7 @@ jobs:
       - name: Build update-rehearsal installer (never published)
         # 更新交接演练（docs/RELEASE.md 第 3 节）要用的高一版安装包，只放在这次运行的 Artifacts 里。
         # 用 bash：PowerShell 会把没加引号的 -c.extraMetadata.version=… 在点号处拆开。
-        if: ${{ inputs.draft_release || github.event_name == 'pull_request' }} # 临时：在 PR 上验证这一步，合并前撤掉
+        if: ${{ inputs.draft_release }}
         shell: bash
         run: |
           set -euo pipefail
@@ -148,7 +148,7 @@ jobs:
           test -f dist-rehearsal/latest.yml
 
       - name: Upload update-rehearsal installer
-        if: ${{ inputs.draft_release || github.event_name == 'pull_request' }} # 临时：在 PR 上验证这一步，合并前撤掉
+        if: ${{ inputs.draft_release }}
         uses: actions/upload-artifact@v6
         with:
           name: update-rehearsal
