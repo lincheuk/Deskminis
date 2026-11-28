@@ -4,7 +4,9 @@
  * 为什么要它：发版前的真 key 冒烟——新一代 Claude（Fable 5.1 / Opus 5.5）的多轮工具调用与 memory_write、
  * DeepSeek V4 第二轮起的 reasoning_content 回放、参数带空格路径的 MCP 试连、shell 里长命令点停止后进程树不留 ping——
  * 手工做一遍要十几步，还容易碰到用户真实的数据根与凭据。脚本把它做成一条命令，用户在 Windows 上跑；
- * --mock 把两个模型用例改连脚本内起的假端点，在 Linux 上就能验证脚本本身。
+ * --mock 把模型用例改连脚本内起的假端点，在 Linux 上就能验证脚本本身。
+ * 后来又加了两样（成熟度评估 C1、C2）：compact 用例把上下文窗口改小、让引擎真的压缩一次（压缩此前没在真模型上验过）；
+ * 引擎另给 agent 根，Windows 上命令隔离才开着（只给数据根时两者重叠，隔离不开，冒烟测的不是用户默认的形态）。
  *
  * 本文件分三层：
  *  1. 纯函数：参数解析、跳过判定、minisd 的环境、脱敏、握手行与致命行、结果表与退出码、剧本与指令、
@@ -18,7 +20,7 @@
  *  2. 假端点对真 provider：假端点的流式格式必须让 src 里的 AnthropicProvider / OpenAIProvider 解析出剧本里的工具调用；
  *     假端点照真端点拦下错误的请求（key 不对、思考块签名被改、tool_use 没有配对结果、DeepSeek V4 历史缺 reasoning_content）；
  *     脚本写出的最小 MCP 服务器能握手、列工具，参数被拆开时以 3 退出；
- *  3. 整条 --mock：先构建，再以 --mock --memory-vault 跑脚本——四个用例与「清理」都有结论、退出 0、临时目录已删；
+ *  3. 整条 --mock：先构建，再以 --mock --memory-vault 跑脚本——五个用例与「清理」都有结论、退出 0、临时目录已删；
  *     打印的每一行都先脱敏（key 恰好取一段一定会打印的字，输出里只剩 [已隐藏]）；输出管道被读的一端先关掉也不崩、照样清理；
  *     shell-stop 单独再走一遍（非 Windows 在 PATH 前面放照驱动行协议办事的假 powershell.exe 与假 ping，
  *     测的是权限卡放行、进程表里找 ping、chat.cancel 之后它退出这整条链）；清理那步的明文 key 扫描用一次植入来证明它接上了；
@@ -49,7 +51,13 @@ import { OpenAIProvider, requiresReasoningContentEcho } from '../src/minisd/prov
 import type { StreamRequest } from '../src/minisd/providers/types';
 import { parseMinisdFatal } from '../src/main/minisd-fatal';
 import { bridgePipePath } from '../src/minisd/bridge/server';
-import type { AgentMessage, AgentStreamEvent, AgentToolDefinition } from '../src/shared/types';
+import { sandboxDecision } from '../src/minisd/proc/sandbox';
+import { parseSummaryReply } from '../src/minisd/agent/compact-meta';
+import { flattenForSummary, SUMMARY_SYSTEM_PROMPT } from '../src/minisd/agent/compact';
+import { COMPACT_CAPS } from '../src/shared/compaction';
+import { buildRequestBudget, COMPACT_MIN_GAIN } from '../src/shared/request-budget';
+import { estimateTextTokens } from '../src/shared/token-estimate';
+import type { AgentMessage, AgentStreamEvent, AgentToolDefinition, RawMessage } from '../src/shared/types';
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = join(appRoot, 'scripts', 'smoke-release.mjs');
@@ -57,7 +65,7 @@ const SCRIPT = join(appRoot, 'scripts', 'smoke-release.mjs');
 type Status = 'PASS' | 'FAIL' | 'SKIP';
 interface CaseResult { name: string; status: Status; detail: string }
 interface ToolRecord { name: string; input: unknown; success: boolean; output: string }
-interface TurnRecord { terminal: { kind: string; message?: string; stopReason?: string }; errors: string[]; tools: ToolRecord[] }
+interface TurnRecord { terminal: { kind: string; message?: string; stopReason?: string }; errors: string[]; tools: ToolRecord[]; text?: string; compacted?: number; compactFailures?: string[] }
 interface MockHit { path: string; model: string; action: string; status: number }
 interface MockServer { url: string; hits: MockHit[]; close(): Promise<void> }
 interface ProcEntry { pid: number; ppid: number; name: string; start?: string; state?: string }
@@ -85,7 +93,7 @@ interface FakeClient {
   call(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
   onNotify(fn: (method: string, params: unknown) => void): () => void;
 }
-interface Directive { kind: string; file?: string; content?: string; markdown?: string; command?: string }
+interface Directive { kind: string; file?: string; content?: string; markdown?: string; command?: string; marker?: string }
 /** 脚本导出的形状（.mjs 没有类型声明，动态导入时在这里补上；静态 import .mjs 会让 typecheck 报缺声明）。 */
 interface SmokeModule {
   CASE_NAMES: string[];
@@ -98,12 +106,15 @@ interface SmokeModule {
   }): string | undefined;
   whichCommand(cmd: string, env: Record<string, string | undefined>, platform: string): string | undefined;
   keyringServiceName(pid: number): string;
-  buildMinisdEnv(base: Record<string, string | undefined>, o: { dataRoot: string; logDir: string; keyringService?: string }): Record<string, string>;
+  buildMinisdEnv(base: Record<string, string | undefined>, o: { dataRoot: string; agentRoot: string; homeDir: string; logDir: string; keyringService?: string }): Record<string, string>;
   redactSecrets(text: string, secrets: Array<string | undefined>): string;
   parseHandshakeLine(line: string): { port: number; token: string } | undefined;
   parseFatalLine(line: string): unknown;
   formatResults(results: CaseResult[]): { lines: string[]; exitCode: number };
   smokePrompts(nonce: string): { file: string; fileMarker: string; memMarker: string; turns: string[] };
+  compactPrompts(nonce: string): { marker: string; turns: string[] };
+  tightWindow(budget: { input: { tokens: number }; safetyMargin: number }): number;
+  assessCompactSession(turns: TurnRecord[], exp: { marker: string; expectedTurns: number }): { ok: boolean; problems: string[] };
   shellStopPrompt(command: string): string;
   pingCommand(platform: string): string;
   parseDirective(text: string): Directive;
@@ -147,7 +158,11 @@ interface SmokeModule {
     engine: { booted: boolean; stopping: boolean; exit?: { code: number | null; signal: string | null } }; client?: { closed: boolean };
   }): Promise<{ code: number | null; signal: string | null } | undefined>;
   runToolSession(ctx: {
-    client: FakeClient; accounts: Set<string>; turnTimeoutMs: number; dataRoot: string;
+    client: FakeClient; accounts: Set<string>; turnTimeoutMs: number; dataRoot: string; agentRoot: string;
+    denied: Array<{ sessionId: string }>; say(line: string): void;
+  }, label: string, providerParams: Record<string, unknown>): Promise<{ ok: boolean; summary: string }>;
+  runCompactSession(ctx: {
+    client: FakeClient; accounts: Set<string>; turnTimeoutMs: number;
     denied: Array<{ sessionId: string }>; say(line: string): void;
   }, label: string, providerParams: Record<string, unknown>): Promise<{ ok: boolean; summary: string }>;
   caseShellStop(ctx: unknown): Promise<{ status: string; detail: string }>;
@@ -221,7 +236,7 @@ describe('smoke-release：参数与跳过判定', () => {
     expect(() => m.parseArgs(['--bogus'])).toThrow(/不认识的参数 --bogus/);
     expect(() => m.parseArgs(['--only'])).toThrow(/--only 后面缺值/);
     expect(() => m.parseArgs(['--only', 'anthropic,nope'])).toThrow(/nope/);
-    expect(m.CASE_NAMES).toEqual(['anthropic', 'deepseek', 'mcp-spaces', 'shell-stop']);
+    expect(m.CASE_NAMES).toEqual(['anthropic', 'deepseek', 'compact', 'mcp-spaces', 'shell-stop']);
   });
 
   it('命令行：参数错误退 2 并说原因，--help 退 0（都不需要先构建）', () => {
@@ -271,6 +286,12 @@ describe('smoke-release：参数与跳过判定', () => {
     expect(m.skipReason('deepseek', { ...ctx, env: { DEEPSEEK_API_KEY: 'sk-something' } })).toBeUndefined();
     expect(m.skipReason('anthropic', { ...ctx, mock: true })).toBeUndefined();
     expect(m.skipReason('deepseek', { ...ctx, mock: true })).toBeUndefined();
+    // compact 两把 key 有一把就跑，两把都缺才跳过
+    expect(m.skipReason('compact', ctx)).toMatch(/^跳过（缺 ANTHROPIC_API_KEY 与 DEEPSEEK_API_KEY/);
+    expect(m.skipReason('compact', { ...ctx, env: { ANTHROPIC_API_KEY: '  ', DEEPSEEK_API_KEY: '' } })).toMatch(/^跳过（缺/);
+    expect(m.skipReason('compact', { ...ctx, env: { ANTHROPIC_API_KEY: 'sk-ant-something' } })).toBeUndefined();
+    expect(m.skipReason('compact', { ...ctx, env: { DEEPSEEK_API_KEY: 'sk-something' } })).toBeUndefined();
+    expect(m.skipReason('compact', { ...ctx, mock: true })).toBeUndefined();
     expect(m.skipReason('mcp-spaces', ctx)).toBeUndefined();
     // 非 Windows：tools/shell.ts 也起 powershell.exe（裸名），本机没有就测不了
     expect(m.skipReason('shell-stop', ctx)).toMatch(/^跳过（.*powershell\.exe/);
@@ -300,22 +321,29 @@ describe('smoke-release：隔离与脱敏', () => {
     expect(m.keyringServiceName(4242)).toBe('DeskMinis-smoke-4242');
   });
 
-  it('buildMinisdEnv：剥掉 key、外层的 DESKMINIS_*（不分大小写）与 MINISD_HOST，再写临时数据根、日志目录与凭据库选择', async () => {
+  it('buildMinisdEnv：剥掉 key、外层的 DESKMINIS_*（不分大小写）与 MINISD_HOST，再写临时数据根、单独的 agent 根、日志目录与凭据库选择；USERPROFILE / APPDATA 换成临时目录里的', async () => {
     const m = await load();
     const base = {
       PATH: '/usr/bin', HOME: '/home/u',
       ANTHROPIC_API_KEY: 'sk-ant-real', DEEPSEEK_API_KEY: 'sk-real',
-      DESKMINIS_DATA_DIR: '/real/root', DESKMINIS_KEYRING_SERVICE: 'DeskMinis', DESKMINIS_TEST: '1',
-      deskminis_fake_provider: '1', MINISD_HOST: '0.0.0.0',
+      DESKMINIS_DATA_DIR: '/real/root', DESKMINIS_AGENT_DIR: '/real/agent', DESKMINIS_KEYRING_SERVICE: 'DeskMinis', DESKMINIS_TEST: '1',
+      DESKMINIS_SANDBOX: '0', deskminis_fake_provider: '1', MINISD_HOST: '0.0.0.0',
+      // Windows 上变量名不分大小写：拷成普通对象之后写成什么样的都有，都得换掉，不能留下两份
+      UserProfile: 'C:\\Users\\real', AppData: 'C:\\Users\\real\\AppData\\Roaming',
     };
-    const keyring = m.buildMinisdEnv(base, { dataRoot: '/tmp/smoke/data', logDir: '/tmp/smoke/logs', keyringService: 'DeskMinis-smoke-7' });
+    const dirs = { dataRoot: '/tmp/smoke/data', agentRoot: '/tmp/smoke/agent', homeDir: '/tmp/smoke/home', logDir: '/tmp/smoke/logs' };
+    const keyring = m.buildMinisdEnv(base, { ...dirs, keyringService: 'DeskMinis-smoke-7' });
     expect(keyring).toEqual({
       PATH: '/usr/bin', HOME: '/home/u',
       ELECTRON_RUN_AS_NODE: '1', DESKMINIS_STANDALONE: '1',
-      DESKMINIS_DATA_DIR: '/tmp/smoke/data', DESKMINIS_LOG_DIR: '/tmp/smoke/logs',
+      DESKMINIS_DATA_DIR: '/tmp/smoke/data', DESKMINIS_AGENT_DIR: '/tmp/smoke/agent', DESKMINIS_LOG_DIR: '/tmp/smoke/logs',
+      // 引擎按这两个变量找 .ssh、.aws 这些位置打「沙箱不许读」的标签：指到临时目录里，真实用户目录一个不碰
+      USERPROFILE: '/tmp/smoke/home', APPDATA: join('/tmp/smoke/home', 'AppData', 'Roaming'),
       DESKMINIS_KEYRING_SERVICE: 'DeskMinis-smoke-7',
     });
-    const memory = m.buildMinisdEnv(base, { dataRoot: '/tmp/smoke/data', logDir: '/tmp/smoke/logs' });
+    // agent 根与数据根不重叠，产品才会开命令隔离（Windows 上）；交给引擎的环境里也没有强制关掉它的开关
+    expect(sandboxDecision({ env: keyring, platform: 'win32', root: keyring.DESKMINIS_DATA_DIR, agentRoot: keyring.DESKMINIS_AGENT_DIR })).toEqual({ enabled: true });
+    const memory = m.buildMinisdEnv(base, dirs);
     expect(memory.DESKMINIS_TEST).toBe('1');
     expect(memory).not.toHaveProperty('DESKMINIS_KEYRING_SERVICE');
     expect(memory).not.toHaveProperty('ANTHROPIC_API_KEY');
@@ -325,7 +353,7 @@ describe('smoke-release：隔离与脱敏', () => {
   it('buildMinisdEnv：交给引擎的凭据库服务名不是 DeskMinis-smoke-<进程号> 就拒绝——正式版、开发态的不行，空白也不行（引擎读到空白回落正式版的 DeskMinis）', async () => {
     const m = await load();
     for (const svc of ['DeskMinis', 'DeskMinis-dev', ' ', 'DeskMinis-smoke-']) {
-      expect(() => m.buildMinisdEnv({ PATH: '/usr/bin' }, { dataRoot: '/d', logDir: '/l', keyringService: svc }), JSON.stringify(svc))
+      expect(() => m.buildMinisdEnv({ PATH: '/usr/bin' }, { dataRoot: '/d', agentRoot: '/a', homeDir: '/h', logDir: '/l', keyringService: svc }), JSON.stringify(svc))
         .toThrow(/不是冒烟专用的 DeskMinis-smoke-<进程号>/);
     }
   });
@@ -800,7 +828,9 @@ describe('smoke-release：清理与选凭据库（Windows 真跑时唯一要删�
     const entry = join(dir, 'fake-minisd.mjs');
     writeFileSync(entry, [
       "import { writeFileSync } from 'node:fs';",
-      'writeFileSync(process.env.SMOKE_ENV_DUMP, JSON.stringify({ service: process.env.DESKMINIS_KEYRING_SERVICE ?? null, test: process.env.DESKMINIS_TEST ?? null }));',
+      'const e = process.env;',
+      'writeFileSync(e.SMOKE_ENV_DUMP, JSON.stringify({ service: e.DESKMINIS_KEYRING_SERVICE ?? null, test: e.DESKMINIS_TEST ?? null,',
+      '  data: e.DESKMINIS_DATA_DIR, agent: e.DESKMINIS_AGENT_DIR, home: e.USERPROFILE, appData: e.APPDATA, sandbox: e.DESKMINIS_SANDBOX ?? null }));',
       '',
     ].join('\n'));
     const lines: string[] = [];
@@ -816,7 +846,11 @@ describe('smoke-release：清理与选凭据库（Windows 真跑时唯一要删�
     cleanups.push(() => { if (root) rmSync(root, { recursive: true, force: true }); });
     expect(out).toContain(`凭据库：系统凭据库，服务名 ${svc}（`);
     expect(existsSync(dump), `假引擎没起来：\n${out}`).toBe(true);
-    expect(JSON.parse(readFileSync(dump, 'utf8')), '交给引擎的凭据库选择').toEqual({ service: svc, test: null });
+    const engineEnv = JSON.parse(readFileSync(dump, 'utf8')) as { service: string | null; test: string | null; data: string; agent: string; home: string; appData: string; sandbox: string | null };
+    expect({ service: engineEnv.service, test: engineEnv.test }, '交给引擎的凭据库选择').toEqual({ service: svc, test: null });
+    // 引擎的四个位置都在临时目录里：数据根、单独的 agent 根（两者不重叠，Windows 上命令隔离才开）、它当成用户目录去打标签的那两处
+    expect(engineEnv).toMatchObject({ data: join(root!, 'data'), agent: join(root!, 'agent'), home: join(root!, 'home'), appData: join(root!, 'home', 'AppData', 'Roaming'), sandbox: null });
+    expect(sandboxDecision({ env: {}, platform: 'win32', root: engineEnv.data, agentRoot: engineEnv.agent })).toEqual({ enabled: true });
     const clean = results.find(r => r.name === '清理');
     expect(clean?.status, clean?.detail).toBe('PASS');
     expect(clean?.detail).toContain(`凭据库 ${svc} 已清空（删 1 条）`);
@@ -891,6 +925,64 @@ describe('smoke-release：剧本、判定与权限卡', () => {
     expect(m.pingCommand('win32')).toBe('ping -t 127.0.0.1');
     expect(m.pingCommand('linux')).toBe('ping 127.0.0.1');
     expect(m.parseDirective(m.shellStopPrompt('ping -t 127.0.0.1'))).toEqual({ kind: 'shell', command: 'ping -t 127.0.0.1' });
+  });
+
+  it('压缩剧本：四轮都不用工具；第一轮带暗号与够摘的填充文字，第四轮问暗号，假端点从提示里读得出这两样', async () => {
+    const m = await load();
+    const pr = m.compactPrompts('a1b2c3');
+    expect(pr.marker).toBe('SMOKE-A1B2C3-RECALL');
+    expect(pr.turns.map(t => m.parseDirective(t))).toEqual([{ kind: 'remember', marker: pr.marker }, { kind: 'text' }, { kind: 'text' }, { kind: 'recall' }]);
+    // 暗号在最前面：程序记录里较早的用户原话只留开头这么多字（摘要请求里单条消息留头 4000 字，更宽）
+    expect(pr.turns[0].indexOf(pr.marker) + pr.marker.length).toBeLessThan(COMPACT_CAPS.instructionHead);
+    // 产品只在「这一次能摘走的」不少于 COMPACT_MIN_GAIN 时才为减压发摘要请求，按校准后的估算；校准系数最低 0.5
+    expect(estimateTextTokens(pr.turns[0])).toBeGreaterThanOrEqual(2 * COMPACT_MIN_GAIN);
+  });
+
+  it('tightWindow：照它改窗口，产品算出的预算落在「余量不足」（循环据此减压），不到「放不下」；第一轮被摘走之后回到正常——校准系数 0.5 到 2、固定开销大小都一样', async () => {
+    const m = await load();
+    const filler = estimateTextTokens(m.compactPrompts('a1b2c3').turns[0]);
+    const calibrations = [{ ratio: 1, calibrated: false }, { ratio: 0.5, calibrated: true }, { ratio: 1.2, calibrated: true }, { ratio: 2, calibrated: true }];
+    for (const fixed of [3_000, 15_000]) for (const calibration of calibrations) {
+      // 手动填窗口时产品给的约束形态（providers/runtime-model.ts 的 limitProfile）：输入与输出共占这一个窗口
+      const budget = (window: number, history: number): ReturnType<typeof buildRequestBudget> => buildRequestBudget({
+        slot: { label: '冒烟', modelId: 'x', key: 'x' },
+        measure: { system: fixed / 2, systemStable: fixed / 2, tools: fixed / 2, toolCount: 12, history, reasoningReplay: 0, media: [] },
+        limits: { kind: 'shared', inputLimit: window, sharedWindow: window, outputCap: 64_000, windowKnown: true, authority: 'manual', basis: 'window', note: '' },
+        calibration, preference: { tokens: 65_536, source: 'default' },
+      });
+      const where = `固定开销 ${fixed}、校准 ${calibration.ratio}`;
+      const first = budget(200_000, filler + 10);
+      expect(first.status, where).toBe('ok');
+      const window = m.tightWindow(first);
+      // 第二、三、四轮：历史比量的时候多几轮短问答
+      for (const more of [0, 300]) expect(budget(window, filler + 10 + more).status, `${where}、多 ${more}`).toBe('tight');
+      expect(budget(window, 600).status, `${where}、摘走之后`).toBe('ok');
+    }
+  });
+
+  it('assessCompactSession：四轮都正常收尾、没有压缩失败、写下过压缩记录、最后一轮答出暗号才算过', async () => {
+    const m = await load();
+    const marker = 'SMOKE-A1B2C3-RECALL';
+    const turn = (o: Partial<TurnRecord> = {}): TurnRecord => ({ terminal: { kind: 'turnEnd', stopReason: 'endTurn' }, errors: [], tools: [], text: '好', compacted: 0, compactFailures: [], ...o });
+    const good = (): TurnRecord[] => [turn(), turn(), turn(), turn({ compacted: 1, text: `暗号是 ${marker}。` })];
+    const exp = { marker, expectedTurns: 4 };
+    expect(m.assessCompactSession(good(), exp)).toEqual({ ok: true, problems: [] });
+
+    const failed = good();
+    failed[3] = turn({ compactFailures: ['摘要格式不对：缺少小节【待办】'], text: marker });
+    expect(m.assessCompactSession(failed, exp).problems).toEqual(['压缩失败：摘要格式不对：缺少小节【待办】']);
+
+    const never = good();
+    never[3] = turn({ text: marker });
+    expect(m.assessCompactSession(never, exp).problems).toEqual(['没有触发压缩']);
+
+    const forgot = good();
+    forgot[3] = turn({ compacted: 1, text: '不记得了。' });
+    expect(m.assessCompactSession(forgot, exp).problems.join('\n')).toMatch(/^压缩成功，但压缩之后没答出第一轮的暗号（回答：不记得了。）/);
+
+    // 有回合出错时只报回合的错：没压缩、没答出暗号都是它的后果
+    const errored = [turn(), { terminal: { kind: 'error', message: 'Anthropic HTTP 400: prompt is too long' }, errors: ['Anthropic HTTP 400: prompt is too long'], tools: [] }];
+    expect(m.assessCompactSession(errored, exp).problems).toEqual(['第 2 轮以错误结束：Anthropic HTTP 400: prompt is too long']);
   });
 
   it('模型 ID 以代码里的规则为准：两个 Claude 在绑定模型表里（官方端点才发 drop_block），DeepSeek 缺省模型命中 V4 回放规则', async () => {
@@ -1241,6 +1333,49 @@ describe('smoke-release：假端点对真 provider', () => {
     expect(JSON.parse(call!.input)).toMatchObject({ command: 'ping -t 127.0.0.1' });
     expect(typeof JSON.parse(call!.input).tool_title).toBe('string');
   });
+
+  it('压缩剧本：两个假端点收到产品的摘要请求都回七个小节（产品的 parseSummaryReply 认）、暗号记在【约束】里、不回思考；压缩之后只凭摘要那条消息答得出暗号', async () => {
+    const m = await load();
+    const pr = m.compactPrompts('a1b2c3');
+    const aKey = 'sk-ant-unit-0123456789abcdef';
+    const dKey = 'sk-unit-0123456789abcdef';
+    const anthropic = await m.startMockAnthropic({ apiKey: aKey });
+    cleanups.push(() => anthropic.close());
+    const deepseek = await m.startMockOpenAI({ apiKey: dKey, requireReasoningEcho: true });
+    cleanups.push(() => deepseek.close());
+    const user = (text: string): AgentMessage => ({ role: 'user', parts: [{ type: 'text', value: text }] });
+    // DeepSeek 假端点要求每条 assistant 历史都带回推理；Anthropic 这边不看它
+    const bot = (text: string): AgentMessage => ({ role: 'assistant', parts: [{ type: 'text', value: text }], reasoningContent: '（推理）' });
+    const stored = (role: RawMessage['role'], text: string, n: number): RawMessage => ({
+      id: `M${n}`, sessionId: 'S1', role, parts: [{ type: 'text', value: text }], createdAt: n, updatedAt: n, sortOrder: n, streamInterruptCount: 0,
+    });
+    for (const { mock, p } of [
+      { mock: anthropic, p: new AnthropicProvider({ apiKey: aKey, modelId: 'claude-fable-5-1', baseUrl: anthropic.url }) },
+      { mock: deepseek, p: new OpenAIProvider({ apiKey: dKey, modelId: 'deepseek-v4-flash', baseUrl: deepseek.url }) },
+    ]) {
+      const chat = (messages: AgentMessage[]): Promise<AgentStreamEvent[]> => collect(p.streamAgentMessage({ messages, tools: TOOLS, maxTokens: 1024, thinkingLevel: 'off', systemPrompt: 's' }));
+      const first = await chat([user(pr.turns[0])]);
+      expect(callsOf(first)).toEqual([]);
+      expect(textOf(first)).toBe('收到。');
+
+      // 摘要请求照 CompactEngine 发的样子：正文是 flattenForSummary 压平的一条用户消息，不带工具，关思考
+      const summary = await collect(p.streamAgentMessage({
+        messages: [user(flattenForSummary(undefined, [stored('user', pr.turns[0], 1), stored('assistant', '收到。', 2)]))],
+        systemPrompt: SUMMARY_SYSTEM_PROMPT, tools: [], maxTokens: 4096, thinkingLevel: 'off',
+      }));
+      expect(mock.hits[mock.hits.length - 1]).toMatchObject({ action: 'summary', status: 200 });
+      expect(summary.filter(e => e.kind === 'thinkingDelta' || e.kind === 'thinkingComplete')).toEqual([]);
+      const parsed = parseSummaryReply(textOf(summary));
+      expect(parsed).toMatchObject({ ok: true, form: 'structured' });
+      expect(parsed.ok && parsed.form === 'structured' ? parsed.part.constraints.join('\n') : '').toContain(pr.marker);
+
+      // 压缩之后的第四轮：第一轮的原文不在了，前面是摘要那条消息
+      const after = [user(`[对话摘要] ${textOf(summary)}`), user(pr.turns[1]), bot('2'), user(pr.turns[2]), bot('4'), user(pr.turns[3])];
+      expect(textOf(await chat(after))).toBe(pr.marker);
+      expect(textOf(await chat(after.slice(1))), '请求里没有摘要那条消息时答不出来').toBe('不记得了。');
+      expect(mock.hits.every(h => h.status === 200)).toBe(true);
+    }
+  });
 });
 
 describe('smoke-release：最小 MCP 服务器', () => {
@@ -1388,6 +1523,7 @@ describe('smoke-release：与引擎的 RPC 连接', () => {
       closed: false,
       async call(method: string): Promise<unknown> {
         calls.push(method);
+        if (method === 'sandbox.status') return { state: 'on' }; // 只有 Windows 上才问
         if (method === 'provider.instances.create') return { id: 'P1' };
         if (method === 'chat.sessions.create') return { id: 'S1' };
         if (method === 'chat.prompt') throw new Error('chat.prompt：模型实例不存在');
@@ -1400,6 +1536,40 @@ describe('smoke-release：与引擎的 RPC 连接', () => {
     expect(listeners.size, '回合监听没摘').toBe(0);
     expect(ctx.allow).toEqual([]);
     expect(calls).toEqual(expect.arrayContaining(['chat.sessions.delete', 'provider.instances.delete']));
+  });
+
+  it('shell-stop 在 Windows 上先看命令隔离：还在打标签就等它，开着才往下测；没开（关着、打不上标签）直接判 FAIL 并写明原因，不起命令', async () => {
+    const m = await load();
+    /** 假引擎：sandbox.status 依次回 states（回完停在最后一个）；走到建 provider 就抛错收场——这里只看隔离这道门。 */
+    const run = async (states: Array<{ state: string; reason?: string }>): Promise<{ calls: string[]; result: { status: string; detail: string } | Error }> => {
+      const calls: string[] = [];
+      let asked = 0;
+      const client = {
+        closed: false,
+        async call(method: string): Promise<unknown> {
+          calls.push(method);
+          if (method === 'sandbox.status') return states[Math.min(asked++, states.length - 1)];
+          if (method === 'provider.instances.create') throw new Error('provider.instances.create：到这里为止');
+          return {};
+        },
+        onNotify(): () => void { return () => {}; },
+      };
+      const result = await m.caseShellStop({ client, platform: 'win32', allow: [], engine: { child: { pid: 0 } } }).catch((e: Error) => e);
+      return { calls, result };
+    };
+
+    const off = await run([{ state: 'off' }]);
+    expect(off.result).toEqual({ status: 'FAIL', detail: expect.stringMatching(/^命令隔离没有开着（off）/) });
+    expect(off.calls).toEqual(['sandbox.status']);
+
+    const unavailable = await run([{ state: 'unavailable', reason: '给 C:\\Users\\x\\.ssh 打标签失败' }]);
+    expect(unavailable.result).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('unavailable：给 C:\\Users\\x\\.ssh 打标签失败') });
+    expect(unavailable.calls).not.toContain('provider.instances.create');
+
+    const on = await run([{ state: 'starting' }, { state: 'starting' }, { state: 'on' }]);
+    expect(on.calls.filter(c => c === 'sandbox.status')).toHaveLength(3);
+    expect(on.result).toBeInstanceOf(Error);
+    expect(on.calls).toContain('provider.instances.create');
   });
 
   it('runToolSession：建过的 provider 登记成凭据库账户 provider:<id>（清理据此删用户的 key），收尾照删会话与 provider', async () => {
@@ -1422,11 +1592,44 @@ describe('smoke-release：与引擎的 RPC 连接', () => {
       },
       onNotify(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     };
-    const ctx = { client, accounts: new Set(['pairing.static-identity']), turnTimeoutMs: 5_000, dataRoot: dir, denied: [], say: () => {} };
+    const ctx = { client, accounts: new Set(['pairing.static-identity']), turnTimeoutMs: 5_000, dataRoot: dir, agentRoot: join(dir, 'agent'), denied: [], say: () => {} };
     const r = await m.runToolSession(ctx, 'claude-opus-5-5', { name: '冒烟', kind: 'anthropic', modelId: 'claude-opus-5-5', apiKey: 'sk-ant-x' });
     expect([...ctx.accounts]).toEqual(['pairing.static-identity', 'provider:P1']);
     expect(r.ok).toBe(false);
     expect(calls).toEqual(expect.arrayContaining(['chat.sessions.delete', 'provider.instances.delete']));
+  });
+
+  it('runToolSession：问不到工作区（引擎半路没了）时到缺省位置找文件——agent 根下的 sessions/<会话>/workspace，记忆仍在数据根下', async () => {
+    const m = await load();
+    const dataRoot = tempDir('dm-smoke-data-');
+    const agentRoot = tempDir('dm-smoke-agent-');
+    const listeners = new Set<(method: string, params: unknown) => void>();
+    const client: FakeClient = {
+      closed: false,
+      async call(method: string, params?: unknown): Promise<unknown> {
+        if (method === 'provider.instances.create') return { id: 'P1' };
+        if (method === 'chat.sessions.create') return { id: 'S1' };
+        if (method === 'workspace.get') throw new Error('workspace.get：与引擎的连接断了（引擎退出了？）');
+        if (method === 'chat.prompt') {
+          // 第一轮：把剧本要的文件放到缺省工作区（像引擎写完文件之后才没的）
+          const d = m.parseDirective(String((params as { text: string }).text));
+          if (d.kind === 'write-read') {
+            const ws = join(agentRoot, 'sessions', 'S1', 'workspace');
+            mkdirSync(ws, { recursive: true });
+            writeFileSync(join(ws, d.file!), `${d.content}\n`);
+          }
+          setTimeout(() => { for (const l of [...listeners]) l('chat.event', { sessionId: 'S1', event: { kind: 'turnEnd', stopReason: 'endTurn' } }); }, 0);
+        }
+        return {};
+      },
+      onNotify(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
+    };
+    const ctx = { client, accounts: new Set<string>(), turnTimeoutMs: 5_000, dataRoot, agentRoot, denied: [], say: () => {} };
+    const r = await m.runToolSession(ctx, 'claude-opus-5-5', { name: '冒烟', kind: 'anthropic', modelId: 'claude-opus-5-5', apiKey: 'sk-ant-x' });
+    // 没调工具，判定照样是 FAIL；但文件是找到了的
+    expect(r.ok).toBe(false);
+    expect(r.summary).toMatch(/没有成功的 file_write/);
+    expect(r.summary).not.toMatch(/工作区里没有/);
   });
 
   it('runToolSession：provider 一建好就登记，紧接着建会话就失败（引擎半路没了）也不漏——凭据库里那条存着用户的 key，系统不支持枚举时清理只认这份清单', async () => {
@@ -1442,11 +1645,92 @@ describe('smoke-release：与引擎的 RPC 连接', () => {
       },
       onNotify() { return () => {}; },
     };
-    const ctx = { client, accounts: new Set(['pairing.static-identity']), turnTimeoutMs: 5_000, dataRoot: tempDir('dm-smoke-session-'), denied: [], say: () => {} };
+    const dir = tempDir('dm-smoke-session-');
+    const ctx = { client, accounts: new Set(['pairing.static-identity']), turnTimeoutMs: 5_000, dataRoot: dir, agentRoot: join(dir, 'agent'), denied: [], say: () => {} };
     await expect(m.runToolSession(ctx, 'claude-opus-5-5', { name: '冒烟', kind: 'anthropic', modelId: 'claude-opus-5-5', apiKey: 'sk-ant-x' }))
       .rejects.toThrow(/^chat\.sessions\.create：/);
     expect([...ctx.accounts]).toEqual(['pairing.static-identity', 'provider:P2']);
     expect(calls, '建过的 provider 收尾照删').toContain('provider.instances.delete');
+  });
+
+  /** 压缩会话用的假引擎：chat.prompt 一来，就把 script 给的这一轮事件发回去。calls 记下每次 RPC。 */
+  function compactEngine(script: (turn: number, text: string) => Array<Record<string, unknown>>, budget: unknown): { client: FakeClient; calls: Array<{ method: string; params: unknown }> } {
+    const listeners = new Set<(method: string, params: unknown) => void>();
+    const calls: Array<{ method: string; params: unknown }> = [];
+    let turn = 0;
+    const client: FakeClient = {
+      closed: false,
+      async call(method: string, params?: unknown): Promise<unknown> {
+        calls.push({ method, params });
+        if (method === 'provider.instances.create') return { id: 'P1' };
+        if (method === 'chat.sessions.create') return { id: 'S1' };
+        if (method === 'chat.contextInfo') return { windowTokens: 200_000, usedTokens: 11_800, remaining: 188_200, ...(budget ? { budget } : {}) };
+        if (method === 'chat.prompt') {
+          const events = script(++turn, String((params as { text: string }).text));
+          setTimeout(() => { for (const event of events) for (const l of [...listeners]) l('chat.event', { sessionId: 'S1', event }); }, 0);
+        }
+        return {};
+      },
+      onNotify(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
+    };
+    return { client, calls };
+  }
+  const BUDGET = { input: { tokens: 11_800 }, safetyMargin: 1_770 };
+  const PROVIDER = { name: '冒烟 压缩', kind: 'anthropic', modelId: 'claude-opus-5-5', apiKey: 'sk-ant-x' };
+
+  it('runCompactSession：先把会话绑到这个 provider，第一轮之后按 chat.contextInfo 量到的预算把窗口改小（只改一次），跑完四轮；压缩过、答出暗号才算过', async () => {
+    const m = await load();
+    let marker = '';
+    const { client, calls } = compactEngine((turn, text) => {
+      if (turn === 1) marker = m.parseDirective(text).marker ?? '';
+      return [
+        ...(turn === 4 ? [{ kind: 'compacted', markerId: 'K1', summary: '【目标】…' }] : []),
+        { kind: 'textDelta', text: turn === 4 ? marker : '好' },
+        { kind: 'turnEnd', stopReason: 'endTurn' },
+      ];
+    }, BUDGET);
+    const ctx = { client, accounts: new Set<string>(), turnTimeoutMs: 5_000, denied: [], say: () => {} };
+    const window = m.tightWindow(BUDGET);
+    const r = await m.runCompactSession(ctx, 'claude-opus-5-5', PROVIDER);
+    expect(marker).toMatch(/^SMOKE-[0-9A-F]{6}-RECALL$/);
+    expect(r).toEqual({ ok: true, summary: `4 轮都正常结束；窗口改为 ${window} 之后触发压缩并写下压缩记录，压缩之后答出了第一轮的暗号` });
+    expect([...ctx.accounts]).toEqual(['provider:P1']);
+
+    const at = (method: string): number[] => calls.flatMap((c, i) => (c.method === method ? [i] : []));
+    const prompts = at('chat.prompt');
+    expect(prompts).toHaveLength(4);
+    // chat.contextInfo 按会话绑定找模型：不先绑，量到的就是缺省模型的预算
+    expect(at('chat.sessions.setModelBinding')).toHaveLength(1);
+    expect(calls[at('chat.sessions.setModelBinding')[0]].params).toEqual({ sessionId: 'S1', binding: 'provider:P1' });
+    expect(at('chat.sessions.setModelBinding')[0]).toBeLessThan(prompts[0]);
+    const updates = at('provider.instances.update');
+    expect(updates).toHaveLength(1);
+    expect(calls[updates[0]].params).toEqual({ id: 'P1', contextWindow: window });
+    expect(updates[0]).toBeGreaterThan(prompts[0]);
+    expect(updates[0]).toBeLessThan(prompts[1]);
+    expect(calls.slice(-2).map(c => c.method)).toEqual(['chat.sessions.delete', 'provider.instances.delete']);
+  });
+
+  it('runCompactSession：引擎报压缩失败（compactFailed）就判不过，结论里带上引擎说的原因', async () => {
+    const m = await load();
+    const { client } = compactEngine((turn) => [
+      ...(turn === 4 ? [{ kind: 'compactFailed', reason: 'malformed', message: '摘要格式不对：缺少小节【待办】', trigger: 'relief' }] : []),
+      { kind: 'textDelta', text: '好' },
+      { kind: 'turnEnd', stopReason: 'endTurn' },
+    ], BUDGET);
+    const r = await m.runCompactSession({ client, accounts: new Set<string>(), turnTimeoutMs: 5_000, denied: [], say: () => {} }, 'claude-opus-5-5', PROVIDER);
+    expect(r).toEqual({ ok: false, summary: '压缩失败：摘要格式不对：缺少小节【待办】' });
+  });
+
+  it('runCompactSession：chat.contextInfo 没给预算就定不了窗口——报错收场，不瞎改窗口、不接着花钱跑后三轮，会话与 provider 照删', async () => {
+    const m = await load();
+    const { client, calls } = compactEngine(() => [{ kind: 'textDelta', text: '好' }, { kind: 'turnEnd', stopReason: 'endTurn' }], undefined);
+    await expect(m.runCompactSession({ client, accounts: new Set<string>(), turnTimeoutMs: 5_000, denied: [], say: () => {} }, 'claude-opus-5-5', PROVIDER))
+      .rejects.toThrow(/chat\.contextInfo 没有给出请求预算/);
+    const methods = calls.map(c => c.method);
+    expect(methods.filter(x => x === 'chat.prompt')).toHaveLength(1);
+    expect(methods).not.toContain('provider.instances.update');
+    expect(methods.slice(-2)).toEqual(['chat.sessions.delete', 'provider.instances.delete']);
   });
 });
 
@@ -1525,7 +1809,7 @@ describe('smoke-release：整条 --mock（先构建）', () => {
     return { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH ?? ''}` };
   }
 
-  it('四个用例与清理都有结论、退出 0；输出里没有任何 key；临时目录已删（总时长 90 秒内）', async () => {
+  it('五个用例与清理都有结论、退出 0；输出里没有任何 key；临时目录已删（总时长 90 秒内）', async () => {
     // 环境里故意放两把「真 key」：--mock 不该用它们，也绝不能让它们出现在输出里
     const envKeyA = 'sk-ant-envkey-must-not-leak-0123456789';
     const envKeyD = 'sk-envkey-must-not-leak-9876543210';
@@ -1533,6 +1817,13 @@ describe('smoke-release：整条 --mock（先构建）', () => {
     expect(r.code, r.out).toBe(0);
     expect(row(r.out, 'anthropic'), r.out).toMatch(/^PASS/);
     expect(row(r.out, 'deepseek'), r.out).toMatch(/^PASS/);
+    // 压缩：三个模型各自真的走到引擎压缩那一步（假端点各收到一次摘要请求），压缩之后都答出了暗号
+    const compact = rowBlock(r.out, 'compact');
+    expect(compact, r.out).toMatch(/^PASS/);
+    for (const model of ['claude-fable-5-1', 'claude-opus-5-5', 'deepseek-v4-flash']) {
+      expect(compact, r.out).toMatch(new RegExp(`${model}：4 轮都正常结束；窗口改为 \\d+ 之后触发压缩并写下压缩记录，压缩之后答出了第一轮的暗号`));
+    }
+    expect(compact, r.out).toMatch(/其中摘要请求 3 次，非 200 的 0 次/);
     expect(row(r.out, 'mcp-spaces'), r.out).toMatch(/^PASS/);
     // Linux 容器里没有 powershell.exe：写明原因的 SKIP（下一例用假的补上）；Windows 上真跑并 PASS
     expect(row(r.out, 'shell-stop'), r.out).toMatch(/^(PASS|SKIP\s+shell-stop\s+跳过（.*(powershell\.exe|ping))/);
@@ -1613,6 +1904,8 @@ describe('smoke-release：整条 --mock（先构建）', () => {
     const r = await runScript(['--mock', '--memory-vault', '--only', 'shell-stop'], env);
     expect(r.code, r.out).toBe(0);
     expect(row(r.out, 'shell-stop'), r.out).toMatch(/^PASS\s+shell-stop\s+chat\.cancel 后 \d+ms 内引擎名下的 ping 全部退出（pid \d+/);
+    // Windows 上这一条是在命令隔离开着时测的（引擎另有 agent 根，隔离才开得起来）；没开会判 FAIL，走不到上面那句
+    if (process.platform === 'win32') expect(row(r.out, 'shell-stop'), r.out).toMatch(/；命令隔离开着$/);
     expect(row(r.out, '清理'), r.out).toMatch(/^PASS/);
   }, 90_000);
 
@@ -1648,7 +1941,7 @@ describe('smoke-release：整条 --mock（先构建）', () => {
     expect(r.out, '引擎没了之后不该再有 RPC 干等到超时').not.toMatch(/秒没有应答/);
     // 引擎死在哪个用例里，那一行第一句就点明；排在后面的一律「没有跑」。杀得几乎是一握手就动手，所以多半死在 anthropic 里；
     // 机器极忙、杀晚了的话前面的用例可能已经跑完（那就该是 PASS）
-    const ran = ['anthropic', 'deepseek', 'mcp-spaces', 'shell-stop'].map(name => ({ name, block: rowBlock(r.out, name) })).filter(c => !/^SKIP/.test(c.block));
+    const ran = ['anthropic', 'deepseek', 'compact', 'mcp-spaces', 'shell-stop'].map(name => ({ name, block: rowBlock(r.out, name) })).filter(c => !/^SKIP/.test(c.block));
     const during = ran.findIndex(c => new RegExp(`^FAIL\\s+${c.name}\\s+引擎在这个用例进行中退出（`).test(c.block));
     expect(during, r.out).toBeGreaterThanOrEqual(0);
     for (const c of ran.slice(0, during)) expect(c.block, r.out).toMatch(/^PASS/);
