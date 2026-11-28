@@ -40,8 +40,8 @@ export class OffloadEngine {
    * 这次工具调用是不是「用 file_read 读回本会话的卸载文件」（W2a-5）。是则给出宿主绝对路径，否则 undefined。
    * 为什么要认出来：读回的内容照样超过卸载阈值，旧实现会把它再卸载成一个新文件、落库一个新桩——
    * 模型照着桩去读，永远只拿到下一个桩，卸载掉的内容实际上取不回来。
-   * 判定走 resolveGuestPath 而不是比字符串：guest 路径 /var/minis/offloads/<id>.txt 和（Windows 上的）
-   * 宿主绝对路径两种写法都要认；解析抛错（未知命名空间、穿越、Linux 上的 POSIX 绝对路径）一律当「不是读回」，
+   * 判定走 resolveGuestPath 而不是比字符串：guest 路径 /var/minis/offloads/<id>.txt 和
+   * 宿主绝对路径两种写法都要认；解析抛错（未知命名空间、穿越）一律当「不是读回」，
    * 那种调用工具自己会报错，这里不该抢先抛。只认本会话的 offloads 桶：别的会话的卸载文件不归这里放行。
    */
   readBackOf(sessionId: string, toolName: string, inputJson: string): { absPath: string } | undefined {

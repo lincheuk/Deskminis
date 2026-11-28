@@ -1,6 +1,7 @@
 import {it,expect} from 'vitest';import fs from 'node:fs';import {join,resolve} from 'node:path';import {tmpdir} from 'node:os';import {pathToFileURL} from 'node:url';
 const load=()=>import(pathToFileURL(join(__dirname,'../scripts/windows-package-stage.mjs')).href);
-it('F12 packaging copies a junction target into an independent physical dependency tree',async()=>{
+// Junctions are an NTFS feature: elsewhere the 'junction' type is ignored and the link is a plain symlink, which the cleanup below cannot rmdir.
+it.runIf(process.platform==='win32')('F12 packaging copies a junction target into an independent physical dependency tree',async()=>{
  const root=fs.mkdtempSync(join(tmpdir(),'dm-f12-stage-')),app=join(root,'source/deskminis'),deps=join(root,'locked-deps'),link=join(app,'node_modules');const write=(path:string,bytes:string)=>{fs.mkdirSync(resolve(path,'..'),{recursive:true});fs.writeFileSync(path,bytes);};
  try{
   for(const f of ['package.json','package-lock.json','electron-builder.yml','out/main/minisd.js','resources/tray.png','build/icon.ico','src/minisd/bridge-cli.mjs','scripts/bridge-node.cmd'])write(join(app,f),'fixed:'+f);

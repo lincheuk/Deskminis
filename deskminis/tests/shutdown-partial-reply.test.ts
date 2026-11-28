@@ -13,7 +13,7 @@
  * 删除会话那条按会话过滤的调用点不能被带歪（另一个会话的卡与 run 不受影响）；standalone 收到 shutdown 要等 close 做完才退。
  *
  * 权限卡用 file_write 写 /var/minis/skills/x/SKILL.md 触发（W1b-2 之后技能目录走卡）；
- * 不用 POSIX 绝对路径——paths.ts 在 Linux 上对它直接抛错，走不到网关（设计稿 §1 第 7 条）。
+ * 不用 POSIX 绝对路径——写这组用例时 paths.ts 在 Linux 上还不认它，直接抛错，走不到网关（设计稿 §1 第 7 条）。
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';

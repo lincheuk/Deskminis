@@ -132,7 +132,9 @@ describe('Q03 实际 ASAR 的包构成与许可', () => {
     });
   });
 
-  it.each(['valid', 'asar-over-limit'])('Electron Node 子进程启用默认 ASAR 拦截：%s 仍量物理文件并检查上限', async scenario => {
+  // 这两例起的是 Electron 的可执行文件（看的就是它对 ASAR 的默认拦截）。用纯 Node 跑单测时不装 Electron
+  // （docs/TESTING.md「Linux 与纯 Node」），跳过。
+  it.runIf(process.versions.electron !== undefined).each(['valid', 'asar-over-limit'])('Electron Node 子进程启用默认 ASAR 拦截：%s 仍量物理文件并检查上限', async scenario => {
     await fixture(scenario, async (resources, installer, root) => {
       const script = join(__dirname, '../scripts/windows-package-composition.mjs');
       const output = join(root, 'child-report.json');

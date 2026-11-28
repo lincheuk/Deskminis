@@ -224,13 +224,13 @@ describe('OffloadEngine.readBackOf（单元）', () => {
     expect(e.readBackOf(SID, 'file_read', input('T1.txt'))).toBeUndefined();
   });
 
-  it('宿主绝对路径：resolveGuestPath 抛错（Linux 上的 POSIX 绝对路径）时返回 undefined 而不是抛；Windows 上盘符路径照常命中', () => {
+  it('宿主绝对路径照常命中（Windows 上是盘符路径，POSIX 上是 / 开头的路径）；resolveGuestPath 抛错时返回 undefined 而不是抛', () => {
     const { paths, e } = mk();
     const abs = join(paths.sessionBucket(SID, 'offloads'), 'T1.txt');
-    // 同一个断言在两个平台上各自成立：paths.ts 只认盘符开头的宿主绝对路径，POSIX 绝对路径直接抛「不支持的绝对 guest 路径」
-    const expected = process.platform === 'win32' ? { absPath: abs } : undefined;
-    expect(() => e.readBackOf(SID, 'file_read', input(abs))).not.toThrow();
-    expect(e.readBackOf(SID, 'file_read', input(abs))).toEqual(expected);
+    expect(e.readBackOf(SID, 'file_read', input(abs))).toEqual({ absPath: abs });
+    // 未知命名空间在两个平台上都让 resolveGuestPath 抛错
+    expect(() => e.readBackOf(SID, 'file_read', input('/var/minis/nope/T1.txt'))).not.toThrow();
+    expect(e.readBackOf(SID, 'file_read', input('/var/minis/nope/T1.txt'))).toBeUndefined();
   });
 });
 
@@ -382,7 +382,7 @@ describe('W1b-2d 分段读回长卸载文件（loop 级，真实 file_read）', 
     const OTHER = 'FFFFFFFF-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
     paths.ensureSessionDirs(OTHER);
     writeFileSync(join(paths.sessionBucket(OTHER, 'offloads'), 'T1.txt'), 'O'.repeat(60_000), 'utf8');
-    // Linux 上 POSIX 绝对路径进不了工具（paths.ts 直接抛），把工作区绑到别的会话的 offloads 桶，用相对路径点过去
+    // 把工作区绑到别的会话的 offloads 桶，用相对路径点过去（写这例时 paths.ts 在 Linux 上还不认 POSIX 绝对路径；相对路径在两个平台上都成立）
     paths.setWorkspaceResolver(() => paths.sessionBucket(OTHER, 'offloads'));
     const provider = readThenEnd('R1', 'T1.txt', { offset: 0, limit: 30_000 });
     const events = await collect(runAgentLoop(store, { sessionId, provider, tools, toolContext, systemPrompt: 'sys', offloadEngine }));

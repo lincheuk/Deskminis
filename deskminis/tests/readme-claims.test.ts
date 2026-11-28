@@ -216,8 +216,8 @@ describe('README 声明守卫（仓库根 README.md）', () => {
   it('① 不写死测试例数——例数每个提交都在变，写进 README 就一定过期', () => {
     expect(
       testCountClaims(readme),
-      'README 里写死了测试例数。改成不带数字的说法（例如「Windows 上应全绿；Linux 上 Windows 专属用例会失败」），'
-      + '例数与失败基线写在提交正文和 docs/RELEASE.md 里',
+      'README 里写死了测试例数。改成不带数字的说法（例如「Windows 上应全绿；Linux 上 Windows 专属用例会跳过」），'
+      + '例数写在提交正文里',
     ).toEqual([]);
   });
 

@@ -14,8 +14,8 @@
  *   数据根或工作区本身经链接给出时，里面的路径也不会被判成根外；
  * - 搜索：数据根落在基准之内时跳过它的子树，并在尾注说明。
  *
- * Linux 上 paths.resolveGuestPath 拒绝 POSIX 绝对路径（paths.ts「不支持的绝对 guest 路径」），
- * 所以宿主绝对路径的用例直接调用导出的 guardWrite / guardRead；/var/minis/* 与相对路径的用例走真工具。
+ * 宿主绝对路径的用例直接调用导出的 guardWrite / guardRead；/var/minis/* 与相对路径的用例走真工具。
+ * （写这些用例时 paths.resolveGuestPath 在 Linux 上还不认 POSIX 绝对路径，所以绕开它；现在认了，直接调用照样成立。）
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, symlinkSync } from 'node:fs';

@@ -8,6 +8,9 @@ import { startMinisd, SYSTEM_PROMPT } from '../src/minisd/index';
 import { bridgePipePath } from '../src/minisd/bridge/server';
 import { pipeRequest } from './bridge-util';
 
+/** 下面标了 HAS_PS 的用例要起真的 powershell.exe，非 Windows 上跳过。 */
+const HAS_PS = process.platform === 'win32';
+
 beforeAll(() => {
   process.env.DESKMINIS_TEST = '1';
   process.env.DESKMINIS_FAKE_PROVIDER = '1';
@@ -42,7 +45,7 @@ function rpcClient(port: number, authToken: string) {
 }
 
 describe('minisd 桥装配', () => {
-  it('返回值带 bridgePipe 且与数据根派生一致；真管道可调 windows-device info（bypass 不问权限）', async () => {
+  it.runIf(HAS_PS)('返回值带 bridgePipe 且与数据根派生一致；真管道可调 windows-device info（bypass 不问权限）', async () => {
     const { bridgePipe, dataDir } = await boot();
     expect(bridgePipe).toBe(bridgePipePath(dataDir));
     const env = await pipeRequest(bridgePipe!, {
@@ -53,7 +56,7 @@ describe('minisd 桥装配', () => {
     expect((env.data as Record<string, unknown>).computerName).toBe(process.env.COMPUTERNAME);
   }, 30000);
 
-  it('权限定域端到端：管道调 clipboard get → RPC 收到 permission.request(kind=bridge-clipboard-read) → allow-session → 第二次不再问', async () => {
+  it.runIf(HAS_PS)('权限定域端到端：管道调 clipboard get → RPC 收到 permission.request(kind=bridge-clipboard-read) → allow-session → 第二次不再问', async () => {
     const { port, authToken, bridgePipe } = await boot();
     const c = rpcClient(port, authToken);
     await c.ready;

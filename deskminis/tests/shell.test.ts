@@ -7,11 +7,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeBridgeEnv, resolveBridgeCliPath, resolveBridgeNode } from '../src/minisd/bridge/server';
 
+/** 下面标了 HAS_PS 的用例要起真的 powershell.exe，非 Windows 上跳过。
+ *  POSIX 待移植：命令执行有了 bash 驱动之后，哨兵协议、退出码、中断、环境变量这些要在别的平台上有对应的用例。 */
+const HAS_PS = process.platform === 'win32';
+
 const shells: PersistentShell[] = [];
 afterAll(() => { for (const s of shells) s.dispose(); });
 function mk(cwd = tmpdir()): PersistentShell { const s = new PersistentShell(cwd); shells.push(s); return s; }
 
-describe('PersistentShell (真实 powershell)', () => {
+describe.runIf(HAS_PS)('PersistentShell (真实 powershell)', () => {
   it('echo 输出与退出码 0', async () => {
     const r = await mk().run('Write-Output "你好世界"');
     expect(r.output.trim()).toBe('你好世界');
@@ -144,7 +148,7 @@ describe('shell_execute 工具', () => {
     mgr.disposeAll();
   });
 
-  it('envFor 注入的变量在会话 shell 可见（MINIS_* 桥环境）', async () => {
+  it.runIf(HAS_PS)('envFor 注入的变量在会话 shell 可见（MINIS_* 桥环境）', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dm-sh-env-'));
     const paths = new MinisPaths(root); paths.ensureSessionDirs('S1');
     const mgr = new ShellManager();
@@ -156,7 +160,7 @@ describe('shell_execute 工具', () => {
     mgr.disposeAll();
   });
 
-  it('真实 PowerShell 链路：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" --help 输出桥帮助（electron GUI PE 的 stdout 缺陷回归）', async () => {
+  it.runIf(HAS_PS)('真实 PowerShell 链路：& "$env:MINIS_BRIDGE_NODE" "$env:MINIS_BRIDGE_CLI" --help 输出桥帮助（electron GUI PE 的 stdout 缺陷回归）', async () => {
     // 手工验收步骤 1 发现：electron.exe 是 GUI 子系统 PE，PowerShell & 直调不等待/不接管 stdout，
     // 输出全空且 $LASTEXITCODE 不设；node.exe（CONSOLE 子系统）正常。
     // 本用例用 ShellManager + makeShellTool 真起 PowerShell，envFor 注入 makeBridgeEnv，

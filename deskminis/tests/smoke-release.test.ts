@@ -1458,7 +1458,11 @@ describe('smoke-release：package.json 入口', () => {
   });
 });
 
-describe('smoke-release：整条 --mock（先构建）', () => {
+// 这一组要 Electron：脚本拿 require('electron') 给的那个可执行文件起引擎（发版冒烟验的就是随包的运行时），
+// 原生模块也得是照 Electron 的 ABI 编的。用纯 Node 跑单测时（docs/TESTING.md「Linux 与纯 Node」）两样都没有，整组跳过。
+const IN_ELECTRON = process.versions.electron !== undefined;
+
+describe.runIf(IN_ELECTRON)('smoke-release：整条 --mock（先构建）', () => {
   // out/ 是 main 与 minisd 的构建产物：脚本起的是 out/main/minisd.js，不先构建就测的是旧代码（或根本没有）。
   // 构建与 npm run build 相同（electron-vite build），只写 out/，没有别的测试读它。
   beforeAll(() => {

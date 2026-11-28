@@ -135,7 +135,7 @@ Python 3、Visual Studio 2022 / Build Tools 的「使用 C++ 的桌面开发」�
 ```bash
 cd deskminis && npm ci
 npm run dev              # 开发模式（自动起 minisd 与渲染进程）
-npm test                 # Windows 上应全绿；Linux 上 PowerShell、终端、桥这类 Windows 专属用例会失败
+npm test                 # 应全绿；Linux 上 PowerShell、终端、桥这类 Windows 专属用例会跳过
 npm run typecheck
 npm run dist             # 出安装包到 deskminis/dist/
 npm run verify:release   # 核对 dist/ 里要上传的四件（latest.yml、安装包、blockmap、便携版）与随包文件

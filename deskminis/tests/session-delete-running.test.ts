@@ -7,7 +7,7 @@
  * 完成钩子拿到的 err 恒为 undefined，失败的运行被记成 last_status='ok'。
  *
  * 权限卡用 web_fetch 触发（askOnce，放行前不出网）；不用 POSIX 绝对路径的 file_write——
- * paths.ts 在 Linux 上对它直接抛错，走不到权限网关（cross.md corrections）。
+ * 写这组用例时 paths.ts 在 Linux 上还不认它，直接抛错，走不到权限网关（cross.md corrections）。
  * 出网与否由本地计数服务器判定：它收到过请求，就说明删除之后工具还是跑了。
  *
  * W1b-4b（W1b-4 第三轮审查）：删除只能了结 / 中止被删的那个会话。单会话用例对「按会话过滤」写错毫无感知，

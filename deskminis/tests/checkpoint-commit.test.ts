@@ -16,6 +16,8 @@ import type { PermissionGateway } from '../src/minisd/tools/types';
 import { canSymlink, closeAllCpEnvs, cpEnv, holdOpen, junction, recIo, sha, type CpEnv } from './checkpoint-fixture';
 
 const WIN = process.platform === 'win32';
+/** root 不受文件权限位约束，只读文件照样写得进去：以 root 跑测试时（云端容器）靠权限位的用例跳过。 */
+const ROOT = process.getuid?.() === 0;
 const temps: string[] = [];
 afterEach(() => {
   closeAllCpEnvs();
@@ -400,7 +402,7 @@ describe('F08 C 组：写入事务', () => {
     noTemps(env.userDir);
   });
 
-  it('C14 只读文件：失败、文案含「只读」，文件不变，没有行', async () => {
+  it.skipIf(ROOT)('C14 只读文件：失败、文案含「只读」，文件不变，没有行', async () => {
     const env = cpEnv('c14'); const sid = env.newSession();
     const f = join(env.userDir, 'ro.txt');
     writeFileSync(f, 'read only');

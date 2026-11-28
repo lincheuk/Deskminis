@@ -75,6 +75,41 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
 
+  linux-node:
+    # docs/TESTING.md「Linux 与纯 Node」：引擎要能脱离 Electron 运行，这里不装 Electron，用 Node 直接跑同一组用例。
+    name: Linux, plain Node
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # 与 Electron 38.8.6 自带的 Node 同一个版本；升级 Electron 时一起改
+      NODE_VERSION: '22.22.0'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: deskminis/package-lock.json
+
+      - name: Install dependencies without Electron
+        # --ignore-scripts：不下载 Electron，也不跑 postinstall 里按 Electron ABI 重编 better-sqlite3 的那一步
+        run: npm ci --ignore-scripts
+
+      - name: Build better-sqlite3 for Node
+        run: npm rebuild better-sqlite3
+
+      - name: Test under plain Node (excluding load-sensitive files)
+        run: node scripts/ci-test.mjs stable --node --reporter=default --reporter=json --outputFile.json=../test-results/linux-node.json
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-report-linux-node
+          path: test-results/
+          if-no-files-found: ignore
+
   load-sensitive:
     # docs/TESTING.md「已知受高负载影响的用例」：单独、串行运行；不重试，失败只发警告并保留原日志，不阻塞合并。
     name: Load-sensitive tests (non-blocking)

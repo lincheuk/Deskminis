@@ -13,6 +13,8 @@ import { withClipboardLock } from './clipboard-lock';
 const CLI = fileURLToPath(new URL('../src/minisd/bridge-cli.mjs', import.meta.url));
 const SESSION = 'A1B2C3D4-E5F6-4789-ABCD-EF0123456789';
 const REAL_CLIPBOARD = process.env.DESKMINIS_TEST_CLIPBOARD === '1';
+/** 下面标了 HAS_PS 的用例要起真的 powershell.exe，非 Windows 上跳过。 */
+const HAS_PS = process.platform === 'win32';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
@@ -215,7 +217,7 @@ describe('真分发端到端（真 PowerShell）', () => {
     return { pipePath, close: () => server.close() };
   }
 
-  it('windows-device info：stub→管道→真 PowerShell 全链路', async () => {
+  it.runIf(HAS_PS)('windows-device info：stub→管道→真 PowerShell 全链路', async () => {
     const { pipePath, close } = await startRealServer();
     cleanups.push(close);
     const r = await runCli(['windows-device', 'info'], BRIDGE_ENV(pipePath));
