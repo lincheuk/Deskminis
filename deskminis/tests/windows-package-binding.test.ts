@@ -1,4 +1,4 @@
-import {it,expect} from 'vitest';import fs from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {pathToFileURL} from 'node:url';import {createRequire} from 'node:module';
+import {it,expect} from 'vitest';import fs from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve,sep} from 'node:path';import {pathToFileURL} from 'node:url';import {createRequire} from 'node:module';
 const asar=createRequire(join(__dirname,'../package.json'))('@electron/asar'),load=()=>import(pathToFileURL(join(__dirname,'../scripts/windows-package-binding.mjs')).href);
 it.each(['valid','code-tamper','bridge-tamper','missing-code','added-code','version-tamper'])('F12 verifies actual ASAR package bytes: %s',async scenario=>{
  const runtime=process as any,previousNoAsar=runtime.noAsar;runtime.noAsar=true;
@@ -16,5 +16,5 @@ it.each(['valid','code-tamper','bridge-tamper','missing-code','added-code','vers
   await asar.createPackage(staged,archive);const m=await load();
   if(['missing-code','added-code','version-tamper'].includes(scenario))expect(()=>m.verifyPackageBinding(app,resources)).toThrow(/differs/);
   else expect(m.verifyPackageBinding(app,resources).ok).toBe(scenario==='valid');
- }finally{try{const resolved=resolve(root);if(!resolved.startsWith(resolve(tmpdir())+'\\'))throw Error('Unsafe fixture cleanup');fs.rmSync(resolved,{recursive:true,force:true});}finally{runtime.noAsar=previousNoAsar;}}
+ }finally{try{const resolved=resolve(root);if(!resolved.startsWith(resolve(tmpdir())+sep))throw Error('Unsafe fixture cleanup');fs.rmSync(resolved,{recursive:true,force:true});}finally{runtime.noAsar=previousNoAsar;}}
 });

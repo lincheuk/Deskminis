@@ -8,7 +8,7 @@
  * F13：替身交回的原因两种情形都是 user-denied——「[已取消]」必须由「signal 已取消」得出，不能由网关自报；
  * 替身自报 cancelled 的话，文案表直接给出 [已取消]，这组用例就测不出「先看取消、再看拒绝」了（网关自报取消的一列在
  * permission-callers 的 C1 矩阵里）。
- * 路径用 /var/minis/skills 与数据根内的 minis.db（W1b-2 之后走卡），不用 POSIX 绝对路径（Linux 上走不到网关）。
+ * 路径用 /var/minis/skills 与数据根内的 minis.db（W1b-2 之后走卡），不用 POSIX 绝对路径（写这组用例时 Linux 上走不到网关）。
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, existsSync } from 'node:fs';

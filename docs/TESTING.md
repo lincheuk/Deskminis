@@ -1,6 +1,6 @@
 # 测试分档与环境要求
 
-从仓库的 `deskminis/` 目录运行。测试通过项目自己的 Electron Node 模式执行，原生模块必须与 Electron ABI 一致。
+从仓库的 `deskminis/` 目录运行。`npm test` 通过项目自己的 Electron Node 模式执行，原生模块必须与 Electron ABI 一致。另有一种不经过 Electron、用 Node 直接跑的方式，见「Linux 与纯 Node」。
 
 ## 默认档
 
@@ -54,13 +54,41 @@ Remove-Item Env:DESKMINIS_F09_FULL
 
 一次完整任务交付仍须全量两遍、类型检查和构建。记录各次结果，区分已存在的失败、新增失败与未验证项；单独复验通过不能覆盖原全量失败。
 
+## Linux 与纯 Node
+
+引擎（`src/minisd`）要能脱离 Electron 运行，所以同一套用例也用 Node 直接跑，Linux 上应当全绿：
+
+```bash
+npm ci --ignore-scripts        # 不下载 Electron，也不为它重建原生模块
+npm rebuild better-sqlite3     # 为当前的 Node 准备 better-sqlite3
+npm run test:node              # 全量；CI 用的是 node scripts/ci-test.mjs stable --node
+```
+
+Node 用与 Electron 自带的同一个大版本（现在是 22）。`node_modules` 里的 `better-sqlite3` 同一时刻只能对上一种 ABI：跑过 `npm rebuild better-sqlite3` 之后 `npm test` 会报 `NODE_MODULE_VERSION` 不匹配，要先 `npm run rebuild` 换回 Electron 的；反过来也一样。
+
+在 Linux 上（`npm test` 与 `npm run test:node` 都一样）下面几类用例会跳过，不算失败：
+
+| 跳过的用例 | 文件里的标记 | 原因 |
+|---|---|---|
+| 要起真的 `powershell.exe` 的（`shell`、`terminal`、`bridge-*`、`rpc` 里的几例） | `HAS_PS` | 命令执行与终端现在只有 PowerShell 这一种驱动 |
+| 喂 Windows 路径或依赖 NTFS 特性的（`diagnostics` 认桥运行时的两例、`windows-package-stage` 的 junction） | `WIN` 或 `process.platform` | 输入本身只在 Windows 上出现 |
+| 产品代码还没移植到别的平台的 | 注释 `POSIX 待移植` | 移植完成后去掉平台条件；`grep -rn "POSIX 待移植" tests` 列出全部 |
+
+另有两类与平台无关的跳过：
+
+- 要起 Electron 可执行文件的用例只在 `npm test` 下跑（按 `process.versions.electron` 判断），纯 Node 下不装 Electron：`smoke-release.test.ts` 的「整条 --mock」一组（冒烟脚本用它起引擎），`windows-package-composition.test.ts` 里看 ASAR 默认拦截的两例。
+- 以 root 身份跑时，`checkpoint-commit`、`checkpoint-restore` 里各有一例「只读文件」跳过（标记 `ROOT`）：root 不受权限位约束。
+
+新加平台条件时，只给确实属于 Windows 的用例加；因为产品代码还没移植才过不了的，加条件的同时写上 `POSIX 待移植` 和原因。不要为了变绿去跳过别的用例。
+
 ## 持续集成（GitHub Actions）
 
-`.github/workflows/ci.yml` 在 `windows-latest` 上运行，推送到 main、每个 PR 以及手动触发时执行。分组由 `deskminis/scripts/ci-test.mjs` 决定，本地可用同一脚本复现：
+`.github/workflows/ci.yml` 在推送到 main、每个 PR 以及手动触发时执行；下表前两个 job 在 `windows-latest` 上，最后一个在 `ubuntu-latest` 上。分组由 `deskminis/scripts/ci-test.mjs` 决定，本地可用同一脚本复现：
 
 | CI job | 内容 | 失败时 |
 |---|---|---|
 | Typecheck, build, test | `npm ci`、`npm run typecheck`、`npm run build`，以及 `node scripts/ci-test.mjs stable`（默认档减去「已知受高负载影响的用例」中的 8 个文件） | PR 检查显示失败，上传 vitest JSON 报告；拦不拦合并取决于 main 的分支保护有没有把它设为必需检查 |
 | Load-sensitive tests (non-blocking) | `node scripts/ci-test.mjs load-sensitive`：只跑这 8 个文件，逐个文件串行 | job 本身不判失败；发出警告并上传 JSON 报告，不重试 |
+| Linux, plain Node | 按「Linux 与纯 Node」安装依赖，再 `node scripts/ci-test.mjs stable --node`（同一组文件，不经过 Electron） | 同第一行 |
 
 「已知受高负载影响的用例」增删文件时，同步修改 `ci-test.mjs` 中的 `LOAD_SENSITIVE`。CI 不替代上面的完整交付要求：剪贴板档、完整进程档与发布验收仍须在 Windows 桌面会话中执行。负载敏感 job 的失败同样按上文约定保留日志并复验，不能因为它不阻塞就忽略。

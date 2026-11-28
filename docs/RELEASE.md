@@ -31,7 +31,7 @@
 ```powershell
 git clone https://github.com/lincheuk/Deskminis && cd Deskminis/deskminis
 npm ci            # postinstall 自动 electron-rebuild better-sqlite3
-npm test          # Windows 上应全绿（Linux 上有两百多例平台性失败是正常的，Windows 上它们也必须过）
+npm test          # 应全绿（Linux 上会跳过 Windows 专属的用例，见 TESTING.md「Linux 与纯 Node」；它们在 Windows 上必须过）
 npm run typecheck
 npm run dist      # 产物在 dist/：Setup.exe + Setup.exe.blockmap + portable.exe + latest.yml
 npm run verify:release   # 紧接着核对 dist/ 这四件与随包文件，全 PASS 才往下走（见第 2 节）
@@ -298,7 +298,7 @@ Remove-Item Env:ANTHROPIC_API_KEY, Env:DEEPSEEK_API_KEY   # 跑完清掉；这�
 - 依赖：`dependencies` / `devDependencies` 由 `tests/deps-frozen.test.ts` 整体快照钉住（锁根的同名字段一并核对）。
   改依赖先征得用户点头，再同步改快照，并在 commit 正文申报；随包的间接依赖跟着变时，
   照 `tests/license-consistency.test.ts` 的提示同步根 `THIRD-PARTY-NOTICES.md` 第 6 节（非 MIT 的包与没带许可文件的包逐个登记）。
-- README 不写死测试例数（`tests/readme-claims.test.ts` 会拦）；例数与 Linux 失败基线写在提交正文里。
+- README 不写死测试例数（`tests/readme-claims.test.ts` 会拦）；例数写在提交正文里。
 
 ## 7. 代码签名（有证书之后）
 

@@ -1,6 +1,8 @@
 /** Read-only guards for the temporary NSIS acceptance run. Never remove a pre-existing installation. */
 import {spawnSync} from 'node:child_process';
-import {resolve,isAbsolute,join} from 'node:path';
+import {win32} from 'node:path';
+// Registry locations are Windows paths whichever host runs this module (the unit tests also run on Linux).
+const {resolve,isAbsolute,join}=win32;
 export function readInstallations(guid,spawn=spawnSync){
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(guid))return {state:'unknown',reason:'invalid installer identity',entries:[]};
   const ps=process.env.SystemRoot+'/System32/WindowsPowerShell/v1.0/powershell.exe';

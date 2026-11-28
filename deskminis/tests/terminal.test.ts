@@ -5,6 +5,10 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+/** 下面标了 HAS_PS 的用例要起真的 powershell.exe，非 Windows 上跳过。
+ *  POSIX 待移植：终端有了 bash 驱动之后，这几例（回显、滚动缓冲、会话隔离、环境变量）要在别的平台上照跑。 */
+const HAS_PS = process.platform === 'win32';
+
 let stop: (() => Promise<void>) | undefined;
 afterEach(async () => { await stop?.(); stop = undefined; });
 
@@ -65,7 +69,7 @@ describe('terminal.* RPC（独立交互式终端 shell）', () => {
     c.close();
   }, 15000);
 
-  it('input 写入 echo 命令后，广播 terminal.output 含输出内容', async () => {
+  it.runIf(HAS_PS)('input 写入 echo 命令后，广播 terminal.output 含输出内容', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     const s = (await c.call('chat.sessions.create', {})).result;
@@ -81,7 +85,7 @@ describe('terminal.* RPC（独立交互式终端 shell）', () => {
     c.close();
   }, 20000);
 
-  it('同会话第二次 attach 返回的 scrollback 含第一次的输出（滚动缓冲持久）', async () => {
+  it.runIf(HAS_PS)('同会话第二次 attach 返回的 scrollback 含第一次的输出（滚动缓冲持久）', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     const s = (await c.call('chat.sessions.create', {})).result;
@@ -95,7 +99,7 @@ describe('terminal.* RPC（独立交互式终端 shell）', () => {
     c.close();
   }, 20000);
 
-  it('不同会话的终端输出互不泄漏（隔离）', async () => {
+  it.runIf(HAS_PS)('不同会话的终端输出互不泄漏（隔离）', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     const s1 = (await c.call('chat.sessions.create', {})).result;
@@ -112,7 +116,7 @@ describe('terminal.* RPC（独立交互式终端 shell）', () => {
     c.close();
   }, 20000);
 
-  it('chat.sessions.delete 同时销毁终端：再 attach 后 scrollback 是新的输出（无旧内容遗留）', async () => {
+  it.runIf(HAS_PS)('chat.sessions.delete 同时销毁终端：再 attach 后 scrollback 是新的输出（无旧内容遗留）', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     const s = (await c.call('chat.sessions.create', {})).result;
@@ -135,7 +139,7 @@ describe('terminal.* RPC（独立交互式终端 shell）', () => {
     c.close();
   }, 20000);
 
-  it('终端 MINIS_CHAT_SESSION_ID 环境变量注入同当前会话（#8 过时假设修正）', async () => {
+  it.runIf(HAS_PS)('终端 MINIS_CHAT_SESSION_ID 环境变量注入同当前会话（#8 过时假设修正）', async () => {
     const { port, authToken } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     const s = (await c.call('chat.sessions.create', {})).result;

@@ -12,6 +12,12 @@ import { createOutboundFetch, isDirectUrl } from '../src/minisd/net/outbound-fet
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
+/** 装成 Electron 的 utilityProcess。用纯 Node 跑测试时 process.versions.electron 不存在，这里一并补上，
+ *  被测代码看的就是这两样（outbound-fetch.ts）；Electron 本体已在上面换成假的。 */
+function stubUtilityProcess(): void {
+  vi.stubGlobal('process', { ...process, type: 'utility', versions: { ...process.versions, electron: process.versions.electron ?? '0.0.0' } });
+}
+
 describe('N22 出口选择', () => {
   it('非 utilityProcess 保留全局 fetch，原样传入对象、信号与返回值', async () => {
     vi.stubGlobal('process', { ...process, type: undefined });
@@ -26,7 +32,7 @@ describe('N22 出口选择', () => {
   });
 
   it('utilityProcess 对外走 Electron net.fetch，原样传参且不构造环境变量出口', async () => {
-    vi.stubGlobal('process', { ...process, type: 'utility' });
+    stubUtilityProcess();
     const direct = vi.fn(); vi.stubGlobal('fetch', direct);
     const fallback = vi.fn();
     const response = new Response('proxied', { status: 403 });
@@ -39,7 +45,7 @@ describe('N22 出口选择', () => {
   });
 
   it('utilityProcess 外部 URL 对象转成 Electron 支持的字符串', async () => {
-    vi.stubGlobal('process', { ...process, type: 'utility' });
+    stubUtilityProcess();
     const response = new Response('URL'); electron.fetch.mockResolvedValue(response);
     const url = new URL('https://outside.example/url');
     expect(await createOutboundFetch()(url)).toBe(response);
@@ -47,7 +53,7 @@ describe('N22 出口选择', () => {
   });
 
   it('utilityProcess 私有 URL 走直连，跳过 Electron 和环境变量出口', async () => {
-    vi.stubGlobal('process', { ...process, type: 'utility' });
+    stubUtilityProcess();
     const response = new Response('LAN'), direct = vi.fn().mockResolvedValue(response), fallback = vi.fn();
     vi.stubGlobal('fetch', direct);
     const url = new URL('http://192.168.10.3:8080/v1');

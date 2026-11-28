@@ -6,6 +6,9 @@ import { existsSync, mkdtempSync, readFileSync, mkdirSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+/** 标了 HAS_PS 的用例要起真的 powershell.exe（经桥管道读剪贴板），非 Windows 上跳过。 */
+const HAS_PS = process.platform === 'win32';
+
 let stop: (() => Promise<void>) | undefined;
 afterEach(async () => { await stop?.(); stop = undefined; });
 
@@ -323,7 +326,7 @@ describe('minisd JSON-RPC', () => {
     c.close();
   });
 
-  it('permission.respond allow-session 且带 bridgeTriggers：之后同桥 kind 管道请求不再广播 permission.request（合并授权端到端）', async () => {
+  it.runIf(HAS_PS)('permission.respond allow-session 且带 bridgeTriggers：之后同桥 kind 管道请求不再广播 permission.request（合并授权端到端）', async () => {
     const { port, authToken, bridgePipe } = await boot();
     const c = rpcClient(port, authToken); await c.ready;
     const s = (await c.call('chat.sessions.create', {})).result;

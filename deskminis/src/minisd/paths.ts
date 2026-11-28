@@ -1,4 +1,4 @@
-import { dirname, join, resolve, isAbsolute } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 
 /** 导出给 tools/data-gate.ts 复用：数据根收窄按桶名与全局目录名判定，两边各写一份常量迟早漂移。 */
@@ -86,6 +86,11 @@ export function sessionBucketDir(dataRootPath: string, agentRootPath: string, se
   return !existsSync(fresh) && existsSync(legacy) ? legacy : fresh;
 }
 
+/** 宿主绝对路径长什么样：Windows 上是盘符路径；POSIX 上是以 / 开头、又不在 /var/minis 这个 guest 命名空间里的路径。
+ *  这类路径 resolveGuestPath 原样放行（越界与否由数据闸和权限卡把关，见 tools/files.ts 的 guardRead / guardWrite）。
+ *  按运行的宿主定，不按字样猜：POSIX 上的 `C:\x` 只是个带冒号和反斜杠的相对文件名，Windows 上没有盘符的 `/x` 照旧拒绝。 */
+const HOST_ABSOLUTE = sep === '\\' ? /^[A-Za-z]:[\\/]/ : /^\/(?!var\/minis(?:\/|$))/;
+
 export class MinisPaths {
   /** root：数据根（DeskMinis 自己的数据：会话库、配置、技能、记忆、MCP 配置）。
    *  agentRoot（执行隔离第 2 步）：agent 能看到的目录的根，缺省与数据根相同（第 2 步之前的布局）。 */
@@ -128,7 +133,7 @@ export class MinisPaths {
 
   /** guest 路径(/var/minis/*或相对)→宿主绝对路径；绝对宿主路径放行；禁止穿越。 */
   resolveGuestPath(sessionId: string, guestPath: string): string {
-    if (/^[A-Za-z]:[\\/]/.test(guestPath)) return resolve(guestPath); // 绝对 Windows 路径(归一化)
+    if (HOST_ABSOLUTE.test(guestPath)) return resolve(guestPath); // 宿主绝对路径(归一化)
     let base: string; let rest: string;
     const m = guestPath.match(/^\/var\/minis\/([^/]+)(?:\/(.*))?$/);
     if (m) {

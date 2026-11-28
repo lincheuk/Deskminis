@@ -7,7 +7,7 @@
  *
  *  故障用旁路连接的触发器注入（同 tests/shutdown-partial-reply.test.ts 的 (f)）：只让 permission.resolved 的插入失败。
  *  权限卡用 file_write 写 /var/minis/skills/x/SKILL.md 触发（W1b-2 之后技能目录走卡）；
- *  不用 POSIX 绝对路径——paths.ts 在 Linux 上对它直接抛错，走不到网关（设计稿 §1 第 7 条）。
+ *  不用 POSIX 绝对路径——写这组用例时 paths.ts 在 Linux 上还不认它，直接抛错，走不到网关（设计稿 §1 第 7 条）。
  *  另钉一条：进程内起的 minisd 不在 process 上挂崩溃监听（钩子只装在 standalone 分支，装进测试 worker 会吞掉测试框架自己的异常）。 */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import Database from 'better-sqlite3';

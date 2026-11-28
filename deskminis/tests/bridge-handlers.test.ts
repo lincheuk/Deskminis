@@ -12,6 +12,8 @@ import { withClipboardLock } from './clipboard-lock';
 
 const SESSION = 'A1B2C3D4-E5F6-4789-ABCD-EF0123456789';
 const REAL_CLIPBOARD = process.env.DESKMINIS_TEST_CLIPBOARD === '1';
+/** 下面标了 HAS_PS 的用例要起真的 powershell.exe，非 Windows 上跳过。 */
+const HAS_PS = process.platform === 'win32';
 
 function allowGateway(captured: PermissionRequest[]): PermissionGateway {
   return { async check(r) { captured.push(r); return 'allow'; }, hasBridgeGrant: () => false };
@@ -248,7 +250,7 @@ describe('六个 handler', () => {
   });
 });
 
-describe('runPowerShell（真实 powershell.exe）', () => {
+describe.runIf(HAS_PS)('runPowerShell（真实 powershell.exe）', () => {
   it('stdin 透传：脚本 ReadToEnd 原样读回（含中文）', async () => {
     // [Console]::Out.Write 显式无换行：PowerShell 表达式结果自动追加换行会破坏信封。
     const r = await runPowerShell('[Console]::Out.Write([Console]::In.ReadToEnd())', '你好，桥');
@@ -267,7 +269,7 @@ describe('runPowerShell（真实 powershell.exe）', () => {
   }, 20000);
 });
 
-describe('真实 PowerShell 集成（allow-all 网关）', () => {
+describe.runIf(HAS_PS)('真实 PowerShell 集成（allow-all 网关）', () => {
   const realDeps = (): BridgeDeps => {
     const root = mkdtempSync(join(tmpdir(), 'dm-br-real-'));
     const paths = new MinisPaths(root);

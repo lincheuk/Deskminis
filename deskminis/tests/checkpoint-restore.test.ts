@@ -12,6 +12,8 @@ import { planRunRestore, splitNotSent, summarizeReport } from '../src/renderer/s
 import { closeAllCpEnvs, cpEnv, holdOpen, junction, sha, type CpEnv } from './checkpoint-fixture';
 
 const WIN = process.platform === 'win32';
+/** root 不受文件权限位约束，只读文件照样写得进去：以 root 跑测试时（云端容器）靠权限位的用例跳过。 */
+const ROOT = process.getuid?.() === 0;
 
 // 子进程调用计数（R23）：node:child_process 的命名空间在 ESM 下不能 spy，整体换成「计数后转给原实现」的包装。
 // 被测模块与夹具（holdOpen）拿到的都是这一份，行为不变。
@@ -185,7 +187,7 @@ describe('F08 R 组：冲突安全的恢复', () => {
     expect(readdirSync(dir)).toEqual(['file.txt']);
   });
 
-  it('R9 只读：写入后设只读再恢复、新建后设只读再恢复——冲突 / read-only，文件还在、内容不变', async () => {
+  it.skipIf(ROOT)('R9 只读：写入后设只读再恢复、新建后设只读再恢复——冲突 / read-only，文件还在、内容不变', async () => {
     const env = cpEnv('r9'); const sid = env.newSession();
     const m = await modified(env, sid, 'a.txt');
     const c = await created(env, sid, 'c.txt');
